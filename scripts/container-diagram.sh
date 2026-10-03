@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Render the architecture diagram (docs/architecture/*.reladraw -> .svg) inside
+# Render the architecture diagram (docs/assets/architecture/*.reladraw -> .svg) inside
 # the `sandbox` incus container. See scripts/sandbox.sh.
 #
 # reladraw comes from npm via bunx: a package we did not write, fetched and
-# run. So it runs in the sandbox with only docs/architecture mounted, never on
+# run. So it runs in the sandbox with only docs/assets/architecture mounted, never on
 # the host and never next to a dev container's frontend checkout.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,7 +12,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 GUEST_DIAGRAM=/home/dev/work/architecture
 
-LASSO_DIAGRAM="$(cd "$HERE/../docs/architecture" && pwd -P)"
+LASSO_DIAGRAM="$(cd "$HERE/../docs/assets/architecture" && pwd -P)"
 export LASSO_DIAGRAM
 sandbox_ensure
 

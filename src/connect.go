@@ -1392,7 +1392,7 @@ func cliConnect(args []string) {
 		fmt.Printf("\nlasso-browser was not registered: %s\n", browserWhy)
 		fmt.Println("On lasso's machine, install Chrome or Chromium and chrome-devtools-mcp")
 		fmt.Println("(npm i -g chrome-devtools-mcp), then run lasso connect again.")
-		fmt.Println("README → Shared browser has the details.")
+		fmt.Println("docs/mcp/browser-mcp.md has the details.")
 	}
 	if failed {
 		os.Exit(1)
