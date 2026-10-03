@@ -28,7 +28,7 @@ import (
 
 // Plugins — third-party additions to lasso: sidebar tabs (a plugin's own web
 // UI) and MCP tools mirrored onto lasso's /mcp. A plugin is a directory under
-// <lassoDir()>/plugins/<name>/ holding plugin.json; docs/plugins.md is the
+// <lassoDir()>/plugins/<name>/ holding plugin.json; docs/plugins/authoring.md is the
 // authoring guide, and this file is the part that decides what a plugin may do.
 //
 // The trust model is the whole design. A manifest is SELF-ASSERTED — whoever

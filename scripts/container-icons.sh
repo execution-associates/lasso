@@ -13,7 +13,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/container.sh
 . "$HERE/container.sh"
 
-LASSO_ICON="$(cd "$HERE/../docs/icon" && pwd -P)"
+LASSO_ICON="$(cd "$HERE/../brand/icon" && pwd -P)"
 export LASSO_ICON
 container_with icon.yaml
 container_ensure
