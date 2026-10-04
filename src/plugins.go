@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -42,10 +43,11 @@ import (
 //     human approves the new set. Cosmetic fields (version, description, a
 //     tab's label or icon) are deliberately outside the fingerprint: making a
 //     human re-approve a typo fix trains them to click through approvals.
-//   - Its MCP server runs in a microsandbox microVM (pluginsandbox.go) unless
-//     the operator marks it TRUSTED — a flag that lives in the db next to the
-//     approval, never in the manifest, because "run me on the host" is exactly
-//     the request a malicious plugin would make.
+//   - Its MCP server runs in an isb sandbox (pluginsandbox.go) — a container,
+//     or a VM when the operator asks — unless the operator marks it TRUSTED.
+//     Both flags live in the db next to the approval, never in the manifest,
+//     because "run me on the host" is exactly the request a malicious plugin
+//     would make.
 //   - Its tabs are served from /plugins/<name>/ under a CSP sandbox, which
 //     makes the document an opaque origin even when it is opened top-level.
 //     Without that, plugin JavaScript would be same-origin with lasso and could
@@ -74,8 +76,9 @@ var (
 	// name that does not fit is skipped: a tool no client can call is worse
 	// than one that is not listed.
 	mcpToolNameRE = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
-	// pluginHostRE is a DNS name (optionally a *. suffix wildcard, which msb's
-	// rule grammar understands) or an IPv4 address.
+	// pluginHostRE is a DNS name, optionally a *. suffix wildcard. isb's
+	// egress proxy allows names only, so checkPluginHost also refuses an IP
+	// literal and a wildcard over a single label (*.com).
 	pluginHostRE = regexp.MustCompile(`^(\*\.)?[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$`)
 )
 
@@ -122,7 +125,10 @@ type pluginTabSpec struct {
 }
 
 type pluginMCPSpec struct {
-	Image   string             `json:"image"`
+	Image string `json:"image"`
+	// VMImage is the VM image to boot when the operator runs this plugin in a
+	// VM (an OCI image cannot boot as one). "" = lasso's default.
+	VMImage string             `json:"vm_image"`
 	Command []string           `json:"command"`
 	Network []string           `json:"network"`
 	Env     map[string]string  `json:"env"`
@@ -152,10 +158,25 @@ func parsePluginNet(s string) (pluginNetEntry, error) {
 		}
 		host, port = h, n
 	}
-	if !pluginHostRE.MatchString(host) {
-		return pluginNetEntry{}, fmt.Errorf("network entry %q: %q is not a host name", s, host)
+	if err := checkPluginHost(host); err != nil {
+		return pluginNetEntry{}, fmt.Errorf("network entry %q: %v", s, err)
 	}
 	return pluginNetEntry{Host: strings.ToLower(host), Port: port}, nil
+}
+
+// checkPluginHost is the rule for every host a manifest names (network
+// entries and secrets' hosts): what isb's egress allowlist accepts.
+func checkPluginHost(host string) error {
+	if net.ParseIP(strings.Trim(host, "[]")) != nil {
+		return fmt.Errorf("%q is an IP address; the sandbox's egress allows host names only", host)
+	}
+	if !pluginHostRE.MatchString(host) {
+		return fmt.Errorf("%q is not a host name", host)
+	}
+	if rest, ok := strings.CutPrefix(host, "*."); ok && !strings.Contains(rest, ".") {
+		return fmt.Errorf("%q is a wildcard over a single label; name at least two (*.example.com)", host)
+	}
+	return nil
 }
 
 // loadPluginManifest reads and validates <dir>/plugin.json. dirName is the
@@ -252,6 +273,9 @@ func (m *pluginManifest) validate(dirName string) error {
 	if strings.ContainsAny(c.Image, " \t\n") || strings.HasPrefix(c.Image, "-") {
 		return fmt.Errorf("mcp.image %q is not an image reference", c.Image)
 	}
+	if c.VMImage != "" && (strings.ContainsAny(c.VMImage, " \t\n") || strings.HasPrefix(c.VMImage, "-")) {
+		return fmt.Errorf("mcp.vm_image %q is not an image reference", c.VMImage)
+	}
 	if len(c.Command) == 0 || strings.TrimSpace(c.Command[0]) == "" {
 		return errors.New("mcp.command is required (the stdio MCP server's argv)")
 	}
@@ -270,10 +294,11 @@ func (m *pluginManifest) validate(dirName string) error {
 		if !pluginEnvKeRE.MatchString(s.Name) {
 			return fmt.Errorf("mcp.secrets[%d]: %q is not an environment variable name", i, s.Name)
 		}
-		if secretSeen[s.Name] {
+		// Case-insensitively: a secret's isb store name is its name lowercased.
+		if secretSeen[strings.ToLower(s.Name)] {
 			return fmt.Errorf("mcp.secrets[%d]: duplicate secret %q", i, s.Name)
 		}
-		secretSeen[s.Name] = true
+		secretSeen[strings.ToLower(s.Name)] = true
 		if _, clash := c.Env[s.Name]; clash {
 			return fmt.Errorf("mcp.secrets[%d]: %q is also in mcp.env", i, s.Name)
 		}
@@ -283,8 +308,8 @@ func (m *pluginManifest) validate(dirName string) error {
 			return fmt.Errorf("mcp.secrets[%d] (%s): hosts is required (where the secret may be sent)", i, s.Name)
 		}
 		for _, h := range s.Hosts {
-			if !pluginHostRE.MatchString(h) {
-				return fmt.Errorf("mcp.secrets[%d] (%s): %q is not a host name", i, s.Name, h)
+			if err := checkPluginHost(h); err != nil {
+				return fmt.Errorf("mcp.secrets[%d] (%s): %v", i, s.Name, err)
 			}
 		}
 	}
@@ -343,7 +368,10 @@ type pluginTabPerm struct {
 }
 
 type pluginMCPPerms struct {
-	Image   string             `json:"image"`
+	Image string `json:"image"`
+	// VMImage is omitempty so a plugin without one keeps the fingerprint it
+	// was approved under.
+	VMImage string             `json:"vm_image,omitempty"`
 	Command []string           `json:"command"`
 	Network []string           `json:"network"`
 	EnvKeys []string           `json:"env_keys"`
@@ -364,6 +392,7 @@ func (m *pluginManifest) perms() pluginPerms {
 	if c := m.MCP; c != nil {
 		mp := &pluginMCPPerms{
 			Image:   c.Image,
+			VMImage: c.VMImage,
 			Command: append([]string{}, c.Command...),
 			Network: []string{},
 			EnvKeys: []string{},
@@ -465,11 +494,14 @@ func (m *pluginManifest) fingerprint() string {
 
 // pluginGrant is what the operator decided about one plugin. Approved is the
 // fingerprint they approved ("" = disabled); Trusted lets its MCP server run on
-// the host instead of in a microVM. Both live in lasso's settings table, which a
-// plugin cannot write: its sandbox mounts only its own directory, read-only.
+// the host instead of in a sandbox; VM puts the sandbox in a VM (its own
+// kernel) instead of a container. Trusted wins over VM. All live in lasso's
+// settings table, which a plugin cannot write: its sandbox mounts only its own
+// directory read-only, and its data directory.
 type pluginGrant struct {
 	Approved string `json:"approved,omitempty"`
 	Trusted  bool   `json:"trusted,omitempty"`
+	VM       bool   `json:"vm,omitempty"`
 }
 
 const pluginGrantsKey = "plugins"
@@ -587,10 +619,10 @@ func scanPlugins(dir string) map[string]*pluginEntry {
 type pluginManager struct {
 	dir    string
 	server func() *mcp.Server // lasso's shared /mcp server, where tools are mirrored
-	// runner picks how a plugin's MCP server runs: in a microVM, or (trusted)
-	// on the host. A seam only in the sense that tests read it; production
-	// never replaces it.
-	runner func(trusted bool) pluginRunner
+	// runner picks how a plugin's MCP server runs for an isolation level
+	// (pluginIsolation): an isb container or VM, or (trusted) the host. A
+	// seam for tests; production never replaces it.
+	runner func(isolation string) pluginRunner
 	// onChange is called after every state change, so every tab refetches
 	// /api/plugins (main wires it to hub.bumpPluginsRev).
 	onChange func()
@@ -658,6 +690,9 @@ func (m *pluginManager) run(ctx context.Context) {
 	// A staging directory left by a previous process belongs to no preview
 	// anyone can confirm any more.
 	m.sweepStaging(true)
+	// A lasso before 5.0 ran plugin servers in microsandbox microVMs; any it
+	// left running would otherwise run forever.
+	go sweepLegacyMSBSandboxes()
 	m.rescan()
 	t := time.NewTicker(pluginRescanEvery)
 	defer t.Stop()
@@ -703,9 +738,9 @@ func (m *pluginManager) noteIfChanged() bool {
 
 // reconcile starts a server for every enabled plugin with an mcp section and
 // stops every server that should no longer run — disabled, unapproved, gone,
-// or running under a fingerprint or trust setting that has since changed (a
-// trust flip is a restart: the same server cannot move from a microVM to the
-// host in place).
+// or running under a fingerprint or isolation that has since changed (a trust
+// or VM flip is a restart: the same server cannot move between the host, a
+// container and a VM in place).
 func (m *pluginManager) reconcile() {
 	m.reconcileMu.Lock()
 	defer m.reconcileMu.Unlock()
@@ -721,13 +756,14 @@ func (m *pluginManager) reconcile() {
 			continue
 		}
 		want[name] = true
+		iso := pluginIsolation(g)
 		if s := m.servers[name]; s != nil {
-			if s.fp == e.FP && s.trusted == g.Trusted {
+			if s.fp == e.FP && s.isolation == iso {
 				continue
 			}
 			stop = append(stop, s)
 		}
-		s := newPluginServer(e, g.Trusted, m.server, m.runner(g.Trusted), m.changed)
+		s := newPluginServer(e, iso, m.server, m.runner(iso), m.changed)
 		s.dataDir = m.dataDir(name)
 		s.ring = m.logRingLocked(name)
 		m.servers[name] = s
@@ -742,8 +778,8 @@ func (m *pluginManager) reconcile() {
 	ctx := m.ctx
 	m.mu.Unlock()
 
-	// Outside the lock: stopping a sandboxed server waits on msb, which can
-	// take seconds, and the listing must stay answerable meanwhile.
+	// Outside the lock: stopping a sandboxed server waits on isb removing the
+	// sandbox, which takes seconds, and the listing must stay answerable.
 	for _, s := range stop {
 		s.stop()
 	}
@@ -753,8 +789,8 @@ func (m *pluginManager) reconcile() {
 }
 
 // restart stops and starts one plugin's server — also how an `unavailable`
-// server (no msb, a secret that would not resolve) is retried after the
-// operator fixed the cause.
+// server (no usable isb, isb serve down, a secret that would not resolve) is
+// retried after the operator fixed the cause.
 func (m *pluginManager) restart(name string) error {
 	m.mu.Lock()
 	s := m.servers[name]
@@ -775,7 +811,7 @@ func (m *pluginManager) restart(name string) error {
 }
 
 // stopAll stops every server and waits for them. Called on shutdown, so lasso
-// never exits ahead of a child (or leaves a microVM running).
+// never exits ahead of a child (or leaves a sandbox running).
 func (m *pluginManager) stopAll() {
 	if m == nil {
 		return
@@ -862,8 +898,27 @@ func (m *pluginManager) setTrusted(name string, trusted bool) error {
 	if trusted {
 		log.Printf("plugins:  %s marked TRUSTED — its MCP server runs on the host, outside the sandbox", name)
 	} else {
-		log.Printf("plugins:  %s no longer trusted — its MCP server runs in a microVM", name)
+		log.Printf("plugins:  %s no longer trusted — its MCP server runs in an isb sandbox", name)
 	}
+	m.reconcile()
+	m.noteIfChanged()
+	return nil
+}
+
+// setVM is the operator's isolation choice for a sandboxed plugin: a VM (its
+// own kernel; slower start) or a container. A flip restarts the server; it is
+// stored even while the plugin is trusted (trusted wins until untrusted).
+func (m *pluginManager) setVM(name string, vm bool) error {
+	if m.entry(name) == nil {
+		m.rescan()
+		if m.entry(name) == nil {
+			return errPluginNotFound
+		}
+	}
+	if err := updatePluginGrant(name, func(g *pluginGrant) { g.VM = vm }); err != nil {
+		return err
+	}
+	log.Printf("plugins:  %s isolation set to %s", name, map[bool]string{true: "a VM", false: "a container"}[vm])
 	m.reconcile()
 	m.noteIfChanged()
 	return nil
@@ -880,24 +935,22 @@ var (
 
 type pluginsPayload struct {
 	Dir     string          `json:"dir"`
-	MSB     msbStatus       `json:"msb"`
+	Sandbox sandboxStatus   `json:"sandbox"`
 	Plugins []pluginPayload `json:"plugins"`
 }
 
-type msbStatus struct {
-	Available bool   `json:"available"`
-	Path      string `json:"path,omitempty"`
-	Reason    string `json:"reason,omitempty"`
-}
-
 type pluginPayload struct {
-	Name        string            `json:"name"`
-	Version     string            `json:"version"`
-	Description string            `json:"description"`
-	Dir         string            `json:"dir"`
-	State       string            `json:"state"`
-	Error       string            `json:"error,omitempty"`
-	Trusted     bool              `json:"trusted"`
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Description string `json:"description"`
+	Dir         string `json:"dir"`
+	State       string `json:"state"`
+	Error       string `json:"error,omitempty"`
+	Trusted     bool   `json:"trusted"`
+	// VM is the operator's isolation choice; Isolation is the effect (host
+	// when trusted, else container or vm).
+	VM          bool              `json:"vm"`
+	Isolation   string            `json:"isolation"`
 	Fingerprint string            `json:"fingerprint,omitempty"`
 	Permissions pluginPerms       `json:"permissions"`
 	Tabs        []pluginTabOut    `json:"tabs"`
@@ -969,7 +1022,7 @@ func (m *pluginManager) listing() pluginsPayload {
 	}
 	m.mu.Unlock()
 
-	out := pluginsPayload{Dir: m.dir, MSB: currentMSBStatus(), Plugins: []pluginPayload{}}
+	out := pluginsPayload{Dir: m.dir, Sandbox: currentSandboxStatus(), Plugins: []pluginPayload{}}
 	for _, e := range entries {
 		g := grants[e.Name]
 		p := pluginPayload{
@@ -978,6 +1031,8 @@ func (m *pluginManager) listing() pluginsPayload {
 			State:       e.state(g),
 			Error:       e.Err,
 			Trusted:     g.Trusted,
+			VM:          g.VM,
+			Isolation:   pluginIsolation(g),
 			Fingerprint: e.FP,
 			Permissions: emptyPluginPerms(),
 			Tabs:        []pluginTabOut{},
@@ -1006,7 +1061,7 @@ func (m *pluginManager) listing() pluginsPayload {
 				mp := &pluginMCPPayload{Status: pluginMCPStopped, Tools: []string{}, Sandboxed: !g.Trusted}
 				if s := servers[e.Name]; s != nil && p.State == pluginStateEnabled {
 					st := s.snapshot()
-					mp.Status, mp.Detail, mp.Tools, mp.Sandboxed = st.Status, st.Detail, st.Tools, !s.trusted
+					mp.Status, mp.Detail, mp.Tools, mp.Sandboxed = st.Status, st.Detail, st.Tools, s.isolation != pluginIsolationHost
 				}
 				p.MCP = mp
 			}
@@ -1075,6 +1130,15 @@ func (m *pluginManager) serveAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		err = m.setTrusted(name, *in.Trusted)
+	case "isolation":
+		var in struct {
+			VM *bool `json:"vm"`
+		}
+		if json.Unmarshal(body, &in) != nil || in.VM == nil {
+			http.Error(w, `body must be {"vm": true|false}`, http.StatusBadRequest)
+			return
+		}
+		err = m.setVM(name, *in.VM)
 	case "restart":
 		err = m.restart(name)
 	case "call":

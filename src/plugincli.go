@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -19,7 +18,7 @@ import (
 //
 // Unlike `lasso mcp-client`, which writes the db directly, this talks to the
 // RUNNING server's /api/plugins: enabling a plugin is not just a row, it is a
-// child to start (or a microVM to boot) and tools to mirror onto /mcp, and only
+// child to start (or a sandbox to create) and tools to mirror onto /mcp, and only
 // the server process can do that. So these commands need a running lasso,
 // found the way notify and mcp find it (LASSO_URL, else LASSO_LISTEN, else the
 // default loopback bind), and send UI_AUTH's basic credentials when set — the
@@ -33,7 +32,9 @@ usage:
   lasso plugin enable <name>        approve the plugin's current permissions and load it
   lasso plugin disable <name>       unload it and withdraw the approval
   lasso plugin trust <name>         run its MCP server on the HOST, outside the sandbox
-  lasso plugin untrust <name>       back into a microsandbox microVM (the default)
+  lasso plugin untrust <name>       back into its isb sandbox (the default)
+  lasso plugin vm <name> on|off     run its sandbox as a VM (own kernel; slower
+                                    start) or a container (the default)
   lasso plugin restart <name>       restart its MCP server
   lasso plugin reload               rescan the plugins directory
 
@@ -117,6 +118,16 @@ func cliPlugin(args []string) {
 		var out pluginsPayload
 		pluginAPI(http.MethodPost, "/api/plugins/"+name+"/trust", map[string]bool{"trusted": sub == "trust"}, &out)
 		reportPlugin(out, name)
+	case "vm":
+		if len(rest) != 2 || !pluginNameRE.MatchString(rest[0]) || (rest[1] != "on" && rest[1] != "off") {
+			fmt.Fprintf(os.Stderr, "lasso plugin vm: expected <name> on|off\n\n")
+			printPluginUsage(os.Stderr)
+			os.Exit(2)
+		}
+		name := rest[0]
+		var out pluginsPayload
+		pluginAPI(http.MethodPost, "/api/plugins/"+name+"/isolation", map[string]bool{"vm": rest[1] == "on"}, &out)
+		reportPlugin(out, name)
 	case "restart":
 		name := needName()
 		var out pluginsPayload
@@ -181,7 +192,7 @@ func pluginAPI(method, path string, body any, out any) {
 		req.SetBasicAuth(user, pass)
 	}
 	// A restart or enable of a sandboxed plugin waits for the previous
-	// microVM to be stopped and removed; that is seconds, not minutes.
+	// sandbox to be removed; that is seconds, not minutes.
 	resp, err := (&http.Client{Timeout: 2 * time.Minute}).Do(req)
 	if err != nil {
 		fatal("plugin: reach lasso at %s: %v (is the server running? set LASSO_URL or LASSO_LISTEN)", base, err)
@@ -214,8 +225,11 @@ func reportPlugin(l pluginsPayload, name string) {
 		return
 	}
 	line := fmt.Sprintf("%s: %s", name, p.State)
+	if p.Isolation != "" {
+		line += ", " + p.Isolation
+	}
 	if p.Trusted {
-		line += ", trusted"
+		line += " (trusted)"
 	}
 	if p.MCP != nil {
 		line += ", mcp " + p.MCP.Status
@@ -228,10 +242,10 @@ func reportPlugin(l pluginsPayload, name string) {
 
 func printPluginList(w io.Writer, l pluginsPayload) {
 	fmt.Fprintf(w, "plugins directory: %s\n", l.Dir)
-	if l.MSB.Available {
-		fmt.Fprintf(w, "microsandbox:      %s\n", l.MSB.Path)
+	if l.Sandbox.Available {
+		fmt.Fprintf(w, "sandbox:           isb %s at %s\n", l.Sandbox.Version, l.Sandbox.Path)
 	} else {
-		fmt.Fprintf(w, "microsandbox:      unavailable — %s\n", l.MSB.Reason)
+		fmt.Fprintf(w, "sandbox:           unavailable — %s\n", l.Sandbox.Reason)
 	}
 	if len(l.Plugins) == 0 {
 		fmt.Fprintln(w, "\nno plugins installed")
@@ -239,7 +253,7 @@ func printPluginList(w io.Writer, l pluginsPayload) {
 	}
 	fmt.Fprintln(w)
 	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tVERSION\tSTATE\tTRUSTED\tMCP\tSOURCE\tTOOLS")
+	fmt.Fprintln(tw, "NAME\tVERSION\tSTATE\tISOLATION\tMCP\tSOURCE\tTOOLS")
 	for _, p := range l.Plugins {
 		mcpStatus, tools := "-", "-"
 		if p.MCP != nil {
@@ -248,11 +262,14 @@ func printPluginList(w io.Writer, l pluginsPayload) {
 				tools = strings.Join(p.MCP.Tools, ",")
 			}
 		}
-		trusted := "no"
-		if p.Trusted {
-			trusted = "YES"
+		iso := "-"
+		if p.MCP != nil {
+			iso = p.Isolation
+			if p.Trusted {
+				iso = "HOST (trusted)"
+			}
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", p.Name, p.Version, p.State, trusted, mcpStatus, pluginSourceLabel(p.Source), tools)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", p.Name, p.Version, p.State, iso, mcpStatus, pluginSourceLabel(p.Source), tools)
 	}
 	_ = tw.Flush()
 	for _, p := range l.Plugins {
@@ -290,6 +307,9 @@ func printPluginPerms(w io.Writer, p pluginPerms) {
 		return
 	}
 	fmt.Fprintf(w, "  mcp image     %s\n", p.MCP.Image)
+	if p.MCP.VMImage != "" {
+		fmt.Fprintf(w, "  mcp vm image  %s\n", p.MCP.VMImage)
+	}
 	fmt.Fprintf(w, "  mcp command   %s\n", strings.Join(p.MCP.Command, " "))
 	if len(p.MCP.Network) == 0 {
 		fmt.Fprintf(w, "  mcp network   none (no egress)\n")
@@ -526,20 +546,6 @@ func cliPluginLog(args []string) {
 	follow := fl.bools["f"] || fl.bools["follow"]
 	var out pluginLogPayload
 	pluginAPI(http.MethodGet, "/api/plugins/"+name+"/log?lines="+strconv.Itoa(n), nil, &out)
-	if follow && out.Sandboxed {
-		// A microVM's log is msb's; follow it there directly (stdin nil — an
-		// inherited stdin hangs msb).
-		msb, reason, ok := resolveMSB()
-		if !ok {
-			fatal("plugin: %s", reason)
-		}
-		cmd := exec.Command(msb, "logs", "-f", "--tail", strconv.Itoa(n), pluginSandboxName(name))
-		cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, os.Stdout, os.Stderr
-		if err := cmd.Run(); err != nil {
-			fatal("plugin: msb logs: %v", err)
-		}
-		return
-	}
 	for _, l := range out.Lines {
 		fmt.Println(l)
 	}
@@ -549,8 +555,8 @@ func cliPluginLog(args []string) {
 	if !follow {
 		return
 	}
-	// Trusted: poll the ring and print what is new. Lines carry no ids, so the
-	// overlap is found by matching the previous tail.
+	// Poll the ring and print what is new. Lines carry no ids, so the overlap
+	// is found by matching the previous tail.
 	prev := out.Lines
 	for {
 		time.Sleep(2 * time.Second)

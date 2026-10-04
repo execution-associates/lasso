@@ -944,6 +944,9 @@ export interface PluginPermissions {
   tabs: PluginTabPermission[] | null
   mcp?: {
     image: string
+    // The VM image it boots when the operator runs it in a VM. Absent = lasso's
+    // default (or an older server).
+    vm_image?: string
     command: string[]
     // host[:port] egress allowlist; empty = no network at all.
     network: string[]
@@ -1060,6 +1063,11 @@ export interface Plugin {
   error?: string
   // Operator-only: its MCP server runs on this machine, outside the sandbox.
   trusted: boolean
+  // Operator-only: its sandbox is a VM (own kernel) instead of a container.
+  // Absent on an older server.
+  vm?: boolean
+  // Where its MCP server runs: trusted wins over vm. Absent on an older server.
+  isolation?: PluginIsolation
   // Digest of `permissions`. Enable sends it back so the server approves only
   // what the human was shown (409 if the manifest changed in between).
   fingerprint?: string
@@ -1082,9 +1090,23 @@ export interface Plugin {
   }
 }
 
+export type PluginIsolation = "host" | "container" | "vm"
+
+// The sandbox plugin MCP servers run in (isb). `available` needs both a new
+// enough isb and its daemon running (`isb serve` runs the egress proxy).
+export interface PluginSandboxStatus {
+  kind: string
+  available: boolean
+  path?: string
+  version?: string
+  serve_running?: boolean
+  reason?: string
+}
+
 export interface PluginsPayload {
   dir: string
-  msb: { available: boolean; path?: string; reason?: string }
+  // Absent on an older server.
+  sandbox?: PluginSandboxStatus
   plugins: Plugin[] | null
 }
 
@@ -1108,7 +1130,7 @@ async function postAction(url: string, body: unknown): Promise<void> {
 
 export interface PluginLog {
   lines: string[]
-  // Why the log is empty (no MCP server, msb off, nothing logged yet), so an
+  // Why the log is empty (no MCP server, no sandbox, nothing logged yet), so an
   // empty box explains itself instead of reading as a failure.
   note?: string
 }
@@ -1303,6 +1325,10 @@ export const api = {
     ),
   setPluginTrusted: (name: string, trusted: boolean) =>
     postAction(`/api/plugins/${encodeURIComponent(name)}/trust`, { trusted }),
+  // Container (vm: false, the default) or VM. A flip restarts its MCP server;
+  // it has no effect while the plugin is trusted.
+  setPluginIsolation: (name: string, vm: boolean) =>
+    postAction(`/api/plugins/${encodeURIComponent(name)}/isolation`, { vm }),
   // One of THIS plugin's own MCP tools (the server refuses another's), for the
   // tab bridge's tool.call.
   pluginCall: (name: string, tool: string, args: Record<string, unknown>) =>
@@ -1346,8 +1372,8 @@ export const api = {
       token,
       fingerprint,
     }),
-  // Recent log lines (the microVM's `msb logs`, or a trusted child's stderr
-  // ring). A one-shot read — nothing streams.
+  // Recent log lines: the MCP server's stderr (through isb exec when
+  // sandboxed), kept in a ring. A one-shot read — nothing streams.
   pluginLog: (name: string, lines = 200) =>
     fetchPluginLog(
       `/api/plugins/${encodeURIComponent(name)}/log?lines=${lines}`
