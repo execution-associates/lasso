@@ -4,8 +4,9 @@
 MCP over stdio is newline-delimited JSON-RPC 2.0: one message per line on
 stdin, one per line on stdout. Anything else a server prints (logs, tracebacks)
 must go to stderr, or the client reads it as a malformed message. lasso runs
-this inside a microsandbox microVM with no network, the plugin directory
-mounted read-only at /plugin (the working directory).
+this in an isb sandbox (a container, or a VM if the operator asks) with no
+network, the plugin directory mounted read-only at /plugin (the working
+directory), and its data directory read-write at /data.
 
 It implements exactly what a client needs: initialize, the initialized
 notification, ping, tools/list and tools/call, with one tool.
@@ -51,7 +52,7 @@ def greet(args):
     name = str(args.get("name") or "").strip() or "stranger"
     greeting = os.environ.get("GREETING", "Hello")
     return {
-        "content": [{"type": "text", "text": f"{greeting}, {name}! (from a microVM: {os.uname().nodename})"}],
+        "content": [{"type": "text", "text": f"{greeting}, {name}! (from {os.uname().nodename})"}],
         "isError": False,
     }
 

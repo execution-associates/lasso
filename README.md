@@ -474,7 +474,7 @@ it can add **sidebar tabs** (its own web page, next to Files and Browser),
 **MCP tools** (on lasso's `/mcp`, as `<plugin>__<tool>`, so every connected
 agent — and `lasso mcp` — gets them), **themes** and **fonts**.
 
-<img src="docs/screenshots/plugin-tab.png" alt="the example hello plugin's sidebar tab: the focused pane's context, a Greet button that called the plugin's MCP tool and got 'Hello, lasso! (from a microVM: lasso-plugin-hello)', and file-open and toast buttons" width="460">
+<img src="docs/screenshots/plugin-tab.png" alt="the example hello plugin's sidebar tab: the focused pane's context, a Greet button that called the plugin's MCP tool and got a greeting back from its sandbox, and file-open and toast buttons" width="460">
 
 ```bash
 cp -r examples/plugins/hello ~/.lasso/plugins/
@@ -488,11 +488,14 @@ The design is the trust model:
   permissions shown — tabs, image, command, network hosts, env names, and which
   secret may go to which host. If the manifest later asks for more, the plugin
   stops loading until you approve again.
-- **Its MCP server runs in a [microsandbox](https://github.com/microsandbox/microsandbox)
-  microVM**, with the plugin directory mounted read-only, nothing else from your
-  machine, and no network except the hosts it listed. Secrets never enter the
-  guest: msb substitutes them only in traffic to their approved hosts.
-  **Trusted** (run it on the host instead) is a flag only you can set.
+- **Its MCP server runs in an [isb](https://github.com/execution-associates/isb)
+  sandbox**: an unprivileged container by default, or a VM with its own kernel
+  if you flip it (`lasso plugin vm <name> on`). The plugin directory is mounted
+  read-only, nothing else from your machine is, and isb's egress proxy lets it
+  reach only the host names it listed. Secrets never enter the guest: isb puts
+  the real value on the wire only toward their approved hosts. **Trusted** (run
+  it on the host instead) is a flag only you can set. Needs isb 1.0+ with
+  `isb serve` running.
 - **Its tabs can't call lasso.** They are served as an opaque, sandboxed origin,
   so a plugin page cannot use your session to reach the file endpoints. What it
   can do goes through a small `postMessage` bridge: read the focused pane and
@@ -523,11 +526,11 @@ An install is shallow-cloned into a staging directory and validated before
 anything lands in `plugins/`, and it records the exact commit. "Install and
 enable" approves exactly the permissions the preview showed. Public plugins
 carry the GitHub topic `lasso-plugin`, which anyone can apply: it is not a
-reviewed catalog, and the approval and the microVM are the safety, not the
+reviewed catalog, and the approval and the sandbox are the safety, not the
 listing.
 
 Settings → General has a **Plugins** group (install, update, uninstall,
-logs, enable, disable, trust, restart, MCP status) and a **Sidebar** section for arranging every tab:
+logs, enable, disable, container or VM, trust, restart, MCP status) and a **Sidebar** section for arranging every tab:
 
 <img src="docs/screenshots/sidebar-tabs.png" alt="Settings' Sidebar section: every tab with a visibility toggle and up/down arrows, the hello plugin's tab among them; Settings has no toggle" width="460">
 

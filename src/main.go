@@ -279,7 +279,7 @@ func runServer() {
 
 	// Plugins (plugins.go): sidebar tabs and MCP tools from <lassoDir>/plugins.
 	// Nothing a plugin ships runs until the operator enables it; its MCP server
-	// then runs in a microVM unless the operator marked it trusted. run() is
+	// then runs in an isb sandbox unless the operator marked it trusted. run() is
 	// started once the /mcp server exists (below), since that is where a
 	// plugin's tools are mirrored.
 	plugins = newPluginManager(pluginsDir(), sharedMCPServer.Load)
@@ -521,7 +521,7 @@ func runServer() {
 		// real work, and lasso never exits ahead of a child.
 		browserMCP.closeAll("lasso shutting down")
 		// Plugin servers likewise: lasso never exits ahead of a child, and a
-		// sandboxed one's microVM is stopped and removed, not orphaned.
+		// sandboxed one's isb sandbox is removed, not orphaned.
 		plugins.stopAll()
 		log.Printf("shutdown: draining in-flight requests (up to %s)", drainTimeout)
 		sh, cancel := context.WithTimeout(context.Background(), drainTimeout)
