@@ -118,58 +118,47 @@ export function agentStatusRank(status?: string): number {
   }
 }
 
-// Numeric collation, so "agent-2" precedes "agent-10" rather than following
-// it. One instance: constructing an Intl.Collator per comparison is the
-// expensive way to do this, and a sort over N agents calls the comparator
-// O(N log N) times on every poll.
-const byName = new Intl.Collator(undefined, {
-  numeric: true,
-  sensitivity: "base",
-})
-
-// A total order over the fleet, used as the tiebreak under BOTH sorts. Name
-// alone is not total — two agents genuinely share a name often enough (two
-// worktrees of one repo, two panes herdr never labelled) — and a comparator
-// that returns 0 for them leaves their relative order to the engine's sort,
-// which is free to differ between two arrays holding the same elements. That
-// is a pair of cards trading places on a poll where nothing changed, which is
-// exactly what "alpha" exists to prevent.
+// A total order over the fleet, used as the last tiebreak under BOTH sorts.
+// Recency alone is not total — two agents with no transcript yet both read 0 —
+// and a comparator that returns 0 for them leaves their relative order to the
+// engine's sort, which is free to differ between two arrays holding the same
+// elements: a pair of cards trading places on a poll where nothing changed.
 function tiebreak(a: HostPane, b: HostPane): number {
   const byHost = (a.host_label || a.host).localeCompare(b.host_label || b.host)
   if (byHost !== 0) return byHost
   return a.pane_id.localeCompare(b.pane_id)
 }
 
-// Priority sort within one surface: status rank first, then name, then the
+// Newest transcript write first. An agent with no readable transcript sorts
+// after every one that has one.
+function byRecency(a: HostPane, b: HostPane): number {
+  return (b.transcript_at ?? 0) - (a.transcript_at ?? 0)
+}
+
+// Priority sort within one surface: status rank first, then recency, then the
 // total-order tiebreak so rows do not jump between polls.
 export function sortAgentsByPriority(panes: HostPane[]): HostPane[] {
   return [...panes].sort((a, b) => {
     const byRank =
       agentStatusRank(a.agent_status) - agentStatusRank(b.agent_status)
     if (byRank !== 0) return byRank
-    const byLabel = byName.compare(agentName(a), agentName(b))
-    if (byLabel !== 0) return byLabel
-    return tiebreak(a, b)
+    return byRecency(a, b) || tiebreak(a, b)
   })
 }
 
-// Name order, ignoring status entirely. The point is what it does NOT do: the
-// order changes only when an agent is created, closed or renamed, so a card
-// stays where the reader last saw it while its agent blocks, answers and
-// finishes. Status still reaches them — through the card's own badge and the
-// group header's "1 blocked · 2 working" counts — it just stops moving things.
-export function sortAgentsAlpha(panes: HostPane[]): HostPane[] {
-  return [...panes].sort((a, b) => {
-    const byLabel = byName.compare(agentName(a), agentName(b))
-    if (byLabel !== 0) return byLabel
-    return tiebreak(a, b)
-  })
+// Recency order, ignoring status: the agent that last wrote to its transcript
+// leads. Status still reaches the reader through the card's own badge and the
+// group header's "1 blocked · 2 working" counts.
+export function sortAgentsByRecency(panes: HostPane[]): HostPane[] {
+  return [...panes].sort((a, b) => byRecency(a, b) || tiebreak(a, b))
 }
 
 // The one entry point both orders go through, so a surface picks a mode rather
 // than picking a function.
 export function sortAgents(panes: HostPane[], sort: AgentSort): HostPane[] {
-  return sort === "alpha" ? sortAgentsAlpha(panes) : sortAgentsByPriority(panes)
+  return sort === "recent"
+    ? sortAgentsByRecency(panes)
+    : sortAgentsByPriority(panes)
 }
 
 export interface AgentHostGroup {
@@ -187,9 +176,8 @@ export interface AgentHostGroup {
 // below it sends.
 //
 // The GROUP order is deliberately not a sort mode: which machine a section
-// belongs to never changes on its own, so the sections already hold still
-// under either sort, and the reader's own machine leading is orientation
-// rather than priority.
+// belongs to never changes on its own, and the reader's own machine leading is
+// orientation rather than priority.
 export function groupAgentsByHost(
   agents: HostPane[],
   tabHost: string | null,
