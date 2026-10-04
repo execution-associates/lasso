@@ -647,11 +647,12 @@ func TestPluginLogRing(t *testing.T) {
 		t.Fatalf("last(2) = %v", got)
 	}
 
-	// A trusted plugin's log is the ring; a sandboxed one without msb says why.
-	t.Setenv("LASSO_MSB", "off")
+	// A plugin's log is the ring; a sandboxed one with no output and no isb
+	// says why.
+	t.Setenv("LASSO_ISB", "off")
 	m, dir := testPluginManager(t)
 	// No MCP server: nothing produces output, and the note says so rather than
-	// blaming msb or trust.
+	// blaming isb or trust.
 	writePlugin(t, dir, "quiet", map[string]any{"name": "quiet"}, nil)
 	writePlugin(t, dir, "hello", map[string]any{"name": "hello",
 		"mcp": map[string]any{"image": "python:3.12-slim", "command": []string{"python3", "s.py"}}}, nil)
@@ -660,7 +661,7 @@ func TestPluginLogRing(t *testing.T) {
 	if code := apiCall(t, m, "GET", "/api/plugins/quiet/log", nil, &out); code != 200 || out.Sandboxed || !strings.Contains(out.Note, "no MCP server") {
 		t.Fatalf("no-mcp log = %d %+v", code, out)
 	}
-	if code := apiCall(t, m, "GET", "/api/plugins/hello/log?lines=5", nil, &out); code != 200 || !out.Sandboxed || len(out.Lines) != 0 || !strings.Contains(out.Note, "LASSO_MSB=off") {
+	if code := apiCall(t, m, "GET", "/api/plugins/hello/log?lines=5", nil, &out); code != 200 || !out.Sandboxed || len(out.Lines) != 0 || !strings.Contains(out.Note, "LASSO_ISB=off") {
 		t.Fatalf("sandboxed log = %d %+v", code, out)
 	}
 	_ = m.setTrusted("hello", true)

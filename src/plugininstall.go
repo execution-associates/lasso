@@ -28,7 +28,7 @@ import (
 // uninstall, update, per-plugin data directories and logs. Modelled on herdr's
 // `plugin install` and Luvus's `module install` — shallow clone into a staging
 // directory, show every permission, install only what was shown — with lasso's
-// own trust model (fingerprint approval, microVM) unchanged underneath: an
+// own trust model (fingerprint approval, sandbox) unchanged underneath: an
 // install is a convenience for getting a directory into plugins/, never a
 // grant. A freshly installed plugin is disabled unless the human confirmed
 // "install and enable", and then exactly the fingerprint the preview showed is
@@ -849,6 +849,7 @@ func (m *pluginManager) unlink(name string) error {
 	m.mu.Lock()
 	delete(m.logs, name)
 	m.mu.Unlock()
+	purgePluginSecrets(name)
 	log.Printf("plugins:  %s unlinked (files at %s left alone)", name, r.Path)
 	m.rescan()
 	return nil
@@ -920,6 +921,9 @@ func (m *pluginManager) uninstall(name string, purgeData bool) error {
 	m.mu.Lock()
 	delete(m.logs, name)
 	m.mu.Unlock()
+	// The sandbox's stop removed the store secrets it wrote; this catches any
+	// a crashed lasso left behind.
+	purgePluginSecrets(name)
 	log.Printf("plugins:  %s uninstalled%s", name, map[bool]string{true: " (data purged)", false: ""}[purgeData])
 	m.unhold(name)
 	m.rescan()
@@ -1085,48 +1089,28 @@ func (m *pluginManager) pluginLog(name string, n int) (pluginLogPayload, error) 
 	trusted := loadPluginGrants()[name].Trusted
 	out := pluginLogPayload{Name: name, Sandboxed: !trusted, Lines: []string{}}
 	// Only an MCP server produces output. Without one (tabs, themes, fonts)
-	// the msb/trust branches below would explain an absence that has nothing
-	// to do with either.
+	// the note below would explain an absence that has nothing to do with it.
 	if e.Man == nil || e.Man.MCP == nil {
 		out.Sandboxed = false
 		out.Note = "this plugin has no MCP server, so there is nothing to log"
 		return out, nil
 	}
-	if trusted {
-		m.mu.Lock()
-		r := m.logs[name]
-		m.mu.Unlock()
-		if r != nil {
-			out.Lines = r.last(n)
-		}
-		if len(out.Lines) == 0 {
-			out.Note = "no output from its MCP server since lasso started"
-		}
-		return out, nil
-	}
-	msb, reason, ok := resolveMSB()
-	if !ok {
-		out.Note = reason
-		return out, nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, msb, "logs", "--tail", strconv.Itoa(n), pluginSandboxName(name))
-	cmd.Stdin = nil
-	b, err := cmd.CombinedOutput()
-	text := strings.TrimRight(string(b), "\n")
-	if err != nil {
-		out.Note = "no sandbox logs: " + clipLine(strings.TrimSpace(text), 400)
-		if strings.TrimSpace(text) == "" {
-			out.Note = "no sandbox logs: " + err.Error()
-		}
-		return out, nil
-	}
-	if text != "" {
-		out.Lines = strings.Split(text, "\n")
+	// Sandboxed or not, the server's stderr streams into the ring: a trusted
+	// child's directly, a sandboxed one's through isb exec (with isb create's
+	// progress lines before it).
+	m.mu.Lock()
+	r := m.logs[name]
+	m.mu.Unlock()
+	if r != nil {
+		out.Lines = r.last(n)
 	}
 	if len(out.Lines) == 0 {
-		out.Note = "the sandbox has logged nothing"
+		out.Note = "no output from its MCP server since lasso started"
+		if !trusted {
+			if st := currentSandboxStatus(); !st.Available {
+				out.Note = st.Reason
+			}
+		}
 	}
 	return out, nil
 }

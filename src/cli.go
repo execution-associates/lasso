@@ -96,11 +96,6 @@ func main() {
 		case "plugin", "plugins":
 			cliPlugin(os.Args[2:])
 			return
-		case "plugin-stdio-serve":
-			// Hidden: the adapter lasso runs INSIDE a plugin's microVM
-			// (pluginsandbox.go). Not a command for humans, so not in the usage.
-			cliPluginStdioServe(os.Args[2:])
-			return
 		case "version", "--version", "-v":
 			fmt.Println(lassoVersion())
 			return

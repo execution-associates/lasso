@@ -37,6 +37,9 @@ func TestMain(m *testing.M) {
 		"HERDR_CONFIG_PATH": home + "/.config/herdr/config.toml",
 		"CODEX_HOME":        home + "/.codex",
 		"KIMI_CODE_HOME":    home + "/.kimi",
+		// No unit test drives the real isb: a sandboxed plugin reads
+		// unavailable unless a test points LASSO_ISB somewhere itself.
+		"LASSO_ISB": "off",
 	} {
 		os.Setenv(k, v)
 	}

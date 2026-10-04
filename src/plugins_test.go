@@ -1,19 +1,18 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -105,6 +104,15 @@ func TestPluginManifestValidation(t *testing.T) {
 		{"bad network", "hello", map[string]any{"name": "hello", "mcp": map[string]any{"image": "alpine", "command": []string{"x"}, "network": []string{"api.example.com:99999"}}}, "port"},
 		{"bad env key", "hello", map[string]any{"name": "hello", "mcp": map[string]any{"image": "alpine", "command": []string{"x"}, "env": map[string]string{"A-B": "1"}}}, "environment variable"},
 		{"secret no hosts", "hello", map[string]any{"name": "hello", "mcp": map[string]any{"image": "alpine", "command": []string{"x"}, "secrets": []any{map[string]any{"name": "TOK"}}}}, "hosts is required"},
+		{"ip network", "hello", map[string]any{"name": "hello", "mcp": map[string]any{"image": "alpine", "command": []string{"x"}, "network": []string{"1.2.3.4:443"}}}, "IP address"},
+		{"ip network no port", "hello", map[string]any{"name": "hello", "mcp": map[string]any{"image": "alpine", "command": []string{"x"}, "network": []string{"10.0.0.1"}}}, "IP address"},
+		{"single-label wildcard", "hello", map[string]any{"name": "hello", "mcp": map[string]any{"image": "alpine", "command": []string{"x"}, "network": []string{"*.com"}}}, "single label"},
+		{"two-label wildcard ok", "hello", map[string]any{"name": "hello", "mcp": map[string]any{"image": "alpine", "command": []string{"x"}, "network": []string{"*.example.com:8443"}}}, ""},
+		{"secret ip host", "hello", map[string]any{"name": "hello", "mcp": map[string]any{"image": "alpine", "command": []string{"x"}, "secrets": []any{map[string]any{"name": "TOK", "hosts": []string{"8.8.8.8"}}}}}, "IP address"},
+		{"secret wildcard host", "hello", map[string]any{"name": "hello", "mcp": map[string]any{"image": "alpine", "command": []string{"x"}, "secrets": []any{map[string]any{"name": "TOK", "hosts": []string{"*.io"}}}}}, "single label"},
+		{"secret case dupe", "hello", map[string]any{"name": "hello", "mcp": map[string]any{"image": "alpine", "command": []string{"x"}, "secrets": []any{map[string]any{"name": "TOK", "hosts": []string{"a.b"}}, map[string]any{"name": "tok", "hosts": []string{"a.b"}}}}}, "duplicate secret"},
+		{"vm image ok", "hello", map[string]any{"name": "hello", "mcp": map[string]any{"image": "alpine", "vm_image": "images:debian/13/cloud", "command": []string{"x"}}}, ""},
+		{"bad vm image", "hello", map[string]any{"name": "hello", "mcp": map[string]any{"image": "alpine", "vm_image": "-x y", "command": []string{"x"}}}, "mcp.vm_image"},
 		{"secret env clash", "hello", map[string]any{"name": "hello", "mcp": map[string]any{"image": "alpine", "command": []string{"x"}, "env": map[string]string{"TOK": "x"}, "secrets": []any{map[string]any{"name": "TOK", "hosts": []string{"a.b"}}}}}, "also in mcp.env"},
 	}
 	for _, c := range cases {
@@ -186,6 +194,7 @@ func TestPluginFingerprint(t *testing.T) {
 			m.MCP.Secrets = append(m.MCP.Secrets, pluginSecretSpec{Name: "X", Hosts: []string{"a.b"}})
 		},
 		"mcp removed": func(m *pluginManifest) { m.MCP = nil },
+		"vm image":    func(m *pluginManifest) { m.MCP.VMImage = "images:debian/13/cloud" },
 	}
 	for n, f := range differ {
 		m := base()
@@ -193,6 +202,17 @@ func TestPluginFingerprint(t *testing.T) {
 		if got := m.fingerprint(); got == fp {
 			t.Errorf("%s did not change the fingerprint; it must need re-approval", n)
 		}
+	}
+	// A manifest without vm_image canonicalizes exactly as before the field
+	// existed, so every approval made before it still matches.
+	b, _ := json.Marshal(base().perms().MCP)
+	if strings.Contains(string(b), "vm_image") {
+		t.Errorf("an absent vm_image is in the canonical permissions: %s", b)
+	}
+	m := base()
+	m.MCP.VMImage = "images:debian/13/cloud"
+	if b, _ := json.Marshal(m.perms().MCP); !strings.Contains(string(b), `"vm_image":"images:debian/13/cloud"`) {
+		t.Errorf("vm_image missing from the permissions: %s", b)
 	}
 }
 
@@ -447,7 +467,7 @@ func TestPluginMCPMirroringScopeAndRestart(t *testing.T) {
 	writePlugin(t, dir, "beta", fakePluginManifest(t, "beta", "b"), nil)
 	m.rescan()
 	for _, n := range []string{"alpha", "beta"} {
-		if err := m.setTrusted(n, true); err != nil { // host runner: no msb in unit tests
+		if err := m.setTrusted(n, true); err != nil { // host runner: no isb in unit tests
 			t.Fatal(err)
 		}
 		if err := m.enable(n, ""); err != nil {
@@ -574,8 +594,8 @@ func TestPluginMCPMirroringScopeAndRestart(t *testing.T) {
 	}
 }
 
-func TestPluginSandboxUnavailableWithoutMSB(t *testing.T) {
-	t.Setenv("LASSO_MSB", "/nonexistent/msb")
+func TestPluginSandboxUnavailableWithoutISB(t *testing.T) {
+	t.Setenv("LASSO_ISB", "/nonexistent/isb")
 	m, dir := testPluginManager(t)
 	m.server = func() *mcp.Server { return nil }
 	writePlugin(t, dir, "hello", map[string]any{"name": "hello",
@@ -589,8 +609,145 @@ func TestPluginSandboxUnavailableWithoutMSB(t *testing.T) {
 	if !st.Sandboxed || !strings.Contains(st.Detail, "not found") {
 		t.Fatalf("mcp = %+v", st)
 	}
-	if l := m.listing(); l.MSB.Available {
-		t.Errorf("msb reported available: %+v", l.MSB)
+	l := m.listing()
+	if l.Sandbox.Available || l.Sandbox.Kind != "isb" || !strings.Contains(l.Sandbox.Reason, "not found") {
+		t.Errorf("sandbox = %+v", l.Sandbox)
+	}
+	if p := pluginByName(t, l, "hello"); p.Isolation != pluginIsolationContainer || p.VM || p.Trusted {
+		t.Errorf("default isolation = %q (vm %v, trusted %v)", p.Isolation, p.VM, p.Trusted)
+	}
+}
+
+// fakeISB writes a shell script that answers --version like isb does.
+func fakeISB(t *testing.T, dir, version string) string {
+	t.Helper()
+	_ = os.MkdirAll(dir, 0o755)
+	p := filepath.Join(dir, "isb")
+	if err := os.WriteFile(p, []byte("#!/bin/sh\necho isb "+version+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestISBResolution(t *testing.T) {
+	oldCheck, oldMise := isbServeCheck, isbMiseInstalls
+	t.Cleanup(func() { isbServeCheck, isbMiseInstalls = oldCheck, oldMise })
+	serveErr := errors.New("dial unix serve.sock: connect: no such file or directory")
+	isbServeCheck = func() error { return serveErr }
+	tmp := t.TempDir()
+
+	// Too old: unavailable, naming the version found.
+	t.Setenv("LASSO_ISB", fakeISB(t, filepath.Join(tmp, "old"), "0.7.0"))
+	st := currentSandboxStatus()
+	if st.Available || !strings.Contains(st.Reason, "isb 1.0 or later is required (found 0.7.0") {
+		t.Fatalf("old isb = %+v", st)
+	}
+	// New enough, but isb serve is down: unavailable for that reason.
+	newBin := fakeISB(t, filepath.Join(tmp, "new"), "1.0.0")
+	t.Setenv("LASSO_ISB", newBin)
+	st = currentSandboxStatus()
+	if st.Available || st.ServeRunning || st.Path != newBin || st.Version != "1.0.0" || !strings.Contains(st.Reason, "isb serve is not running") {
+		t.Fatalf("serve down = %+v", st)
+	}
+	isbServeCheck = func() error { return nil }
+	if st = currentSandboxStatus(); !st.Available || !st.ServeRunning || st.Reason != "" {
+		t.Fatalf("all good = %+v", st)
+	}
+	t.Setenv("LASSO_ISB", "off")
+	if st = currentSandboxStatus(); st.Available || !strings.Contains(st.Reason, "LASSO_ISB=off") {
+		t.Fatalf("off = %+v", st)
+	}
+
+	// Unset: an old isb on PATH loses to the newest mise install, and mise's
+	// "1.0"/"latest" aliases are not versions.
+	t.Setenv("LASSO_ISB", "")
+	pathDir := filepath.Join(tmp, "path")
+	fakeISB(t, pathDir, "0.7.0")
+	t.Setenv("PATH", pathDir)
+	mise := filepath.Join(tmp, "mise")
+	fakeISB(t, filepath.Join(mise, "0.5.0"), "0.5.0")
+	want := fakeISB(t, filepath.Join(mise, "1.0.0"), "1.0.0")
+	fakeISB(t, filepath.Join(mise, "latest"), "9.9.9")
+	isbMiseInstalls = func() string { return mise }
+	if bin, v, reason, ok := resolveISB(); !ok || bin != want || v != "1.0.0" {
+		t.Fatalf("resolve = %q %q %q %v; want the mise 1.0.0", bin, v, reason, ok)
+	}
+	// Nothing anywhere: says how to get it.
+	t.Setenv("PATH", t.TempDir())
+	isbMiseInstalls = func() string { return filepath.Join(tmp, "nope") }
+	if _, _, reason, ok := resolveISB(); ok || !strings.Contains(reason, "isb not found") {
+		t.Fatalf("missing isb = %q %v", reason, ok)
+	}
+}
+
+// The isolation flag: stored beside trust, a flip restarts the server in the
+// new isolation, and trusted wins over vm.
+func TestPluginIsolationFlag(t *testing.T) {
+	m, dir := testPluginManager(t)
+	var mu sync.Mutex
+	var started []string
+	m.runner = func(iso string) pluginRunner {
+		mu.Lock()
+		started = append(started, iso)
+		mu.Unlock()
+		return hostPluginRunner{} // the fake child, whatever the isolation
+	}
+	writePlugin(t, dir, "hello", fakePluginManifest(t, "hello", "a"), nil)
+	m.rescan()
+	if err := m.enable("hello", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitPlugin(t, "running", func() bool { return mcpStatusOf(m, "hello").Status == pluginMCPRunning })
+	first := m.serverFor("hello")
+
+	if code := apiCall(t, m, "POST", "/api/plugins/hello/isolation", map[string]any{"vm": true}, nil); code != 200 {
+		t.Fatalf("isolation vm = %d", code)
+	}
+	if code := apiCall(t, m, "POST", "/api/plugins/hello/isolation", map[string]any{}, nil); code != http.StatusBadRequest {
+		t.Fatalf("isolation without vm = %d", code)
+	}
+	p := pluginByName(t, m.listing(), "hello")
+	if !p.VM || p.Isolation != pluginIsolationVM {
+		t.Fatalf("after vm on = vm %v isolation %q", p.VM, p.Isolation)
+	}
+	vmServer := m.serverFor("hello")
+	if vmServer == first || vmServer.isolation != pluginIsolationVM {
+		t.Fatal("a vm flip did not restart the server in a vm")
+	}
+	waitPlugin(t, "running in a vm", func() bool { return mcpStatusOf(m, "hello").Status == pluginMCPRunning })
+
+	// Trusted wins: the server moves to the host, and a vm flip while trusted
+	// changes the stored choice without a restart.
+	if err := m.setTrusted("hello", true); err != nil {
+		t.Fatal(err)
+	}
+	host := m.serverFor("hello")
+	if host == vmServer || host.isolation != pluginIsolationHost {
+		t.Fatal("trust did not move the server to the host")
+	}
+	if p := pluginByName(t, m.listing(), "hello"); p.Isolation != pluginIsolationHost || !p.VM || !p.Trusted {
+		t.Fatalf("trusted+vm listing = %+v", p)
+	}
+	if err := m.setVM("hello", false); err != nil {
+		t.Fatal(err)
+	}
+	if m.serverFor("hello") != host {
+		t.Error("a vm flip while trusted restarted the server")
+	}
+	if err := m.setTrusted("hello", false); err != nil {
+		t.Fatal(err)
+	}
+	if s := m.serverFor("hello"); s == host || s.isolation != pluginIsolationContainer {
+		t.Fatal("untrusting did not move the server back into a container")
+	}
+	mu.Lock()
+	got := slices.Clone(started)
+	mu.Unlock()
+	if !slices.Equal(got, []string{"container", "vm", "host", "container"}) {
+		t.Errorf("runners started = %v", got)
+	}
+	if err := m.setVM("ghost", true); !errors.Is(err, errPluginNotFound) {
+		t.Errorf("setVM ghost = %v", err)
 	}
 }
 
@@ -613,78 +770,105 @@ func TestPluginSecretUnresolvedIsUnavailable(t *testing.T) {
 	}
 }
 
-func TestMSBRunArgs(t *testing.T) {
+func TestISBCreateArgs(t *testing.T) {
 	spec := &pluginMCPSpec{
 		Image: "python:3.12-slim", Command: []string{"python3", "-u", "server.py"},
 		Network: []string{"api.example.com", "b.example.com:8443"},
-		Env:     map[string]string{"LOG_LEVEL": "info"},
-		Secrets: []pluginSecretSpec{{Name: "EXAMPLE_TOKEN", Hosts: []string{"api.example.com", "b.example.com"}}},
+		Env:     map[string]string{"LOG_LEVEL": "info", "LASSO_PLUGIN_DATA": "/etc"},
+		Secrets: []pluginSecretSpec{{Name: "EXAMPLE_TOKEN", Hosts: []string{"API.example.com", "c.example.com"}}},
 	}
-	args := strings.Join(msbRunArgs("lasso-plugin-hello", 41234, "/usr/bin/lasso", "/p/hello", "/d/hello", spec), " ")
+	argv := isbCreateArgs("hello", "/p/hello", "/d/hello", spec, false)
+	args := strings.Join(argv, " ")
 	for _, want := range []string{
-		"run --name lasso-plugin-hello --no-tty",
-		"--net-default-egress deny --net-default-ingress allow",
-		"--net-rule allow@dns",
-		"--net-rule allow@api.example.com:tcp:443",
-		"--net-rule allow@b.example.com:tcp:8443",
-		"-p 127.0.0.1:41234:7700",
-		"--mount-file /usr/bin/lasso:/opt/lasso:ro",
-		"--mount-dir /p/hello:/plugin:ro",
-		"--mount-dir /d/hello:/data -w",
-		"-e LASSO_PLUGIN_DATA=/data",
-		"-w /plugin",
+		"create -i docker:python:3.12-slim --idmap auto",
+		"-l owner=lasso -l lasso.plugin=hello",
+		"-c oci.entrypoint=" + pluginKeepAlive,
+		"-v /p/hello:/plugin:ro",
+		"-v /d/hello:/data -e",
 		"-e LOG_LEVEL=info",
-		"--secret EXAMPLE_TOKEN@api.example.com,b.example.com",
-		"python:3.12-slim -- /opt/lasso plugin-stdio-serve -listen :7700 -- python3 -u server.py",
+		"--egress api.example.com:443 --egress b.example.com:8443 --egress c.example.com:443",
+		"--secret EXAMPLE_TOKEN=lasso-plugin-hello.example_token@api.example.com,c.example.com",
 	} {
 		if !strings.Contains(args, want) {
-			t.Errorf("msb args lack %q:\n%s", want, args)
+			t.Errorf("create args lack %q:\n%s", want, args)
 		}
 	}
-	if strings.Contains(args, "--no-net") {
-		t.Error("--no-net also blocks the published port")
+	if argv[len(argv)-1] != "lasso-plugin-hello" {
+		t.Errorf("the sandbox name is not last: %v", argv)
 	}
-	// No network entries: no DNS, no allow rules, egress stays denied.
-	bare := strings.Join(msbRunArgs("n", 1, "/l", "/d", "", &pluginMCPSpec{Image: "alpine", Command: []string{"x"}}), " ")
-	if strings.Contains(bare, "allow@") || !strings.Contains(bare, "--net-default-egress deny") || strings.Contains(bare, "/data") {
+	if strings.Contains(args, "--vm") || strings.Contains(args, "--egress none") {
+		t.Errorf("container args = %s", args)
+	}
+	// LASSO_PLUGIN_DATA=/data comes after the manifest's own attempt, so it wins.
+	if strings.LastIndex(args, "-e LASSO_PLUGIN_DATA=/data") < strings.Index(args, "-e LASSO_PLUGIN_DATA=/etc") {
+		t.Errorf("LASSO_PLUGIN_DATA is not last: %s", args)
+	}
+	// api.example.com is named once, though both a network entry and a host.
+	if strings.Count(args, "--egress api.example.com:443") != 1 {
+		t.Errorf("duplicate egress entry: %s", args)
+	}
+
+	// No network, no secrets: no egress at all; no data dir: no /data.
+	bare := strings.Join(isbCreateArgs("n", "/p", "", &pluginMCPSpec{Image: "ghcr:org/srv:1", Command: []string{"x"}}, false), " ")
+	if !strings.Contains(bare, "-i ghcr:org/srv:1 ") || !strings.Contains(bare, "--egress none") || strings.Contains(bare, "/data") || strings.Contains(bare, "--secret") {
 		t.Errorf("bare args = %s", bare)
+	}
+	// images: is a system container: no OCI keep-alive.
+	sys := strings.Join(isbCreateArgs("n", "/p", "", &pluginMCPSpec{Image: "images:alpine/3.20", Command: []string{"x"}}, false), " ")
+	if !strings.Contains(sys, "-i images:alpine/3.20 ") || strings.Contains(sys, "oci.entrypoint") {
+		t.Errorf("system image args = %s", sys)
+	}
+
+	// VM: the default VM image (the OCI one cannot boot), --vm, no idmap, no
+	// keep-alive; mounts, env, egress and secrets as in a container.
+	vm := strings.Join(isbCreateArgs("hello", "/p/hello", "/d/hello", spec, true), " ")
+	for _, want := range []string{"create -i " + pluginDefaultVMImage + " --vm", "-v /p/hello:/plugin:ro", "--secret EXAMPLE_TOKEN=", "--egress b.example.com:8443"} {
+		if !strings.Contains(vm, want) {
+			t.Errorf("vm args lack %q:\n%s", want, vm)
+		}
+	}
+	if strings.Contains(vm, "--idmap") || strings.Contains(vm, "oci.entrypoint") || strings.Contains(vm, "docker:") {
+		t.Errorf("vm args = %s", vm)
+	}
+	spec.VMImage = "images:debian/13/cloud"
+	if vm := strings.Join(isbCreateArgs("hello", "/p", "", spec, true), " "); !strings.Contains(vm, "-i images:debian/13/cloud --vm") {
+		t.Errorf("vm_image not used: %s", vm)
 	}
 }
 
-// stdioServe pipes each connection to a fresh child and survives a client
-// hanging up — which is what the first, half-open dial into a booting sandbox
-// looks like.
-func TestStdioServe(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+func TestISBExecArgs(t *testing.T) {
+	spec := &pluginMCPSpec{Image: "x", Command: []string{"python3", "-u", "server.py"}}
+	got := isbExecArgs("hello", spec)
+	want := []string{"exec", "-i", "-T", "-w", "/plugin", "-u", pluginGuestUser, "lasso-plugin-hello", "--", "python3", "-u", "server.py"}
+	if !slices.Equal(got, want) {
+		t.Errorf("exec = %v\nwant %v", got, want)
 	}
-	done := make(chan error, 1)
-	go func() { done <- stdioServe(ln, []string{"cat"}) }()
-	for i := range 3 {
-		c, err := net.Dial("tcp", ln.Addr().String())
-		if err != nil {
-			t.Fatal(err)
+}
+
+func TestISBImage(t *testing.T) {
+	for in, want := range map[string]struct {
+		ref string
+		oci bool
+	}{
+		"python:3.12-slim":       {"docker:python:3.12-slim", true},
+		"ubuntu:24.04":           {"docker:ubuntu:24.04", true}, // Docker Hub's, not isb's ubuntu: remote
+		"alpine":                 {"docker:alpine", true},
+		"docker:node:22":         {"docker:node:22", true},
+		"ghcr:org/app:v2":        {"ghcr:org/app:v2", true},
+		"oci:reg.example.com/x":  {"oci:reg.example.com/x", true},
+		"images:debian/12":       {"images:debian/12", false},
+		"ghcr.io/org/app:latest": {"docker:ghcr.io/org/app:latest", true},
+	} {
+		ref, oci := isbImage(in)
+		if ref != want.ref || oci != want.oci {
+			t.Errorf("isbImage(%q) = %q %v; want %q %v", in, ref, oci, want.ref, want.oci)
 		}
-		msg := strings.Repeat("x", i) + "ping\n"
-		_ = c.SetDeadline(time.Now().Add(5 * time.Second))
-		if _, err := c.Write([]byte(msg)); err != nil {
-			t.Fatal(err)
-		}
-		got, err := bufio.NewReader(c).ReadString('\n')
-		if err != nil || got != msg {
-			t.Fatalf("round %d: %q %v", i, got, err)
-		}
-		_ = c.Close()
 	}
-	_ = ln.Close()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("stdioServe did not return after its listener closed")
+	if got := pluginSecretStore("a-b", "My_Token"); got != "lasso-plugin-a-b.my_token" {
+		t.Errorf("store name = %q", got)
+	}
+	if strings.HasPrefix(pluginSecretStore("a-b", "x"), pluginSecretStorePrefix("a")) {
+		t.Error("plugin a's prefix matches plugin a-b's secrets")
 	}
 }
 
