@@ -331,14 +331,13 @@ type uiState struct {
 	CreatorLastHost string `json:"creator_last_host"`
 	// AgentsSort is the order the agents grid lays its cards out in:
 	// "priority" (the default, and what the grid always did — blocked before
-	// working before idle before done) or "alpha", a plain name sort that only
-	// changes when an agent is created, closed or renamed.
+	// working before idle before done) or "recent", newest transcript write
+	// first, so the conversations that are moving lead the grid.
 	//
-	// Server-owned rather than per browser precisely because of what the
-	// choice IS: someone picks "alpha" so the card they are typing into stops
-	// moving under them, and a preference that resets on the next reload does
-	// not answer that. The grid's own group-by-machine toggle stays ephemeral
-	// — it changes what the layout SAYS, not whether it holds still.
+	// Server-owned rather than per browser so the phone and the desktop show
+	// one order, and a reload does not reset it. The grid's own
+	// group-by-machine toggle stays ephemeral — it changes what the layout
+	// SAYS, not the order inside it.
 	AgentsSort string `json:"agents_sort"`
 	// PinnedAgents are the agents grid's pinned cards, in the order they were
 	// pinned, each as the frontend's paneKey (host + NUL + pane id, since pane
@@ -537,11 +536,24 @@ func validAppearanceMode(m string) bool {
 // default and the historical behavior.
 const (
 	agentsSortPriority = "priority"
-	agentsSortAlpha    = "alpha"
+	agentsSortRecent   = "recent"
+	// agentsSortLegacyAlpha is the name sort "recent" replaced. A stored blob
+	// or a browser tab still running the old bundle may say it; both mean the
+	// non-priority order, so it is read (and accepted on write) as "recent".
+	agentsSortLegacyAlpha = "alpha"
 )
 
 // agentsSorts is the accepted set, in the order a client error lists them.
-var agentsSorts = []string{agentsSortPriority, agentsSortAlpha}
+var agentsSorts = []string{agentsSortPriority, agentsSortRecent}
+
+// canonicalAgentsSort maps the legacy spelling onto its replacement and leaves
+// everything else for validAgentsSort to judge.
+func canonicalAgentsSort(s string) string {
+	if s == agentsSortLegacyAlpha {
+		return agentsSortRecent
+	}
+	return s
+}
 
 // validAgentsSort reports whether s is one a caller may send. Exact, for the
 // same reason validAppearanceMode is: coercing an unrecognized value would
@@ -559,6 +571,7 @@ func validAgentsSort(s string) bool {
 // before this field existed carries "", which is the default order rather than
 // an invalid one. Writes are validated instead (see serveUIState).
 func normalizeAgentsSort(s string) string {
+	s = canonicalAgentsSort(s)
 	if validAgentsSort(s) {
 		return s
 	}
