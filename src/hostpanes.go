@@ -278,6 +278,10 @@ type hostPane struct {
 	AgentStatus   string `json:"agent_status"`
 	HasAgent      bool   `json:"has_agent"`
 	Focused       bool   `json:"focused"`
+	// TranscriptAt is when the agent's transcript was last written, in unix
+	// milliseconds (see paneTranscriptAt): the agents lists' recency order.
+	// Absent for a pane with no readable transcript.
+	TranscriptAt int64 `json:"transcript_at,omitempty"`
 	// Prompt is the initial prompt the user gave the agent when creating it
 	// (lasso's AgentRecord.Description, not anything herdr knows). It's shipped so
 	// the pane switcher can search the full prompt text; the UI need not display it.
@@ -476,6 +480,7 @@ func serveUIState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("appearance_mode must be one of %s", strings.Join(appearanceModes, ", ")), http.StatusBadRequest)
 			return
 		}
+		us.AgentsSort = canonicalAgentsSort(us.AgentsSort)
 		if !validAgentsSort(us.AgentsSort) {
 			http.Error(w, fmt.Sprintf("agents_sort must be one of %s", strings.Join(agentsSorts, ", ")), http.StatusBadRequest)
 			return
@@ -1257,6 +1262,7 @@ func enumerateHostPanes(b Backend, host, hostLabel string) ([]hostPane, error) {
 		}
 	}
 	out := make([]hostPane, 0, len(pl.Panes))
+	transcriptAt := paneTranscriptTimes(b, host, pl.Panes)
 	for _, p := range pl.Panes {
 		kind, isAgent := agentKind[p.PaneID]
 		status := p.AgentStatus
@@ -1296,6 +1302,7 @@ func enumerateHostPanes(b Backend, host, hostLabel string) ([]hostPane, error) {
 			HasAgent:       isAgent,
 			Focused:        p.Focused,
 			Prompt:         prompt,
+			TranscriptAt:   transcriptAt[p.PaneID],
 		})
 	}
 	// Newest first: herdr assigns workspaces/tabs monotonically increasing numbers
@@ -1313,6 +1320,37 @@ func enumerateHostPanes(b Backend, host, hostLabel string) ([]hostPane, error) {
 		return out[i].PaneID > out[j].PaneID
 	})
 	return out, nil
+}
+
+// paneTranscriptTimes stats every agent pane's transcript, a few at a time: on
+// a remote host each stat is an SFTP round trip, and a fleet of agents done one
+// after another would eat into paneHostTimeout.
+func paneTranscriptTimes(b Backend, host string, panes []pane) map[string]int64 {
+	out := make(map[string]int64, len(panes))
+	live := make(map[string]bool, len(panes))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 8)
+	for _, p := range panes {
+		if !paneHasLiveAgent(p) {
+			continue
+		}
+		live[transcriptPathKey(host, p)] = true
+		wg.Add(1)
+		go func(p pane) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if at := paneTranscriptAt(b, host, p); at != 0 {
+				mu.Lock()
+				out[p.PaneID] = at
+				mu.Unlock()
+			}
+		}(p)
+	}
+	wg.Wait()
+	pruneTranscriptPaths(host, live)
+	return out
 }
 
 // ---------------------------------------------------------------------------

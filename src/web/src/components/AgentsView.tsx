@@ -50,7 +50,7 @@ import { cn } from "@/lib/utils"
 
 // The fleet as parallel conversations: every agent lasso can reach in a grid,
 // grouped by herdr machine unless the header toggle says otherwise, in
-// attention order (blocked > working > idle > done) or plain name order — see
+// attention order (blocked > working > idle > done) or recency order — see
 // the Sort control. Each card reads the
 // agent's TRANSCRIPT — the same source ChatView renders — never the terminal:
 // the pty stays fitted to the iframe underneath (see App's overlay note), and
@@ -123,11 +123,9 @@ export function AgentsView({
   const { host: tabHost } = useApp()
   const [groupByHost, setGroupByHost] = React.useState(true)
   const [filter, setFilter] = React.useState("")
-  // Persisted server-side rather than held here beside groupByHost, because of
-  // what the choice is FOR: someone picks A–Z so the card they are typing into
-  // stops moving, and an order that reverts on the next reload — or differs on
-  // the phone — does not deliver that. Grouping stays local: it changes what
-  // the layout says, not whether it holds still.
+  // Persisted server-side rather than held here beside groupByHost, so the
+  // order does not revert on the next reload or differ on the phone. Grouping
+  // stays local: it changes what the layout says, not the order inside it.
   const { agents_sort: sort, pinned_agents: pinnedKeys } = useUIState()
   const setSort = (next: AgentSort) => {
     if (next !== sort) patchUIState({ agents_sort: next })
@@ -312,10 +310,10 @@ export function AgentsView({
               title="Sort by attention: blocked, then working, then idle, then done. Cards move as statuses change."
             />
             <SortSegment
-              active={sort === "alpha"}
-              onClick={() => setSort("alpha")}
-              label="A–Z"
-              title="Sort by name. The grid only changes when an agent is created, closed or renamed."
+              active={sort === "recent"}
+              onClick={() => setSort("recent")}
+              label="Recent"
+              title="Sort by recency: the agent whose transcript changed most recently comes first."
             />
           </fieldset>
           {/* Ghost when off, filled when on: aria-pressed alone is invisible,
@@ -327,7 +325,7 @@ export function AgentsView({
             aria-pressed={groupByHost}
             title={
               groupByHost
-                ? "Ungroup: one list in priority order"
+                ? "Ungroup: one list in the chosen order"
                 : "Group by machine"
             }
             onClick={() => setGroupByHost((v) => !v)}

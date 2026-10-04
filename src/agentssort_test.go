@@ -20,12 +20,12 @@ func TestAgentsSortPatch(t *testing.T) {
 		t.Fatalf("fresh install is not priority-sorted: %+v", got.uiState)
 	}
 
-	postUIState(t, `{"agents_sort":"alpha","client_id":"A","user_intent":true}`)
-	// A neighbouring write that names no sort must leave it alone: the whole
-	// value of choosing alpha is that the grid stops rearranging itself, and a
-	// sidebar drag silently reverting it would be that bug wearing a disguise.
+	postUIState(t, `{"agents_sort":"recent","client_id":"A","user_intent":true}`)
+	// A neighbouring write that names no sort must leave it alone: a sidebar
+	// drag silently reverting the chosen order would be a preference nobody
+	// can keep.
 	got = postUIState(t, `{"files_click_navigates":false,"client_id":"B","user_intent":true}`)
-	if got.AgentsSort != agentsSortAlpha {
+	if got.AgentsSort != agentsSortRecent {
 		t.Fatalf("sort lost by an unrelated patch: %+v", got.uiState)
 	}
 
@@ -33,7 +33,7 @@ func TestAgentsSortPatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getUIState: %v", err)
 	}
-	if stored.AgentsSort != agentsSortAlpha {
+	if stored.AgentsSort != agentsSortRecent {
 		t.Fatalf("sort not persisted: %+v", stored)
 	}
 
@@ -52,7 +52,19 @@ func TestAgentsSortPatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getUIState: %v", err)
 	}
-	if stored.AgentsSort != agentsSortAlpha || stored.FilesClickNavigates {
+	if stored.AgentsSort != agentsSortRecent || stored.FilesClickNavigates {
 		t.Fatalf("a refused patch landed anyway: %+v", stored)
+	}
+
+	// "alpha" is the order "recent" replaced: a tab still running the old
+	// bundle sends it, and a db written before the change holds it. Both mean
+	// the non-priority order, so neither may be refused or read as priority.
+	postUIState(t, `{"agents_sort":"priority","client_id":"A","user_intent":true}`)
+	got = postUIState(t, `{"agents_sort":"alpha","client_id":"A","user_intent":true}`)
+	if got.AgentsSort != agentsSortRecent {
+		t.Fatalf("legacy alpha write not read as recent: %+v", got.uiState)
+	}
+	if normalizeAgentsSort("alpha") != agentsSortRecent {
+		t.Fatalf("stored legacy alpha not read as recent")
 	}
 }

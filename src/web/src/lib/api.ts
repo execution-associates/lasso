@@ -200,6 +200,9 @@ export interface HostPane {
   // detection found one; these two are not the same question.
   has_agent?: boolean
   focused?: boolean
+  // When the agent's transcript was last written, unix milliseconds. Absent
+  // when the pane has no transcript lasso can read.
+  transcript_at?: number
 }
 
 export interface PanesPayload {
@@ -369,15 +372,12 @@ export interface AtmospherePref {
 export type AppearanceMode = "herdr" | "system" | "light" | "dark"
 
 // How the agents grid orders its cards. "priority" surfaces what needs a human
-// (blocked > working > idle > done) and therefore RESHUFFLES as statuses move;
-// "alpha" is a plain name sort, so the grid only changes when an agent is
-// created, closed or renamed — which is what someone wants when they are
-// typing into a card and would rather it stayed where they left it.
+// (blocked > working > idle > done); "recent" puts the agent whose transcript
+// was written most recently first, so the conversations that are moving lead.
 //
-// Server-owned like the rest of UIState: the whole point of choosing "alpha"
-// is that the grid holds still, and a choice that resets on the next reload
-// would not deliver that.
-export type AgentSort = "priority" | "alpha"
+// Server-owned like the rest of UIState, so the phone and the desktop agree and
+// a reload does not reset it.
+export type AgentSort = "priority" | "recent"
 
 // What the sidebar's Browser tab shows: "live" is the shared headless Chromium
 // lasso supervises (a CDP screencast humans and agents drive together), and
