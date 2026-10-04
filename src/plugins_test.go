@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -913,4 +914,49 @@ func TestOnboardingDoneUIState(t *testing.T) {
 	if us, _ := getUIState(); !us.OnboardingDone {
 		t.Fatal("legacy blob: onboarding_done = false; want true")
 	}
+}
+
+// Two lassos sharing a plugins directory (titan's dev and production builds
+// both read ~/.lasso) must not both run its servers: each launch starts with
+// `isb rm -f lasso-plugin-<name>`, so they would delete each other's sandboxes.
+// The runner lock gives the servers to one; the other lists them as
+// unavailable, naming the holder, and takes over once the holder lets go.
+// flock is per open file description, so two managers in one process contend
+// exactly like two processes.
+func TestPluginRunnerLockOneLassoPerDirectory(t *testing.T) {
+	openTestDB(t)
+	dir := filepath.Join(t.TempDir(), "plugins")
+	_ = os.MkdirAll(dir, 0o755)
+	srvA := mcp.NewServer(&mcp.Implementation{Name: "a", Version: "0"}, nil)
+	srvB := mcp.NewServer(&mcp.Implementation{Name: "b", Version: "0"}, nil)
+	a := newPluginManager(dir, func() *mcp.Server { return srvA })
+	b := newPluginManager(dir, func() *mcp.Server { return srvB })
+	t.Cleanup(b.stopAll)
+	t.Cleanup(a.stopAll)
+	writePlugin(t, dir, "alpha", fakePluginManifest(t, "alpha", "a"), nil)
+
+	a.rescan() // a takes the lock first
+	if err := a.setTrusted("alpha", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.enable("alpha", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitPlugin(t, "alpha running in a", func() bool { return mcpStatusOf(a, "alpha").Status == pluginMCPRunning })
+
+	b.rescan() // shares the db, so alpha is enabled for b too
+	st := mcpStatusOf(b, "alpha")
+	if st.Status != pluginMCPUnavailable || !strings.Contains(st.Detail, "other lasso") || !strings.Contains(st.Detail, "pid "+strconv.Itoa(os.Getpid())) {
+		t.Fatalf("b's view of alpha = %+v, want unavailable naming the holder", st)
+	}
+	b.mu.Lock()
+	n := len(b.servers)
+	b.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("b started %d servers without the lock", n)
+	}
+
+	a.stopAll() // releases the lock
+	b.rescan()
+	waitPlugin(t, "alpha running in b after a let go", func() bool { return mcpStatusOf(b, "alpha").Status == pluginMCPRunning })
 }

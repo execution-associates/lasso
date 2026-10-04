@@ -289,6 +289,10 @@ Without a usable isb, tabs still work, and every untrusted MCP server reads `una
 - `GET /api/plugins` answers `sandbox` in place of `msb`, and each plugin gains `vm` and `isolation`.
 - The server runs as uid 1000, not root, and the image needs `sh` and `sleep` or `tail`.
 
+### Two lassos on one plugins directory
+
+Only one lasso at a time runs the MCP servers for a plugins directory: whichever holds the lock file `plugins/.runner.lock`. A second lasso using the same `LASSO_DIR` (a development build beside the production one) still serves every plugin's tabs, themes and fonts, and lists each MCP server as `unavailable`, naming the lasso that runs it. When that lasso stops, the other takes the servers over within a rescan (10 seconds). Without this the two would keep deleting each other's sandboxes, which share one name per plugin.
+
 ## HTTP API
 
 These are for the Settings pane and the CLI. They are behind `UI_AUTH` like the rest of the UI.

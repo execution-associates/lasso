@@ -654,6 +654,10 @@ type pluginManager struct {
 	// installMu serializes the operations that move directories and records:
 	// confirm, link, unlink, uninstall, update.
 	installMu sync.Mutex
+	// runLock is held while this process owns the plugin servers for this
+	// directory (pluginlock.go); runnerElsewhere says who does when it doesn't.
+	runLock         *os.File
+	runnerElsewhere string
 }
 
 // plugins is the process-wide manager main wires up; nil reads as "no plugins".
@@ -745,6 +749,7 @@ func (m *pluginManager) reconcile() {
 	m.reconcileMu.Lock()
 	defer m.reconcileMu.Unlock()
 	grants := loadPluginGrants()
+	owner := m.ownsRunner()
 
 	m.mu.Lock()
 	var stop []*pluginServer
@@ -752,7 +757,7 @@ func (m *pluginManager) reconcile() {
 	want := map[string]bool{}
 	for name, e := range m.entries {
 		g := grants[name]
-		if e.state(g) != pluginStateEnabled || e.Man.MCP == nil || m.held[name] {
+		if !owner || e.state(g) != pluginStateEnabled || e.Man.MCP == nil || m.held[name] {
 			continue
 		}
 		want[name] = true
@@ -831,6 +836,7 @@ func (m *pluginManager) stopAll() {
 		go func() { defer wg.Done(); s.stop() }()
 	}
 	wg.Wait()
+	m.releaseRunner()
 }
 
 func (m *pluginManager) entry(name string) *pluginEntry {
@@ -1020,6 +1026,7 @@ func (m *pluginManager) listing() pluginsPayload {
 			servers[n] = s
 		}
 	}
+	elsewhere := m.runnerElsewhere
 	m.mu.Unlock()
 
 	out := pluginsPayload{Dir: m.dir, Sandbox: currentSandboxStatus(), Plugins: []pluginPayload{}}
@@ -1062,6 +1069,8 @@ func (m *pluginManager) listing() pluginsPayload {
 				if s := servers[e.Name]; s != nil && p.State == pluginStateEnabled {
 					st := s.snapshot()
 					mp.Status, mp.Detail, mp.Tools, mp.Sandboxed = st.Status, st.Detail, st.Tools, s.isolation != pluginIsolationHost
+				} else if p.State == pluginStateEnabled && elsewhere != "" {
+					mp.Status, mp.Detail = pluginMCPUnavailable, elsewhere
 				}
 				p.MCP = mp
 			}
