@@ -28,38 +28,35 @@ import (
 // browsermcp.go pattern, for the same reason: lasso adds nothing a client could
 // tell apart from talking to the plugin directly.
 //
-// How the child runs is a pluginRunner: in a microsandbox microVM
-// (pluginsandbox.go, the default) or on the host (a plugin the operator marked
-// trusted). Either way this file sees a stream to speak MCP over, a channel
-// that closes when the child dies, and a stop.
+// How the child runs is a pluginRunner: in an isb sandbox (pluginsandbox.go:
+// a container by default, a VM when the operator asks) or on the host (a
+// plugin the operator marked trusted). Either way this file sees a stream to
+// speak MCP over, a channel that closes when the child dies, and a stop.
 //
 // Lifecycle: a child that dies has its tools removed and is restarted with
 // backoff (pluginBackoffMin doubling to pluginBackoffMax), its tools re-added
 // once it answers again. A server that cannot start for a reason retrying will
-// not fix — no msb on this machine, a secret that did not resolve — goes
+// not fix — no usable isb on this machine, isb serve down, a secret that did
+// not resolve — goes
 // `unavailable` and waits for the operator (Restart, or a reload).
 
 var (
 	pluginBackoffMin = time.Second
 	pluginBackoffMax = 60 * time.Second
-	// pluginStartTimeout bounds a launch through its tools/list. A microVM's
-	// cold boot is 2-3s; the first boot of an image also PULLS it, which is the
-	// case this is sized for.
-	pluginStartTimeout = 2 * time.Minute
-	// pluginConnectAttempt bounds one MCP initialize over one connection. A
-	// sandbox's published port can accept before the guest's server is up and
-	// then reset, so a failed initialize is retried on a fresh dial.
-	pluginConnectAttempt = 20 * time.Second
-	// pluginPingEvery is how often a running server is pinged. Measured on msb
-	// 0.7.3: when the server inside a microVM dies, the guest closes its end
-	// but the published port's forwarder does not pass the FIN on — the host
-	// side of the socket stays open and silent, so nothing but a WRITE (which
-	// the forwarder answers with a reset) reveals it. Without the ping a dead
-	// plugin reads as running until an agent happens to call one of its tools
-	// and gets EOF for its trouble.
-	pluginPingEvery   = 10 * time.Second
-	pluginPingTimeout = 10 * time.Second
+	// pluginStartTimeout bounds a launch through its tools/list. A container
+	// is up in seconds; the case this is sized for is a first start that
+	// downloads its image, or a VM that boots a kernel and its agent (isb
+	// gives a VM 300s to get ready).
+	pluginStartTimeout = 10 * time.Minute
+	// pluginConnectAttempt bounds one MCP initialize. A stdio child gets one
+	// attempt; a failed initialize is a failed launch.
+	pluginConnectAttempt = 60 * time.Second
 )
+
+// No liveness ping: a dead server is seen without one. A trusted child is
+// lasso's own process, and a sandboxed one is reached through `isb exec`,
+// which exits within milliseconds of the server inside dying (measured on
+// isb 1.0.0, in a container and in a VM), closing the session and proc.done().
 
 // pluginLaunch is everything a runner needs to start one plugin's server.
 type pluginLaunch struct {
@@ -84,29 +81,6 @@ type pluginRunner interface {
 type pluginStream struct {
 	r io.ReadCloser
 	w io.WriteCloser
-}
-
-// pluginLogTailer is a proc that can say what its child printed recently when
-// that output does not stream to lasso's log on its own (a microVM's).
-type pluginLogTailer interface {
-	logTail() string
-}
-
-// procTail is proc's recent output as a log-ready suffix, or "".
-func procTail(proc pluginProc) string {
-	t, ok := proc.(pluginLogTailer)
-	if !ok {
-		return ""
-	}
-	s := t.logTail()
-	if s == "" {
-		return ""
-	}
-	lines := strings.Split(s, "\n")
-	if len(lines) > 8 {
-		lines = lines[len(lines)-8:]
-	}
-	return "; output: " + clipLine(strings.Join(lines, " | "), 800)
 }
 
 type pluginProc interface {
@@ -152,16 +126,19 @@ var pluginSecretLookup = func(ctx context.Context, name string) (string, error) 
 
 // pluginServer supervises one plugin's child and its mirrored tools.
 type pluginServer struct {
-	name    string
-	dir     string
-	spec    *pluginMCPSpec
-	fp      string
-	trusted bool
-	runner  pluginRunner
-	server  func() *mcp.Server
-	notify  func()
-	// dataDir is created (0700) before each launch; ring keeps the host
-	// child's recent stderr for GET /api/plugins/<name>/log. Both are set by
+	name string
+	dir  string
+	spec *pluginMCPSpec
+	fp   string
+	// isolation is where it runs (host / container / vm); a change is a
+	// restart, since a server cannot move between them in place.
+	isolation string
+	runner    pluginRunner
+	server    func() *mcp.Server
+	notify    func()
+	// dataDir is created (0700) before each launch; ring keeps the child's
+	// recent stderr (the server's, through isb exec when sandboxed) for GET
+	// /api/plugins/<name>/log. Both are set by
 	// the manager after construction and may be empty/nil.
 	dataDir string
 	ring    *lineRing
@@ -184,9 +161,9 @@ type pluginServerStatus struct {
 	Tools  []string
 }
 
-func newPluginServer(e *pluginEntry, trusted bool, server func() *mcp.Server, runner pluginRunner, notify func()) *pluginServer {
+func newPluginServer(e *pluginEntry, isolation string, server func() *mcp.Server, runner pluginRunner, notify func()) *pluginServer {
 	return &pluginServer{
-		name: e.Name, dir: e.Dir, spec: e.Man.MCP, fp: e.FP, trusted: trusted,
+		name: e.Name, dir: e.Dir, spec: e.Man.MCP, fp: e.FP, isolation: isolation,
 		runner: runner, server: server, notify: notify,
 		status: pluginMCPStopped,
 	}
@@ -308,7 +285,7 @@ func (s *pluginServer) launch(ctx context.Context) (pluginProc, error) {
 	}
 	client, err := s.handshake(lctx, proc)
 	if err != nil {
-		tail := browserMCPTail(logw.tail) + procTail(proc)
+		tail := browserMCPTail(logw.tail)
 		proc.stop()
 		return nil, fmt.Errorf("%v%s", err, tail)
 	}
@@ -364,38 +341,33 @@ func (s *pluginServer) serve(ctx context.Context, proc pluginProc) string {
 	client := s.client
 	n := len(s.mirrored)
 	s.mu.Unlock()
-	log.Printf("plugin[%s]: MCP server running (%d tools, %s)", s.name, n, map[bool]string{true: "sandboxed", false: "TRUSTED, on the host"}[s.runner.sandboxed()])
+	where := "in an isb " + s.isolation
+	if !s.runner.sandboxed() {
+		where = "TRUSTED, on the host"
+	}
+	log.Printf("plugin[%s]: MCP server running (%d tools, %s)", s.name, n, where)
 	s.setStatus(pluginMCPRunning, "")
 	sessDone := make(chan struct{})
 	go func() { _ = client.Wait(); close(sessDone) }()
 	why := "stopped"
-	ping := time.NewTicker(pluginPingEvery)
-	defer ping.Stop()
-wait:
-	for {
-		select {
-		case <-ctx.Done():
-			break wait
-		case <-proc.done():
-			why = "exited"
-			break wait
-		case <-sessDone:
-			why = "closed its connection"
-			break wait
-		case <-ping.C:
-			pctx, cancel := context.WithTimeout(ctx, pluginPingTimeout)
-			err := client.Ping(pctx, nil)
-			cancel()
-			if err != nil && ctx.Err() == nil {
-				why = "stopped answering (ping: " + err.Error() + ")"
-				break wait
-			}
-		}
+	select {
+	case <-ctx.Done():
+	case <-proc.done():
+		why = "exited"
+	case <-sessDone:
+		why = "closed its connection"
 	}
 	s.unregister()
 	_ = client.Close()
 	if why != "stopped" {
-		why += procTail(proc)
+		if s.ring != nil {
+			if last := s.ring.last(8); len(last) > 0 {
+				why += "; output: " + clipLine(strings.Join(last, " | "), 800)
+			}
+		}
+		// Said now, not after proc.stop: removing a sandbox takes seconds,
+		// and the listing should not read "running" meanwhile.
+		s.setStatus(pluginMCPError, why+"; restarting")
 	}
 	proc.stop()
 	return why
@@ -454,7 +426,7 @@ func (s *pluginServer) unregister() {
 }
 
 // forward is a mirrored tool's /mcp handler. A plugin runs on lasso's machine
-// (in a microVM or, trusted, directly), so a caller whose credential does not
+// (in a sandbox or, trusted, directly), so a caller whose credential does not
 // reach lasso's own machine may not use it — the shared_browser rule, since a
 // plugin tool reaches whatever lasso's machine lets it.
 func (s *pluginServer) forward(tool string) mcp.ToolHandler {

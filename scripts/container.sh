@@ -200,6 +200,9 @@ container_up_foreground() {
 # with the mise-managed toolchain (node, bun, uv) on PATH (scripts/isb/dev.yaml).
 # Output streams as it is produced and the exit status is the command's; isb
 # itself failing (no container, incusd unreachable) exits 125.
+# No -i: nothing run here reads stdin, and isb exec forwards it only from a
+# terminal (or with -i/-T), so under a task runner or an agent the command sees
+# EOF instead of an inherited socket that never closes.
 container_run_in() {
   container_isb exec -w "$1" web -- bash -c "$2"
 }

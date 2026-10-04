@@ -60,6 +60,7 @@ import {
   completeUsageProviderOrder,
   type Plugin,
   type PluginAction,
+  type PluginIsolation,
   type PluginMCPStatus,
   type PluginPermissions,
   type PluginPreview,
@@ -3123,6 +3124,12 @@ function PluginPermissionList({
               <li className={item}>
                 image <code className={code}>{mcp.image}</code>
               </li>
+              {mcp.vm_image && (
+                <li className={item}>
+                  VM image <code className={code}>{mcp.vm_image}</code> (when
+                  you run it in a VM)
+                </li>
+              )}
               <li className={item}>
                 runs <code className={code}>{command.join(" ")}</code>
               </li>
@@ -3177,7 +3184,8 @@ function PluginPermissionList({
 // Nothing a manifest says grants anything. Enabling approves the permissions
 // shown in the dialog — and only those: a manifest that later asks for more
 // reads "needs approval" and loads nothing until approved again. Trusted
-// (run on the host, outside the microVM) is likewise only ever this switch.
+// (run on the host, outside the sandbox) and the VM isolation are likewise
+// only ever these switches.
 function PluginsSettings({ active }: { active: boolean }) {
   const queryClient = useQueryClient()
   const plugins = usePlugins()
@@ -3223,6 +3231,12 @@ function PluginsSettings({ active }: { active: boolean }) {
   const trust = useMutation({
     mutationFn: ({ name, trusted }: { name: string; trusted: boolean }) =>
       api.setPluginTrusted(name, trusted),
+    onError: (e: Error, v) => toast.error(`Plugin ${v.name}: ${e.message}`),
+    onSettled: settle,
+  })
+  const isolation = useMutation({
+    mutationFn: ({ name, vm }: { name: string; vm: boolean }) =>
+      api.setPluginIsolation(name, vm),
     onError: (e: Error, v) => toast.error(`Plugin ${v.name}: ${e.message}`),
     onSettled: settle,
   })
@@ -3293,6 +3307,7 @@ function PluginsSettings({ active }: { active: boolean }) {
   const busy =
     action.isPending ||
     trust.isPending ||
+    isolation.isPending ||
     reload.isPending ||
     installPreview.isPending ||
     installConfirm.isPending ||
@@ -3327,22 +3342,23 @@ function PluginsSettings({ active }: { active: boolean }) {
       ) : (
         <>
           <p className="text-[11px] text-muted-foreground">
-            {data.msb.available ? (
+            {data.sandbox?.available ? (
               <>
-                Sandbox: microsandbox
-                {data.msb.path && (
+                Sandbox: isb{data.sandbox.version && ` ${data.sandbox.version}`}
+                {data.sandbox.path && (
                   <>
                     {" "}
-                    at <code className="font-mono">{data.msb.path}</code>
+                    at <code className="font-mono">{data.sandbox.path}</code>
                   </>
                 )}
-                . Plugin MCP servers run in their own microVM.
+                . Plugin MCP servers run in containers (a VM per plugin on
+                request).
               </>
             ) : (
               <span className="text-warn">
                 Sandbox unavailable
-                {data.msb.reason ? ` — ${data.msb.reason}` : ""}. Plugin MCP
-                servers won't start unless trusted; tabs still work.
+                {data.sandbox?.reason ? ` — ${data.sandbox.reason}` : ""}.
+                Plugin MCP servers won't start unless trusted; tabs still work.
               </span>
             )}
           </p>
@@ -3377,6 +3393,7 @@ function PluginsSettings({ active }: { active: boolean }) {
                 if (trusted) setTrusting(p)
                 else trust.mutate({ name: p.name, trusted: false })
               }}
+              onIsolation={(vm) => isolation.mutate({ name: p.name, vm })}
             />
           ))}
         </>
@@ -3524,6 +3541,7 @@ function PluginRow({
   onDisable,
   onRestart,
   onTrust,
+  onIsolation,
   onUpdate,
   onUninstall,
   onUnlink,
@@ -3536,12 +3554,16 @@ function PluginRow({
   onDisable: () => void
   onRestart: () => void
   onTrust: (trusted: boolean) => void
+  onIsolation: (vm: boolean) => void
   onUpdate: () => void
   onUninstall: () => void
   onUnlink: () => void
   onLogs: () => void
 }) {
   const trustID = `settings-plugin-trust-${p.name}`
+  // An older server sends neither field: read it as the default container.
+  const iso: PluginIsolation =
+    p.isolation ?? (p.trusted ? "host" : p.vm ? "vm" : "container")
   const tools = p.mcp?.tools ?? []
   const src = pluginSourceOf(p)
   return (
@@ -3638,8 +3660,8 @@ function PluginRow({
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-[11px] text-muted-foreground">MCP</span>
             <Pill tone={MCP_STATUS_TONE[p.mcp.status]}>{p.mcp.status}</Pill>
-            <Pill tone={p.mcp.sandboxed ? "muted" : "warn"}>
-              {p.mcp.sandboxed ? "sandboxed" : "on this machine"}
+            <Pill tone={iso === "host" ? "warn" : "muted"}>
+              {iso === "host" ? "host" : iso}
             </Pill>
           </div>
           {p.mcp.detail && (
@@ -3663,6 +3685,40 @@ function PluginRow({
       )}
       {p.permissions.mcp && p.state !== "invalid" && (
         <div className="flex flex-col gap-0.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[13px] text-foreground">Isolation</span>
+            <div className="inline-flex w-fit gap-0.5 rounded-lg border border-border p-0.5">
+              {(["container", "vm"] as const).map((v) => {
+                const on = (p.vm ? "vm" : "container") === v
+                return (
+                  <button
+                    key={v}
+                    type="button"
+                    aria-pressed={on}
+                    disabled={busy || p.trusted}
+                    onClick={() => {
+                      if (!on) onIsolation(v === "vm")
+                    }}
+                    className={cn(
+                      "rounded-md px-2 py-0.5 text-xs transition-colors disabled:opacity-50",
+                      on
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {v === "vm" ? "VM" : "Container"}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            {p.trusted
+              ? "Not used while it is trusted."
+              : p.vm
+                ? "VM: its own kernel; slower start."
+                : "Container: shares this machine's kernel; starts in seconds. VM: its own kernel; slower start."}
+          </p>
           <label
             className="flex cursor-pointer select-none items-center gap-2 text-[13px] text-foreground"
             htmlFor={trustID}
@@ -3683,7 +3739,7 @@ function PluginRow({
           >
             {p.trusted
               ? "Its MCP server runs as your user on this machine, outside the sandbox."
-              : "Off: its MCP server runs in a microVM. Trusting it runs it as your user on this machine, outside the sandbox."}
+              : "Off: its MCP server runs in an isb sandbox. Trusting it runs it as your user on this machine, outside the sandbox."}
           </p>
         </div>
       )}
@@ -3861,7 +3917,7 @@ function PluginInstallRow({
       )}
       <p className="text-[11px] text-muted-foreground">
         Anyone can publish a plugin; nothing here is reviewed. The preview shows
-        exactly what it asks for, and its MCP server runs in a microVM.
+        exactly what it asks for, and its MCP server runs in a sandbox.
       </p>
     </div>
   )
