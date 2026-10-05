@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import { api } from "@/lib/api"
-import { terminalPasteHost } from "@/lib/terminal"
+import { enterChordSeq, terminalPasteHost } from "@/lib/terminal"
 
 describe("terminalPasteHost", () => {
   test("keeps local terminal and shell pastes on the active host", () => {
@@ -18,6 +18,40 @@ describe("terminalPasteHost", () => {
   test("falls back to the active host until focused-pane metadata arrives", () => {
     expect(terminalPasteHost("herdr", "ticket500", null)).toBe("ticket500")
     expect(terminalPasteHost("herdr", null, null)).toBeUndefined()
+  })
+})
+
+describe("enterChordSeq", () => {
+  const k = (mods) => ({
+    shiftKey: false,
+    altKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    ...mods,
+  })
+
+  test("sends herdr a real modified Enter as CSI-u", () => {
+    expect(enterChordSeq(k({ shiftKey: true }), "herdr")).toBe("\x1b[13;2u")
+    expect(enterChordSeq(k({ ctrlKey: true }), "herdr")).toBe("\x1b[13;5u")
+    expect(enterChordSeq(k({ ctrlKey: true, shiftKey: true }), "herdr")).toBe(
+      "\x1b[13;6u"
+    )
+    expect(enterChordSeq(k({ ctrlKey: true, altKey: true }), "herdr")).toBe(
+      "\x1b[13;7u"
+    )
+  })
+
+  test("leaves plain, Alt-only and Meta chords to xterm", () => {
+    expect(enterChordSeq(k({}), "herdr")).toBeNull()
+    expect(enterChordSeq(k({ altKey: true }), "herdr")).toBeNull()
+    expect(
+      enterChordSeq(k({ metaKey: true, ctrlKey: true }), "herdr")
+    ).toBeNull()
+  })
+
+  test("the raw shell keeps line continuation for Shift+Enter only", () => {
+    expect(enterChordSeq(k({ shiftKey: true }), "shell")).toBe("\\\r")
+    expect(enterChordSeq(k({ ctrlKey: true }), "shell")).toBeNull()
   })
 })
 
