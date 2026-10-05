@@ -27,6 +27,8 @@ import (
 //	/cdp/devtools/...    passthrough (page and browser targets)
 //	/cdp/json[/...]      passthrough, with every websocket URL in the answer
 //	                     rewritten to point back through /cdp
+//	/cdp/profiles        lasso's own: GET the browser profile list and each
+//	                     one's CDP address — discovery with no MCP in the loop
 //
 // /cdp itself is the stable address: Chromium's browser id changes on every
 // launch (an idle stop, a proxy change), and an agent configured with
@@ -58,6 +60,29 @@ func cdpPathFor(profile string) string {
 		return "/cdp"
 	}
 	return "/cdp/p/" + profile
+}
+
+// cdpProfilesPath is the CDP surface's discovery endpoint. GET /cdp/profiles
+// answers every browser profile and the address to connect to each one, so a
+// client that speaks only CDP — Playwright, chrome-devtools-mcp, curl — can
+// learn that a second profile exists without adding an MCP server. It is
+// served under the same auth gate and Origin guard as the rest of /cdp.
+const cdpProfilesPath = "/cdp/profiles"
+
+// cdpProfilesRequest reports whether p asks for that listing: the bare
+// /cdp/profiles, or any profile's /cdp/p/<id>/profiles. The listing is lasso's,
+// not one browser's, so every prefix answers the same content.
+func cdpProfilesRequest(p string) bool {
+	p = strings.TrimSuffix(p, "/")
+	if p == cdpProfilesPath {
+		return true
+	}
+	rest, ok := strings.CutPrefix(p, "/cdp/p/")
+	if !ok {
+		return false
+	}
+	id, sub, found := strings.Cut(rest, "/")
+	return found && id != "" && sub == "profiles"
 }
 
 // cdpUpstreamPath maps an inbound /cdp path onto Chromium's own. ok=false is a
@@ -278,6 +303,10 @@ func serveCDPRouted(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cross-origin request to /cdp refused", http.StatusForbidden)
 		return
 	}
+	if cdpProfilesRequest(r.URL.Path) {
+		serveCDPProfiles(w, r)
+		return
+	}
 	prefix, profile, ok := cdpProfilePrefix(r.URL.Path)
 	if !ok {
 		http.NotFound(w, r)
@@ -289,6 +318,62 @@ func serveCDPRouted(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m.serveCDPAt(w, r, prefix)
+}
+
+// cdpProfileEntry is one profile in that listing.
+type cdpProfileEntry struct {
+	ID       string        `json:"id"`
+	Name     string        `json:"name"`
+	Default  bool          `json:"default"`
+	Proxy    string        `json:"proxy,omitempty"`
+	Running  bool          `json:"running"`
+	Started  string        `json:"started_at,omitempty"`
+	Tabs     []browserPage `json:"tabs"`
+	WSPath   string        `json:"ws_path"`   // /cdp, or /cdp/p/<id>: the browser target
+	WSURL    string        `json:"ws_url"`    // ws(s):// — connect a CDP client here
+	HTTPPath string        `json:"http_path"` // the same prefix for /json/list, /json/version
+	HTTPURL  string        `json:"http_url"`
+	Note     string        `json:"note,omitempty"`
+}
+
+// cdpProfilesOut is the listing's body.
+type cdpProfilesOut struct {
+	Profiles []cdpProfileEntry `json:"profiles"`
+}
+
+// serveCDPProfiles answers GET /cdp/profiles: every browser profile, the
+// default first, each with its CDP address. This is the discovery path for a
+// client with no MCP server of its own — the answer to "which browsers can I
+// drive here" is a plain GET, not a tool call. It never starts a browser: a
+// profile that has never run is listed stopped, with no manager created for it.
+func serveCDPProfiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET")
+		http.Error(w, "the profile listing is GET", http.StatusMethodNotAllowed)
+		return
+	}
+	httpBase, wsBase := cdpHTTPBase(r), cdpWSBase(r)
+	out := cdpProfilesOut{Profiles: []cdpProfileEntry{}}
+	for _, st := range sharedBrowsers.statuses() {
+		e := cdpProfileEntry{
+			ID: st.ID, Name: st.Name, Default: st.Default, Proxy: st.Proxy,
+			Running: st.Running, Started: st.StartedAt, Tabs: st.Pages,
+			WSPath: st.WSPath, WSURL: wsBase + st.WSPath,
+			HTTPPath: st.WSPath, HTTPURL: httpBase + st.WSPath,
+		}
+		if e.Tabs == nil {
+			e.Tabs = []browserPage{}
+		}
+		e.Note = st.Note
+		if !st.Running && st.Reason != "" {
+			e.Note = st.Reason
+		}
+		out.Profiles = append(out.Profiles, e)
+	}
+	// The list moves as profiles are created, renamed and deleted; a cached
+	// copy would hide a new profile from exactly the client it is meant for.
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, out)
 }
 
 // serveCDP is the default profile's /cdp handler.

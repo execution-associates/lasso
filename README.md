@@ -423,7 +423,10 @@ times the image tokens for nothing.
 `ws://<lasso>/cdp` (`wss://` when lasso is on HTTPS), e.g.
 `chromium.connectOverCDP("ws://127.0.0.1:8090/cdp")`. The endpoint is stable:
 it survives Chromium being stopped, relaunched or restarted with a new proxy,
-so it's safe to put in an agent's config.
+so it's safe to put in an agent's config. **`GET <lasso>/cdp/profiles`** lists
+every browser profile and the CDP address to connect to each one
+(`/cdp` for the default, `/cdp/p/<id>` for the others) — discovery for a CDP
+client that adds no MCP server, behind `/cdp`'s own auth and Origin guard.
 
 An agent already talking to lasso's MCP server can call **`shared_browser`**
 (`lasso mcp shared-browser` from a shell): it starts the browser, answers with
