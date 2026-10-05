@@ -194,6 +194,10 @@ export interface HostPane {
   // on, and the only name left when nothing along the way was ever labelled.
   terminal_title?: string
   cwd?: string
+  // The git repo the pane works in, by directory name: from lasso's record of
+  // the agent, else read off the cwd (a lasso worktree, or a repos_root
+  // checkout). Absent when neither names one.
+  repo?: string
   agent?: string
   agent_status?: string
   // Whether an agent is running here. `agent` names the harness when herdr's
@@ -203,6 +207,9 @@ export interface HostPane {
   // When the agent's transcript was last written, unix milliseconds. Absent
   // when the pane has no transcript lasso can read.
   transcript_at?: number
+  // When the human last acted on this agent through lasso (sent, answered,
+  // focused, created), unix ms: the grid's "recent" order.
+  touched_at?: number
 }
 
 export interface PanesPayload {
@@ -372,8 +379,9 @@ export interface AtmospherePref {
 export type AppearanceMode = "herdr" | "system" | "light" | "dark"
 
 // How the agents grid orders its cards. "priority" surfaces what needs a human
-// (blocked > working > idle > done); "recent" puts the agent whose transcript
-// was written most recently first, so the conversations that are moving lead.
+// (blocked > working > idle > done); "recent" puts the agent the human last
+// acted on through lasso first (touched_at), so the ones you are working with
+// lead rather than whichever happens to be busy.
 //
 // Server-owned like the rest of UIState, so the phone and the desktop agree and
 // a reload does not reset it.

@@ -8,7 +8,8 @@ lasso's Go backend lives in `src/` (the module root, with `go.mod`). The fronten
 
 ## Prerequisites
 
-- [mise](https://mise.jdx.dev). `mise.toml` pins Go, bun, node and [isb](https://github.com/execution-associates/isb); `mise install` fetches them.
+- [mise](https://mise.jdx.dev). `mise.toml` pins Go, bun and node; `mise install` fetches them.
+- [isb](https://github.com/execution-associates/isb) 1.0 or later on your `PATH`. It is not pinned in `mise.toml`; the tasks use the host's own.
 - [incus](https://linuxcontainers.org/incus/), for the frontend container (below).
 - herdr and ttyd, to run what you build.
 - `mise run dev` binds your tailscale address, so tailscale must be up.
@@ -38,7 +39,7 @@ mise run build
 
 ## The dev loop
 
-`mise run dev` starts the backend on `127.0.0.1:8190`, a dev port deliberately apart from the production default `8090`. With `-dev`, a busy port bumps to the next free one, so several dev instances can run at once, and the backend's log is teed to `/tmp/lasso-dev.log` together with browser-side events. Vite serves the UI on the next free tailnet port from 5173 and prints its URL. Frontend edits reload instantly; Go changes need the task restarted.
+`mise run dev` starts the backend on `127.0.0.1:8190`, a dev port deliberately apart from the production default `8090`. With `-dev`, a busy port bumps to the next free one, so several dev instances can run at once, and the backend's log is teed to `/tmp/lasso-dev.log` together with browser-side events. Vite listens on the next free loopback port from 5173, and `tailscale serve` publishes it over HTTPS on the same port at the machine's MagicDNS name (`https://<host>.<tailnet>.ts.net:5173`), which the task prints. That needs HTTPS certificates enabled for the tailnet and the user set as tailscale's operator (`sudo tailscale set --operator=$USER`). Frontend edits reload instantly; Go changes need the task restarted.
 
 One `mise run dev` runs per worktree; a second in the same worktree is refused. Dev servers in different worktrees run side by side.
 
@@ -49,7 +50,7 @@ To run lasso from inside a herdr pane (developing lasso with lasso), set `allow_
 `bun install`, Vite, tsc and Biome are third-party code, and `bun install` runs dependencies' install scripts. On your machine that code would run as you, next to your SSH keys and credentials. So every frontend task (`build`, `dev`, `typecheck`, `lint`, `check`, `icons`) runs inside an unprivileged incus container, where a compromised dependency is an unprivileged user with one directory mounted. The Go half (`go build`, `go test`) runs on the host: Go has no install hooks, and the binary has to run there to drive herdr.
 
 - **One container per worktree**, named after the worktree and mounting only its `src/web` (and `brand/icon` for `icons`), never the repo root, so an install script cannot write a git hook into `.git`. `node_modules` lives in each worktree's own `src/web`; only bun's download cache is shared between containers.
-- **Declared, not hand-built.** The containers are described in `scripts/isb/*.yaml` and driven by isb, pinned in `mise.toml` as a prebuilt release binary. Add a mount or setting in the YAML, not with `incus config`. `scripts/container.sh` documents the arrangement.
+- **Declared, not hand-built.** The containers are described in `scripts/isb/*.yaml` and driven by the isb on your `PATH`. Add a mount or setting in the YAML, not with `incus config`. `scripts/container.sh` documents the arrangement.
 - **Disposable.** Delete one and the next task rebuilds it from the `dev-base` image (built by `scripts/dev-base.sh`). `mise run dev` holds its container in the foreground, so the container stops when the dev server ends.
 - **The diagram renders elsewhere.** `mise run diagram` uses a separate `sandbox` container (Debian, `scripts/isb/sandbox.yaml`) with only `docs/assets/architecture` mounted, since reladraw is fetched from npm at render time.
 

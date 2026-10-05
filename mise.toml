@@ -27,11 +27,7 @@
 go = "1.25.3"
 bun = "1.3.14"
 node = "26.7.0"
-# Drives the frontend dev containers (scripts/container.sh, scripts/isb/). A
-# prebuilt static binary from the GitHub release, built in isb's CI: never
-# `cargo install` it on a host, since build.rs and proc-macros are arbitrary code.
-# 1.0 is also what lasso's plugin sandbox needs (pluginsandbox.go).
-"github:execution-associates/isb" = "1.0.0"
+
 # Runs in this worktree's dev container: the work here is uv resolving Pillow
 # from PyPI, not the few lines of resizing. The deps live in PEP 723 metadata at the
 # top of build.py. The source is raster art (brand/icon/icon.png); there is no
@@ -141,12 +137,16 @@ fi
 """
 
 [tasks.dev]
-description = "Frontend hot reload (Vite) on the tailscale IP, proxying /api + terminals to the Go backend"
+description = "Frontend hot reload (Vite) over HTTPS on the tailnet (tailscale serve), proxying /api + terminals to the Go backend"
 depends = ["build"]
 shell = "bash -c"
 run = '''
-ip="$(tailscale ip -4 | head -n1)"
-[ -n "$ip" ] || { echo "no tailscale IPv4 found — is tailscale up? (tailscale status)" >&2; exit 1; }
+# The UI is served over HTTPS at this machine's MagicDNS name by `tailscale
+# serve` (scripts/container-dev-web.sh), so it needs tailscale up with HTTPS
+# certificates enabled for the tailnet.
+dns="$(tailscale status --self --json 2>/dev/null | jq -r '.Self.DNSName // empty')"
+dns="${dns%.}"
+[ -n "$dns" ] || { echo "no tailscale DNS name found — is tailscale up? (tailscale status)" >&2; exit 1; }
 
 # Backend on loopback, on a dedicated DEV port (8190) — deliberately distinct
 # from the production default (8090) so a dev instance never shares a port
@@ -175,7 +175,7 @@ trap 'kill "$backend" "$tailpid" 2>/dev/null; rm -f "$logf"' EXIT
 
 echo "lasso (dev): backend on 127.0.0.1:$port · Vite UI in this worktree's dev container, URL printed below (frontend hot reload ON)"
 echo "edit anything under src/web/src and the browser hot-reloads; restart this task for Go changes."
-./scripts/container-dev-web.sh "$port" "$ip"
+./scripts/container-dev-web.sh "$port" "$dns"
 '''
 
 [tasks.dev-herdr]

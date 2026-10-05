@@ -1,6 +1,6 @@
 import { useQueries } from "@tanstack/react-query"
 import {
-  LayoutGrid,
+  FolderGit2,
   Loader2,
   Maximize2,
   Paperclip,
@@ -9,12 +9,14 @@ import {
   Plus,
   Search,
   Send,
+  Server,
   SquareX,
   X,
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { AgentLines } from "@/components/AgentParts"
+import { type GridGroup, GroupedGrid } from "@/components/GroupedGrid"
 import { Markdown } from "@/components/Markdown"
 import { UserBubble } from "@/components/UserBubble"
 import {
@@ -30,8 +32,10 @@ import {
 import { Button } from "@/components/ui/button"
 import { Orb } from "@/components/ui/orb"
 import {
+  type AgentRepoGroup,
   agentName,
   groupAgentsByHost,
+  groupAgentsByRepo,
   paneKey,
   sortAgents,
   useAgents,
@@ -50,7 +54,7 @@ import { patchUIState, setAgentPinned, useUIState } from "@/lib/ui-state"
 import { cn } from "@/lib/utils"
 
 // The fleet as parallel conversations: every agent lasso can reach in a grid,
-// grouped by herdr machine unless the header toggle says otherwise, in
+// grouped by herdr machine and/or repo as the header toggles say, in
 // attention order (blocked > working > idle > done) or recency order — see
 // the Sort control. Each card reads the
 // agent's TRANSCRIPT — the same source ChatView renders — never the terminal:
@@ -65,8 +69,10 @@ import { cn } from "@/lib/utils"
 // Auto-fill, not breakpoints: the overlay is ~60% of the viewport, so viewport
 // breakpoints cannot know a card's width. One column on a narrow tablet
 // portrait, up to three on a wide desktop.
+// Gaps are the caller's: the flat grid packs tight, GroupedGrid widens them to
+// fit its outlines.
 const gridClass =
-  "grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]"
+  "grid [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]"
 
 // How many successful listings in a row a pinned agent may be missing from
 // before its pin is dropped. A pane id can be reused by a later agent, which
@@ -89,6 +95,7 @@ function agentSearchText(pane: HostPane, chat?: ChatPayload): string {
     pane.cwd,
     pane.host,
     pane.host_label,
+    pane.repo,
     chat?.title,
     chat?.agent,
     chat?.cwd,
@@ -185,6 +192,8 @@ export function AgentsView({
   }, [])
   const { host: tabHost } = useApp()
   const [groupByHost, setGroupByHost] = React.useState(true)
+  const [groupByRepo, setGroupByRepo] = React.useState(false)
+  const grouped = groupByHost || groupByRepo
   const [filter, setFilter] = React.useState("")
   // Persisted server-side rather than held here beside groupByHost, so the
   // order does not revert on the next reload or differ on the phone. Grouping
@@ -239,12 +248,59 @@ export function AgentsView({
     () => visible.filter((p) => !pinnedSet.has(paneKey(p))),
     [visible, pinnedSet]
   )
-  // The two controls compose: Sort decides card order, Group decides whether
-  // machine sections divide the grid. All four combinations mean something.
-  const groups = React.useMemo(
-    () => groupAgentsByHost(rest, tabHost, sort),
-    [rest, tabHost, sort]
-  )
+  // The controls compose: Sort decides card order, the two group toggles
+  // decide whether machine sections, repo sections, or machine sections split
+  // into repo subsections divide the grid. Every combination means something.
+  const gridGroups = React.useMemo((): GridGroup[] => {
+    if (!grouped) return []
+    const keys = (ps: HostPane[]) => ps.map(paneKey)
+    // Keyed under the host when nested: two machines' "lasso" groups that end
+    // up adjacent must stay two outlines, not merge into one.
+    const repoGroup = (r: AgentRepoGroup, within = ""): GridGroup => ({
+      key: `${within}repo:${r.repo}`,
+      label: {
+        name: r.label,
+        count: r.panes.length,
+        blocked: r.blocked,
+        working: r.working,
+      },
+      items: keys(r.panes),
+    })
+    const out: GridGroup[] = []
+    if (pinned.length > 0)
+      out.push({
+        key: "pinned",
+        label: {
+          name: "Pinned",
+          count: pinned.length,
+          blocked: pinned.filter((p) => p.agent_status === "blocked").length,
+          working: pinned.filter((p) => p.agent_status === "working").length,
+        },
+        items: keys(pinned),
+      })
+    if (!groupByHost)
+      return [...out, ...groupAgentsByRepo(rest, sort).map((r) => repoGroup(r))]
+    for (const g of groupAgentsByHost(rest, tabHost, sort)) {
+      const children = groupByRepo
+        ? groupAgentsByRepo(g.panes, sort).map((r) =>
+            repoGroup(r, `host:${g.host}/`)
+          )
+        : undefined
+      out.push({
+        key: `host:${g.host}`,
+        label: {
+          name: g.hostLabel,
+          title: g.host,
+          count: g.panes.length,
+          blocked: g.blocked,
+          working: g.working,
+        },
+        items: children ? children.flatMap((c) => c.items) : keys(g.panes),
+        children,
+      })
+    }
+    return out
+  }, [grouped, groupByHost, groupByRepo, pinned, rest, tabHost, sort])
   const flat = React.useMemo(
     () => [...pinned, ...sortAgents(rest, sort)],
     [pinned, rest, sort]
@@ -278,16 +334,17 @@ export function AgentsView({
   // order actually RENDERED (sections included, since grouping moves cards
   // too), so the grid pays no layout reads for the per-agent transcript polls
   // that re-render this view every few seconds without moving anything.
-  const orderKey = React.useMemo(
-    () =>
-      groupByHost
-        ? `${pinned.map(paneKey).join(",")}#` +
-          groups
-            .map((g) => `${g.host}:${g.panes.map(paneKey).join(",")}`)
-            .join("|")
-        : flat.map(paneKey).join(","),
-    [pinned, groupByHost, groups, flat]
-  )
+  const orderKey = React.useMemo(() => {
+    if (!grouped) return flat.map(paneKey).join(",")
+    const enc = (gs: GridGroup[]): string =>
+      gs
+        .map(
+          (g) =>
+            `${g.key}:${g.children ? `[${enc(g.children)}]` : g.items.join(",")}`
+        )
+        .join("|")
+    return enc(gridGroups)
+  }, [grouped, gridGroups, flat])
   const flipRef = useFlip(orderKey)
   const blocked = visible.filter((p) => p.agent_status === "blocked").length
   const working = visible.filter((p) => p.agent_status === "working").length
@@ -295,12 +352,17 @@ export function AgentsView({
     onShowChat()
     await focusAgent(p)
   }
+  const byKey = React.useMemo(
+    () => new Map(visible.map((p) => [paneKey(p), p])),
+    [visible]
+  )
   const card = (p: HostPane) => {
     const key = paneKey(p)
     const isPinned = pinnedSet.has(key)
     return (
       <AgentCard
         key={key}
+        gridKey={key}
         flipRef={flipRef(key)}
         pane={p}
         data={chats.get(key)}
@@ -331,42 +393,45 @@ export function AgentsView({
             {unlisted.length} host{unlisted.length === 1 ? "" : "s"} unreachable
           </span>
         )}
+        {/* Three labelled clusters, because three unlabelled controls in a row
+            read as one toolbar of interchangeable buttons: Filter narrows WHICH
+            agents show, Sort orders them, Group draws outlines around them. */}
         {/* Filter-as-you-type over metadata and transcript content (see
             agentSearchText): the transcripts are already here, so matching is
             a substring over text this view holds rather than a new fetch. */}
-        <div className="relative min-w-0 flex-1 basis-40">
-          <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter agents…"
-            aria-label="Filter agents"
-            className="h-8 w-full rounded-md border border-input bg-background pr-7 pl-8 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary"
-          />
-          {filter && (
-            <button
-              type="button"
-              onClick={() => setFilter("")}
-              title="Clear filter"
-              aria-label="Clear filter"
-              className="absolute top-1/2 right-1.5 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              <X className="size-3.5" />
-            </button>
-          )}
-        </div>
-        <span className="flex shrink-0 items-center gap-1">
-          {/* Both labels stay visible rather than one toggling button: with two
-              named orders, a single button reading "Priority" cannot say
-              whether that is the mode in force or the mode a click would
-              choose. The filled segment is the answer. */}
-          {/* A fieldset rather than role="group": same semantics, and it is
-              the element a screen reader already knows. Its UA defaults
-              (min-inline-size, margin) are reset by the classes. */}
-          <fieldset
-            aria-label="Sort agents"
-            className="m-0 flex h-8 min-w-0 shrink-0 items-center rounded-md border border-input p-0.5"
-          >
+        <label className="flex min-w-0 flex-1 basis-48 items-center gap-1.5">
+          <ControlLabel>Filter</ControlLabel>
+          <span className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Name, repo, transcript…"
+              aria-label="Filter agents"
+              className="h-8 w-full rounded-md border border-input bg-background pr-7 pl-8 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary"
+            />
+            {filter && (
+              <button
+                type="button"
+                onClick={() => setFilter("")}
+                title="Clear filter"
+                aria-label="Clear filter"
+                className="absolute top-1/2 right-1.5 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </span>
+        </label>
+        {/* Both sort labels stay visible rather than one toggling button: with
+            two named orders, a single button reading "Priority" cannot say
+            whether that is the mode in force or the mode a click would choose.
+            The filled segment is the answer. Fieldsets rather than
+            role="group": same semantics, and the element a screen reader
+            already knows; their UA defaults are reset by the classes. */}
+        <fieldset className="m-0 flex min-w-0 shrink-0 items-center gap-1.5 border-0 p-0">
+          <ControlLabel as="legend">Sort</ControlLabel>
+          <span className="flex h-8 items-center rounded-md border border-input p-0.5">
             <SortSegment
               active={sort === "priority"}
               onClick={() => setSort("priority")}
@@ -379,34 +444,42 @@ export function AgentsView({
               label="Recent"
               title="Sort by recency: the agent whose transcript changed most recently comes first."
             />
-          </fieldset>
-          {/* Ghost when off, filled when on: aria-pressed alone is invisible,
-              and the grid looks identical either way until you read the
-              section headers — the button itself has to say which mode won. */}
-          <Button
-            variant={groupByHost ? "secondary" : "ghost"}
-            size="sm"
-            aria-pressed={groupByHost}
-            title={
-              groupByHost
-                ? "Ungroup: one list in the chosen order"
-                : "Group by machine"
-            }
-            onClick={() => setGroupByHost((v) => !v)}
-          >
-            <LayoutGrid />
-            Group
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            title="New agent"
-            onClick={onNewAgent}
-          >
-            <Plus />
-            New
-          </Button>
-        </span>
+          </span>
+        </fieldset>
+        {/* Same segmented look as Sort, but each segment toggles on its own:
+            both on nests repos inside machines, which a single choice cannot
+            say. aria-pressed plus the fill says which are in force. */}
+        <fieldset className="m-0 flex min-w-0 shrink-0 items-center gap-1.5 border-0 p-0">
+          <ControlLabel as="legend">Group</ControlLabel>
+          <span className="flex h-8 items-center rounded-md border border-input p-0.5">
+            <SortSegment
+              active={groupByHost}
+              onClick={() => setGroupByHost((v) => !v)}
+              label="Host"
+              icon={<Server className="size-3.5" />}
+              title={
+                groupByHost ? "Stop grouping by machine" : "Group by machine"
+              }
+            />
+            <SortSegment
+              active={groupByRepo}
+              onClick={() => setGroupByRepo((v) => !v)}
+              label="Repo"
+              icon={<FolderGit2 className="size-3.5" />}
+              title={groupByRepo ? "Stop grouping by repo" : "Group by repo"}
+            />
+          </span>
+        </fieldset>
+        <Button
+          variant="ghost"
+          size="sm"
+          title="New agent"
+          onClick={onNewAgent}
+          className="shrink-0"
+        >
+          <Plus />
+          New
+        </Button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -438,48 +511,20 @@ export function AgentsView({
             </button>
           </div>
         )}
-        {groupByHost && pinned.length > 0 && (
-          <section className="mb-3">
-            <header className="mb-1.5 flex items-center gap-1.5 px-1 text-[11px] text-muted-foreground">
-              <Pin className="size-3" />
-              Pinned · {pinned.length}
-            </header>
-            <div className={gridClass}>{pinned.map(card)}</div>
-          </section>
-        )}
-        {groupByHost
-          ? groups.map((g) => (
-              <section key={g.host} className="mb-3 last:mb-0">
-                <header className="mb-1.5 flex items-center gap-2 px-1">
-                  <span
-                    className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-[11px] text-foreground/80"
-                    title={g.host}
-                  >
-                    {g.hostLabel}
-                  </span>
-                  <span className="text-[11px] text-muted-foreground">
-                    {g.panes.length} agent{g.panes.length === 1 ? "" : "s"}
-                    {g.blocked > 0 && (
-                      <span className="text-destructive">
-                        {" "}
-                        · {g.blocked} blocked
-                      </span>
-                    )}
-                    {g.working > 0 && (
-                      <span className="text-primary">
-                        {" "}
-                        · {g.working} working
-                      </span>
-                    )}
-                  </span>
-                </header>
-                {/* Auto-fill, not breakpoints: the overlay is ~60% of the
-                    viewport, so viewport breakpoints cannot know a card's
-                    width. One column on a narrow tablet portrait, up to three
-                    on a wide desktop. */}
-                <div className={gridClass}>{g.panes.map(card)}</div>
-              </section>
-            ))
+        {/* Auto-fill, not breakpoints: the overlay is ~60% of the viewport,
+            so viewport breakpoints cannot know a card's width. One column on
+            a narrow tablet portrait, up to three on a wide desktop. */}
+        {grouped
+          ? visible.length > 0 && (
+              <GroupedGrid
+                groups={gridGroups}
+                gridClass={gridClass}
+                render={(k) => {
+                  const p = byKey.get(k)
+                  return p ? card(p) : null
+                }}
+              />
+            )
           : visible.length > 0 && (
               <>
                 <div className="mb-1.5 px-1 text-[11px] text-muted-foreground">
@@ -494,7 +539,7 @@ export function AgentsView({
                     <span className="text-primary"> · {working} working</span>
                   )}
                 </div>
-                <div className={gridClass}>{flat.map(card)}</div>
+                <div className={cn(gridClass, "gap-2")}>{flat.map(card)}</div>
               </>
             )}
       </div>
@@ -510,11 +555,13 @@ function SortSegment({
   onClick,
   label,
   title,
+  icon,
 }: {
   active: boolean
   onClick: () => void
   label: string
   title: string
+  icon?: React.ReactNode
 }) {
   return (
     <button
@@ -523,14 +570,38 @@ function SortSegment({
       aria-pressed={active}
       title={title}
       className={cn(
-        "h-7 rounded-[5px] px-2 text-[12px] transition-colors",
+        "flex h-7 items-center gap-1 rounded-[5px] px-2 text-[12px] transition-colors",
         active
           ? "bg-secondary text-secondary-foreground"
           : "text-muted-foreground hover:bg-accent hover:text-foreground"
       )}
     >
+      {icon}
       {label}
     </button>
+  )
+}
+
+// The small caps label in front of each header cluster. A legend inside its
+// fieldset (floated by `float-left` so it sits inline instead of on the
+// border, which is what a legend does by default), a span inside the label.
+function ControlLabel({
+  as = "span",
+  children,
+}: {
+  as?: "span" | "legend"
+  children: React.ReactNode
+}) {
+  const Tag = as
+  return (
+    <Tag
+      className={cn(
+        "shrink-0 p-0 font-medium text-[10px] text-muted-foreground uppercase tracking-wider",
+        as === "legend" && "float-left mr-0"
+      )}
+    >
+      {children}
+    </Tag>
   )
 }
 
@@ -544,6 +615,7 @@ function AgentCard({
   data,
   onOpen,
   flipRef,
+  gridKey,
   pinned,
   onTogglePin,
   onClose,
@@ -560,6 +632,7 @@ function AgentCard({
   // on the card's own element, so a resort moves it without remounting it —
   // scroll position, focus and an unsent draft all survive (see lib/flip).
   flipRef: (el: HTMLElement | null) => void
+  gridKey?: string
 }) {
   const { pane_id: paneID, host } = pane
   const items = React.useMemo(() => (data?.items ?? []).slice(-30), [data])
@@ -647,6 +720,7 @@ function AgentCard({
   return (
     <article
       ref={flipRef}
+      data-grid-key={gridKey}
       className="relative flex h-80 min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card"
     >
       <header className="flex flex-none items-start gap-2 border-border border-b px-2.5 py-1.5">
