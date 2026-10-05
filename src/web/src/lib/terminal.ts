@@ -97,14 +97,31 @@ function frameWindow(id: string): TermWindow | null {
   return (el?.contentWindow as TermWindow | null) ?? null
 }
 
-// ttyd's xterm.js collapses Shift+Enter into Enter. Herdr can decode a Kitty
-// CSI-u key event and re-encode it for the focused pane's negotiated keyboard
-// mode, which lets OMP receive a real Shift+Enter. The raw /shell/ iframe has no
-// Herdr decoder, so retain the backslash+CR line-continuation fallback there.
-const HERDR_NEWLINE_SEQ = "\x1b[13;2u"
+// ttyd's xterm.js collapses Shift+Enter and Ctrl+Enter into a bare Enter.
+// Herdr can decode a Kitty CSI-u key event and re-encode it for the focused
+// pane's negotiated keyboard mode, which lets OMP and Claude Code receive the
+// real chord. The raw /shell/ iframe has no Herdr decoder, so it keeps the
+// backslash+CR line-continuation fallback for Shift+Enter and leaves the other
+// chords to xterm.
 const SHELL_NEWLINE_SEQ = "\\\r"
-function sendNewline(term: XTerm, inputMode: TerminalInputMode) {
-  const sequence = inputMode === "herdr" ? HERDR_NEWLINE_SEQ : SHELL_NEWLINE_SEQ
+
+// enterChordSeq returns the bytes for a modified Enter that xterm would
+// flatten, or null to let xterm handle the key. The CSI-u modifier is
+// 1 + shift + 2*alt + 4*ctrl. Meta is left alone (Cmd+Enter belongs to the
+// browser/OS), and so is Alt alone, which xterm already sends as ESC CR.
+export function enterChordSeq(
+  e: Pick<KeyboardEvent, "shiftKey" | "altKey" | "ctrlKey" | "metaKey">,
+  inputMode: TerminalInputMode
+): string | null {
+  if (e.metaKey || !(e.shiftKey || e.ctrlKey)) return null
+  if (inputMode === "shell")
+    return e.shiftKey && !e.ctrlKey && !e.altKey ? SHELL_NEWLINE_SEQ : null
+  const mod =
+    1 + (e.shiftKey ? 1 : 0) + (e.altKey ? 2 : 0) + (e.ctrlKey ? 4 : 0)
+  return `\x1b[13;${mod}u`
+}
+
+function sendTermSeq(term: XTerm, sequence: string) {
   if (typeof term.input === "function") {
     term.input(sequence)
     return
@@ -161,18 +178,13 @@ function wireShiftEnter(
           e.code === "Enter" ||
           e.code === "NumpadEnter" ||
           e.keyCode === 13
-        if (
-          e.type === "keydown" &&
-          enterish &&
-          e.shiftKey &&
-          !e.ctrlKey &&
-          !e.altKey &&
-          !e.metaKey
-        ) {
+        const seq =
+          e.type === "keydown" && enterish ? enterChordSeq(e, inputMode) : null
+        if (seq !== null) {
           // preventDefault is essential — without it the browser runs Enter's
           // default on the helper textarea, which xterm re-reads as a 2nd Enter.
           if (e.preventDefault) e.preventDefault()
-          sendNewline(t, inputMode)
+          sendTermSeq(t, seq)
           return false
         }
         return true
