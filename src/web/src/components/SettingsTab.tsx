@@ -882,7 +882,7 @@ function TypographySettings() {
       {fonts.length === 0 ? (
         <p className="text-[11px] text-muted-foreground">
           No enabled plugin provides fonts. A plugin can add typefaces for the
-          interface, code and the terminal — see docs/plugins.md.
+          interface, code and the terminal — see docs/plugins/authoring.md.
         </p>
       ) : (
         <div className="flex flex-col gap-2">
