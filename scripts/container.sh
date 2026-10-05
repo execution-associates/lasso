@@ -16,7 +16,7 @@
 # 1Password session and the tunnel credentials. In an unprivileged container it
 # is an unprivileged uid in its own userns with one directory mounted.
 #
-# Only src/web and docs/icon are mounted, deliberately — NOT the repo root. A
+# Only src/web and brand/icon are mounted, deliberately — NOT the repo root. A
 # postinstall script that could reach ../.git could drop a hook, and the global
 # post-commit hook auto-pushes main, so a writable .git is a path back out to
 # the host.
@@ -110,7 +110,7 @@ ISB_FILES=(-f "$ISB_DIR/dev.yaml")
 GUEST_ROOT=/home/dev/repo
 GUEST_WEB="$GUEST_ROOT/src/web"
 # shellcheck disable=SC2034  # used by scripts that source this file
-GUEST_ICON="$GUEST_ROOT/docs/icon"
+GUEST_ICON="$GUEST_ROOT/brand/icon"
 
 # require_isb — fail with the install line rather than "command not found".
 # mise.toml pins it to a prebuilt release binary, so `mise run` puts it on PATH.

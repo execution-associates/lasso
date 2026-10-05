@@ -2,7 +2,7 @@
 #   mise run dev    — Vite dev server (frontend HMR) proxying to the Go backend
 #   mise run build  — build the frontend (src/web/dist) then the binary
 #   mise run test   — run the Go tests
-#   mise run diagram — render docs/architecture/*.reladraw to SVG
+#   mise run diagram — render docs/assets/architecture/*.reladraw to SVG
 
 # Toolchain the tasks below need on PATH. go is pinned to go.mod's version so
 # `mise run build`/`test`/`dev` compile with the exact toolchain (no implicit
@@ -34,7 +34,7 @@ node = "26.7.0"
 "github:execution-associates/isb" = "1.0.0"
 # Runs in this worktree's dev container: the work here is uv resolving Pillow
 # from PyPI, not the few lines of resizing. The deps live in PEP 723 metadata at the
-# top of build.py. The source is raster art (docs/icon/icon.png); there is no
+# top of build.py. The source is raster art (brand/icon/icon.png); there is no
 # vector mark to render any more.
 [tasks.icons]
 description = "Re-render the favicons and home-screen icons from the raster mascot, inside this worktree's dev container"
@@ -46,7 +46,7 @@ run = "./scripts/container-icons.sh"
 # bunx, third-party code executing, and a docs task has no reason to share the
 # frontend's mounts.
 [tasks.diagram]
-description = "Render docs/architecture/*.reladraw to SVG, inside the sandbox incus container"
+description = "Render docs/assets/architecture/*.reladraw to SVG, inside the sandbox incus container"
 dir = "{{config_root}}"
 run = "./scripts/container-diagram.sh"
 

@@ -1,7 +1,7 @@
-# Overlay for `mise run icons`: docs/icon at its real position relative to
+# Overlay for `mise run icons`: brand/icon at its real position relative to
 # src/web, because build.py walks up to parents[1]/src/web/public to find where
 # to write. Nothing else from the repo is mounted.
 services:
   web:
     volumes:
-      - "${LASSO_ICON:?set by container-icons.sh}:/home/dev/repo/docs/icon:device=icon"
+      - "${LASSO_ICON:?set by container-icons.sh}:/home/dev/repo/brand/icon:device=icon"

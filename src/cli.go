@@ -132,12 +132,12 @@ usage:
   lasso open <path>        show a file in the human's lasso sidebar file viewer
   lasso mcp [tool] [flags] call lasso's MCP tools (no tool = list them)
   lasso connect [flags]    register lasso's MCP servers with this machine's agent CLIs
-  lasso mcp-client <cmd>   per-host MCP credentials: add|list|rm (see -h)
+  lasso mcp-client <cmd>   per-host MCP credentials: add|list|token|rm (see -h)
   lasso mcp-group <cmd>    host groups: add|list|add-member|grant|reach (see -h)
-  lasso plugin <cmd>       plugins: list|enable|disable|trust|untrust|restart|reload (see -h)
+  lasso plugin <cmd>       plugins: list|enable|disable|trust|untrust|vm|restart|reload|install|update|uninstall|link|unlink|log|data-dir (see -h)
   lasso version            print the version
 
-run "lasso -h" style flags after serve/start/restart; see the README for details.
+run "lasso -h" style flags after serve/start/restart; see docs/reference/cli.md for details.
 `)
 }
 

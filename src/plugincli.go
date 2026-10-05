@@ -53,7 +53,7 @@ usage:
                                     its MCP server's recent output
   lasso plugin data-dir <name>      print its writable data directory
 
-Plugins live in <LASSO_DIR or ~/.lasso>/plugins/<name>/plugin.json; see docs/plugins.md.
+Plugins live in <LASSO_DIR or ~/.lasso>/plugins/<name>/plugin.json; see docs/plugins/authoring.md.
 Talks to the running server (LASSO_URL / LASSO_LISTEN; UI_AUTH if set).
 `)
 }
