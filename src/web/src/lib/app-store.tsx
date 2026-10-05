@@ -81,6 +81,11 @@ function showNotice(raw: string) {
   else toast.info(n.title, opts)
 }
 
+// How long the event stream may carry nothing before it is presumed dead and
+// replaced. The server pings every 25s (serveSSE), so this is two missed pings
+// plus slack.
+const STREAM_STALE_MS = 60000
+
 const AppContext = React.createContext<AppState | undefined>(undefined)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -157,12 +162,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Initial state + live SSE updates, re-subscribed whenever this tab moves to
   // another host. An EventSource cannot send a header, so the host rides in the
   // query string; the stream then carries that host's frames only.
+  //
+  // The stream is also watched, because a dead one is silent: every frame is
+  // pushed only on change, so a tab whose stream died simply keeps its last
+  // pane and cwd (the Files sidebar stuck on a pane herdr left long ago). Two
+  // ways it dies. An EventSource whose reconnect gets a non-200 — a 502 while
+  // lasso restarts behind the tunnel, an Access redirect — closes for good and
+  // never retries; and a half-open connection (a laptop waking on another
+  // network) raises no error at all. So a CLOSED stream is reopened with
+  // backoff, one that has carried nothing for STREAM_STALE_MS (the server pings
+  // every 25s) is replaced, and a tab coming back into view checks at once.
   React.useEffect(() => {
     let es: EventSource | null = null
     let cancelled = false
+    let lastSeen = Date.now()
+    let retry: ReturnType<typeof setTimeout> | null = null
+    let backoff = 1000
+    const seen = () => {
+      lastSeen = Date.now()
+    }
 
     const connect = () => {
+      if (retry) clearTimeout(retry)
+      retry = null
       es?.close()
+      seen()
       api
         .active()
         .then((a) => {
@@ -175,46 +199,96 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // the client id. An EventSource cannot set a header, hence the query
       // param — the same carrier the host already rides on.
       const url = withTabHost("/api/events")
-      es = new EventSource(
+      const src = new EventSource(
         `${url}${url.includes("?") ? "&" : "?"}client=${encodeURIComponent(clientID())}`
       )
-      es.addEventListener("active", (e) =>
+      es = src
+      src.addEventListener("open", () => {
+        seen()
+        backoff = 1000
+      })
+      src.addEventListener("error", () => {
+        // CONNECTING means the browser is retrying on its own; CLOSED means it
+        // gave up and nothing will reopen it but us.
+        if (cancelled || src !== es || src.readyState !== EventSource.CLOSED)
+          return
+        if (!retry) {
+          retry = setTimeout(start, backoff)
+          backoff = Math.min(backoff * 2, 30000)
+        }
+      })
+      src.addEventListener("ping", seen)
+      src.addEventListener("active", (e) => {
+        seen()
         apply(JSON.parse((e as MessageEvent).data))
-      )
-      es.addEventListener("notice", (e) => showNotice((e as MessageEvent).data))
+      })
+      src.addEventListener("notice", (e) => {
+        seen()
+        showNotice((e as MessageEvent).data)
+      })
       // An agent asked to show the human a file (open_file / `lasso open`).
       // lib/open-file.ts gates it on this tab being visible and hands it on.
-      es.addEventListener("open-file", (e) =>
+      src.addEventListener("open-file", (e) => {
+        seen()
         handleOpenFileEvent((e as MessageEvent).data)
-      )
+      })
       // An agent opened (or asked to show) a page in the shared browser, and
       // a profile changed somewhere (lib/browser-profiles.ts).
-      es.addEventListener("browser-open", (e) =>
+      src.addEventListener("browser-open", (e) => {
+        seen()
         handleBrowserOpenEvent((e as MessageEvent).data)
-      )
-      es.addEventListener("browser-profiles", handleBrowserProfilesEvent)
+      })
+      src.addEventListener("browser-profiles", () => {
+        seen()
+        handleBrowserProfilesEvent()
+      })
     }
 
     // A tab that remembers a host from a previous page load must re-attach
     // before subscribing: its terminals may have been retired (or lasso
     // restarted) while it was away, and the iframes are about to ask for them.
-    const remembered = tabHost()
-    if (remembered) {
-      api
-        .attachHost(remembered)
-        .catch(() => {
-          /* the host may be gone; the stream reports it down */
-        })
-        .then(() => {
-          if (!cancelled) connect()
-        })
-    } else {
-      connect()
+    // A reconnect goes through here too, since a dead stream usually means
+    // exactly that restart.
+    function start() {
+      if (cancelled) return
+      const remembered = tabHost()
+      if (remembered) {
+        api
+          .attachHost(remembered)
+          .catch(() => {
+            /* the host may be gone; the stream reports it down */
+          })
+          .then(() => {
+            if (!cancelled) connect()
+          })
+      } else {
+        connect()
+      }
     }
+    start()
+
+    const check = () => {
+      if (cancelled || retry || !es) return
+      if (
+        es.readyState === EventSource.CLOSED ||
+        Date.now() - lastSeen > STREAM_STALE_MS
+      )
+        start()
+    }
+    const watchdog = setInterval(check, 15000)
+    const onVisible = () => {
+      if (document.visibilityState === "visible") check()
+    }
+    document.addEventListener("visibilitychange", onVisible)
+    window.addEventListener("online", check)
 
     window.addEventListener(HOST_MOVED_EVENT, connect)
     return () => {
       cancelled = true
+      if (retry) clearTimeout(retry)
+      clearInterval(watchdog)
+      document.removeEventListener("visibilitychange", onVisible)
+      window.removeEventListener("online", check)
       window.removeEventListener(HOST_MOVED_EVENT, connect)
       es?.close()
     }

@@ -133,7 +133,9 @@ func (f *hostFeed) startSub() {
 }
 
 // push fans a state frame out to this host's watchers. Non-blocking per client:
-// a stalled reader drops the frame rather than wedging the poller.
+// a stalled reader loses its OLDEST queued frame rather than wedging the poller.
+// Never the newest: frames are only pushed on change, so a dropped latest frame
+// would leave that tab on a superseded pane and cwd until something else moved.
 func (f *hostFeed) push(a Active) {
 	f.mu.RLock()
 	clients := make([]chan Active, 0, len(f.clients))
@@ -145,6 +147,14 @@ func (f *hostFeed) push(a Active) {
 		select {
 		case c <- a:
 		default:
+			select {
+			case <-c:
+			default:
+			}
+			select {
+			case c <- a:
+			default:
+			}
 		}
 	}
 }
