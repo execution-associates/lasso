@@ -118,8 +118,70 @@ export function AgentsView({
   onNewAgent: () => void
   className?: string
 }) {
-  const { agents, isLoading, error, unlisted, updatedAt, focusAgent } =
-    useAgents()
+  const {
+    agents: listed,
+    isLoading,
+    error,
+    unlisted,
+    updatedAt,
+    focusAgent,
+  } = useAgents()
+  // Panes the human confirmed closing. Their cards leave the grid on the
+  // confirm, not when herdr finishes (a busy host takes seconds) or the next
+  // poll lands: the click is the moment the human expects the grid to change.
+  // A failed close puts the card back with a toast; a successful one stays
+  // hidden until a listing no longer has it, so a poll that raced the close
+  // cannot flash it back.
+  const [closingKeys, setClosingKeys] = React.useState<ReadonlySet<string>>(
+    () => new Set()
+  )
+  const agents = React.useMemo(
+    () =>
+      closingKeys.size === 0
+        ? listed
+        : listed.filter((p) => !closingKeys.has(paneKey(p))),
+    [listed, closingKeys]
+  )
+  // Closes still in flight are never pruned: only a settled success may let
+  // the key go, or a failure arriving after a listing that missed the pane
+  // would have nothing left to restore.
+  const closingPending = React.useRef(new Set<string>())
+  React.useEffect(() => {
+    if (closingKeys.size === 0) return
+    const live = new Set(listed.map(paneKey))
+    const pending = closingPending.current
+    const gone = [...closingKeys].filter((k) => !live.has(k) && !pending.has(k))
+    if (gone.length === 0) return
+    setClosingKeys((prev) => {
+      const next = new Set(prev)
+      for (const k of gone) next.delete(k)
+      return next
+    })
+  }, [listed, closingKeys])
+  const closeAgent = React.useCallback(async (p: HostPane) => {
+    const key = paneKey(p)
+    const restore = () =>
+      setClosingKeys((prev) => {
+        const next = new Set(prev)
+        next.delete(key)
+        return next
+      })
+    closingPending.current.add(key)
+    setClosingKeys((prev) => new Set(prev).add(key))
+    try {
+      const res = await api.close([p.pane_id], p.host)
+      const err = res.errors?.[p.pane_id]
+      if (err) {
+        restore()
+        toast.error(`could not close ${agentName(p)}: ${err}`)
+      } else void queryClient.invalidateQueries({ queryKey: ["all-panes"] })
+    } catch (e) {
+      restore()
+      toast.error(`could not close ${agentName(p)}: ${(e as Error).message}`)
+    } finally {
+      closingPending.current.delete(key)
+    }
+  }, [])
   const { host: tabHost } = useApp()
   const [groupByHost, setGroupByHost] = React.useState(true)
   const [filter, setFilter] = React.useState("")
@@ -244,6 +306,7 @@ export function AgentsView({
         onOpen={openCard(p)}
         pinned={isPinned}
         onTogglePin={() => setAgentPinned(key, !isPinned)}
+        onClose={() => void closeAgent(p)}
       />
     )
   }
@@ -482,12 +545,16 @@ function AgentCard({
   flipRef,
   pinned,
   onTogglePin,
+  onClose,
 }: {
   pane: HostPane
   data: ChatPayload | undefined
   onOpen: () => void
   pinned: boolean
   onTogglePin: () => void
+  // Confirmed close: the grid drops the card at once and reports a failure
+  // as a toast that brings it back (see closingKeys in AgentsView).
+  onClose: () => void
   // Registers this card with the grid's reorder animation. The transform lands
   // on the card's own element, so a resort moves it without remounting it —
   // scroll position, focus and an unsent draft all survive (see lib/flip).
@@ -548,29 +615,6 @@ function AgentCard({
     }
   }
   const [confirmClose, setConfirmClose] = React.useState(false)
-  const [closing, setClosing] = React.useState(false)
-  const closePane = React.useCallback(async () => {
-    if (closing) return
-    // The dialog's job is done: the orb over the card carries the wait, and a
-    // failure reports back as a toast over a card that is still there to retry
-    // from instead of a dialog that already asked its question.
-    setConfirmClose(false)
-    setClosing(true)
-    try {
-      const res = await api.close([paneID], host)
-      const err = res.errors?.[paneID]
-      if (err) toast.error(`could not close: ${err}`)
-      else {
-        // The 5s all-panes poll would drop the card on its own; this lands
-        // the removal on the click instead of a beat later.
-        void queryClient.invalidateQueries({ queryKey: ["all-panes"] })
-      }
-    } catch (e) {
-      toast.error(`could not close: ${(e as Error).message}`)
-    } finally {
-      setClosing(false)
-    }
-  }, [closing, host, paneID])
   const send = React.useCallback(async () => {
     const body = text.trim()
     const paths = attachments.map((a) => a.path)
@@ -834,25 +878,11 @@ function AgentCard({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={closing}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={closing}
-              onClick={() => void closePane()}
-            >
-              {closing ? "Closing…" : "Close pane"}
-            </AlertDialogAction>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={onClose}>Close pane</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      {/* herdr's close is serialized with retries, so a busy host takes
-          seconds: the orb sits over the card (not the dialog, which is
-          already gone) until the pane is actually gone. */}
-      {closing && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-card/80 text-[12px] text-muted-foreground">
-          <Orb state="working" px={16} />
-          closing…
-        </div>
-      )}
     </article>
   )
 }
