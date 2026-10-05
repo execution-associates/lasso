@@ -1,6 +1,6 @@
 import { useQueries } from "@tanstack/react-query"
 import {
-  LayoutGrid,
+  FolderGit2,
   Loader2,
   Maximize2,
   Paperclip,
@@ -9,6 +9,7 @@ import {
   Plus,
   Search,
   Send,
+  Server,
   SquareX,
   X,
 } from "lucide-react"
@@ -31,6 +32,7 @@ import { Orb } from "@/components/ui/orb"
 import {
   agentName,
   groupAgentsByHost,
+  groupAgentsByRepo,
   paneKey,
   sortAgents,
   useAgents,
@@ -49,7 +51,7 @@ import { patchUIState, setAgentPinned, useUIState } from "@/lib/ui-state"
 import { cn } from "@/lib/utils"
 
 // The fleet as parallel conversations: every agent lasso can reach in a grid,
-// grouped by herdr machine unless the header toggle says otherwise, in
+// grouped by herdr machine and/or repo as the header toggles say, in
 // attention order (blocked > working > idle > done) or recency order — see
 // the Sort control. Each card reads the
 // agent's TRANSCRIPT — the same source ChatView renders — never the terminal:
@@ -88,6 +90,7 @@ function agentSearchText(pane: HostPane, chat?: ChatPayload): string {
     pane.cwd,
     pane.host,
     pane.host_label,
+    pane.repo,
     chat?.title,
     chat?.agent,
     chat?.cwd,
@@ -122,6 +125,8 @@ export function AgentsView({
     useAgents()
   const { host: tabHost } = useApp()
   const [groupByHost, setGroupByHost] = React.useState(true)
+  const [groupByRepo, setGroupByRepo] = React.useState(false)
+  const grouped = groupByHost || groupByRepo
   const [filter, setFilter] = React.useState("")
   // Persisted server-side rather than held here beside groupByHost, so the
   // order does not revert on the next reload or differ on the phone. Grouping
@@ -176,11 +181,20 @@ export function AgentsView({
     () => visible.filter((p) => !pinnedSet.has(paneKey(p))),
     [visible, pinnedSet]
   )
-  // The two controls compose: Sort decides card order, Group decides whether
-  // machine sections divide the grid. All four combinations mean something.
+  // The controls compose: Sort decides card order, the two group toggles
+  // decide whether machine sections, repo sections, or machine sections split
+  // into repo subsections divide the grid. Every combination means something.
   const groups = React.useMemo(
-    () => groupAgentsByHost(rest, tabHost, sort),
-    [rest, tabHost, sort]
+    () =>
+      groupAgentsByHost(rest, tabHost, sort).map((g) => ({
+        ...g,
+        repos: groupByRepo ? groupAgentsByRepo(g.panes, sort) : null,
+      })),
+    [rest, tabHost, sort, groupByRepo]
+  )
+  const repoGroups = React.useMemo(
+    () => groupAgentsByRepo(rest, sort),
+    [rest, sort]
   )
   const flat = React.useMemo(
     () => [...pinned, ...sortAgents(rest, sort)],
@@ -215,16 +229,22 @@ export function AgentsView({
   // order actually RENDERED (sections included, since grouping moves cards
   // too), so the grid pays no layout reads for the per-agent transcript polls
   // that re-render this view every few seconds without moving anything.
-  const orderKey = React.useMemo(
-    () =>
-      groupByHost
-        ? `${pinned.map(paneKey).join(",")}#` +
-          groups
-            .map((g) => `${g.host}:${g.panes.map(paneKey).join(",")}`)
-            .join("|")
-        : flat.map(paneKey).join(","),
-    [pinned, groupByHost, groups, flat]
-  )
+  const orderKey = React.useMemo(() => {
+    const keys = (ps: HostPane[]) => ps.map(paneKey).join(",")
+    const byRepo = (rs: { repo: string; panes: HostPane[] }[]) =>
+      rs.map((r) => `${r.repo}:${keys(r.panes)}`).join(";")
+    if (groupByHost)
+      return (
+        `${keys(pinned)}#` +
+        groups
+          .map(
+            (g) => `${g.host}:${g.repos ? byRepo(g.repos) : keys(g.panes)}`
+          )
+          .join("|")
+      )
+    if (groupByRepo) return `${keys(pinned)}#${byRepo(repoGroups)}`
+    return keys(flat)
+  }, [pinned, groupByHost, groupByRepo, groups, repoGroups, flat])
   const flipRef = useFlip(orderKey)
   const blocked = visible.filter((p) => p.agent_status === "blocked").length
   const working = visible.filter((p) => p.agent_status === "working").length
@@ -318,20 +338,30 @@ export function AgentsView({
           </fieldset>
           {/* Ghost when off, filled when on: aria-pressed alone is invisible,
               and the grid looks identical either way until you read the
-              section headers — the button itself has to say which mode won. */}
+              section headers — the button itself has to say which mode won.
+              Two independent toggles rather than a three-way picker: both on
+              nests repos inside machines, which a single choice cannot say. */}
           <Button
             variant={groupByHost ? "secondary" : "ghost"}
             size="sm"
             aria-pressed={groupByHost}
             title={
-              groupByHost
-                ? "Ungroup: one list in the chosen order"
-                : "Group by machine"
+              groupByHost ? "Stop grouping by machine" : "Group by machine"
             }
             onClick={() => setGroupByHost((v) => !v)}
           >
-            <LayoutGrid />
-            Group
+            <Server />
+            Host
+          </Button>
+          <Button
+            variant={groupByRepo ? "secondary" : "ghost"}
+            size="sm"
+            aria-pressed={groupByRepo}
+            title={groupByRepo ? "Stop grouping by repo" : "Group by repo"}
+            onClick={() => setGroupByRepo((v) => !v)}
+          >
+            <FolderGit2 />
+            Repo
           </Button>
           <Button
             variant="ghost"
@@ -374,7 +404,7 @@ export function AgentsView({
             </button>
           </div>
         )}
-        {groupByHost && pinned.length > 0 && (
+        {grouped && pinned.length > 0 && (
           <section className="mb-3">
             <header className="mb-1.5 flex items-center gap-1.5 px-1 text-[11px] text-muted-foreground">
               <Pin className="size-3" />
@@ -383,39 +413,50 @@ export function AgentsView({
             <div className={gridClass}>{pinned.map(card)}</div>
           </section>
         )}
+        {/* Auto-fill grids, not breakpoints: the overlay is ~60% of the
+            viewport, so viewport breakpoints cannot know a card's width. One
+            column on a narrow tablet portrait, up to three on a wide desktop. */}
         {groupByHost
           ? groups.map((g) => (
               <section key={g.host} className="mb-3 last:mb-0">
-                <header className="mb-1.5 flex items-center gap-2 px-1">
-                  <span
-                    className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-[11px] text-foreground/80"
-                    title={g.host}
-                  >
-                    {g.hostLabel}
-                  </span>
-                  <span className="text-[11px] text-muted-foreground">
-                    {g.panes.length} agent{g.panes.length === 1 ? "" : "s"}
-                    {g.blocked > 0 && (
-                      <span className="text-destructive">
-                        {" "}
-                        · {g.blocked} blocked
-                      </span>
-                    )}
-                    {g.working > 0 && (
-                      <span className="text-primary">
-                        {" "}
-                        · {g.working} working
-                      </span>
-                    )}
-                  </span>
-                </header>
-                {/* Auto-fill, not breakpoints: the overlay is ~60% of the
-                    viewport, so viewport breakpoints cannot know a card's
-                    width. One column on a narrow tablet portrait, up to three
-                    on a wide desktop. */}
-                <div className={gridClass}>{g.panes.map(card)}</div>
+                <SectionHeader
+                  label={g.hostLabel}
+                  title={g.host}
+                  count={g.panes.length}
+                  blocked={g.blocked}
+                  working={g.working}
+                />
+                {g.repos ? (
+                  g.repos.map((r) => (
+                    <div key={r.repo} className="mb-2 ml-2 last:mb-0">
+                      <SectionHeader
+                        repo
+                        label={r.label}
+                        count={r.panes.length}
+                        blocked={r.blocked}
+                        working={r.working}
+                      />
+                      <div className={gridClass}>{r.panes.map(card)}</div>
+                    </div>
+                  ))
+                ) : (
+                  <div className={gridClass}>{g.panes.map(card)}</div>
+                )}
               </section>
             ))
+          : groupByRepo
+            ? repoGroups.map((r) => (
+                <section key={r.repo} className="mb-3 last:mb-0">
+                  <SectionHeader
+                    repo
+                    label={r.label}
+                    count={r.panes.length}
+                    blocked={r.blocked}
+                    working={r.working}
+                  />
+                  <div className={gridClass}>{r.panes.map(card)}</div>
+                </section>
+              ))
           : visible.length > 0 && (
               <>
                 <div className="mb-1.5 px-1 text-[11px] text-muted-foreground">
@@ -435,6 +476,55 @@ export function AgentsView({
             )}
       </div>
     </div>
+  )
+}
+
+// One section's header: a machine (a chip, like a tab's host) or a repo (a
+// folder glyph, so a nested repo row reads as below its machine), with the
+// counts that say whether anything in it needs you.
+function SectionHeader({
+  label,
+  title,
+  repo,
+  count,
+  blocked,
+  working,
+}: {
+  label: string
+  title?: string
+  repo?: boolean
+  count: number
+  blocked: number
+  working: number
+}) {
+  return (
+    <header className="mb-1.5 flex items-center gap-2 px-1">
+      {repo ? (
+        <span
+          className="flex shrink-0 items-center gap-1 text-[11px] text-foreground/80"
+          title={title}
+        >
+          <FolderGit2 className="size-3 text-muted-foreground" />
+          {label}
+        </span>
+      ) : (
+        <span
+          className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-[11px] text-foreground/80"
+          title={title}
+        >
+          {label}
+        </span>
+      )}
+      <span className="text-[11px] text-muted-foreground">
+        {count} agent{count === 1 ? "" : "s"}
+        {blocked > 0 && (
+          <span className="text-destructive"> · {blocked} blocked</span>
+        )}
+        {working > 0 && (
+          <span className="text-primary"> · {working} working</span>
+        )}
+      </span>
+    </header>
   )
 }
 
