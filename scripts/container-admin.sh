@@ -19,11 +19,10 @@
 # user.lasso.worktree) that scripts/isb/dev.yaml sets.
 set -euo pipefail
 
-command -v isb >/dev/null 2>&1 || {
-  echo "error: isb is not on PATH. It is pinned in mise.toml: run \`mise install\`" >&2
-  echo "       here, and invoke this through \`mise run\`." >&2
-  exit 1
-}
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/container.sh
+. "$HERE/container.sh"
+require_isb || exit 1
 
 # Every container with a lasso.worktree label, plus the legacy names.
 # Tab-separated: name, status, worktree ("-" for legacy), web mount source.

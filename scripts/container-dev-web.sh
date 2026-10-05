@@ -2,7 +2,7 @@
 # Run the Vite dev server inside this worktree's dev container, wired to the
 # lasso backend that is still running on the host.
 #
-#   usage: container-dev-web.sh <backend-port-on-host> <listen-ip>
+#   usage: container-dev-web.sh <backend-port-on-host> <tailnet-dns-name>
 #
 # The backend deliberately stays on titan: it drives herdr, spawns panes and
 # reads the real daemon socket, none of which belongs in a container. Only Vite
@@ -17,10 +17,18 @@
 #
 # Inside the container Vite is always on 5173: a fresh network namespace has
 # nothing else in it, so --strictPort is safe and the port is predictable. It is
-# the HOST side that has to give way, so isb publishes the tailnet listener on
-# the first free port from 5173 (`search`), the way the backend already bumps
+# the HOST side that has to give way, so isb publishes it on the first free
+# host loopback port from 5173 (`search`), the way the backend already bumps
 # from 8190. Several dev instances run at once because each worktree has its own
 # container (scripts/container.sh).
+#
+# The tailnet reaches Vite only over HTTPS: `tailscale serve` terminates TLS
+# with the machine's ts.net certificate on the SAME port number on the tailnet
+# addresses and forwards to that loopback port. A secure context is what service
+# workers, push and the clipboard need, so the dev UI behaves like production.
+# serve runs in the foreground as our child, which makes its config ephemeral:
+# tailscaled drops it when the CLI goes away, SIGKILL included, so a dead run
+# never leaves a listener behind.
 #
 # Vite runs as dev-web.yaml's `command:` under a FOREGROUND `isb up`, not as
 # an `isb exec`, so the container's life is tied to whoever started it. isb
@@ -44,7 +52,7 @@
 set -euo pipefail
 
 port="${1:?backend port required}"
-ip="${2:?listen ip required}"
+dns="${2:?tailnet dns name required}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/container.sh
 . "$HERE/container.sh"
@@ -64,10 +72,14 @@ if ! container_dev_lock; then
   exit 1
 fi
 
-export LASSO_BACKEND_PORT="$port" LASSO_LISTEN_IP="$ip"
+export LASSO_BACKEND_PORT="$port"
 container_with dev-web.yaml
 
-cleanup() { isb -q port rm "$CONTAINER" backend vite >/dev/null 2>&1 || true; }
+serve=""
+cleanup() {
+  [ -z "$serve" ] || kill "$serve" 2>/dev/null || true
+  isb -q port rm "$CONTAINER" backend vite >/dev/null 2>&1 || true
+}
 trap cleanup EXIT INT TERM
 container_ensure
 
@@ -76,9 +88,25 @@ container_ensure
 listen="$(isb -q port get "$CONTAINER" vite 2>/dev/null || true)"
 hostport="${listen##*:}"
 [ -n "$hostport" ] ||
-  { echo "error: could not publish Vite on any port of $ip from 5173" >&2; exit 1; }
+  { echo "error: could not publish Vite on any loopback port from 5173" >&2; exit 1; }
 
-echo "vite: http://$ip:$hostport  (in $CONTAINER, backend on host 127.0.0.1:$port)"
+servelog="$(mktemp)"
+tailscale serve --https="$hostport" "http://127.0.0.1:$hostport" >"$servelog" 2>&1 &
+serve=$!
+# Wait until tailscaled lists the listener; a refusal (port already served,
+# HTTPS certificates off for the tailnet, not tailscale's operator) exits.
+for _ in $(seq 1 50); do
+  tailscale serve status --json 2>/dev/null |
+    jq -e --arg p "$hostport" '.TCP[$p].HTTPS // false' >/dev/null && break
+  kill -0 "$serve" 2>/dev/null || {
+    echo "error: tailscale serve --https=$hostport failed:" >&2
+    cat "$servelog" >&2; rm -f "$servelog"; exit 1
+  }
+  sleep 0.1
+done
+rm -f "$servelog"
+
+echo "vite: https://$dns:$hostport  (in $CONTAINER on 127.0.0.1:$hostport, backend on host 127.0.0.1:$port)"
 
 # Deps must be present before vite starts; unlike the build task this is the
 # only place they get installed on a fresh container. Deliberately NOT frozen:
