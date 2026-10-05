@@ -816,6 +816,61 @@ function TaskNotificationRow({
   )
 }
 
+// A user turn this long is almost never something the human typed: it is a
+// compaction summary, a pasted log or a skill body the harness injected. Shown
+// whole it buries the conversation around it, so it starts clipped to its first
+// lines. Whether it overflows is MEASURED, not guessed from the text: a bubble's
+// width runs from a phone to a desktop, so a character count clips short text on
+// one and misses long text on the other. A layout effect runs before paint, so
+// the toggle never pops in after the bubble is already on screen.
+function UserBubble({ text }: { text: string }) {
+  const body = React.useRef<HTMLDivElement>(null)
+  const [open, setOpen] = React.useState(false)
+  const [overflows, setOverflows] = React.useState(false)
+  React.useLayoutEffect(() => {
+    const el = body.current
+    if (!el || open) return
+    const check = () => setOverflows(el.scrollHeight > el.clientHeight + 1)
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [open])
+  return (
+    <div className="flex justify-end">
+      <div className="max-w-[85%] rounded-xl rounded-br-sm border border-primary/20 bg-primary/8 px-3 py-2 text-[13.5px] text-foreground leading-snug">
+        <div
+          ref={body}
+          className={cn(
+            "whitespace-pre-wrap break-words",
+            !open && "max-h-[16em] overflow-hidden",
+            !open &&
+              overflows &&
+              "[mask-image:linear-gradient(to_bottom,black_65%,transparent)]"
+          )}
+        >
+          {text}
+        </div>
+        {(overflows || open) && (
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="mt-1 flex items-center gap-1 text-[11.5px] text-muted-foreground hover:text-foreground"
+          >
+            <ChevronRight
+              className={cn(
+                "size-3 shrink-0 transition-transform",
+                open && "rotate-90"
+              )}
+            />
+            {open ? "Show less" : "Show more"}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function RowView({
   row,
   resolveImage,
@@ -837,13 +892,7 @@ function RowView({
       if (note) {
         return <TaskNotificationRow note={note} resolveImage={resolveImage} />
       }
-      return (
-        <div className="flex justify-end">
-          <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-xl rounded-br-sm border border-primary/20 bg-primary/8 px-3 py-2 text-[13.5px] text-foreground leading-snug">
-            {item.text}
-          </div>
-        </div>
-      )
+      return <UserBubble text={item.text ?? ""} />
     }
     case "agent":
       return item.thinking ? (
