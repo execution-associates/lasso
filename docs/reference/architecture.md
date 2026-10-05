@@ -6,7 +6,7 @@ order: 100
 
 ![lasso architecture: the browser and MCP clients reach the lasso binary through Cloudflare Access; lasso drives the local herdr over its socket and remote herdrs through an SSH pool, keeps state in lasso.db, and sends Web Push to the phone](../assets/architecture/lasso.svg)
 
-lasso is one Go binary. It embeds its React frontend, keeps its state in a SQLite file, and drives [herdr](https://herdr.dev) (the terminal multiplexer the agents actually run in) on its own machine and on every machine you can SSH to. It does not run agents itself and does not talk to them: herdr owns the panes and the processes, and lasso orchestrates around it.
+lasso is one Go binary. It embeds its React frontend, keeps its state in a SQLite file, and drives [herdr](https://herdr.dev) (the terminal multiplexer the agents actually run in) on its own machine and on every machine you can SSH to. It does not run agents itself: herdr owns the panes and the processes, and lasso orchestrates around it, including relaying messages into panes and carrying replies back over tailcat.
 
 ## The pieces
 

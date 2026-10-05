@@ -39,12 +39,15 @@ func TestMCPCLIListsTheServedTools(t *testing.T) {
 			t.Errorf("tool %q missing from the listing", want)
 		}
 	}
-	// Talking to agents is herdr's job, not lasso's: these were removed because
-	// agents reached for them instead of herdr, and must not come back.
-	for _, gone := range []string{"send_agent", "message_agent", "read_agent", "wait_agent"} {
-		if findMCPTool(tools, gone) != nil {
-			t.Errorf("tool %q is registered again; prompting, reading and waiting on agents belong to herdr", gone)
+	for _, want := range []string{"send_agent", "read_agent", "wait_agent", "get_replies", "reply_message"} {
+		if findMCPTool(tools, want) == nil {
+			t.Errorf("messaging tool %q missing from the listing", want)
 		}
+	}
+	// The store-and-forward queue stays gone: send_agent plus the reply inbox
+	// replaced it.
+	if findMCPTool(tools, "message_agent") != nil {
+		t.Error("message_agent is registered again")
 	}
 	// Sorted, so the listing doesn't follow registration order.
 	for i := 1; i < len(tools); i++ {
