@@ -495,6 +495,19 @@
   background-size: cover;
 }
 
+/* The cover over a refused embed (BrowserTab) hides the browser's own error
+ * page, which is grey and cross-origin, so it has to be opaque — at
+ * --background's 62% that grey page was all anyone saw. Like the chat it
+ * reproduces the backdrop rather than a flat fill; its child then lays the
+ * usual translucent tint over it, so it reads as the chrome around it. */
+:root[data-atmosphere] .embed-cover {
+  background-color: var(--atmo-base);
+  background-image: var(--atmo-layers);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
 /* Same opt-out, for the same reason, one level up: at phone widths the sidebar
  * OVERLAYS the terminal full-screen instead of sitting beside it, so at --card's
  * 55% the terminal's text read straight through Settings' prose. A surface that
