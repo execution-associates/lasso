@@ -762,6 +762,60 @@ function ThinkingRow({
   )
 }
 
+// taskNotification reads the <task-notification> envelope Claude Code writes
+// into the log as a USER turn when a background agent or shell finishes. It is
+// the harness talking, not the human, and its result can run to pages, so it
+// is folded to its summary line instead of filling a user bubble.
+function taskNotification(text: string) {
+  const t = text.trim()
+  if (!t.startsWith("<task-notification>")) return null
+  const tag = (name: string) =>
+    t.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))?.[1]?.trim() ?? ""
+  return {
+    summary: tag("summary") || "Background task finished",
+    status: tag("status"),
+    result: tag("result"),
+  }
+}
+
+function TaskNotificationRow({
+  note,
+  resolveImage,
+}: {
+  note: NonNullable<ReturnType<typeof taskNotification>>
+  resolveImage?: (src: string | undefined) => string | undefined
+}) {
+  const [open, setOpen] = React.useState(false)
+  const failed = note.status !== "" && note.status !== "completed"
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-1.5 text-left text-[11.5px] text-muted-foreground"
+      >
+        <ChevronRight
+          className={cn(
+            "size-3 shrink-0 transition-transform",
+            open && "rotate-90"
+          )}
+        />
+        <span className="truncate">{note.summary}</span>
+        {failed && (
+          <span className="shrink-0 text-destructive">{note.status}</span>
+        )}
+      </button>
+      {open && note.result && (
+        <div className="mt-1.5 border-border border-l-2 pl-3">
+          <div className="md-body md-chat md-chat-soft">
+            <Markdown source={note.result} resolveImageSrc={resolveImage} />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function RowView({
   row,
   resolveImage,
@@ -778,7 +832,11 @@ function RowView({
   if (row.kind === "group") return <ToolGroup calls={row.calls} />
   const item = row.item
   switch (item.kind) {
-    case "user":
+    case "user": {
+      const note = taskNotification(item.text ?? "")
+      if (note) {
+        return <TaskNotificationRow note={note} resolveImage={resolveImage} />
+      }
       return (
         <div className="flex justify-end">
           <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-xl rounded-br-sm border border-primary/20 bg-primary/8 px-3 py-2 text-[13.5px] text-foreground leading-snug">
@@ -786,6 +844,7 @@ function RowView({
           </div>
         </div>
       )
+    }
     case "agent":
       return item.thinking ? (
         <ThinkingRow text={item.text ?? ""} resolveImage={resolveImage} />
