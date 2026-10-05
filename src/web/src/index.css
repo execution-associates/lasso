@@ -776,6 +776,35 @@
   font-size: 13.5px;
   line-height: 1.6;
 }
+/* The single chat's prose is set from Settings → Chat text (lib/chat-text.ts
+   pins every --chat-* property on <html>, defaults included). Scoped to
+   .chat-text so the agents grid's cards, which share md-chat, keep their own
+   compact size. Code blocks keep their own size and face. */
+.chat-text .md-body.md-chat,
+.chat-text .chat-bubble-text {
+  font-family: var(--font-chat, var(--font-sans));
+  font-size: var(--chat-size);
+  font-weight: var(--chat-weight);
+  letter-spacing: var(--chat-tracking);
+}
+.chat-text .md-body.md-chat {
+  line-height: var(--chat-leading);
+}
+.chat-text .md-body.md-chat strong,
+.chat-text .md-body.md-chat b {
+  font-weight: max(700, calc(var(--chat-weight) + 300));
+}
+/* The reading panel: a wash of the theme background behind the conversation
+   column. Over a flat theme it is the colour it already sits on, so it only
+   shows where it matters, under a backdrop. */
+.chat-column {
+  border-radius: var(--radius-lg);
+  background-color: color-mix(
+    in srgb,
+    var(--h-bg) calc(var(--chat-backing, 0) * 100%),
+    transparent
+  );
+}
 /* An agent's reasoning: context, not the answer. Steps down the container's own
    colour and leaves headings, code and links their own rules, so the block
    still reads as markdown with its syntax intact. */

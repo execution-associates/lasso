@@ -42,6 +42,7 @@ const (
 	pluginFontFileMax  = 5 << 20
 	pluginLabelMax     = 64
 	pluginLicenseMax   = 64
+	pluginChatStyleMax = 16
 )
 
 var (
@@ -86,6 +87,33 @@ type pluginFontFace struct {
 	File   string `json:"file"`
 	Weight int    `json:"weight"`
 	Style  string `json:"style"`
+}
+
+// pluginChatStyleSpec is a named setting of the chat view's prose: any subset
+// of chatTextRanges' fields, plus optionally one of THIS plugin's own fonts.
+// Numbers only — lasso writes them into CSS custom properties itself.
+type pluginChatStyleSpec struct {
+	ID            string   `json:"id"`
+	Label         string   `json:"label"`
+	Font          string   `json:"font,omitempty"`
+	Size          *float64 `json:"size,omitempty"`
+	Weight        *float64 `json:"weight,omitempty"`
+	LineHeight    *float64 `json:"line_height,omitempty"`
+	LetterSpacing *float64 `json:"letter_spacing,omitempty"`
+	Width         *float64 `json:"width,omitempty"`
+	Backing       *float64 `json:"backing,omitempty"`
+}
+
+// values is the style's numeric fields keyed as chatTextRanges names them.
+func (c pluginChatStyleSpec) values() map[string]*float64 {
+	return map[string]*float64{
+		"size":           c.Size,
+		"weight":         c.Weight,
+		"line_height":    c.LineHeight,
+		"letter_spacing": c.LetterSpacing,
+		"width":          c.Width,
+		"backing":        c.Backing,
+	}
 }
 
 func fontGlobalID(plugin, font string) string { return "plugin:" + plugin + ":" + font }
@@ -148,6 +176,33 @@ func (m *pluginManifest) validateAppearance() error {
 			}
 			if face.Style != "normal" && face.Style != "italic" {
 				return fmt.Errorf("%s: style must be normal or italic", where)
+			}
+		}
+	}
+	if len(m.ChatStyles) > pluginChatStyleMax {
+		return fmt.Errorf("at most %d chat styles (has %d)", pluginChatStyleMax, len(m.ChatStyles))
+	}
+	seen = map[string]bool{}
+	for i, c := range m.ChatStyles {
+		if !pluginFontIDRE.MatchString(c.ID) {
+			return fmt.Errorf("chat_styles[%d]: id %q must match %s", i, c.ID, pluginFontIDRE)
+		}
+		if seen[c.ID] {
+			return fmt.Errorf("chat_styles[%d]: duplicate id %q", i, c.ID)
+		}
+		seen[c.ID] = true
+		if len(c.Label) > pluginLabelMax {
+			return fmt.Errorf("chat_styles[%d] (%s): label must be at most %d characters", i, c.ID, pluginLabelMax)
+		}
+		if c.Font != "" && !slices.ContainsFunc(m.Fonts, func(f pluginFontSpec) bool { return f.ID == c.Font }) {
+			return fmt.Errorf("chat_styles[%d] (%s): font %q is not one of this plugin's fonts", i, c.ID, c.Font)
+		}
+		for key, v := range c.values() {
+			if v == nil {
+				continue
+			}
+			if _, err := checkChatTextNumber(key, *v); err != nil {
+				return fmt.Errorf("chat_styles[%d] (%s): %v", i, c.ID, err)
 			}
 		}
 	}
@@ -441,6 +496,23 @@ type pluginFontOut struct {
 	Faces    []pluginFaceOut `json:"faces,omitempty"`
 }
 
+// pluginChatStyleOut is one chat style as the listing serves it. The values
+// are listed whatever the plugin's state (they are what the approval dialog
+// may show); the frontend applies only an enabled plugin's.
+type pluginChatStyleOut struct {
+	ID       string `json:"id"`
+	GlobalID string `json:"global_id"`
+	Label    string `json:"label"`
+	// Font is the referenced font's global id ("plugin:<name>:<font>").
+	Font          string   `json:"font,omitempty"`
+	Size          *float64 `json:"size,omitempty"`
+	Weight        *float64 `json:"weight,omitempty"`
+	LineHeight    *float64 `json:"line_height,omitempty"`
+	LetterSpacing *float64 `json:"letter_spacing,omitempty"`
+	Width         *float64 `json:"width,omitempty"`
+	Backing       *float64 `json:"backing,omitempty"`
+}
+
 type pluginFaceOut struct {
 	URL    string `json:"url"`
 	Weight int    `json:"weight"`
@@ -504,5 +576,20 @@ func appearanceListing(p *pluginPayload, e *pluginEntry, enabled bool) {
 			}
 		}
 		p.Fonts = append(p.Fonts, out)
+	}
+	for _, c := range e.Man.ChatStyles {
+		label := strings.TrimSpace(c.Label)
+		if label == "" {
+			label = omarchyLabel(c.ID)
+		}
+		out := pluginChatStyleOut{
+			ID: c.ID, GlobalID: fontGlobalID(e.Name, c.ID), Label: label,
+			Size: c.Size, Weight: c.Weight, LineHeight: c.LineHeight,
+			LetterSpacing: c.LetterSpacing, Width: c.Width, Backing: c.Backing,
+		}
+		if c.Font != "" {
+			out.Font = fontGlobalID(e.Name, c.Font)
+		}
+		p.ChatStyles = append(p.ChatStyles, out)
 	}
 }

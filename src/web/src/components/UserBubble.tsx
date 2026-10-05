@@ -46,6 +46,8 @@ export function UserBubble({
           ref={body}
           className={cn(
             "whitespace-pre-wrap break-words",
+            // The single chat sets this from Settings → Chat text (index.css).
+            !compact && "chat-bubble-text",
             !open && "overflow-hidden",
             !open && (compact ? "max-h-[8em]" : "max-h-[16em]"),
             !open &&
