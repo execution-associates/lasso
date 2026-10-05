@@ -142,3 +142,35 @@ func TestPluginChatStyles(t *testing.T) {
 		t.Errorf("listed style = %+v", s)
 	}
 }
+
+func TestTerminalTextUIState(t *testing.T) {
+	openTestDB(t)
+	us, _ := getUIState()
+	if us.TerminalText == nil || len(us.TerminalText) != 0 {
+		t.Fatalf("default terminal_text = %#v; want {}", us.TerminalText)
+	}
+	postUIState(t, `{"terminal_text":{"size":16}}`)
+	got := postUIState(t, `{"terminal_text":{"letter_spacing":1.4,"line_height":1.2}}`)
+	if got.TerminalText["size"] != 16.0 || got.TerminalText["letter_spacing"] != 1.0 || got.TerminalText["line_height"] != 1.2 {
+		t.Fatalf("per-field merge = %v (letter spacing is whole pixels)", got.TerminalText)
+	}
+	// Chat and terminal are separate stores: writing one leaves the other.
+	got = postUIState(t, `{"chat_text":{"size":18}}`)
+	if len(got.TerminalText) != 3 {
+		t.Fatalf("a chat_text patch touched terminal_text: %v", got.TerminalText)
+	}
+	got = postUIState(t, `{"terminal_text":{"size":null}}`)
+	if _, ok := got.TerminalText["size"]; ok {
+		t.Fatalf("null did not clear size: %v", got.TerminalText)
+	}
+	for name, body := range map[string]string{
+		"no presets":        `{"terminal_text":{"preset":"plugin:a:b"}}`,
+		"chat-only field":   `{"terminal_text":{"backing":0.5}}`,
+		"leading below one": `{"terminal_text":{"line_height":0.9}}`,
+		"size too large":    `{"terminal_text":{"size":64}}`,
+	} {
+		if w := postUIStateRaw(t, body); w.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d %s; want 400", name, w.Code, w.Body.String())
+		}
+	}
+}

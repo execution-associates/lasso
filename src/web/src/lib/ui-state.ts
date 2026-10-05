@@ -59,6 +59,7 @@ const DEFAULTS: UIState = {
   // Every slot on lasso's own default typeface.
   typography: {},
   chat_text: {},
+  terminal_text: {},
   // true until the server says otherwise, so the tour never flashes open in
   // the instant before the first fetch lands.
   onboarding_done: true,
@@ -169,10 +170,24 @@ function mergePatch(a: UIStatePatch, b: UIStatePatch): UIStatePatch {
   // while a weight change may already be waiting.
   if (a.chat_text && b.chat_text)
     out.chat_text = { ...a.chat_text, ...b.chat_text }
+  if (a.terminal_text && b.terminal_text)
+    out.terminal_text = { ...a.terminal_text, ...b.terminal_text }
   // Pin ops are per key too: two cards pinned in one round trip both land.
   if (a.agent_pins && b.agent_pins)
     out.agent_pins = { ...a.agent_pins, ...b.agent_pins }
   return out
+}
+
+function mergeFields(
+  base: object | undefined,
+  patch: object
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...base }
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null || v === "") delete next[k]
+    else next[k] = v
+  }
+  return next
 }
 
 function mergeLocal(cached: UIState, patch: UIStatePatch): UIState {
@@ -180,6 +195,7 @@ function mergeLocal(cached: UIState, patch: UIStatePatch): UIState {
     theme_atmosphere: atmosphere,
     typography,
     chat_text: chatText,
+    terminal_text: terminalText,
     remember_background: remember,
     forget_background: forget,
     agent_pins: pins,
@@ -187,15 +203,17 @@ function mergeLocal(cached: UIState, patch: UIStatePatch): UIState {
   } = patch
   const out: UIState = { ...cached, ...fields }
   if (typography) out.typography = { ...cached.typography, ...typography }
-  if (chatText) {
-    // The server's mergeChatText: null (or a "" preset) deletes the field.
-    const next: Record<string, unknown> = { ...cached.chat_text }
-    for (const [k, v] of Object.entries(chatText)) {
-      if (v === null || v === "") delete next[k]
-      else next[k] = v
-    }
-    out.chat_text = next as UIState["chat_text"]
-  }
+  // The server's textPrefKind.merge: null (or a "" preset) deletes the field.
+  if (chatText)
+    out.chat_text = mergeFields(
+      cached.chat_text,
+      chatText
+    ) as UIState["chat_text"]
+  if (terminalText)
+    out.terminal_text = mergeFields(
+      cached.terminal_text,
+      terminalText
+    ) as UIState["terminal_text"]
   if (atmosphere)
     out.theme_atmosphere = mergeAtmosphereInto(
       cached.theme_atmosphere,
