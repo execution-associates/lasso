@@ -72,12 +72,23 @@ lasso does not fall back to `npx chrome-devtools-mcp@latest`: fetching an unpinn
 | `/cdp/devtools/...` | passthrough to page and browser targets |
 | `/cdp/json`, `/cdp/json/...` | passthrough (`/json/list`, `/json/version`), with every websocket URL in the answer rewritten to point back through `/cdp` |
 | `/cdp/p/<id>`, `/cdp/p/<id>/devtools/...`, `/cdp/p/<id>/json/...` | the same for profile `<id>` |
+| `/cdp/profiles` | lasso's own JSON listing of every profile and where to connect to it (below); `/cdp/p/<id>/profiles` answers the same |
 
 ```js
 const browser = await chromium.connectOverCDP("ws://127.0.0.1:8090/cdp")
 ```
 
 Use `wss://` when lasso is on HTTPS. The address is stable: it survives Chromium being stopped, relaunched, or restarted with a new proxy, so it is safe to put in an agent's config. Connecting also starts the browser if it is stopped.
+
+### Discovering profiles over CDP
+
+A client that speaks only CDP can find every profile without adding an MCP server:
+
+```bash
+curl -s http://127.0.0.1:8090/cdp/profiles
+```
+
+The answer is `{"profiles": [...]}`, the default profile first. Each entry has `id`, `name`, `default`, `proxy` (when set), `running`, `started_at` (while running), `tabs` (the open pages, while running), `ws_path` and `ws_url` (the websocket to hand `connectOverCDP`), `http_path` and `http_url` (the same prefix for `/json/list` and `/json/version`), and a `note` when something is wrong, such as why a stopped profile cannot start. Only `GET` (and `HEAD`) are accepted, and the response is never cached, so a new profile shows up at once. Listing never starts a browser: a profile that is not running is reported as stopped. The route sits behind the same authentication and Origin check as the rest of `/cdp`.
 
 ## Authentication
 

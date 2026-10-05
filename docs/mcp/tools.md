@@ -251,6 +251,7 @@ Returns:
 | `ws_endpoint` | absolute CDP websocket URL for this profile (`/cdp`, or `/cdp/p/<id>`), e.g. for Playwright's `chromium.connectOverCDP()` |
 | `ws_path` | the path alone, to prefix with lasso's URL when `ws_endpoint` is empty |
 | `http_endpoint` | the CDP HTTP base (`…/json/list`, `…/json/version`) |
+| `profiles_url` | `GET` it for every profile and its own CDP endpoint (`/cdp/profiles`), the discovery path for a CDP client with no MCP server |
 | `available`, `running` | whether a Chromium is installed, and whether it is running |
 | `pages` | the pages open now (`id`, `url`, `title`) |
 | `profile` | the profile these endpoints drive |

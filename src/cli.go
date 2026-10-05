@@ -134,7 +134,7 @@ usage:
   lasso connect [flags]    register lasso's MCP servers with this machine's agent CLIs
   lasso mcp-client <cmd>   per-host MCP credentials: add|list|token|rm (see -h)
   lasso mcp-group <cmd>    host groups: add|list|add-member|grant|reach (see -h)
-  lasso plugin <cmd>       plugins: list|enable|disable|trust|untrust|restart|reload|install|update|uninstall|link|unlink|log|data-dir (see -h)
+  lasso plugin <cmd>       plugins: list|enable|disable|trust|untrust|vm|restart|reload|install|update|uninstall|link|unlink|log|data-dir (see -h)
   lasso version            print the version
 
 run "lasso -h" style flags after serve/start/restart; see docs/reference/cli.md for details.

@@ -19,7 +19,7 @@ lasso keeps its own state in one directory and one SQLite database. Beyond that 
 | `uploads/<id>/` | Files attached in the New dialog, staged until the agent's working directory exists. |
 | `uploads/dropped-files/` | Files pasted, dropped or attached into the terminal, and custom backgrounds uploaded in Settings. A file sent to a remote host lands in that host's `~/.lasso`. |
 | `prompts/<agent-id>.md` | The initial prompt staged for an agent, removed when lasso closes that agent. |
-| `plugins/<name>/` | Installed and hand-placed plugins, each with a `plugin.json`. `plugins/.staging/` holds GitHub installs being previewed. |
+| `plugins/<name>/` | Installed and hand-placed plugins, each with a `plugin.json`. `plugins/.staging/` holds GitHub installs being previewed. `plugins/.runner.lock` is held by the one lasso that runs this directory's plugin MCP servers, and names its pid and listen address. |
 | `plugin-data/<name>/` | Each plugin's one writable directory (mode 0700). Survives uninstall unless you purge it. |
 | `omarchy/themes/<name>/` | Omarchy themes installed from a git URL in Settings. |
 | `browser-profile/` | The default shared-browser profile (mode 0700): cookies, logins, and a `lasso-browser.pid`. Two lasso instances cannot share it. |
@@ -50,7 +50,7 @@ Notable `settings` keys:
 | `ui_state` | UI state shared by every browser: theme backdrops and appearance, sidebar layout and tab order, typography, browser mode, and similar. |
 | `repos_root`, `branch_prefix`, `default_agent`, `scratch_setup` | New dialog defaults. |
 | `push_vapid_private` | The VAPID private key identifying this server to push services, generated once. If it changes, every registered device stops receiving notifications. |
-| `plugins`, `plugin_sources` | Plugin approvals (permission fingerprints) and trust flags; where each plugin was installed from. |
+| `plugins`, `plugin_sources` | Plugin approvals (permission fingerprints), trust and VM flags; where each plugin was installed from. |
 | `browser_profiles`, `browser_default_profile_name`, `browser_proxy` | Shared-browser profiles and the default profile's proxy. |
 | `sync_agent_themes`, `theme_sync_off`, `theme_hub`, `theme_written:<host>` | Fleet theme sync: the agent-theme toggle, hosts opted out, and what lasso last wrote where. |
 | `omarchy_installed` | Omarchy themes installed from a URL. |

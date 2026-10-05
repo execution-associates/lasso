@@ -1,4 +1,9 @@
-# Writing a lasso plugin
+---
+title: Writing a plugin
+description: The plugin manifest, sidebar tabs and their message bridge, MCP servers in isb sandboxes, themes and fonts.
+order: 51
+nav_title: Writing plugins
+---
 
 A plugin adds to lasso in any of four ways:
 
@@ -7,9 +12,9 @@ A plugin adds to lasso in any of four ways:
 - **Themes**: Omarchy-format palettes that become ordinary lasso themes (see [Themes](#themes)).
 - **Fonts**: font files that become choices in Settings' Typography section (see [Fonts](#fonts)).
 
-A plugin's MCP server runs in an **[isb](https://github.com/execution-associates/isb) sandbox** by default: an unprivileged container, or a VM with its own kernel if you ask for one. It does not run on your machine as you. Nothing a plugin ships runs until you enable it, and enabling it approves exactly the permissions lasso shows you.
+A plugin's MCP server runs in an **[isb](https://github.com/execution-associates/isb) sandbox** by default: an unprivileged container, or a VM with its own kernel if you ask for one. It does not run on your machine as you. Nothing a plugin ships runs until you enable it, and enabling it approves exactly the permissions lasso shows you. This page is for plugin authors; to install and manage plugins, see [Plugins](./index.md).
 
-A complete working example is in [`examples/plugins/hello`](../examples/plugins/hello): one tab and a stdlib-only Python MCP server. [`examples/plugins/harbor`](../examples/plugins/harbor) is an appearance-only plugin: one theme and one font.
+A complete working example is in [`examples/plugins/hello`](https://github.com/execution-associates/lasso/tree/main/examples/plugins/hello): one tab and a stdlib-only Python MCP server. [`examples/plugins/harbor`](https://github.com/execution-associates/lasso/tree/main/examples/plugins/harbor) is an appearance-only plugin: one theme and one font.
 
 ## Layout
 
@@ -26,6 +31,8 @@ A plugin gets there in one of three ways (see [Installing and sharing](#installi
 - **From GitHub**: `lasso plugin install owner/repo[/subdir]`, or Settings → General → Plugins → Install from GitHub.
 - **Linked**: `lasso plugin link <path>` uses a checkout where it is, without copying it. This is the way to develop one.
 - **By hand**: put its directory there. The directory name **is** the plugin's name.
+
+From a checkout of the lasso repository:
 
 ```sh
 cp -r examples/plugins/hello ~/.lasso/plugins/
@@ -65,7 +72,7 @@ lasso plugin enable hello
 | `platforms` | Optional list of `linux` and `darwin` (`macos` is accepted for `darwin`). On any other OS the plugin is `invalid` with the reason. |
 | `tabs[].id` | `^[a-z][a-z0-9-]{0,31}$`, unique within the plugin. The tab's global id is `plugin:<name>:<id>`. |
 | `tabs[].label` | 1-64 characters. |
-| `tabs[].icon` | A name from lasso's curated set: `activity bell book book-open bot box calendar chart clock cloud code cpu dashboard database file-text flask folder gauge git-branch globe hammer heart image layers link list mail map message music notebook package puzzle rocket search server shield sparkles star terminal` (see `PLUGIN_ICONS` in `src/web/src/lib/plugins.ts`). An unknown name falls back to a puzzle piece and is never an error. |
+| `tabs[].icon` | A name from lasso's curated set: `activity bell book book-open bot box calendar chart clock cloud code cpu dashboard database file-text flask folder gauge git-branch globe hammer heart image layers link list mail map message music notebook package puzzle rocket search server shield sparkles star terminal wrench zap` (see `PLUGIN_ICONS` in [`src/web/src/lib/plugins.ts`](https://github.com/execution-associates/lasso/blob/main/src/web/src/lib/plugins.ts)). An unknown name falls back to a puzzle piece and is never an error. |
 | `tabs[].entry` | A file inside the plugin directory, served by lasso. Relative, with no `..` and no hidden segments. |
 | `tabs[].url` | An `http(s)` URL, framed as-is. A tab has exactly one of `entry` or `url`. |
 | `mcp.image` | Required with `mcp`. The OCI image the container is built from. A plain reference is a Docker Hub image (`python:3.12-slim` is `docker:python:3.12-slim`); an isb prefix (`docker:`, `ghcr:`, `quay:`, `oci:`, or `images:` for a system image) is used as written. The image must have `sh` and `sleep` (or `tail`): see [The sandbox](#the-sandbox). |
@@ -87,7 +94,7 @@ A manifest is written by whoever wrote the directory, so nothing in it can grant
 
 - **A new plugin is disabled.** Enabling it (Settings shows the exact permissions in a dialog first) approves the permissions shown: its tabs' entries and URLs, the image and the VM image, the command, the network allowlist, the env variable names, each secret with the hosts it may go to, its theme ids, and its fonts' ids, families and categories. lasso stores a fingerprint of that set in its own database, never in the plugin directory.
 - **If a later edit changes any of those**, the plugin reads as `needs_approval`. Its tabs and its MCP server stop loading until you approve the new set. Changes to the version, the description, a tab's label or icon, a theme's label or palette, a font's license, or the font files themselves do not need re-approval. lasso rescans the directory every 10 seconds, and on every Settings visit, so an edit is noticed without a reload.
-- **Isolation** is a container (the default) or a VM. A VM has its own kernel, so a kernel exploit inside it does not reach your machine, at the cost of a slower start (about a minute and a half on titan, against seconds for a container). It is a flag in lasso's database that only you can set (`lasso plugin vm <name> on|off`, or Settings' Container / VM switch). A manifest can name a `vm_image` but cannot ask for a VM, and flipping the switch restarts the server.
+- **Isolation** is a container (the default) or a VM. A VM has its own kernel, so a kernel exploit inside it does not reach your machine, at the cost of a much slower start than a container's few seconds. It is a flag in lasso's database that only you can set (`lasso plugin vm <name> on|off`, or Settings' Container / VM switch). A manifest can name a `vm_image` but cannot ask for a VM, and flipping the switch restarts the server.
 - **Trusted** runs the MCP server directly on your machine, as your user, outside the sandbox. It is a flag in lasso's database that only you can set (`lasso plugin trust <name>`, or the Settings toggle). A manifest field cannot set it. Trusted wins over the VM switch. Even a trusted server gets a minimal environment (PATH, HOME, locale, XDG directories) plus its own `env` and secrets. It never gets lasso's `UI_AUTH`, `MCP_OAUTH` or `LASSO_MCP_TOKEN`.
 
 ```sh
@@ -111,7 +118,7 @@ lasso plugin log <name> [-n 200] [-f]
 lasso plugin data-dir <name>
 ```
 
-**Install** takes `owner/repo`, `owner/repo/sub/dir`, or `https://github.com/owner/repo[/tree/<ref>/sub/dir]`. Only GitHub is supported. `--ref` pins a branch, a tag or a commit. lasso shallow-clones the repository into a hidden staging directory (`plugins/.staging/`), with git hooks off and submodules not fetched. It deletes `.git`, and refuses a checkout over 50 MB or 5000 files, or one whose plugin directory holds a symlink pointing outside it. Then it validates the manifest exactly as the scanner does, and shows you every permission, the source and the exact commit. Nothing is installed until you confirm. "Install and enable" approves exactly the fingerprint the preview showed; if the staged manifest no longer matches it, the confirm is refused and you preview again. A preview you do not confirm expires after 10 minutes. The plugin lands in `plugins/<name>/` (the name comes from its manifest), and lasso records its source, ref and commit. Without a terminal, `install` refuses unless you pass `-y`.
+**Install** takes `owner/repo`, `owner/repo/sub/dir`, or `https://github.com/owner/repo[/tree/<ref>/sub/dir]`. Only GitHub is supported. `--ref` pins a branch, a tag or a commit. lasso shallow-clones the repository into a hidden staging directory (`plugins/.staging/`), with git hooks off and submodules not fetched. It deletes `.git`, and refuses a checkout over 50 MB or 5000 files, or one whose plugin directory holds a symlink pointing outside it. Then it validates the manifest exactly as the scanner does, and shows you every permission, the source and the exact commit. Nothing is installed until you confirm. "Install and enable" approves exactly the fingerprint the preview showed; if the staged manifest differs from it, the confirm is refused and you preview again. A preview you do not confirm expires after 10 minutes. The plugin lands in `plugins/<name>/` (the name comes from its manifest), and lasso records its source, ref and commit. Without a terminal, `install` refuses unless you pass `-y`.
 
 **Update** re-fetches the recorded source and ref, shows the same preview plus the current commit, and says whether the permissions change. Confirming swaps the new directory in; if that fails, the old one is put back. Unchanged permissions keep their approval. Changed ones read `needs_approval` until you approve them.
 
@@ -269,7 +276,7 @@ whose stdin and stdout are the server's. Every start first removes a sandbox of 
 - **Secrets never enter the guest.** lasso resolves each approved secret from its own environment, or failing that from `secret NAME` (10s timeout), and writes it on stdin (never argv) into isb's secret store as `lasso-plugin-<name>.<secret name lowercased>`, overwriting it on every start. The guest's `NAME` holds a placeholder (`isb_placeholder_...`). isb's proxy swaps it for the value only on TLS connections to that secret's approved hosts, verified against the real certificate, and turns the value back into the placeholder in anything those hosts send back. The store entries are deleted when the sandbox is (stop, disable, shutdown); uninstall and unlink also delete any a crashed lasso left. Toward a secret's hosts isb speaks **HTTP/1.1 only** (so gRPC fails), a client that **pins the host's certificate fails**, the request line and headers are rewritten but a body is not, and plain HTTP to an approved host carries the placeholder, never the value. isb installs its per-sandbox CA in the guest's system store and points `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO` and `NODE_EXTRA_CA_CERTS` at it; a runtime with a trust store of its own must be told to trust `/etc/isb/egress-ca.crt`.
 - **VMs and `/data`.** In a VM the data directory is shared over virtiofs with no uid translation: a file the guest's root creates there is owned by root on your machine, setuid bit included. The server runs as uid 1000, which the default VM image gives no sudo, so only a privilege escalation inside the VM can do that. Treat `<data dir>` as untrusted: never execute anything from it on the host.
 - **Logs.** The server's stderr (and `isb create`'s progress lines) stream into lasso's log and a ring of the last 500 lines per plugin, kept across restarts. `lasso plugin log <name>` (or Settings' Logs button) shows it; `-f` follows it. When a server dies, its last lines are in the status.
-- **Cost.** A container is running in about 10 seconds on titan, a VM in about a minute and a half. A first start also downloads its image; lasso allows ten minutes for a launch.
+- **Cost.** A container starts in seconds; a VM boots its own kernel and takes considerably longer. A first start also downloads its image; lasso allows ten minutes for a launch.
 
 ### Setting up isb
 
@@ -280,14 +287,6 @@ sudo isb host setup --sandbox-egress
 ```
 
 Without a usable isb, tabs still work, and every untrusted MCP server reads `unavailable` with the reason (`isb 1.0 or later is required (found 0.7.0 at …)`, `isb serve is not running …`).
-
-### Upgrading from lasso 4.x (5.0.0)
-
-- Plugin MCP servers run in isb sandboxes. microsandbox (`msb`) is no longer used, and `LASSO_MSB` is gone: point `LASSO_ISB` at isb instead. On its first start lasso stops and removes any `lasso-plugin-*` microsandbox sandboxes an older lasso left running.
-- A `network` entry or a secret host that is an IP address, or a wildcard over a single label (`*.com`), now makes the manifest **invalid**: isb's egress allows host names only.
-- Two secrets whose names differ only in case are invalid.
-- `GET /api/plugins` answers `sandbox` in place of `msb`, and each plugin gains `vm` and `isolation`.
-- The server runs as uid 1000, not root, and the image needs `sh` and `sleep` or `tail`.
 
 ### Two lassos on one plugins directory
 

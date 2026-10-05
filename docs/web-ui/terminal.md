@@ -103,7 +103,7 @@ A pane running anything else, or a plain shell, shows a note instead of a conver
 The Agents grid shows every agent lasso can reach as its own card at once, so you can watch several and answer whichever is waiting on you. Open it with the footer's **Agents** button or `⌘E` (desktop widths only).
 
 - Each card shows the tail of that agent's transcript (the same source as Chat) and has its own composer, addressed to that agent's own host and pane. `↩` sends, `⇧↩` breaks the line. Pasted or picked files are uploaded to the agent's host.
-- **Priority** sorts by attention: blocked, then working, then idle, then done, so cards move as statuses change. **A–Z** sorts by name and only reorders when an agent is created, closed or renamed. The sort is saved on the server.
+- **Priority** sorts by attention: blocked, then working, then idle, then done, with the most recently active agent first within each status, so cards move as statuses change. **Recent** ignores status and puts the agent whose transcript changed most recently first, so the conversations that are moving lead the grid. The sort is saved on the server, so your phone and your desktop show the same order.
 - **Group** splits the grid into sections by machine.
 - Pinned cards lead the grid in the order you pinned them, regardless of the sort.
 - The filter matches names, harness, working directory, machine, and what was said in each conversation.

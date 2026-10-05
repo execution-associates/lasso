@@ -79,7 +79,7 @@ Don't use `herdr pane report-agent`; it overrides herdr's own status detection.
 
 A real Chromium on lasso's machine that the human watches, and can click in, from lasso's Browser tab.
 
-- Call `shared_browser` to start it and get the `/browser-mcp` URL (`mcp_endpoint`), the raw CDP websocket (`ws_endpoint`, for Playwright's `connectOverCDP`), and the open pages. `available: false` or `mcp_available: false` come with a reason.
+- Call `shared_browser` to start it and get the `/browser-mcp` URL (`mcp_endpoint`), the raw CDP websocket (`ws_endpoint`, for Playwright's `connectOverCDP`), `profiles_url` (a plain `GET` listing every profile and its own CDP websocket), and the open pages. `available: false` or `mcp_available: false` come with a reason.
 - **Open your own page** (`new_page` on `lasso-browser`) instead of navigating one you didn't open. The human's tab shows the most recently opened page, so opening one puts them on it.
 - **Close the pages you opened** when you are done.
 - `localhost` inside the browser means lasso's machine, not yours.

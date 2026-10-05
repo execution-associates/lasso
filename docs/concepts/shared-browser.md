@@ -10,7 +10,7 @@ The shared browser is a headless Chromium that lasso runs on **its own machine**
 
 ## What you and agents each see
 
-- **Agents** reach it at `/browser-mcp` (chrome-devtools-mcp's tools, one MCP URL for every profile) or raw CDP at `/cdp`, for Playwright or any CDP client. Details are in [The browser MCP](../mcp/browser-mcp.md).
+- **Agents** reach it at `/browser-mcp` (chrome-devtools-mcp's tools, one MCP URL for every profile) or raw CDP at `/cdp`, for Playwright or any CDP client; a plain `GET /cdp/profiles` lists every profile and its CDP address. Details are in [The browser MCP](../mcp/browser-mcp.md).
 - **You** see it in the Browser tab's **Agent** mode, which shows a tab strip of the current profile's pages and follows the newest one. When an agent opens a page you land on it; open one yourself and the agents can see it too.
 - **`localhost` means lasso's machine.** A bare port typed into Agent mode (`5173`) opens `http://localhost:5173` on lasso's machine, whatever host your browser tab is on. There is one shared browser per lasso, not one per host.
 
