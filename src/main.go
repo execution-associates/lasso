@@ -2862,7 +2862,12 @@ func (h *hub) serveSSE(w http.ResponseWriter, r *http.Request) {
 		case ev := <-nch:
 			sendEvent(ev)
 		case <-keep.C:
-			fmt.Fprint(w, ": keepalive\n\n")
+			// A named event, not an SSE comment: the browser never surfaces a
+			// comment to script, and this is what its watchdog (lib/app-store.tsx)
+			// counts as proof the stream is still alive. A half-open connection
+			// (a laptop waking on another network) raises no error on its own, so
+			// without a ping the tab would keep its last frame forever.
+			fmt.Fprint(w, "event: ping\ndata: {}\n\n")
 			fl.Flush()
 		}
 	}
