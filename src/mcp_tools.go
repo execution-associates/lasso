@@ -15,9 +15,10 @@ import (
 // resolveBackend. Three groups:
 //   - discovery:   list_hosts, list_repos, list_branches
 //   - spawning:    create_agent (loop it for the bulk "one per repo" case)
-//   - orchestration: list_agents, get_agent, close_agent. Talking to an agent —
-//                  prompting it, reading its screen, waiting on it — is herdr's
-//                  job (`herdr agent prompt/read/wait`), not lasso's.
+//   - orchestration: list_agents, get_agent, close_agent
+//   - messaging:   send_agent, read_agent, wait_agent, get_replies,
+//                  reply_message (agentmsg.go; replies arrive over tailcat,
+//                  replyinbox.go)
 //   - introspection: whoami (an agent maps its own $HERDR_PANE_ID back to its
 //                  lasso record, typically to then close_agent itself)
 //   - notifying:   notify (an agent pushes a notification to its HUMAN — the
@@ -63,7 +64,7 @@ func registerMCPTools(s *mcp.Server) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_agent",
-		Description: "Get one agent's details and its live status (working/idle/blocked/unknown, or failed for a boot that never came up). It does not read the agent's terminal — use herdr for that (`herdr agent read`). Target it by lasso agent id, by its sidebar/display name, or by herdr pane id (via agent_id or to) — so a foreign herdr session lasso did not create can be inspected too.",
+		Description: "Get one agent's details and its live status (working/idle/blocked/unknown, or failed for a boot that never came up). It does not read the agent's terminal; read_agent does. Target it by lasso agent id, by its sidebar/display name, or by herdr pane id (via agent_id or to) — so a foreign herdr session lasso did not create can be inspected too.",
 	}, getAgentTool)
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -87,6 +88,7 @@ func registerMCPTools(s *mcp.Server) {
 	}, sharedBrowserTool)
 
 	registerBrowserProfileTools(s)
+	registerAgentMessagingTools(s)
 }
 
 // ---------------------------------------------------------------------------
@@ -1004,10 +1006,8 @@ type getAgentIn struct {
 	To      string `json:"to,omitempty" jsonschema:"Target: a lasso agent id, its sidebar/display name, or a herdr pane id — including a foreign herdr session lasso did not create. Given instead of, or as well as, agent_id."`
 }
 
-// getAgentOut carries the record and live status only. It used to include a
-// tail of the pane's terminal output; reading an agent's screen is herdr's job
-// (`herdr agent read`), and offering it here made agents reach for lasso to
-// talk to one another.
+// getAgentOut carries the record and live status only; read_agent reads the
+// pane.
 type getAgentOut struct {
 	Agent agentInfo `json:"agent"`
 }
