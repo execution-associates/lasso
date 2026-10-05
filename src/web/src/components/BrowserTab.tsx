@@ -1,5 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, ArrowRight, ExternalLink, RotateCw } from "lucide-react"
+import {
+  ArrowLeft,
+  ArrowRight,
+  ExternalLink,
+  Globe,
+  RotateCw,
+} from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { BrowserProfileBar } from "@/components/BrowserProfileBar"
@@ -320,22 +326,6 @@ function EmbedBrowser({
           loading…
         </div>
       )}
-      {status === "error" && (
-        <div className="flex flex-shrink-0 items-start justify-between gap-2 border-border border-b bg-background px-2 py-1.5">
-          <span className="text-[12px] text-destructive">{err}</span>
-          {openTarget && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 flex-shrink-0 gap-1 text-[12px]"
-              onClick={openExternal}
-            >
-              <ExternalLink className="size-3" />
-              open in new tab
-            </Button>
-          )}
-        </div>
-      )}
       <div className="relative flex min-h-0 flex-1 flex-col">
         <iframe
           key={reloadKey}
@@ -348,6 +338,25 @@ function EmbedBrowser({
         {status === "loading" && src !== "about:blank" && (
           <div className="absolute inset-0 flex items-center justify-center bg-background text-[13px] text-muted-foreground">
             connecting…
+          </div>
+        )}
+        {/* A refused or unreachable frame shows the browser's own error page,
+            which is cross-origin and can't be themed, so cover it. */}
+        {status === "error" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background px-6 text-center">
+            <Globe className="size-8 text-muted-foreground" />
+            <p className="max-w-sm text-[13px] text-muted-foreground">{err}</p>
+            {openTarget && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={openExternal}
+              >
+                <ExternalLink className="size-3.5" />
+                open in new tab
+              </Button>
+            )}
           </div>
         )}
       </div>
