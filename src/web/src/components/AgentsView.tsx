@@ -16,6 +16,7 @@ import * as React from "react"
 import { toast } from "sonner"
 import { AgentLines } from "@/components/AgentParts"
 import { Markdown } from "@/components/Markdown"
+import { UserBubble } from "@/components/UserBubble"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -894,13 +895,7 @@ function AgentCard({
 function MiniRow({ item }: { item: ChatItem }) {
   switch (item.kind) {
     case "user":
-      return (
-        <div className="flex justify-end">
-          <div className="max-w-[90%] whitespace-pre-wrap break-words rounded-xl rounded-br-sm border border-primary/20 bg-primary/8 px-2.5 py-1.5 text-[12.5px] text-foreground leading-snug">
-            {item.text}
-          </div>
-        </div>
-      )
+      return <UserBubble text={item.text ?? ""} compact />
     case "agent":
       if (item.thinking) return null
       return (
