@@ -114,10 +114,14 @@ function agentSearchText(pane: HostPane, chat?: ChatPayload): string {
   return bits.filter(Boolean).join("\n").toLowerCase()
 }
 export function AgentsView({
+  active = true,
   onShowChat,
   onNewAgent,
   className,
 }: {
+  // False while a chat opened from the grid covers it: the grid stays mounted
+  // so Back returns to it intact, but nobody is reading N transcripts.
+  active?: boolean
   // Opening a card lands on the single-chat conversation for it: full history,
   // ask answering, close. The card focuses the pane first (moving the tab when
   // the agent is elsewhere), then this flips the view — the chat follows the
@@ -211,7 +215,7 @@ export function AgentsView({
     queries: agents.map((p) => ({
       queryKey: qk.chat(p.host, p.pane_id),
       queryFn: () => api.chat(p.pane_id, undefined, p.host),
-      refetchInterval: 5000,
+      refetchInterval: active ? 5000 : (false as const),
       refetchIntervalInBackground: false,
     })),
   })

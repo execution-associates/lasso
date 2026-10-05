@@ -3,8 +3,9 @@
 // conventional and the fragment stays free. Updates use replaceState so they
 // don't pile up history entries on every host change.
 //
-// Only state lasso OWNS belongs here, which is now just the active host.
-// herdr's focused pane does not — it is one global per herdr session, shared
+// Only state lasso OWNS belongs here: the active host, and which face of the
+// left column this tab shows (the PATH: / terminal, /chat, /agents). herdr's
+// focused pane does not — it is one global per herdr session, shared
 // with the TUI and every other lasso client, so a URL that named it would let a
 // browser Back re-point it for everyone (and a shared link steal focus on open).
 
@@ -35,4 +36,34 @@ function writeQueryParams(params: Record<string, string | null>) {
   }
   const qs = url.searchParams.toString()
   window.history.replaceState(null, "", url.pathname + (qs ? `?${qs}` : ""))
+}
+
+// The left column's face lives in the path, one history entry per change, so
+// Back from a chat opened off the grid returns to the grid. Only the VIEW is
+// named: /chat is "the chat of whatever pane herdr has focused", never a pane,
+// for the reason above.
+export type LeftView = "terminal" | "chat" | "agents"
+
+const viewPaths: Record<LeftView, string> = {
+  terminal: "/",
+  chat: "/chat",
+  agents: "/agents",
+}
+
+export function leftViewFromPath(): LeftView {
+  const p = window.location.pathname.replace(/\/+$/, "")
+  if (p === viewPaths.chat) return "chat"
+  if (p === viewPaths.agents) return "agents"
+  return "terminal"
+}
+
+// writeLeftView puts the view in the path, keeping the query (?host=). push
+// adds a history entry; the first sync of a page load replaces instead, so an
+// unknown path is normalized without leaving a Back step to it.
+export function writeLeftView(view: LeftView, push: boolean) {
+  const path = viewPaths[view]
+  if (window.location.pathname === path) return
+  const url = path + window.location.search
+  if (push) window.history.pushState(null, "", url)
+  else window.history.replaceState(null, "", url)
 }
