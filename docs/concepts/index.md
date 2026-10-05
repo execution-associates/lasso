@@ -11,7 +11,7 @@ lasso adds a browser UI, an MCP surface and phone notifications around [herdr](h
 
 ## herdr is the source of truth
 
-herdr organizes terminals as **workspaces**, which hold **tabs**, which hold **panes**. An agent is a CLI (Claude Code, Codex, ...) running in a pane, and herdr tracks whether it is working, idle or blocked. lasso reads all of that from herdr and shows it; when you close a pane in herdr, lasso notices. herdr's own commands (`herdr agent prompt`, `read`, `wait`) remain the way to talk to an agent: lasso orchestrates agents, it does not converse with them.
+herdr organizes terminals as **workspaces**, which hold **tabs**, which hold **panes**. An agent is a CLI (Claude Code, Codex, ...) running in a pane, and herdr tracks whether it is working, idle or blocked. lasso reads all of that from herdr and shows it; when you close a pane in herdr, lasso notices. lasso can also message an agent and collect its reply (`send_agent`, `get_replies`), which works from anywhere `/mcp` reaches, including claude.ai.
 
 ## Hosts
 
