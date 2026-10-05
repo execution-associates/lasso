@@ -343,20 +343,24 @@ function EmbedBrowser({
         {/* A refused or unreachable frame shows the browser's own error page,
             which is cross-origin and can't be themed, so cover it. */}
         {status === "error" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background px-6 text-center">
-            <Globe className="size-8 text-muted-foreground" />
-            <p className="max-w-sm text-[13px] text-muted-foreground">{err}</p>
-            {openTarget && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                onClick={openExternal}
-              >
-                <ExternalLink className="size-3.5" />
-                open in new tab
-              </Button>
-            )}
+          <div className="embed-cover absolute inset-0 bg-background">
+            <div className="flex h-full flex-col items-center justify-center gap-3 bg-background px-6 text-center">
+              <Globe className="size-8 text-muted-foreground" />
+              <p className="max-w-sm text-[13px] text-muted-foreground">
+                {err}
+              </p>
+              {openTarget && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={openExternal}
+                >
+                  <ExternalLink className="size-3.5" />
+                  open in new tab
+                </Button>
+              )}
+            </div>
           </div>
         )}
       </div>
