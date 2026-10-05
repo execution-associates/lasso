@@ -282,6 +282,13 @@ type hostPane struct {
 	// milliseconds (see paneTranscriptAt): the agents lists' recency order.
 	// Absent for a pane with no readable transcript.
 	TranscriptAt int64 `json:"transcript_at,omitempty"`
+	// TouchedAt is when the human last acted on this agent through lasso, in
+	// unix milliseconds (see touchAgent): the grid's "Recent" order. Absent
+	// when nobody has.
+	TouchedAt int64 `json:"touched_at,omitempty"`
+	// Repo names the git repo the pane works in (its directory name), for the
+	// agents grid's by-repo grouping. See paneRepoName for how it is decided.
+	Repo string `json:"repo,omitempty"`
 	// Prompt is the initial prompt the user gave the agent when creating it
 	// (lasso's AgentRecord.Description, not anything herdr knows). It's shipped so
 	// the pane switcher can search the full prompt text; the UI need not display it.
@@ -1243,8 +1250,18 @@ func enumerateHostPanes(b Backend, host, hostLabel string) ([]hostPane, error) {
 	promptByPane := map[string]string{}
 	promptByWS := map[string]string{}
 	planGate := map[string]bool{}
+	repoByPane := map[string]string{}
+	repoByWS := map[string]string{}
 	if recs, err := listAgents(host); err == nil {
 		for _, rec := range recs {
+			if rec.Repo != "" {
+				if rec.RootPane != "" {
+					repoByPane[rec.RootPane] = rec.Repo
+				}
+				if rec.WorkspaceID != "" && rec.Type != "scratch" {
+					repoByWS[rec.WorkspaceID] = rec.Repo
+				}
+			}
 			if rec.PlanMode && rec.RootPane != "" && harnessByID(rec.Agent).stagesConfigOverlay {
 				planGate[rec.RootPane] = true
 			}
@@ -1261,8 +1278,24 @@ func enumerateHostPanes(b Backend, host, hostLabel string) ([]hostPane, error) {
 			}
 		}
 	}
+	// Resolved on first need: most agent panes are named by their record or a
+	// worktree path, and a host with neither costs no settings read.
+	var repoRoots []string
+	repoRootsDone := false
+	roots := func() []string {
+		if !repoRootsDone {
+			repoRootsDone = true
+			if st, err := getSettings(); err == nil {
+				for _, r := range splitReposRoots(st.ReposRoot) {
+					repoRoots = append(repoRoots, expandTildeOn(b, r))
+				}
+			}
+		}
+		return repoRoots
+	}
 	out := make([]hostPane, 0, len(pl.Panes))
 	transcriptAt := paneTranscriptTimes(b, host, pl.Panes)
+	touchedAt := agentTouches(host)
 	for _, p := range pl.Panes {
 		kind, isAgent := agentKind[p.PaneID]
 		status := p.AgentStatus
@@ -1286,6 +1319,11 @@ func enumerateHostPanes(b Backend, host, hostLabel string) ([]hostPane, error) {
 		if prompt == "" && isAgent {
 			prompt = promptByWS[p.WorkspaceID]
 		}
+		recRepo := repoByPane[p.PaneID]
+		if recRepo == "" {
+			recRepo = repoByWS[p.WorkspaceID]
+		}
+		cwd := paneCwd(p)
 		out = append(out, hostPane{
 			Host:           host,
 			HostLabel:      hostLabel,
@@ -1296,13 +1334,15 @@ func enumerateHostPanes(b Backend, host, hostLabel string) ([]hostPane, error) {
 			TabLabel:       tabs[p.TabID].label,
 			PaneLabel:      p.Label,
 			TerminalTitle:  p.TerminalTitleStripped,
-			Cwd:            paneCwd(p),
+			Cwd:            cwd,
+			Repo:           paneRepoName(recRepo, cwd, roots),
 			Agent:          kind,
 			AgentStatus:    status,
 			HasAgent:       isAgent,
 			Focused:        p.Focused,
 			Prompt:         prompt,
 			TranscriptAt:   transcriptAt[p.PaneID],
+			TouchedAt:      touchedAt[p.PaneID],
 		})
 	}
 	// Newest first: herdr assigns workspaces/tabs monotonically increasing numbers
@@ -1376,4 +1416,44 @@ func startHostPoolReaper() {
 			}
 		}()
 	})
+}
+
+// paneRepoName names the repo a pane works in without touching its filesystem:
+// this runs on every aggregation poll, for every pane on every host, so a
+// `git rev-parse` per pane (an ssh round trip each on a remote host) is out.
+// In order: the repo lasso recorded when it created the agent; a lasso worktree
+// path (<home>/.lasso/worktrees/<repo>/<name>); the first directory below the
+// deepest repos_root containing cwd. "" when none applies (a pane in /tmp, or a
+// checkout outside every repos root), which the grid shows as "No repo".
+func paneRepoName(recRepo, cwd string, roots func() []string) string {
+	if recRepo != "" {
+		return filepath.Base(filepath.Clean(recRepo))
+	}
+	if cwd == "" {
+		return ""
+	}
+	cwd = filepath.Clean(cwd)
+	const wt = "/.lasso/worktrees/"
+	if i := strings.Index(cwd+"/", wt); i >= 0 {
+		rest := (cwd + "/")[i+len(wt):]
+		if name, _, ok := strings.Cut(rest, "/"); ok && name != "" {
+			return name
+		}
+	}
+	best := ""
+	for _, r := range roots() {
+		r = filepath.Clean(r)
+		if !strings.HasPrefix(r, "/") || len(r) <= len(best) {
+			continue
+		}
+		if strings.HasPrefix(cwd, r+"/") || (r == "/" && cwd != "/") {
+			best = r
+		}
+	}
+	if best == "" {
+		return ""
+	}
+	rel := strings.TrimPrefix(cwd, strings.TrimSuffix(best, "/")+"/")
+	name, _, _ := strings.Cut(rel, "/")
+	return name
 }

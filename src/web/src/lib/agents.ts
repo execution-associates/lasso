@@ -146,11 +146,21 @@ export function sortAgentsByPriority(panes: HostPane[]): HostPane[] {
   })
 }
 
-// Recency order, ignoring status: the agent that last wrote to its transcript
-// leads. Status still reaches the reader through the card's own badge and the
-// group header's "1 blocked · 2 working" counts.
+// Most recently acted on through lasso first. Agents nobody has touched
+// follow, newest transcript write first.
+function byTouch(a: HostPane, b: HostPane): number {
+  return (b.touched_at ?? 0) - (a.touched_at ?? 0)
+}
+
+// Recency order, ignoring status: the agent the human last sent to, answered,
+// focused or created leads. Not the transcript's mtime: that moves whenever an
+// agent works, so a busy agent nobody watches would outrank the one you are
+// talking to. Status still reaches the reader through the card's own badge and
+// the group header's "1 blocked · 2 working" counts.
 export function sortAgentsByRecency(panes: HostPane[]): HostPane[] {
-  return [...panes].sort((a, b) => byRecency(a, b) || tiebreak(a, b))
+  return [...panes].sort(
+    (a, b) => byTouch(a, b) || byRecency(a, b) || tiebreak(a, b)
+  )
 }
 
 // The one entry point both orders go through, so a surface picks a mode rather
@@ -200,6 +210,45 @@ export function groupAgentsByHost(
     const rank = (g: AgentHostGroup) => (g.host === tabHost ? 0 : 1)
     if (rank(a) !== rank(b)) return rank(a) - rank(b)
     return a.hostLabel.localeCompare(b.hostLabel)
+  })
+}
+
+export interface AgentRepoGroup {
+  // "" for panes outside any repo lasso can name; they share one trailing
+  // "No repo" section rather than a section each.
+  repo: string
+  label: string
+  panes: HostPane[]
+  blocked: number
+  working: number
+}
+
+// The grid's by-repo sections, used alone (one section per repo across every
+// machine) or nested inside a machine's section when both toggles are on.
+// Repos in name order with "No repo" last, agents inside in the caller's
+// chosen order: like the machine order, which repo a section is never changes
+// on its own, so it is orientation rather than a sort mode.
+export function groupAgentsByRepo(
+  agents: HostPane[],
+  sort: AgentSort = "priority"
+): AgentRepoGroup[] {
+  const byRepo = new Map<string, HostPane[]>()
+  for (const p of agents) {
+    const repo = p.repo ?? ""
+    const list = byRepo.get(repo)
+    if (list) list.push(p)
+    else byRepo.set(repo, [p])
+  }
+  const groups: AgentRepoGroup[] = [...byRepo].map(([repo, panes]) => ({
+    repo,
+    label: repo || "No repo",
+    panes: sortAgents(panes, sort),
+    blocked: panes.filter((p) => p.agent_status === "blocked").length,
+    working: panes.filter((p) => p.agent_status === "working").length,
+  }))
+  return groups.sort((a, b) => {
+    if (!a.repo !== !b.repo) return a.repo ? -1 : 1
+    return a.repo.localeCompare(b.repo)
   })
 }
 
