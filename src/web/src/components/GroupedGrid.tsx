@@ -2,8 +2,7 @@ import * as React from "react"
 import {
   type Box,
   type Cell,
-  groupRing,
-  type MaskRect,
+  groupOutlines,
   pieceStarts,
 } from "@/lib/group-outline"
 import { cn } from "@/lib/utils"
@@ -84,7 +83,7 @@ interface Layout {
   // One ring per level, each painted in its own colour: machines in the
   // foreground tone, repos in the accent, so a nested pair reads as two
   // different things rather than a double line.
-  rings: { outer: MaskRect[]; inner: MaskRect[] }[]
+  outlines: string[]
   cuts: Box[]
   labels: PlacedLabel[]
   w: number
@@ -138,16 +137,21 @@ export function GroupedGrid({
       )
     const font = `${LABEL_FONT_PX}px ${getComputedStyle(wrap).fontFamily}`
     const outerPad = nested ? PAD_OUTER : PAD_ONE
-    const outerRing = groupRing(
+    // The stroke is centred on the path, so the path runs half a stroke inside
+    // `pad`: the line's outer edge lands where the outline belongs.
+    const outerLine = groupOutlines(
       cellsFor(groups),
-      outerPad,
-      STROKE_OUTER,
-      RADIUS
+      outerPad - STROKE_OUTER / 2,
+      RADIUS - STROKE_OUTER / 2
     )
     const inner = groups.flatMap((g) => g.children ?? [])
-    const innerRing = inner.length
-      ? groupRing(cellsFor(inner), PAD_INNER, STROKE_INNER, RADIUS - 3)
-      : { outer: [], inner: [] }
+    const innerLine = inner.length
+      ? groupOutlines(
+          cellsFor(inner),
+          PAD_INNER - STROKE_INNER / 2,
+          RADIUS - 3 - STROKE_INNER / 2
+        )
+      : ""
 
     const labels: PlacedLabel[] = []
     const cuts: Box[] = []
@@ -211,7 +215,7 @@ export function GroupedGrid({
         place(slot.key, first, PAD_INNER, [slot.inner], ["inner"])
     }
     setLayout({
-      rings: inner.length ? [outerRing, innerRing] : [outerRing],
+      outlines: inner.length ? [outerLine, innerLine] : [outerLine],
       cuts,
       labels,
       w: wrap.offsetWidth,
@@ -272,14 +276,12 @@ export function GroupedGrid({
             width={layout.w}
             height={layout.h}
           >
-            {layout.rings.map((ring, level) => (
-              <TintLayer
+            {layout.outlines.map((d, level) => (
+              <path
                 // biome-ignore lint/suspicious/noArrayIndexKey: the level IS the identity
                 key={level}
-                id={`${maskId}-tint-${level}`}
-                rects={ring.outer}
-                w={layout.w}
-                h={layout.h}
+                d={d}
+                fill="currentColor"
                 className={
                   level === 0 ? "text-foreground/[0.07]" : "text-primary/[0.09]"
                 }
@@ -292,20 +294,37 @@ export function GroupedGrid({
             width={layout.w}
             height={layout.h}
           >
-            {layout.rings.map((ring, level) => (
-              <RingLayer
-                // biome-ignore lint/suspicious/noArrayIndexKey: the level IS the identity
-                key={level}
-                id={`${maskId}-${level}`}
-                ring={ring}
-                cuts={layout.cuts}
-                w={layout.w}
-                h={layout.h}
-                className={
-                  level === 0 ? "text-foreground/75" : "text-primary/90"
-                }
-              />
-            ))}
+            <defs>
+              <mask id={maskId} maskUnits="userSpaceOnUse">
+                <rect width={layout.w} height={layout.h} fill="white" />
+                {layout.cuts.map((r, i) => (
+                  <rect
+                    // biome-ignore lint/suspicious/noArrayIndexKey: geometry with no identity, rebuilt on every measure
+                    key={i}
+                    x={r.x}
+                    y={r.y}
+                    width={r.w}
+                    height={r.h}
+                    fill="black"
+                  />
+                ))}
+              </mask>
+            </defs>
+            <g mask={`url(#${maskId})`}>
+              {layout.outlines.map((d, level) => (
+                <path
+                  // biome-ignore lint/suspicious/noArrayIndexKey: the level IS the identity
+                  key={level}
+                  d={d}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={level === 0 ? STROKE_OUTER : STROKE_INNER}
+                  className={
+                    level === 0 ? "text-foreground/75" : "text-primary/90"
+                  }
+                />
+              ))}
+            </g>
           </svg>
           {layout.labels.map((l) => (
             <div
@@ -361,106 +380,5 @@ function Legend({ label, inner }: { label: GroupLabel; inner: boolean }) {
         <span className="text-primary"> · {label.working} working</span>
       )}
     </span>
-  )
-}
-
-// A group's area, tinted: the union of its outer rects, unioned through a
-// mask so overlapping rects don't stack their alpha.
-function TintLayer({
-  id,
-  rects,
-  w,
-  h,
-  className,
-}: {
-  id: string
-  rects: MaskRect[]
-  w: number
-  h: number
-  className: string
-}) {
-  return (
-    <g className={className}>
-      <defs>
-        <mask id={id} maskUnits="userSpaceOnUse">
-          <rect width={w} height={h} fill="black" />
-          {rects.map((r, i) => (
-            <rect
-              // biome-ignore lint/suspicious/noArrayIndexKey: geometry with no identity, rebuilt on every measure
-              key={i}
-              x={r.x}
-              y={r.y}
-              width={r.w}
-              height={r.h}
-              rx={r.r}
-              fill="white"
-            />
-          ))}
-        </mask>
-      </defs>
-      <rect width={w} height={h} fill="currentColor" mask={`url(#${id})`} />
-    </g>
-  )
-}
-
-function RingLayer({
-  id,
-  ring,
-  cuts,
-  w,
-  h,
-  className,
-}: {
-  id: string
-  ring: { outer: MaskRect[]; inner: MaskRect[] }
-  cuts: Box[]
-  w: number
-  h: number
-  className: string
-}) {
-  return (
-    <g className={className}>
-      <defs>
-        <mask id={id} maskUnits="userSpaceOnUse">
-          <rect width={w} height={h} fill="black" />
-          {ring.outer.map((r, i) => (
-            <rect
-              // biome-ignore lint/suspicious/noArrayIndexKey: geometry with no identity, rebuilt on every measure
-              key={`o${i}`}
-              x={r.x}
-              y={r.y}
-              width={r.w}
-              height={r.h}
-              rx={r.r}
-              fill="white"
-            />
-          ))}
-          {ring.inner.map((r, i) => (
-            <rect
-              // biome-ignore lint/suspicious/noArrayIndexKey: geometry with no identity, rebuilt on every measure
-              key={`i${i}`}
-              x={r.x}
-              y={r.y}
-              width={r.w}
-              height={r.h}
-              rx={r.r}
-              fill="black"
-            />
-          ))}
-          {cuts.map((r, i) => (
-            <rect
-              // biome-ignore lint/suspicious/noArrayIndexKey: geometry with no identity, rebuilt on every measure
-              key={`c${i}`}
-              x={r.x}
-              y={r.y}
-              width={r.w}
-              height={r.h}
-              fill="black"
-            />
-          ))}
-        </mask>
-      </defs>
-      <rect width={w} height={h} fill="currentColor" mask={`url(#${id})`} />
-    </g>
   )
 }
