@@ -39,14 +39,18 @@ export interface GridGroup {
   children?: GridGroup[]
 }
 
-const STROKE = 1
+// Strokes are thick enough to read over a busy wallpaper, and each group's
+// area is tinted too, so a region still reads as one when its line is lost
+// behind a photo.
+const STROKE_OUTER = 2
+const STROKE_INNER = 1.5
 const RADIUS = 10
 // Gutters are sized to fit the rings: two nested rings need room for both on
 // each side, plus clear space between neighbouring groups' outer rings.
 const PAD_ONE = 8
 const PAD_OUTER = 12
 const PAD_INNER = 6
-const LABEL_FONT_PX = 11
+const LABEL_FONT_PX = 12
 const LABEL_INSET = 12
 
 function labelText(l: GroupLabel): string {
@@ -134,10 +138,15 @@ export function GroupedGrid({
       )
     const font = `${LABEL_FONT_PX}px ${getComputedStyle(wrap).fontFamily}`
     const outerPad = nested ? PAD_OUTER : PAD_ONE
-    const outerRing = groupRing(cellsFor(groups), outerPad, STROKE, RADIUS)
+    const outerRing = groupRing(
+      cellsFor(groups),
+      outerPad,
+      STROKE_OUTER,
+      RADIUS
+    )
     const inner = groups.flatMap((g) => g.children ?? [])
     const innerRing = inner.length
-      ? groupRing(cellsFor(inner), PAD_INNER, STROKE, RADIUS - 3)
+      ? groupRing(cellsFor(inner), PAD_INNER, STROKE_INNER, RADIUS - 3)
       : { outer: [], inner: [] }
 
     const labels: PlacedLabel[] = []
@@ -158,7 +167,7 @@ export function GroupedGrid({
       // Cut the stroke under the legend so the text sits in a gap in the line.
       // The cut spans both rings' lines, since an outer legend straddles the
       // inner ring's top edge too.
-      cuts.push({ x: x - 5, y: y - 8, w: w + 16, h: 16 })
+      cuts.push({ x: x - 6, y: y - 9, w: w + 20, h: 18 })
     }
     // Every legend is pinned to the card that starts its piece. An outer and
     // an inner legend starting on the same card would sit 6px apart and
@@ -239,7 +248,9 @@ export function GroupedGrid({
   return (
     <div
       ref={wrapRef}
-      className="relative"
+      // isolate: the tint layer sits at -z-10 behind the cards, which must
+      // stay inside this stacking context rather than drop behind the page.
+      className="relative isolate"
       // Room above the first row and around the edges for the outermost ring
       // and its legend.
       style={{ padding: `${pad + 8}px ${pad + 2}px ${pad + 2}px` }}
@@ -257,6 +268,26 @@ export function GroupedGrid({
         <>
           <svg
             aria-hidden="true"
+            className="pointer-events-none absolute top-0 left-0 -z-10"
+            width={layout.w}
+            height={layout.h}
+          >
+            {layout.rings.map((ring, level) => (
+              <TintLayer
+                // biome-ignore lint/suspicious/noArrayIndexKey: the level IS the identity
+                key={level}
+                id={`${maskId}-tint-${level}`}
+                rects={ring.outer}
+                w={layout.w}
+                h={layout.h}
+                className={
+                  level === 0 ? "text-foreground/[0.07]" : "text-primary/[0.09]"
+                }
+              />
+            ))}
+          </svg>
+          <svg
+            aria-hidden="true"
             className="pointer-events-none absolute top-0 left-0"
             width={layout.w}
             height={layout.h}
@@ -271,7 +302,7 @@ export function GroupedGrid({
                 w={layout.w}
                 h={layout.h}
                 className={
-                  level === 0 ? "text-foreground/45" : "text-primary/60"
+                  level === 0 ? "text-foreground/75" : "text-primary/90"
                 }
               />
             ))}
@@ -279,7 +310,7 @@ export function GroupedGrid({
           {layout.labels.map((l) => (
             <div
               key={l.key}
-              className="pointer-events-none absolute flex -translate-y-1/2 items-center gap-3.5 whitespace-nowrap leading-none"
+              className="pointer-events-none absolute flex -translate-y-1/2 items-center gap-3.5 whitespace-nowrap rounded-full bg-background/85 px-1.5 py-0.5 leading-none shadow-sm"
               style={{ left: l.x, top: l.y, fontSize: LABEL_FONT_PX }}
             >
               {l.parts.map((p, i) => (
@@ -301,7 +332,12 @@ function Legend({ label, inner }: { label: GroupLabel; inner: boolean }) {
   if (label.cont)
     return (
       <span title={label.title}>
-        <span className={inner ? "text-primary/80" : "text-foreground/90"}>
+        <span
+          className={cn(
+            "font-medium",
+            inner ? "text-primary" : "text-foreground"
+          )}
+        >
           {label.name}
         </span>
         <span className="ml-1.5 text-muted-foreground">cont.</span>
@@ -309,7 +345,12 @@ function Legend({ label, inner }: { label: GroupLabel; inner: boolean }) {
     )
   return (
     <span title={label.title}>
-      <span className={inner ? "text-primary/80" : "text-foreground/90"}>
+      <span
+        className={cn(
+          "font-medium",
+          inner ? "text-primary" : "text-foreground"
+        )}
+      >
         {label.name}
       </span>
       <span className="ml-1.5 text-muted-foreground">{label.count}</span>
@@ -320,6 +361,45 @@ function Legend({ label, inner }: { label: GroupLabel; inner: boolean }) {
         <span className="text-primary"> · {label.working} working</span>
       )}
     </span>
+  )
+}
+
+// A group's area, tinted: the union of its outer rects, unioned through a
+// mask so overlapping rects don't stack their alpha.
+function TintLayer({
+  id,
+  rects,
+  w,
+  h,
+  className,
+}: {
+  id: string
+  rects: MaskRect[]
+  w: number
+  h: number
+  className: string
+}) {
+  return (
+    <g className={className}>
+      <defs>
+        <mask id={id} maskUnits="userSpaceOnUse">
+          <rect width={w} height={h} fill="black" />
+          {rects.map((r, i) => (
+            <rect
+              // biome-ignore lint/suspicious/noArrayIndexKey: geometry with no identity, rebuilt on every measure
+              key={i}
+              x={r.x}
+              y={r.y}
+              width={r.w}
+              height={r.h}
+              rx={r.r}
+              fill="white"
+            />
+          ))}
+        </mask>
+      </defs>
+      <rect width={w} height={h} fill="currentColor" mask={`url(#${id})`} />
+    </g>
   )
 }
 
