@@ -73,6 +73,17 @@ import {
 import { lsGet, lsSet, useApp } from "@/lib/app-store"
 import { cdpURL } from "@/lib/cdp"
 import {
+  CHAT_TEXT_DEFAULTS,
+  CHAT_TEXT_FIELDS,
+  CHAT_TEXT_SLIDER,
+  CHAT_TEXT_SPEC,
+  effectiveChatText,
+  pickChatStyle,
+  presetFor,
+  resolveChatStyles,
+  setChatText,
+} from "@/lib/chat-text"
+import {
   fleetThemeIsPalette,
   getMode,
   getPalettePref,
@@ -755,6 +766,13 @@ function ThemesSettings({ active }: { active: boolean }) {
       >
         <TypographySettings />
       </SettingsGroup>
+      <SettingsGroup
+        id="chat-text"
+        title="Chat text"
+        summary={<ChatTextSummary />}
+      >
+        <ChatTextSettings />
+      </SettingsGroup>
       <SettingsGroup id="install-theme" title="Install a theme" keepMounted>
         <ThemeInstall themes={catalog} loading={catalogQuery.isLoading} />
       </SettingsGroup>
@@ -860,6 +878,7 @@ const SLOT_HINTS: Record<TypographySlot, string> = {
   label: "small-caps labels",
   mono: "code, the file viewer and diffs",
   terminal: "every terminal; icon glyphs still come from the Nerd Font",
+  chat: "the chat view's prose; follows Interface until set (a chat style may bring its own)",
 }
 
 // TypographySettings picks a typeface per slot from the fonts enabled plugins
@@ -897,6 +916,176 @@ function TypographySettings() {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function ChatTextSummary() {
+  const plugins = usePlugins()
+  const text = useUIState().chat_text ?? {}
+  const styles = React.useMemo(
+    () => resolveChatStyles(plugins.data),
+    [plugins.data]
+  )
+  const { values, source } = effectiveChatText(text, styles)
+  const preset = presetFor(text, styles)
+  const custom = CHAT_TEXT_FIELDS.some((f) => source[f] === "set")
+  return (
+    <>
+      {[
+        preset?.label ?? (custom ? "custom" : "lasso default"),
+        `${values.size}px`,
+        CHAT_TEXT_SPEC.backing.format(values.backing) === "off"
+          ? "no panel"
+          : `panel ${CHAT_TEXT_SPEC.backing.format(values.backing)}`,
+      ].join(sep)}
+    </>
+  )
+}
+
+// ChatTextSettings sets how the chat view's prose reads. Server state like the
+// rest of appearance (ui_state.chat_text, merged per field), applied by
+// lib/chat-text.ts from the ui_state_rev bump — this pane reads the cache and
+// writes. Three layers per field: what is set here, over the picked plugin
+// chat style, over lasso's defaults; a field set here shows a reset that
+// returns it to the layer below.
+function ChatTextSettings() {
+  const plugins = usePlugins()
+  const text = useUIState().chat_text ?? {}
+  const styles = React.useMemo(
+    () => resolveChatStyles(plugins.data),
+    [plugins.data]
+  )
+  const { values, source } = effectiveChatText(text, styles)
+  const preset = presetFor(text, styles)
+  const orphan = !!text.preset && !preset
+  const anySet = CHAT_TEXT_FIELDS.some((f) => source[f] === "set")
+  return (
+    <div className="mb-4 flex flex-col gap-3">
+      <div className="flex min-w-0 flex-col gap-1">
+        <label
+          className="text-[11px] text-muted-foreground"
+          htmlFor="settings-chat-style"
+        >
+          Style
+        </label>
+        <div className="flex items-center gap-2">
+          <select
+            id="settings-chat-style"
+            className={cn(fieldClass, "max-w-[15rem]")}
+            value={text.preset ?? ""}
+            onChange={(e) => pickChatStyle(e.target.value)}
+          >
+            <option value="">lasso default</option>
+            {orphan && (
+              <option value={text.preset}>{text.preset} (unavailable)</option>
+            )}
+            {styles.map((st) => (
+              <option key={st.global_id} value={st.global_id}>
+                {st.label} — {st.global_id.split(":")[1]}
+              </option>
+            ))}
+          </select>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            disabled={!anySet}
+            title="Clear every adjustment made here, keeping the style"
+            onClick={() => {
+              const patch: Partial<
+                Record<(typeof CHAT_TEXT_FIELDS)[number], null>
+              > = {}
+              for (const f of CHAT_TEXT_FIELDS) patch[f] = null
+              setChatText(patch)
+            }}
+          >
+            Reset all
+          </Button>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          {styles.length === 0
+            ? "Plugins can add chat styles — see docs/plugins/authoring.md."
+            : orphan
+              ? "Its plugin is off, so lasso's defaults apply."
+              : "Picking a style clears the adjustments below; adjust on top of it afterwards."}
+        </p>
+      </div>
+      {CHAT_TEXT_FIELDS.map((f) => {
+        const spec = CHAT_TEXT_SPEC[f]
+        const [lo, hi] = CHAT_TEXT_SLIDER[f]
+        const v = values[f]
+        const below =
+          preset && typeof preset[f] === "number"
+            ? (preset[f] as number)
+            : CHAT_TEXT_DEFAULTS[f]
+        const id = `settings-chat-${f}`
+        return (
+          <div key={f} className="flex flex-col gap-1">
+            <label
+              className="flex items-center gap-2 text-muted-foreground text-xs"
+              htmlFor={id}
+            >
+              {spec.label}
+              <span className="font-mono text-[11px]">{spec.format(v)}</span>
+              {source[f] === "style" && (
+                <span className="text-[11px] text-muted-foreground/70">
+                  from style
+                </span>
+              )}
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id={id}
+                type="range"
+                // A value a plugin style set outside the slider's span still
+                // has to sit on the track, so the span widens to include it.
+                min={Math.min(lo, v)}
+                max={Math.max(hi, v)}
+                step={spec.step}
+                value={v}
+                className="w-56 min-w-0 accent-primary"
+                onChange={(e) => setChatText({ [f]: Number(e.target.value) })}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                disabled={source[f] !== "set"}
+                title={`Back to ${spec.format(below)}`}
+                onClick={() => setChatText({ [f]: null })}
+              >
+                Reset
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground">{spec.hint}</p>
+          </div>
+        )
+      })}
+      <ChatTextPreview />
+    </div>
+  )
+}
+
+// ChatTextPreview is a few lines set exactly as the chat sets them: it lives
+// inside .chat-text, so the same index.css rules and --chat-* properties
+// apply, and it reads at the real size rather than a description of it.
+function ChatTextPreview() {
+  return (
+    <div className="chat-text flex flex-col gap-1">
+      <span className="text-[11px] text-muted-foreground">Preview</span>
+      <div className="chat-column rounded-lg border border-border/60 px-4 py-3">
+        <div className="md-body md-chat">
+          <p>
+            The sandbox had its own herdr and a Claude Code agent, and lasso
+            reached it as an ssh host.{" "}
+            <strong>Nothing is committed yet.</strong> <code>list_agents</code>{" "}
+            found the agent within seconds.
+          </p>
+        </div>
+      </div>
     </div>
   )
 }

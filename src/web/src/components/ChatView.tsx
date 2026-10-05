@@ -78,7 +78,10 @@ import { cn } from "@/lib/utils"
 // narrower than the cap) and needs no breakpoint. Every element that carries it
 // also carries the SAME horizontal padding, or the two columns would be capped
 // against different available widths and drift apart by the difference.
-const MEASURE = "mx-auto w-full max-w-4xl px-4"
+//
+// The cap is Settings → Chat text's column width (--chat-measure, pinned by
+// lib/chat-text.ts); 56rem is its default, for the instant before it is set.
+const MEASURE = "mx-auto w-full max-w-[var(--chat-measure,56rem)] px-4"
 
 // mergeItems folds a freshly-read page into what is already on screen: rows that
 // are already here are UPDATED in place (a tool card completing, an output
@@ -1575,7 +1578,7 @@ export function ChatView({
     // elements inside float on it like the rest of the chrome.
     <div
       className={cn(
-        "vsurface flex h-full min-h-0 flex-col bg-background",
+        "vsurface chat-text flex h-full min-h-0 flex-col bg-background",
         className
       )}
     >
@@ -1692,7 +1695,15 @@ export function ChatView({
           }}
           className="min-h-0 flex-1 overflow-y-auto py-3 [scrollbar-gutter:stable_both-edges]"
         >
-          <div className={cn("space-y-2.5", MEASURE)}>
+          {/* chat-column is the reading panel (index.css): a wash of the
+              theme background behind the rows, at least as tall as the
+              viewport so a short conversation does not end in a ledge. */}
+          <div
+            className={cn(
+              "chat-column min-h-[calc(100%-1.5rem)] space-y-2.5 py-3",
+              MEASURE
+            )}
+          >
             {loadingOlder && (
               <div className="flex items-center justify-center gap-2 py-1 text-[12px] text-muted-foreground">
                 <Orb state="working" px={16} />
