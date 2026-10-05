@@ -475,6 +475,7 @@ func serveUIState(w http.ResponseWriter, r *http.Request) {
 		// Same for chat_text: a nil map decoded over yields just the patch,
 		// with a null value marking a field to delete.
 		us.ChatText = nil
+		us.TerminalText = nil
 		// Detached, and whatever the body says about it is discarded below: it
 		// changes only through the agent_pins ops.
 		us.PinnedAgents = nil
@@ -510,6 +511,10 @@ func serveUIState(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if us.ChatText, err = mergeChatText(stored.ChatText, us.ChatText); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if us.TerminalText, err = terminalTextKind.merge(stored.TerminalText, us.TerminalText); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

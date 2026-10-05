@@ -379,6 +379,11 @@ type uiState struct {
 	// drop the weight a desktop just picked. A preset whose plugin is disabled
 	// is KEPT and ignored until it comes back.
 	ChatText map[string]any `json:"chat_text"`
+	// TerminalText is the terminals' font size, weight, line height and
+	// letter spacing (terminalTextRanges), applied by every browser to every
+	// terminal it shows. Stored and merged exactly like ChatText, without a
+	// preset.
+	TerminalText map[string]any `json:"terminal_text"`
 	// OnboardingDone records that the first-run tour was finished or skipped,
 	// so it opens once per lasso rather than once per browser. A fresh install
 	// (no blob) starts false; a blob written before this field existed reads
@@ -645,6 +650,7 @@ func getUIState() (uiState, error) {
 		SidebarTabs:            []sidebarTab{},
 		Typography:             map[string]string{},
 		ChatText:               map[string]any{},
+		TerminalText:           map[string]any{},
 	}
 	var v string
 	err := db.QueryRow(`SELECT value FROM settings WHERE key='ui_state'`).Scan(&v)
@@ -693,6 +699,7 @@ func getUIState() (uiState, error) {
 		us.Typography = map[string]string{}
 	}
 	us.ChatText = sanitizeChatText(us.ChatText)
+	us.TerminalText = terminalTextKind.sanitize(us.TerminalText)
 	return us, nil
 }
 

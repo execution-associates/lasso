@@ -471,6 +471,10 @@ export interface UIState {
   // the style's value, else lasso's default. Optional because an older server
   // never sends it.
   chat_text?: ChatText
+  // The terminals' font size, weight, line height and letter spacing
+  // (lib/terminal-text.ts), merged per field like chat_text; an absent field
+  // is lasso's default. Optional because an older server never sends it.
+  terminal_text?: TerminalText
   // The first-run tour was finished or skipped on this lasso (any browser).
   // Optional because an older server never sends it, and absent must read as
   // done: an older lasso has no tour state to consult.
@@ -513,6 +517,22 @@ export type ChatTextPatch = Partial<Record<ChatTextField, number | null>> & {
   preset?: string
 }
 
+// The terminals' text settings (ui_state.terminal_text). Units: size and
+// letter_spacing px (letter spacing whole pixels), line_height xterm's
+// multiplier (>= 1).
+export type TerminalTextField =
+  | "size"
+  | "weight"
+  | "line_height"
+  | "letter_spacing"
+
+export type TerminalText = Partial<Record<TerminalTextField, number>>
+
+// A terminal_text write: null clears a field back to the default.
+export type TerminalTextPatch = Partial<
+  Record<TerminalTextField, number | null>
+>
+
 // One entry of ui_state.sidebar_tabs. `id` is a built-in tab ("files",
 // "browser", …) or a plugin's `plugin:<name>:<tab>`; an id nothing currently
 // provides is kept, not dropped, so a plugin disabled for a while comes back
@@ -526,8 +546,10 @@ export interface SidebarTabPref {
 // two gallery OPS. The ops are verbs rather than a list because a client
 // sending the whole gallery out of a copy it fetched minutes ago would
 // resurrect a picture another browser just forgot.
-export interface UIStatePatch extends Omit<Partial<UIState>, "chat_text"> {
+export interface UIStatePatch
+  extends Omit<Partial<UIState>, "chat_text" | "terminal_text"> {
   chat_text?: ChatTextPatch
+  terminal_text?: TerminalTextPatch
   remember_background?: string
   forget_background?: string
   // Pin ops on pinned_agents, per paneKey: true pins, false unpins.
