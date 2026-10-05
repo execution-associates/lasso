@@ -84,6 +84,41 @@ export function setTermFontChoice(choice: TermFontChoice | null) {
   applyTermFont(0)
 }
 
+// The terminals' size, weight, line height and letter spacing, as
+// lib/terminal-text.ts resolves them from ui_state.terminal_text (defaults
+// included, so a reset restores them). null until that has run once: until
+// then xterm keeps what ttyd started it with, rather than lasso guessing.
+export interface TermTextOptions {
+  fontSize: number
+  fontWeight: number
+  lineHeight: number
+  letterSpacing: number
+}
+
+let termText: TermTextOptions | null = null
+
+// setTermTextOptions points every terminal at new metrics. A no-op when
+// nothing changed, like setTermFontChoice.
+export function setTermTextOptions(opts: TermTextOptions) {
+  if (termText && JSON.stringify(termText) === JSON.stringify(opts)) return
+  termText = { ...opts }
+  applyTermFont(0)
+}
+
+// termTextOptions is every xterm option the text settings own, bold included:
+// bold stays visibly heavier than a raised base weight (a face without that
+// weight renders its nearest, which for the Nerd Font is 700).
+function termTextOptions(): Record<string, number> {
+  if (!termText) return {}
+  return {
+    fontSize: termText.fontSize,
+    fontWeight: termText.fontWeight,
+    fontWeightBold: Math.min(900, Math.max(700, termText.fontWeight + 300)),
+    lineHeight: termText.lineHeight,
+    letterSpacing: termText.letterSpacing,
+  }
+}
+
 // The stack most recently REQUESTED for each xterm instance (not necessarily
 // applied yet — the font load in between is async). Keyed by the Terminal
 // object rather than the document so a ttyd that rebuilds its xterm inside the
@@ -168,16 +203,31 @@ export function applyTermFit(tries = 0) {
 function setTermFontWhenReady(
   doc: Document,
   term: { options?: Record<string, unknown> },
+  key: string,
   stack: string,
-  family: string | null
+  family: string | null,
+  metrics: Record<string, number>
 ) {
   const apply = () => {
     // A newer choice was requested while this load was in flight: it owns the
     // terminal now, and landing this stale one would flash it.
-    if (termFontWanted.get(term) !== stack) return
+    if (termFontWanted.get(term) !== key) return
     try {
-      if (!term.options || term.options.fontFamily === stack) return
-      term.options.fontFamily = stack
+      if (!term.options) return
+      let changed = false
+      if (term.options.fontFamily !== stack) {
+        term.options.fontFamily = stack
+        changed = true
+      }
+      // Size, weight, leading and tracking (Settings → Terminal text). Each
+      // is written only on a difference: an option write makes xterm
+      // re-measure, and the resize below reflows the shared pty.
+      for (const [k, v] of Object.entries(metrics)) {
+        if (term.options[k] === v) continue
+        term.options[k] = v
+        changed = true
+      }
+      if (!changed) return
     } catch {
       /* private/locked options: never break the terminal */
       return
@@ -242,10 +292,14 @@ function syncStyle(doc: Document, id: string, css: string) {
 // applyTermFont injects the Nerd Font @font-face (and a chosen plugin font's)
 // into every terminal iframe and points xterm at the stack. Mirrors
 // applyTermTheme: iterates the same frames, and retries while an iframe is
-// still (re)connecting. Idempotent per terminal: a stack already requested for
-// that xterm is not requested again.
+// still (re)connecting. Idempotent per terminal: a stack and metrics already
+// requested for that xterm are not requested again.
 export function applyTermFont(tries = 0) {
   const stack = termFontStack()
+  const metrics = termTextOptions()
+  // What a terminal is wired to: the stack AND the metrics, so a size change
+  // re-wires a terminal whose font is already right.
+  const key = `${stack}|${JSON.stringify(metrics)}`
   const family = termFontChoice?.family ?? null
   const pluginCSS = termFontChoice?.css ?? ""
   let pending = false
@@ -267,9 +321,9 @@ export function applyTermFont(tries = 0) {
         pending = true
         continue
       }
-      if (termFontWanted.get(w.term) === stack) continue
-      termFontWanted.set(w.term, stack)
-      setTermFontWhenReady(doc, w.term, stack, family)
+      if (termFontWanted.get(w.term) === key) continue
+      termFontWanted.set(w.term, key)
+      setTermFontWhenReady(doc, w.term, key, stack, family, metrics)
     } catch {
       /* same-origin: shouldn't throw, but never let it break the caller */
     }

@@ -6,12 +6,14 @@ import {
   handleBrowserOpenEvent,
   handleBrowserProfilesEvent,
 } from "@/lib/browser-profiles"
+import { subscribeChatText } from "@/lib/chat-text"
 import { clientID } from "@/lib/client-id"
 import { setTabHost, tabHost, withTabHost } from "@/lib/host"
 import { applyMode, subscribeAppearance, watchSystemMode } from "@/lib/mode"
 import { handleOpenFileEvent } from "@/lib/open-file"
 import { invalidateHostScoped, qk, queryClient } from "@/lib/query"
 import { setTermOwner, watchTermIntent } from "@/lib/term-claim"
+import { subscribeTerminalText } from "@/lib/terminal-text"
 import { applyAtmosphere, refreshTheme, refreshThemeCatalog } from "@/lib/theme"
 import { subscribeTypography } from "@/lib/typography"
 import { syncUIState } from "@/lib/ui-state"
@@ -331,6 +333,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // enabled plugins contribute, and re-apply whenever either side changes —
   // the same arrangement as the backdrop above (lib/typography.ts).
   React.useEffect(() => subscribeTypography(), [])
+  // And how the chat view sets its prose (ui_state.chat_text over a plugin
+  // chat style over lasso's defaults), the same way (lib/chat-text.ts).
+  React.useEffect(() => subscribeChatText(), [])
+  // And the terminals' size, weight, line height and letter spacing
+  // (ui_state.terminal_text), written into every xterm (lib/terminal-text.ts).
+  React.useEffect(() => subscribeTerminalText(), [])
 
   // Re-pin the terminals to herdr's theme whenever its theme revision moves
   // (including the priming value, so a reload always converges). The chrome is

@@ -465,6 +465,16 @@ export interface UIState {
   // provides is kept and falls back to the default. Optional because an older
   // server never sends it.
   typography?: Typography
+  // How the chat view sets its prose (lib/chat-text.ts): numeric fields plus
+  // an optional plugin chat style ("preset") they sit on top of. Only explicit
+  // choices are stored, merged PER FIELD on the server; an absent field is
+  // the style's value, else lasso's default. Optional because an older server
+  // never sends it.
+  chat_text?: ChatText
+  // The terminals' font size, weight, line height and letter spacing
+  // (lib/terminal-text.ts), merged per field like chat_text; an absent field
+  // is lasso's default. Optional because an older server never sends it.
+  terminal_text?: TerminalText
   // The first-run tour was finished or skipped on this lasso (any browser).
   // Optional because an older server never sends it, and absent must read as
   // done: an older lasso has no tour state to consult.
@@ -473,9 +483,55 @@ export interface UIState {
 
 // The places a typeface can be chosen for (see lib/typography.ts for where
 // each one lands).
-export type TypographySlot = "sans" | "display" | "label" | "mono" | "terminal"
+export type TypographySlot =
+  | "sans"
+  | "display"
+  | "label"
+  | "mono"
+  | "terminal"
+  | "chat"
 
 export type Typography = Partial<Record<TypographySlot, string>>
+
+// The chat view's numeric text settings, as ui_state.chat_text and a plugin
+// chat style both carry them. Units: size px, width rem (the column cap),
+// letter_spacing em, backing the reading panel's opacity 0-1.
+export type ChatTextField =
+  | "size"
+  | "weight"
+  | "line_height"
+  | "letter_spacing"
+  | "width"
+  | "backing"
+
+export type ChatTextValues = Partial<Record<ChatTextField, number>>
+
+export interface ChatText extends ChatTextValues {
+  // A plugin chat style's global id ("plugin:<name>:<style>").
+  preset?: string
+}
+
+// A chat_text write: null (or "" for the preset) clears a field back to the
+// style's value or lasso's default.
+export type ChatTextPatch = Partial<Record<ChatTextField, number | null>> & {
+  preset?: string
+}
+
+// The terminals' text settings (ui_state.terminal_text). Units: size and
+// letter_spacing px (letter spacing whole pixels), line_height xterm's
+// multiplier (>= 1).
+export type TerminalTextField =
+  | "size"
+  | "weight"
+  | "line_height"
+  | "letter_spacing"
+
+export type TerminalText = Partial<Record<TerminalTextField, number>>
+
+// A terminal_text write: null clears a field back to the default.
+export type TerminalTextPatch = Partial<
+  Record<TerminalTextField, number | null>
+>
 
 // One entry of ui_state.sidebar_tabs. `id` is a built-in tab ("files",
 // "browser", …) or a plugin's `plugin:<name>:<tab>`; an id nothing currently
@@ -490,7 +546,10 @@ export interface SidebarTabPref {
 // two gallery OPS. The ops are verbs rather than a list because a client
 // sending the whole gallery out of a copy it fetched minutes ago would
 // resurrect a picture another browser just forgot.
-export interface UIStatePatch extends Partial<UIState> {
+export interface UIStatePatch
+  extends Omit<Partial<UIState>, "chat_text" | "terminal_text"> {
+  chat_text?: ChatTextPatch
+  terminal_text?: TerminalTextPatch
   remember_background?: string
   forget_background?: string
   // Pin ops on pinned_agents, per paneKey: true pins, false unpins.
@@ -1000,6 +1059,18 @@ export interface PluginFontInfo {
   faces?: PluginFontFace[] | null
 }
 
+// A named setting of the chat view's text a plugin contributes. Listed whatever
+// the plugin's state; lib/chat-text.ts applies only an enabled plugin's, and
+// re-checks every number against its own range table.
+export interface PluginChatStyleInfo extends ChatTextValues {
+  id: string
+  // "plugin:<name>:<id>" — what ui_state.chat_text.preset stores.
+  global_id: string
+  label: string
+  // One of the same plugin's fonts, as its global id.
+  font?: string
+}
+
 // A tab lasso will render: only present while the plugin is enabled and
 // approved. `src` is "/plugins/<name>/<entry>" or the tab's own url.
 export interface PluginTabInfo {
@@ -1084,6 +1155,7 @@ export interface Plugin {
   // Appearance contributions. Absent on an older server.
   themes?: PluginThemeInfo[] | null
   fonts?: PluginFontInfo[] | null
+  chat_styles?: PluginChatStyleInfo[] | null
   // Non-fatal problems (a theme id already taken, …), shown in Settings.
   warnings?: string[] | null
   // Where it came from. Absent on an older server (read as "local").

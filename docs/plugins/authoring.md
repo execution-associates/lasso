@@ -1,6 +1,6 @@
 ---
 title: Writing a plugin
-description: The plugin manifest, sidebar tabs and their message bridge, MCP servers in isb sandboxes, themes and fonts.
+description: The plugin manifest, sidebar tabs and their message bridge, MCP servers in isb sandboxes, themes, fonts and chat styles.
 order: 51
 nav_title: Writing plugins
 ---
@@ -11,6 +11,7 @@ A plugin adds to lasso in any of four ways:
 - **MCP tools**: tools that show up on lasso's `/mcp` server as `<plugin>__<tool>`, so every agent connected to lasso can call them. `lasso mcp` lists them too.
 - **Themes**: Omarchy-format palettes that become ordinary lasso themes (see [Themes](#themes)).
 - **Fonts**: font files that become choices in Settings' Typography section (see [Fonts](#fonts)).
+- **Chat styles**: named settings for how the chat view sets its text, offered in Settings' Chat text section (see [Chat styles](#chat-styles)).
 
 A plugin's MCP server runs in an **[isb](https://github.com/execution-associates/isb) sandbox** by default: an unprivileged container, or a VM with its own kernel if you ask for one. It does not run on your machine as you. Nothing a plugin ships runs until you enable it, and enabling it approves exactly the permissions lasso shows you. This page is for plugin authors; to install and manage plugins, see [Plugins](./index.md).
 
@@ -83,6 +84,7 @@ lasso plugin enable hello
 | `mcp.secrets` | Secrets the server needs, each with the host names it may be sent to (the same name rules as `network`; sent on port 443). A secret's hosts are reachable too. Two secrets may not differ only in case. |
 | `themes` | Up to 32 themes. See [Themes](#themes). |
 | `fonts` | Up to 16 fonts. See [Fonts](#fonts). |
+| `chat_styles` | Up to 16 chat styles. See [Chat styles](#chat-styles). |
 
 Neither `min_lasso_version` nor `platforms` is a permission, so neither is in the fingerprint.
 
@@ -232,8 +234,37 @@ Face files are served from `/plugins/<name>/<file>` with their font Content-Type
 | Labels (`label`) | the small all-caps labels | every font |
 | Code (`mono`) | code, the file viewer and editor, diffs | `mono` fonts only |
 | Terminal (`terminal`) | every terminal | `mono` fonts only |
+| Chat (`chat`) | the chat view's prose and your messages in it | every font |
 
-The choice is lasso's `ui_state.typography` (`{sans, display, label, mono, terminal}`, each a global id or absent), so every browser on the same lasso follows it. Each slot is saved on its own, so two devices changing two slots do not overwrite each other. Your family always goes first, with the slot's usual stack behind it, so a missing glyph or a slow load falls back to the normal look. The terminal keeps its Nerd Font as the fallback, so the icons TUIs draw still render. If a plugin is disabled, slots naming its fonts fall back to lasso's default and come back when it is re-enabled.
+The choice is lasso's `ui_state.typography` (`{sans, display, label, mono, terminal, chat}`, each a global id or absent), so every browser on the same lasso follows it. Each slot is saved on its own, so two devices changing two slots do not overwrite each other. Your family always goes first, with the slot's usual stack behind it, so a missing glyph or a slow load falls back to the normal look. The terminal keeps its Nerd Font as the fallback, so the icons TUIs draw still render. If a plugin is disabled, slots naming its fonts fall back to lasso's default and come back when it is re-enabled.
+
+## Chat styles
+
+A chat style is a named setting of the chat view's text. It is numbers, plus optionally one of your own fonts:
+
+```json
+"chat_styles": [
+  { "id": "roomy", "label": "Roomy", "font": "space-mono",
+    "size": 16, "weight": 400, "line_height": 1.8, "letter_spacing": 0.01,
+    "width": 48, "backing": 0.7 }
+]
+```
+
+| field | meaning | range |
+|---|---|---|
+| `id` | lowercase letters, digits and dashes, starting with a letter, up to 32 characters | |
+| `label` | what Settings shows, up to 64 characters (defaults to the id) | |
+| `font` | the `id` of one of THIS plugin's `fonts` | |
+| `size` | text size, px | 11 to 24 |
+| `weight` | font weight (rounded to a whole number) | 100 to 900 |
+| `line_height` | line height, unitless | 1.2 to 2.2 |
+| `letter_spacing` | letter spacing, em | -0.05 to 0.15 |
+| `width` | the widest the conversation column runs, rem | 30 to 100 |
+| `backing` | opacity of the reading panel behind the conversation (a wash of the theme background) | 0 to 1 |
+
+Every field but `id` is optional; a field you leave out keeps lasso's default. A value outside its range makes the manifest invalid. Each style becomes an option in Settings' **Chat text** section. Picking one clears the human's own adjustments; anything they adjust afterwards sits on top of the style. The style's `font` applies to the chat unless the human picked a Chat font in Typography.
+
+The choice is lasso's `ui_state.chat_text`: `preset` (the style's global id, `plugin:<name>:<id>`) plus any field set by hand, each saved on its own. Like a palette, a chat style is not a permission: editing its numbers does not ask for re-approval. If the plugin is disabled, the chat falls back to lasso's defaults (plus the human's own adjustments) and the style comes back when it is re-enabled.
 
 ### Why no CSS
 
@@ -298,7 +329,7 @@ These are for the Settings pane and the CLI. They are behind `UI_AUTH` like the 
 
 | | |
 |---|---|
-| `GET /api/plugins` | `{ dir, sandbox: {kind: "isb", available, path?, version?, serve_running, reason?}, plugins: [...] }`. Each plugin carries `trusted`, `vm` (the operator's choice), `isolation` (`host`, `container` or `vm`: trusted wins), `permissions.mcp.vm_image?`, `themes: [{id, label, key_taken?}]`, `fonts: [{id, global_id, family, category, license?, faces?: [{url, weight, style}]}]` (`faces` only while enabled), `warnings: [string]`, and `permissions.themes` / `permissions.fonts`. |
+| `GET /api/plugins` | `{ dir, sandbox: {kind: "isb", available, path?, version?, serve_running, reason?}, plugins: [...] }`. Each plugin carries `trusted`, `vm` (the operator's choice), `isolation` (`host`, `container` or `vm`: trusted wins), `permissions.mcp.vm_image?`, `themes: [{id, label, key_taken?}]`, `fonts: [{id, global_id, family, category, license?, faces?: [{url, weight, style}]}]` (`faces` only while enabled), `chat_styles: [{id, global_id, label, font?, size?, weight?, line_height?, letter_spacing?, width?, backing?}]` (`font` as a global id), `warnings: [string]`, and `permissions.themes` / `permissions.fonts`. |
 | `POST /api/plugins/reload` | Rescan the directory and return the listing. |
 | `POST /api/plugins/<name>/enable` | Approve the current permissions. The optional body `{fingerprint}` is refused with 409 if the manifest has changed since that listing; the Settings dialog always sends the fingerprint of what it showed. |
 | `POST /api/plugins/<name>/disable` | |
