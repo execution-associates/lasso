@@ -112,13 +112,21 @@ GUEST_WEB="$GUEST_ROOT/src/web"
 # shellcheck disable=SC2034  # used by scripts that source this file
 GUEST_ICON="$GUEST_ROOT/brand/icon"
 
-# require_isb — fail with the install line rather than "command not found".
-# mise.toml pins it to a prebuilt release binary, so `mise run` puts it on PATH.
+# require_isb — the isb on the host's PATH, at 1.0 or later. It is not pinned
+# in mise.toml: the dev tasks use the same isb as everything else on the host,
+# installed and updated outside this repo (`isb update`). Never `cargo install`
+# it on a host: build.rs and proc-macros are arbitrary code.
 require_isb() {
-  command -v isb >/dev/null 2>&1 && return 0
-  echo "error: isb is not on PATH. It is pinned in mise.toml: run \`mise install\`" >&2
-  echo "       here, and invoke this through \`mise run\`." >&2
-  return 1
+  local v
+  v="$(isb --version 2>/dev/null)" || {
+    echo "error: isb is not on PATH (https://github.com/execution-associates/isb)" >&2
+    return 1
+  }
+  v="${v##* }"
+  [ "${v%%.*}" -ge 1 ] 2>/dev/null || {
+    echo "error: isb $v is too old; the dev tasks need 1.0 or later (\`isb update\`)" >&2
+    return 1
+  }
 }
 
 # container_with <overlay.yaml> — add an overlay (a file in scripts/isb/) to

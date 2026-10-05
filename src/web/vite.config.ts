@@ -20,8 +20,8 @@ export default defineConfig({
   server: {
     // Reached over tailscale by whatever MagicDNS name the machine has, which
     // can change — so don't hardcode it. `true` accepts any Host header, which
-    // is safe here because the dev server only listens on the private tailnet
-    // interface (see --host in mise.toml), not a public one.
+    // is safe here because the dev server only listens on loopback, reached
+    // from the tailnet through `tailscale serve` (scripts/container-dev-web.sh).
     allowedHosts: true,
     proxy: {
       "/api": { target: backend, changeOrigin: true },

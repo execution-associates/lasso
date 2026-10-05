@@ -28,11 +28,12 @@ services:
         bind: guest
         listen: tcp:127.0.0.1:8190
         connect: "tcp:127.0.0.1:${LASSO_BACKEND_PORT:?set by container-dev-web.sh}"
-      # host <tailnet ip>:<first free port of 5173-5223> -> container
-      # 127.0.0.1:5173. Vite binds loopback inside the container, so nothing
-      # else is published. The host side gives way (the published range), the
-      # guest side is always 5173.
+      # host 127.0.0.1:<first free port of 5173-5223> -> container
+      # 127.0.0.1:5173. Loopback on both sides: the tailnet reaches it only
+      # through `tailscale serve`'s HTTPS listener (container-dev-web.sh), so
+      # plain HTTP is never published. The host side gives way (the published
+      # range), the guest side is always 5173.
       - name: vite
-        host_ip: "${LASSO_LISTEN_IP:?set by container-dev-web.sh}"
+        host_ip: 127.0.0.1
         published: 5173-5223
         target: 5173
