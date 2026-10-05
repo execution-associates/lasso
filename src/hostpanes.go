@@ -282,6 +282,10 @@ type hostPane struct {
 	// milliseconds (see paneTranscriptAt): the agents lists' recency order.
 	// Absent for a pane with no readable transcript.
 	TranscriptAt int64 `json:"transcript_at,omitempty"`
+	// TouchedAt is when the human last acted on this agent through lasso, in
+	// unix milliseconds (see touchAgent): the grid's "Recent" order. Absent
+	// when nobody has.
+	TouchedAt int64 `json:"touched_at,omitempty"`
 	// Repo names the git repo the pane works in (its directory name), for the
 	// agents grid's by-repo grouping. See paneRepoName for how it is decided.
 	Repo string `json:"repo,omitempty"`
@@ -1291,6 +1295,7 @@ func enumerateHostPanes(b Backend, host, hostLabel string) ([]hostPane, error) {
 	}
 	out := make([]hostPane, 0, len(pl.Panes))
 	transcriptAt := paneTranscriptTimes(b, host, pl.Panes)
+	touchedAt := agentTouches(host)
 	for _, p := range pl.Panes {
 		kind, isAgent := agentKind[p.PaneID]
 		status := p.AgentStatus
@@ -1337,6 +1342,7 @@ func enumerateHostPanes(b Backend, host, hostLabel string) ([]hostPane, error) {
 			Focused:        p.Focused,
 			Prompt:         prompt,
 			TranscriptAt:   transcriptAt[p.PaneID],
+			TouchedAt:      touchedAt[p.PaneID],
 		})
 	}
 	// Newest first: herdr assigns workspaces/tabs monotonically increasing numbers
