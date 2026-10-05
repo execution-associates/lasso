@@ -445,6 +445,10 @@ export interface UIState {
   // send "" — the server answers 400 and drops the whole patch, exactly as it
   // does for appearance_mode.
   agents_sort: AgentSort
+  // The agents grid's group-by-machine / group-by-repo toggles. Optional
+  // because an older server never sends them.
+  agents_group_host?: boolean
+  agents_group_repo?: boolean
   // The agents grid's pinned cards, oldest pin first, each a paneKey (host +
   // NUL + pane id). Pinned cards sit above the rest and ignore agents_sort.
   // Read-only here: write it through the agent_pins ops (setAgentPinned).

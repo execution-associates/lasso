@@ -335,10 +335,15 @@ type uiState struct {
 	// first, so the conversations that are moving lead the grid.
 	//
 	// Server-owned rather than per browser so the phone and the desktop show
-	// one order, and a reload does not reset it. The grid's own
-	// group-by-machine toggle stays ephemeral — it changes what the layout
-	// SAYS, not the order inside it.
+	// one order, and a reload does not reset it.
 	AgentsSort string `json:"agents_sort"`
+	// AgentsGroupHost / AgentsGroupRepo are the agents grid's group-by-machine
+	// and group-by-repo toggles. Server-owned for the same reason as
+	// AgentsSort. Grouping by machine is on by default (what the grid always
+	// did), so it is seeded true in getUIState and an old blob without the key
+	// keeps it.
+	AgentsGroupHost bool `json:"agents_group_host"`
+	AgentsGroupRepo bool `json:"agents_group_repo"`
 	// PinnedAgents are the agents grid's pinned cards, in the order they were
 	// pinned, each as the frontend's paneKey (host + NUL + pane id, since pane
 	// ids are unique per host only). A pinned card sits above every other card
@@ -645,6 +650,7 @@ func getUIState() (uiState, error) {
 		PaletteLight:           defaultPaletteLight,
 		PaletteDark:            defaultPaletteDark,
 		AgentsSort:             agentsSortPriority,
+		AgentsGroupHost:        true,
 		PinnedAgents:           []string{},
 		BrowserMode:            browserModeLive,
 		SidebarTabs:            []sidebarTab{},
