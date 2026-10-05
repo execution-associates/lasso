@@ -100,10 +100,11 @@ type pluginManifest struct {
 	Description string          `json:"description"`
 	Tabs        []pluginTabSpec `json:"tabs"`
 	MCP         *pluginMCPSpec  `json:"mcp"`
-	// Themes and Fonts are appearance contributions: data, never code or CSS
-	// (pluginappearance.go).
-	Themes []pluginThemeSpec `json:"themes"`
-	Fonts  []pluginFontSpec  `json:"fonts"`
+	// Themes, Fonts and ChatStyles are appearance contributions: data, never
+	// code or CSS (pluginappearance.go, chattext.go).
+	Themes     []pluginThemeSpec     `json:"themes"`
+	Fonts      []pluginFontSpec      `json:"fonts"`
+	ChatStyles []pluginChatStyleSpec `json:"chat_styles"`
 	// MinLassoVersion and Platforms say where the plugin can run at all. A
 	// plugin that cannot is listed invalid with the reason; neither is part of
 	// the fingerprint (they grant nothing).
@@ -955,14 +956,15 @@ type pluginPayload struct {
 	Trusted     bool   `json:"trusted"`
 	// VM is the operator's isolation choice; Isolation is the effect (host
 	// when trusted, else container or vm).
-	VM          bool              `json:"vm"`
-	Isolation   string            `json:"isolation"`
-	Fingerprint string            `json:"fingerprint,omitempty"`
-	Permissions pluginPerms       `json:"permissions"`
-	Tabs        []pluginTabOut    `json:"tabs"`
-	MCP         *pluginMCPPayload `json:"mcp,omitempty"`
-	Themes      []pluginThemeOut  `json:"themes"`
-	Fonts       []pluginFontOut   `json:"fonts"`
+	VM          bool                 `json:"vm"`
+	Isolation   string               `json:"isolation"`
+	Fingerprint string               `json:"fingerprint,omitempty"`
+	Permissions pluginPerms          `json:"permissions"`
+	Tabs        []pluginTabOut       `json:"tabs"`
+	MCP         *pluginMCPPayload    `json:"mcp,omitempty"`
+	Themes      []pluginThemeOut     `json:"themes"`
+	Fonts       []pluginFontOut      `json:"fonts"`
+	ChatStyles  []pluginChatStyleOut `json:"chat_styles"`
 	// Warnings are problems that do not invalidate the plugin — a theme whose
 	// key is taken, and so skipped — shown in Settings beside it.
 	Warnings []string `json:"warnings"`
@@ -1045,6 +1047,7 @@ func (m *pluginManager) listing() pluginsPayload {
 			Tabs:        []pluginTabOut{},
 			Themes:      []pluginThemeOut{},
 			Fonts:       []pluginFontOut{},
+			ChatStyles:  []pluginChatStyleOut{},
 			Warnings:    []string{},
 			Source:      e.Src.out(),
 			DataDir:     m.dataDir(e.Name),

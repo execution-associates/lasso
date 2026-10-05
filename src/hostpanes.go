@@ -472,6 +472,9 @@ func serveUIState(w http.ResponseWriter, r *http.Request) {
 		// map yields exactly the slots the caller named, which are merged per
 		// slot below rather than replacing the stored map.
 		us.Typography = nil
+		// Same for chat_text: a nil map decoded over yields just the patch,
+		// with a null value marking a field to delete.
+		us.ChatText = nil
 		// Detached, and whatever the body says about it is discarded below: it
 		// changes only through the agent_pins ops.
 		us.PinnedAgents = nil
@@ -503,6 +506,10 @@ func serveUIState(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if us.Typography, err = mergeTypography(stored.Typography, us.Typography); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if us.ChatText, err = mergeChatText(stored.ChatText, us.ChatText); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

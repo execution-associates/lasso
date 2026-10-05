@@ -372,6 +372,13 @@ type uiState struct {
 	// is disabled right now is KEPT: the frontend falls back to the default
 	// while it is gone, and re-enabling the plugin brings the choice back.
 	Typography map[string]string `json:"typography"`
+	// ChatText is how the chat view sets its prose (chattext.go): numeric
+	// fields from chatTextRanges plus an optional plugin chat style ("preset")
+	// they sit on top of. Only explicit choices are stored, merged PER FIELD
+	// on the way in like Typography, so a slider dragged on a phone cannot
+	// drop the weight a desktop just picked. A preset whose plugin is disabled
+	// is KEPT and ignored until it comes back.
+	ChatText map[string]any `json:"chat_text"`
 	// OnboardingDone records that the first-run tour was finished or skipped,
 	// so it opens once per lasso rather than once per browser. A fresh install
 	// (no blob) starts false; a blob written before this field existed reads
@@ -384,7 +391,7 @@ type uiState struct {
 // typographySlots are the keys ui_state.typography may hold. Where each one
 // applies is the frontend's business (lib/typography.ts); the server only
 // keeps the set closed so a typo cannot be stored as a slot nothing reads.
-var typographySlots = []string{"sans", "display", "label", "mono", "terminal"}
+var typographySlots = []string{"sans", "display", "label", "mono", "terminal", "chat"}
 
 const typographyValueMax = 100
 
@@ -637,6 +644,7 @@ func getUIState() (uiState, error) {
 		BrowserMode:            browserModeLive,
 		SidebarTabs:            []sidebarTab{},
 		Typography:             map[string]string{},
+		ChatText:               map[string]any{},
 	}
 	var v string
 	err := db.QueryRow(`SELECT value FROM settings WHERE key='ui_state'`).Scan(&v)
@@ -684,6 +692,7 @@ func getUIState() (uiState, error) {
 	if us.Typography == nil {
 		us.Typography = map[string]string{}
 	}
+	us.ChatText = sanitizeChatText(us.ChatText)
 	return us, nil
 }
 

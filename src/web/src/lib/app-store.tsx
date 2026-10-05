@@ -6,6 +6,7 @@ import {
   handleBrowserOpenEvent,
   handleBrowserProfilesEvent,
 } from "@/lib/browser-profiles"
+import { subscribeChatText } from "@/lib/chat-text"
 import { clientID } from "@/lib/client-id"
 import { setTabHost, tabHost, withTabHost } from "@/lib/host"
 import { applyMode, subscribeAppearance, watchSystemMode } from "@/lib/mode"
@@ -331,6 +332,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // enabled plugins contribute, and re-apply whenever either side changes —
   // the same arrangement as the backdrop above (lib/typography.ts).
   React.useEffect(() => subscribeTypography(), [])
+  // And how the chat view sets its prose (ui_state.chat_text over a plugin
+  // chat style over lasso's defaults), the same way (lib/chat-text.ts).
+  React.useEffect(() => subscribeChatText(), [])
 
   // Re-pin the terminals to herdr's theme whenever its theme revision moves
   // (including the priming value, so a reload always converges). The chrome is

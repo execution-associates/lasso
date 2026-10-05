@@ -4,6 +4,7 @@ import type {
   Typography,
   TypographySlot,
 } from "@/lib/api"
+import { chatPresetFontID } from "@/lib/chat-text"
 import { qk, queryClient } from "@/lib/query"
 import { setTermFontChoice } from "@/lib/theme"
 import { patchUIState, uiStateNow } from "@/lib/ui-state"
@@ -27,6 +28,7 @@ export const TYPOGRAPHY_SLOTS: TypographySlot[] = [
   "label",
   "mono",
   "terminal",
+  "chat",
 ]
 
 export const SLOT_LABELS: Record<TypographySlot, string> = {
@@ -35,6 +37,7 @@ export const SLOT_LABELS: Record<TypographySlot, string> = {
   label: "Labels",
   mono: "Code",
   terminal: "Terminal",
+  chat: "Chat",
 }
 
 // The custom property each document slot pins, and the stack it falls back to
@@ -45,6 +48,7 @@ const SLOT_VARS: Record<Exclude<TypographySlot, "terminal">, string> = {
   display: "--font-display",
   label: "--font-label",
   mono: "--font-mono",
+  chat: "--font-chat",
 }
 
 const SLOT_DEFAULT_STACKS: Record<
@@ -55,6 +59,9 @@ const SLOT_DEFAULT_STACKS: Record<
   display: '"Doto", "Space Grotesk", system-ui, sans-serif',
   label: '"Space Mono", "JetBrains Mono", ui-monospace, monospace',
   mono: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
+  // The chat follows the interface face until something else is chosen, so
+  // a sans pick reaches it too.
+  chat: "var(--font-sans)",
 }
 
 // Code and the terminal are grids: a proportional face there breaks alignment,
@@ -199,7 +206,10 @@ export function fontForSlot(
   fonts: ResolvedFont[],
   typography: Typography
 ): ResolvedFont | null {
-  const id = typography[slot]
+  // The chat slot falls back to the font of the chat style the human picked
+  // (lib/chat-text.ts), so a plugin's style can bring its own typeface.
+  const id =
+    typography[slot] || (slot === "chat" ? chatPresetFontID() : undefined)
   if (!id) return null
   const font = fonts.find((f) => f.globalID === id)
   return font && slotAccepts(slot, font.category) ? font : null
@@ -242,7 +252,11 @@ export function applyTypography() {
 
 // The slice a repaint depends on: the stored choices and the fonts on offer.
 function signature(): string {
-  return JSON.stringify([typographyNow(), resolvePluginFonts(pluginsNow())])
+  return JSON.stringify([
+    typographyNow(),
+    chatPresetFontID(),
+    resolvePluginFonts(pluginsNow()),
+  ])
 }
 
 // subscribeTypography applies now and again whenever the stored choice or the
