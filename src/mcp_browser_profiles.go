@@ -67,7 +67,7 @@ func requireLocalBrowser(req *mcp.CallToolRequest) error {
 
 // ---- list_browser_profiles --------------------------------------------------
 
-const listBrowserProfilesDescription = "List lasso's shared-browser PROFILES. Each profile is its own Chromium on lasso's machine, with its own persistent cookies and logins and optionally its own proxy (e.g. socks5://host:1080), shown to the human in lasso's Browser tab (they pick the profile at the bottom of it). `default` is the profile lasso always had. For each profile you get its open `tabs` (only while it runs), `mcp_endpoint` — lasso's ONE browser MCP URL (/browser-mcp, the same for every profile): its chrome-devtools-mcp tools each take an optional `profile`, so pass this profile's `id` to drive its browser; no per-profile MCP server is needed — and `ws_endpoint` for raw CDP/Playwright, which IS per profile."
+const listBrowserProfilesDescription = "List lasso's shared-browser PROFILES. Each profile is its own Chromium on lasso's machine, with its own persistent cookies and logins and optionally its own proxy (e.g. socks5://host:1080), shown to the human in lasso's Browser tab (they pick the profile at the bottom of it). `default` is the profile lasso always had. For each profile you get its open `tabs` (only while it runs), `mcp_endpoint` — lasso's ONE browser MCP URL (/browser-mcp, the same for every profile): its chrome-devtools-mcp tools each take an optional `profile`, so pass this profile's `id` to drive its browser; no per-profile MCP server is needed — and `ws_endpoint` for raw CDP/Playwright, which IS per profile. A client with no MCP at all gets the same list from `GET <lasso>/cdp/profiles`, each entry carrying its own ws_url."
 
 type listBrowserProfilesIn struct{}
 
