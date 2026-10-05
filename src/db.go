@@ -145,7 +145,7 @@ func openDB() error {
 			return fmt.Errorf("%s: %w", pragma, err)
 		}
 	}
-	if _, err := h.Exec(dbSchema + oauthSchema + groupsSchema + pushSchema + agentTouchSchema); err != nil {
+	if _, err := h.Exec(dbSchema + oauthSchema + groupsSchema + pushSchema + agentMsgSchema + agentTouchSchema); err != nil {
 		h.Close()
 		return fmt.Errorf("create schema: %w", err)
 	}

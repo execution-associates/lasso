@@ -109,6 +109,6 @@ Reconciliation is careful, because "no pane" has two causes and only one is "the
 
 It runs whenever `list_agents` is called and on a 5-minute background pass (with one at startup), so records catch up even when nobody is looking.
 
-## Talking to agents is herdr's job
+## Talking to agents
 
-lasso creates, lists, inspects and closes agents. It has no tool to prompt an agent, read its screen or wait for it. herdr does that directly: `herdr agent prompt`, `herdr agent read`, `herdr agent wait` (or herdr's own MCP tools), and Claude Code has its own agent messaging. An orchestrating agent uses lasso to spawn workers and herdr to talk to them.
+`send_agent` types a message into an agent's pane, on this machine or any host lasso drives, and the agent answers through lasso's reply inbox over tailcat; `get_replies` collects the answer. `read_agent` and `wait_agent` read the agent's screen and wait for it to finish. That is how a caller with no terminal, such as Claude on your phone through claude.ai, runs agents. Claude Code sessions that can reach each other with their own agent messaging should use that, and from a shell on the same machine `herdr agent prompt` / `read` / `wait` work too.
