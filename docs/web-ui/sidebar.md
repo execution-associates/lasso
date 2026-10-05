@@ -166,7 +166,7 @@ Settings has two panes, **General** and **Themes**. Each pane is a list of colla
 
 **Plugins**
 
-Installs, previews, enables, disables, trusts, updates, unlinks and uninstalls plugins, restarts their MCP servers and shows their logs. See [Plugins](../plugins/index.md).
+Installs, previews, enables, disables, trusts, updates, unlinks and uninstalls plugins, switches each one's MCP server between a container and a VM, restarts those servers and shows their logs. It shows which isb lasso found, or why plugin sandboxes are unavailable. See [Plugins](../plugins/index.md).
 
 **Getting started: Take the tour** replays the [first-run tour](./index.md#the-first-run-tour).
 

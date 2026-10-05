@@ -68,7 +68,8 @@ The CPU and memory caps apply only when `systemd-run` and a user systemd manager
 | `MCP_OAUTH_REDIRECT_URIS` | Comma-separated allowlist of redirect URIs for the pre-registered `MCP_OAUTH` client. Unset, that client accepts any `https` or loopback callback (the consent screen shows the target). |
 | `LASSO_DIR` | lasso's state directory. Default `~/.lasso`. Moves `lasso.db`, plugins, plugin data, installed themes, the browser profiles, and the worktree, scratch, upload and prompt directories. It does not move `lasso start`'s PID and log files, which stay in `~/.lasso`. When set, lasso uses this same path on remote hosts too, instead of each host's `~/.lasso`. |
 | `LASSO_PUSH_CONTACT` | The contact the VAPID JWT names to push services, e.g. `mailto:you@example.com`. Default: the origin the device subscribed from. |
-| `LASSO_MSB` | The microsandbox CLI for sandboxed plugins: a path or a `PATH` name. Default `msb` on `PATH`, then `~/.microsandbox/bin/msb`. `off` disables sandboxed plugins (trusted ones still run). |
+| `LASSO_ISB` | The isb CLI for sandboxed plugins (1.0 or later): a path or a `PATH` name. When set, nothing else is tried. Default: the first new-enough of `isb` on `PATH` and the newest mise install of isb. `off` disables sandboxed plugins (trusted ones still run). |
+| `ISB_SERVE_SOCKET` | Where lasso looks for `isb serve`'s unix socket to check it is running before starting a plugin sandbox. Default `$XDG_RUNTIME_DIR/isb/serve.sock`. |
 | `LASSO_BROWSER_ARGS` | Extra Chromium flags, split on whitespace. `--no-sandbox` here is the knowing workaround for a Chromium whose sandbox cannot start. |
 | `LASSO_BROWSER_MCP_ARGS` | Extra chrome-devtools-mcp flags, split on whitespace (e.g. `--slim`). |
 | `HERDR_SOCKET_PATH` | Default for `-herdr-sock`. |

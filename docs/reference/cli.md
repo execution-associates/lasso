@@ -236,11 +236,12 @@ Manages plugins. Alias: `lasso plugins`. Unlike `mcp-client`, these talk to the 
 
 | command | effect |
 | --- | --- |
-| `list [-json]` | List plugins with their state, trust, MCP status, source and tools. Alias: `ls`. |
+| `list [-json]` | Print the plugins directory and which isb lasso found (or why none), then each plugin's state, isolation (`container`, `vm`, or `HOST (trusted)`), MCP status, source and tools. Alias: `ls`. |
 | `enable <name>` | Print the plugin's current permissions and approve exactly those. |
 | `disable <name>` | Unload it and withdraw the approval. |
 | `trust <name>` | Run its MCP server on the host, outside the sandbox. Prints a warning. |
-| `untrust <name>` | Back into a microsandbox microVM (the default). |
+| `untrust <name>` | Back into its isb sandbox (the default). |
+| `vm <name> on\|off` | Run its sandbox as a VM (its own kernel, slower start) or a container (the default). Has no effect while the plugin is trusted. |
 | `restart <name>` | Restart its MCP server. |
 | `reload` | Rescan the plugins directory and print the listing. |
 | `install <source> [--ref R] [-y] [--no-enable]` | Install from GitHub: `owner/repo`, `owner/repo/sub/dir`, or `https://github.com/owner/repo[/tree/<ref>/<subdir>]`. Shows the permissions, then asks. Without a terminal it refuses unless `-y`. `--no-enable` installs it disabled. |
@@ -248,7 +249,7 @@ Manages plugins. Alias: `lasso plugins`. Unlike `mcp-client`, these talk to the 
 | `uninstall <name> [--purge-data]` | Remove a GitHub install. Its data directory is kept unless `--purge-data`. |
 | `link <path> [--enable]` | Use a local checkout in place. `--enable` approves it immediately. |
 | `unlink <name>` | Forget a linked checkout. Its files are left alone. |
-| `log <name> [-n 200] [-f]` | Its MCP server's recent output. Aliases: `logs`; `--lines` for `-n`, `--follow` for `-f`. |
+| `log <name> [-n 200] [-f]` | Its MCP server's recent output, from lasso's in-memory ring of the last 500 lines; `-f` polls it every 2 seconds. Aliases: `logs`; `--lines` for `-n`, `--follow` for `-f`. |
 | `data-dir <name>` | Print its writable data directory. |
 
 See [Plugins](../plugins/index.md).

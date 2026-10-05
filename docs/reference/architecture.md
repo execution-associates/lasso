@@ -26,7 +26,7 @@ lasso is one Go binary. It embeds its React frontend, keeps its state in a SQLit
 
 **The shared browser.** A headless Chromium on lasso's machine, started on first use and stopped when idle, optionally capped in a systemd user scope. The Browser tab streams it, and agents drive it through `/cdp` or through `/browser-mcp`, where lasso runs one chrome-devtools-mcp process per MCP session per profile that session uses. Each profile is its own Chromium. See [Shared browser](../concepts/shared-browser.md).
 
-**Plugins.** A plugin's tab pages are served from `/plugins/<name>/` as an opaque, sandboxed origin; its MCP server runs in a microsandbox microVM (or, if you trust it, on the host), and its tools are mirrored onto `/mcp`. See [Plugins](../plugins/index.md).
+**Plugins.** A plugin's tab pages are served from `/plugins/<name>/` as an opaque, sandboxed origin; its MCP server runs in an [isb](https://github.com/execution-associates/isb) sandbox, a container by default or a VM if you choose (or, if you trust it, on the host), and its tools are mirrored onto `/mcp`. See [Plugins](../plugins/index.md).
 
 ## Background work
 

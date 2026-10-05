@@ -106,6 +106,43 @@ Iframe mode loads the page in your own browser, so your browser's rules apply:
 
 `lasso connect` registers `lasso-browser` only when this endpoint can serve, and says what's missing otherwise.
 
+## Plugins
+
+A plugin's MCP server runs in an isb sandbox. When one can't start for a reason a retry won't fix, its MCP status in Settings and `lasso plugin list` reads `unavailable` with one of these reasons. Fix the cause, then restart it (`lasso plugin restart <name>`, or Restart in Settings). Its tabs, themes and fonts keep working meanwhile. See [Plugins](./plugins/index.md#isb).
+
+**`isb not found: install it (mise use -g github:execution-associates/isb) or set LASSO_ISB`**
+lasso looked for `isb` on its own `PATH` and in mise's installs and found neither. Install it as the message says, or point `LASSO_ISB` at the binary. A systemd unit's `PATH` is often shorter than your shell's.
+
+**`isb 1.0 or later is required (found ...)`**
+Every isb lasso found is older than 1.0. Upgrade it. When `LASSO_ISB` is set, only that one is tried.
+
+**`isb not found at LASSO_ISB="..."`** or **`isb not found: LASSO_ISB="..." is not on PATH`**
+`LASSO_ISB` names a path that doesn't exist or a command that isn't on lasso's `PATH`. Fix or unset it.
+
+**`sandboxed plugins are disabled (LASSO_ISB=off)`**
+Sandboxed servers are switched off on purpose. Unset `LASSO_ISB`, or trust the plugin if you mean to run it on the host.
+
+**`isb serve is not running (it runs the egress proxy plugin sandboxes need): ...`**
+lasso checks `isb serve`'s health on its unix socket (`$ISB_SERVE_SOCKET`, else `$XDG_RUNTIME_DIR/isb/serve.sock`) before creating a sandbox, because a sandbox created without it has no working network. Start `isb serve` as the same user lasso runs as, with the same `XDG_RUNTIME_DIR` and `XDG_STATE_HOME`.
+
+**`plugin servers run in the other lasso using this plugins directory (pid N, listening on ...)`**
+Two lassos share one `LASSO_DIR`, and the other one holds `plugins/.runner.lock`, so it runs the servers. This is deliberate: both would otherwise fight over the same sandbox names. Stop the other lasso and this one takes over within about 10 seconds, or give one of them its own `LASSO_DIR`.
+
+**`secret NAME could not be resolved (not in lasso's environment, and `secret NAME` failed)`**
+An approved secret has no value. Put it in lasso's environment (for a systemd unit, in the unit's environment), then restart the server.
+
+**`the path ... contains ':', which isb's mount syntax cannot express`**
+The plugin directory or its data directory has a colon in its path. Move it, or set `LASSO_DIR` to a path without one.
+
+**A plugin is `invalid`: `"..." is an IP address; the sandbox's egress allows host names only`** (or **`is a wildcard over a single label`**)
+isb's egress allows host names only. The manifest's `network` entries and secret hosts must be names such as `api.example.com` or `*.example.com`, never an IP address or `*.com`.
+
+**The server fails to start, or exits at once**
+Run `lasso plugin log <name>`: `isb create`'s output and the server's stderr are there. The image must contain `sh` and `sleep` (or `tail`), since lasso keeps the container alive with them; a distroless image without a shell does not work. In a VM, the default image has `python3` but no node or bun, so a plugin that needs those in a VM must name a `vm_image`.
+
+**Requests from inside the sandbox fail**
+Only the hosts in the manifest are reachable. On a host with ufw, the egress proxy also needs `sudo isb host setup --sandbox-egress`. TLS to a secret's hosts goes through isb's proxy, so a runtime with its own trust store must be told to trust `/etc/isb/egress-ca.crt`, a client that pins certificates fails, and only HTTP/1.1 works toward those hosts (gRPC does not).
+
 ## MCP clients
 
 **claude.ai or Claude Desktop says "Couldn't register with lasso's sign-in service"**

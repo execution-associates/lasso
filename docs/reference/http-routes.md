@@ -92,6 +92,7 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 | `/mcp` | lasso's MCP server (streamable HTTP): agents, hosts, notify, open_file, browser profiles and tabs, plugin tools. See [MCP tools](../mcp/tools.md). |
 | `/browser-mcp` | chrome-devtools-mcp against the shared browser, one URL for every profile. `/browser-mcp/<id>` pins one profile. See [Browser MCP](../mcp/browser-mcp.md). |
 | `/cdp`, `/cdp/p/<id>` | Raw Chrome DevTools Protocol WebSocket for the default profile, or for profile `<id>`. |
+| `/cdp/profiles` | `GET`: every browser profile and the CDP address of each, for a client with no MCP server. Never starts a browser. Same gates as `/cdp`. See [Browser MCP](../mcp/browser-mcp.md#discovering-profiles-over-cdp). |
 | `/.well-known/oauth-protected-resource[/…]`, `/.well-known/oauth-authorization-server[/…]` | OAuth discovery documents. 404 unless `MCP_OAUTH` is set. |
 | `/oauth/register`, `/oauth/token` | Dynamic client registration; token endpoint. 404 unless `MCP_OAUTH` is set. |
 | `/oauth/authorize` | The consent screen. Behind `UI_AUTH` and the Access gate. 404 unless `MCP_OAUTH` is set. |
