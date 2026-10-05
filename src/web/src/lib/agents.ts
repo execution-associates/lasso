@@ -203,6 +203,45 @@ export function groupAgentsByHost(
   })
 }
 
+export interface AgentRepoGroup {
+  // "" for panes outside any repo lasso can name; they share one trailing
+  // "No repo" section rather than a section each.
+  repo: string
+  label: string
+  panes: HostPane[]
+  blocked: number
+  working: number
+}
+
+// The grid's by-repo sections, used alone (one section per repo across every
+// machine) or nested inside a machine's section when both toggles are on.
+// Repos in name order with "No repo" last, agents inside in the caller's
+// chosen order: like the machine order, which repo a section is never changes
+// on its own, so it is orientation rather than a sort mode.
+export function groupAgentsByRepo(
+  agents: HostPane[],
+  sort: AgentSort = "priority"
+): AgentRepoGroup[] {
+  const byRepo = new Map<string, HostPane[]>()
+  for (const p of agents) {
+    const repo = p.repo ?? ""
+    const list = byRepo.get(repo)
+    if (list) list.push(p)
+    else byRepo.set(repo, [p])
+  }
+  const groups: AgentRepoGroup[] = [...byRepo].map(([repo, panes]) => ({
+    repo,
+    label: repo || "No repo",
+    panes: sortAgents(panes, sort),
+    blocked: panes.filter((p) => p.agent_status === "blocked").length,
+    working: panes.filter((p) => p.agent_status === "working").length,
+  }))
+  return groups.sort((a, b) => {
+    if (!a.repo !== !b.repo) return a.repo ? -1 : 1
+    return a.repo.localeCompare(b.repo)
+  })
+}
+
 // Every agent lasso can reach, on every connected machine — not just this tab's
 // host. An agent on another box is the one you cannot see any other way short of
 // switching tabs, which is the whole point of listing the fleet.

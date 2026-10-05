@@ -194,6 +194,10 @@ export interface HostPane {
   // on, and the only name left when nothing along the way was ever labelled.
   terminal_title?: string
   cwd?: string
+  // The git repo the pane works in, by directory name: from lasso's record of
+  // the agent, else read off the cwd (a lasso worktree, or a repos_root
+  // checkout). Absent when neither names one.
+  repo?: string
   agent?: string
   agent_status?: string
   // Whether an agent is running here. `agent` names the harness when herdr's
