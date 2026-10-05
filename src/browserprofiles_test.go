@@ -237,6 +237,88 @@ func TestCDPProfileRouting(t *testing.T) {
 	if _, ok := browserMCPProfile("/browser-mcp/a/b"); ok {
 		t.Error("a nested /browser-mcp path routed")
 	}
+	for p, want := range map[string]bool{
+		"/cdp/profiles":         true,
+		"/cdp/profiles/":        true,
+		"/cdp/p/work/profiles":  true,
+		"/cdp/p/work/profiles/": true,
+		"/cdp/p/profiles":       false, // the browser target of a profile named "profiles"
+		"/cdp/p/":               false,
+		"/cdp/json/list":        false,
+		"/cdp":                  false,
+	} {
+		if got := cdpProfilesRequest(p); got != want {
+			t.Errorf("cdpProfilesRequest(%q) = %v, want %v", p, got, want)
+		}
+	}
+}
+
+// /cdp/profiles is the CDP-only discovery path: every profile, the default
+// first, each with the address to connect to it — served behind the same Origin
+// guard as the rest of /cdp, and without starting a browser.
+func TestCDPProfilesListing(t *testing.T) {
+	f := testFleet(t)
+	if _, err := f.create("Work", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	fc := newFakeChromium(t)
+	runProfileOn(t, f, "work", fc)
+	lasso := httptest.NewServer(http.HandlerFunc(serveCDPRouted))
+	defer lasso.Close()
+	lu, _ := url.Parse(lasso.URL)
+
+	for _, path := range []string{"/cdp/profiles", "/cdp/p/work/profiles"} {
+		resp, err := http.Get(lasso.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			t.Fatalf("%s: status %d: %s", path, resp.StatusCode, body)
+		}
+		var got cdpProfilesOut
+		if err := json.Unmarshal(body, &got); err != nil {
+			t.Fatalf("%s: %v: %s", path, err, body)
+		}
+		if len(got.Profiles) != 2 {
+			t.Fatalf("%s: profiles = %+v", path, got.Profiles)
+		}
+		d, w := got.Profiles[0], got.Profiles[1]
+		if d.ID != defaultBrowserProfile || !d.Default || d.WSPath != "/cdp" || d.WSURL != "ws://"+lu.Host+"/cdp" {
+			t.Errorf("%s: default = %+v", path, d)
+		}
+		if w.ID != "work" || w.Default || w.WSPath != "/cdp/p/work" {
+			t.Errorf("%s: work = %+v", path, w)
+		}
+		if w.WSURL != "ws://"+lu.Host+"/cdp/p/work" || w.HTTPURL != "http://"+lu.Host+"/cdp/p/work" {
+			t.Errorf("%s: work urls = %q %q", path, w.WSURL, w.HTTPURL)
+		}
+		if !w.Running || len(w.Tabs) != 1 || w.Tabs[0].ID != "P1" {
+			t.Errorf("%s: work tabs = %+v (running %v)", path, w.Tabs, w.Running)
+		}
+	}
+
+	// The Origin guard runs before the listing, like every other /cdp request.
+	req, _ := http.NewRequest("GET", lasso.URL+"/cdp/profiles", nil)
+	req.Header.Set("Origin", "https://evil.example")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 403 {
+		t.Errorf("foreign origin: %d", resp.StatusCode)
+	}
+	// Reading, not writing.
+	resp, err = http.Post(lasso.URL+"/cdp/profiles", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 405 {
+		t.Errorf("POST: %d", resp.StatusCode)
+	}
 }
 
 // A profile's /json answer points every websocket back through ITS prefix, not
