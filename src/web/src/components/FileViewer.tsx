@@ -13,8 +13,9 @@ import {
   languageExtension,
 } from "@/lib/codemirror"
 import { changedNewLines } from "@/lib/diff"
-import { isImage, isMarkdown, isPdf, isVideo } from "@/lib/format"
+import { isHtml, isImage, isMarkdown, isPdf, isVideo } from "@/lib/format"
 import { useDiff } from "@/lib/git"
+import { HTML_PREVIEW_SANDBOX, htmlPreviewDoc } from "@/lib/html-preview"
 
 // Above this size we skip the language extension (and its parsing cost) but
 // still open the file in the editor.
@@ -39,8 +40,8 @@ const HILITE_CAP = 400 * 1024
 // The full-column file editor overlay: images stay view-only (click-to-zoom
 // checkerboard), everything else opens in an editable textarea. Edits are only
 // persisted on an explicit save (the Save button or ⌘/Ctrl+S); closing with
-// unsaved changes prompts for confirmation. Markdown can toggle between the
-// raw editor and a rendered preview.
+// unsaved changes prompts for confirmation. Markdown and HTML can toggle
+// between the raw editor and a rendered preview.
 export function FileViewer({
   path,
   host,
@@ -74,6 +75,10 @@ export function FileViewer({
   const pdf = isPdf(path)
   const video = isVideo(path)
   const markdown = isMarkdown(path)
+  const html = isHtml(path)
+  // Text files with a rendered form: they open rendered, and toggle into the
+  // raw editor to make changes.
+  const previewable = markdown || html
   // Binary previews (images, PDFs, videos) render straight from the file URL —
   // no text is fetched and there's nothing to edit or save. The Go handler
   // serves these via http.ServeContent, which honors Range requests so the
@@ -90,8 +95,7 @@ export function FileViewer({
   const [error, setError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
   const [saveError, setSaveError] = React.useState<string | null>(null)
-  // Markdown opens rendered; toggle into the raw editor to make changes.
-  const [preview, setPreview] = React.useState(markdown)
+  const [preview, setPreview] = React.useState(previewable)
   // Line numbers (1-based) that differ from HEAD, barred gold in the editor when
   // the working tree is dirty for this file.
   const [changedLines, setChangedLines] = React.useState<number[]>([])
@@ -144,7 +148,7 @@ export function FileViewer({
 
   // Fetch the file text (binary previews load straight from the file URL).
   React.useEffect(() => {
-    setPreview(isMarkdown(path))
+    setPreview(isMarkdown(path) || isHtml(path))
     setBust(0)
     if (binary) {
       setText(null)
@@ -172,8 +176,8 @@ export function FileViewer({
     }
   }, [path, host, binary])
 
-  // A requested line is only visible in the editor, so a markdown file asked
-  // for at a line opens raw rather than as the rendered preview — and one
+  // A requested line is only visible in the editor, so a markdown or HTML file
+  // asked for at a line opens raw rather than as the rendered preview — and one
   // asked for WITHOUT a line opens as the preview, even when it is the file
   // already on screen in the editor (lineSeq > 0 marks an agent's request; a
   // click in the tree leaves the human's own raw/preview choice alone).
@@ -182,7 +186,7 @@ export function FileViewer({
   // biome-ignore lint/correctness/useExhaustiveDependencies: lineSeq is the re-request trigger
   React.useEffect(() => {
     if (line) setPreview(false)
-    else if (lineSeq > 0 && markdown) setPreview(true)
+    else if (lineSeq > 0 && previewable) setPreview(true)
   }, [line, lineSeq])
 
   // Fetch the working-tree diff (vs HEAD) for this file and bar its changed
@@ -304,6 +308,13 @@ export function FileViewer({
     [path, host]
   )
 
+  // The sandboxed document for an HTML preview, rebuilt only when the buffer
+  // changes (each new srcdoc reloads the frame and resets its scroll).
+  const htmlDoc = React.useMemo(
+    () => (html && draft != null ? htmlPreviewDoc(draft) : null),
+    [html, draft]
+  )
+
   // The binary preview URL, with a cache-bust suffix once the file has changed
   // on disk so the browser refetches instead of reusing the cached bytes.
   const mediaURL = bust
@@ -339,12 +350,14 @@ export function FileViewer({
           </span>
         )}
         <div className="ml-auto flex items-center gap-2">
-          {markdown && !binary && error == null && text != null && (
+          {previewable && !binary && error == null && text != null && (
             <Button
               variant="outline"
               size="sm"
               className="h-6"
-              title={preview ? "edit raw markdown" : "preview"}
+              title={
+                preview ? `edit raw ${html ? "html" : "markdown"}` : "preview"
+              }
               onClick={() => setPreview((p) => !p)}
             >
               {preview ? <Pencil /> : <Eye />}
@@ -399,6 +412,14 @@ export function FileViewer({
           <div className="md-body">
             <Markdown source={draft} resolveImageSrc={resolveImage} />
           </div>
+        ) : html && preview && htmlDoc != null ? (
+          <iframe
+            className="vhtml"
+            srcDoc={htmlDoc}
+            sandbox={HTML_PREVIEW_SANDBOX}
+            referrerPolicy="no-referrer"
+            title={path}
+          />
         ) : (
           <CodeEditor
             value={draft}

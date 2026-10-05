@@ -25,6 +25,7 @@ import {
 import * as React from "react"
 import { toast } from "sonner"
 import { Markdown, resolveMarkdownSrc } from "@/components/Markdown"
+import { UserBubble } from "@/components/UserBubble"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -837,13 +838,7 @@ function RowView({
       if (note) {
         return <TaskNotificationRow note={note} resolveImage={resolveImage} />
       }
-      return (
-        <div className="flex justify-end">
-          <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-xl rounded-br-sm border border-primary/20 bg-primary/8 px-3 py-2 text-[13.5px] text-foreground leading-snug">
-            {item.text}
-          </div>
-        </div>
-      )
+      return <UserBubble text={item.text ?? ""} />
     }
     case "agent":
       return item.thinking ? (

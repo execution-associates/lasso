@@ -507,6 +507,10 @@ func runServer() {
 	// starts resetting new connections.
 	startHerdrSSHReaper(ctx)
 
+	// The tailcat reply inbox (replyinbox.go), when a message sent before this
+	// start may still be answered.
+	go resumeReplyInbox(ctx)
+
 	srv := &http.Server{Handler: handler}
 	shutdownDone := make(chan struct{})
 	go func() {
@@ -523,6 +527,7 @@ func runServer() {
 		// Plugin servers likewise: lasso never exits ahead of a child, and a
 		// sandboxed one's isb sandbox is removed, not orphaned.
 		plugins.stopAll()
+		replyInbox.stop()
 		log.Printf("shutdown: draining in-flight requests (up to %s)", drainTimeout)
 		sh, cancel := context.WithTimeout(context.Background(), drainTimeout)
 		_ = srv.Shutdown(sh)
