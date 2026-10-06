@@ -1,4 +1,14 @@
 import type { ReactNode } from "react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Orb } from "@/components/ui/orb"
 import { agentName, agentSub } from "@/lib/agents"
 import type { HostPane } from "@/lib/api"
@@ -91,5 +101,45 @@ export function AgentLines({
         {meta}
       </span>
     </>
+  )
+}
+
+// The one confirmation for ending an agent, from every surface that can. It
+// never says "close": the chat modal closes too, and a human who reads "Close"
+// on both cannot tell dismissing a view from killing a session. Ending is
+// herdr's pane.close — there is no softer detach — so it is asked, named, and
+// its buttons say what each one leaves running.
+export function EndAgentDialog({
+  open,
+  onOpenChange,
+  name,
+  host,
+  onEnd,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  name: string
+  host?: string
+  onEnd: () => void
+}) {
+  const where = !host || host === "local" ? "" : ` on ${host}`
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>End “{name}”?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This closes its herdr pane{where} and stops the agent. Its session
+            transcript stays on disk.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Keep running</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" onClick={onEnd}>
+            End agent
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }

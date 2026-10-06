@@ -1,41 +1,35 @@
 import { useQuery } from "@tanstack/react-query"
 import {
   AlertTriangle,
+  ArrowRight,
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   File as FileIcon,
   Globe,
   Image as ImageIcon,
   ListTodo,
   Loader2,
+  Maximize2,
   PanelRightOpen,
   Paperclip,
   Pencil,
   Pin,
   PinOff,
+  Power,
   Search,
   Send,
   SquareTerminal,
-  SquareX,
   Users,
   Wrench,
   X,
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { EndAgentDialog } from "@/components/AgentParts"
 import { Markdown, resolveMarkdownSrc } from "@/components/Markdown"
 import { UserBubble } from "@/components/UserBubble"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { NO_AUTOCORRECT } from "@/components/ui/input"
 import { Orb } from "@/components/ui/orb"
 import { paneKey, renameAgent, useAgents } from "@/lib/agents"
@@ -1305,12 +1299,33 @@ function ChatTitle({ title, pane }: { title: string; pane?: HostPane }) {
   )
 }
 
+// The chat as a MODAL over the agents grid (AgentChatModal): one named agent,
+// read without moving herdr's focus. Its chrome is its own, because the one
+// thing it must never blur is dismissing the modal versus ending the agent.
+export type ChatModalActions = {
+  // Dismiss: the agent keeps running. ✕ (md+), ‹ Agents (below md), Esc,
+  // outside click and Back all mean this.
+  onDismiss: () => void
+  // The full chat view, which focuses the agent in herdr.
+  onOpenFull: () => void
+  onOpenTerminal: () => void
+  // Ending the agent, confirmed. The grid's own close, so its card leaves the
+  // grid on the confirm exactly as it does from the card.
+  onEnd: () => void
+}
+
 export function ChatView({
+  address,
+  modal,
   onShowTerminal,
   onShowSidebar,
   className,
 }: {
-  onShowTerminal: () => void
+  // A named agent to read instead of herdr's focused pane. Reading by address
+  // is what lets the modal open without re-pointing herdr's one global focus.
+  address?: { host: string; paneID: string }
+  modal?: ChatModalActions
+  onShowTerminal?: () => void
   // lasso's right sidebar (Files, Agents, Settings). An OPEN, not a toggle:
   // below md that panel overlays the whole screen, so the header carrying this
   // button is only reachable while it is collapsed. It is the only pointer route
@@ -1318,7 +1333,7 @@ export function ChatView({
   // sidebar button lives inside the terminal iframe this view covers. It is also
   // the way to the agent list and the creator there, both of which live in that
   // panel below md.
-  onShowSidebar: () => void
+  onShowSidebar?: () => void
   // Merged onto the root. The view is a flex ROW's second child whenever the
   // agent sidebar is beside it (see App.tsx), and it has to be told to take the
   // width that is left over rather than its content's own.
@@ -1333,8 +1348,13 @@ export function ChatView({
   // terminal beside it would be showing. Polled: the transcript is a file the
   // agent appends to, and nothing pushes it. Bounded by the server's caps.
   const { data, isLoading, error } = useQuery({
-    queryKey: qk.chat(host ?? "", activePaneID ?? ""),
-    queryFn: () => api.chat(activePaneID ?? undefined),
+    queryKey: address
+      ? qk.chat(address.host, address.paneID)
+      : qk.chat(host ?? "", activePaneID ?? ""),
+    queryFn: () =>
+      address
+        ? api.chat(address.paneID, undefined, address.host)
+        : api.chat(activePaneID ?? undefined),
     refetchInterval: 2000,
     // panes_rev moves when herdr sees the pane change; the interval covers the
     // transcript growing within one state.
@@ -1583,6 +1603,21 @@ export function ChatView({
       )}
     >
       <div className="flex flex-none items-center gap-2 border-border border-b px-2.5 py-1.5">
+        {/* Below md the modal is a full-screen sheet, and its way out is a
+            BACK, not a cross: it reads as navigation, so nobody takes it for
+            the thing that ends the agent. */}
+        {modal && (
+          <button
+            type="button"
+            onClick={modal.onDismiss}
+            title="Back to agents"
+            aria-label="Back to agents"
+            className="-ml-1 flex h-7 shrink-0 items-center rounded-lg pr-1.5 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground md:hidden"
+          >
+            <ChevronLeft className="size-4" />
+            Agents
+          </button>
+        )}
         <ChatTitle title={data?.title || data?.agent || "Chat"} pane={pane} />
         <span className="ml-auto flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
           {/* Only when the reader is NOT at the bottom. At the bottom the
@@ -1631,38 +1666,70 @@ export function ChatView({
             back, which the footer's toggle is at md+. Sidebar takes the outer
             edge, where the panel it opens comes from and where the footer keeps
             its own sidebar control at md+. */}
-        <button
-          type="button"
-          onClick={onShowTerminal}
-          title="Show the terminal"
-          aria-label="Show the terminal"
-          className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground md:hidden"
-        >
-          <SquareTerminal className="size-4" />
-        </button>
-        <button
-          type="button"
-          onClick={onShowSidebar}
-          title="Open the sidebar"
-          aria-label="Open the sidebar"
-          className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground md:hidden"
-        >
-          <PanelRightOpen className="size-4" />
-        </button>
-        {/* And at md+ this is the one action the header keeps: the footer already
+        {modal ? (
+          <>
+            <button
+              type="button"
+              onClick={modal.onOpenFull}
+              title="Open in the full chat view"
+              aria-label="Open in the full chat view"
+              className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <Maximize2 className="size-4" />
+            </button>
+            {/* Dismiss, and only dismiss. Set apart from the actions by a rule
+                so it reads as the window's own control; ending the agent is at
+                the opposite corner, behind its own word and its own glyph. */}
+            <span
+              aria-hidden
+              className="mx-0.5 h-4 w-px shrink-0 bg-border max-md:hidden"
+            />
+            <button
+              type="button"
+              onClick={modal.onDismiss}
+              title="Close (Esc). The agent keeps running"
+              aria-label="Close chat. The agent keeps running"
+              className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground max-md:hidden"
+            >
+              <X className="size-4" />
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={onShowTerminal}
+              title="Show the terminal"
+              aria-label="Show the terminal"
+              className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground md:hidden"
+            >
+              <SquareTerminal className="size-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onShowSidebar}
+              title="Open the sidebar"
+              aria-label="Open the sidebar"
+              className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground md:hidden"
+            >
+              <PanelRightOpen className="size-4" />
+            </button>
+            {/* And at md+ this is the one action the header keeps: the footer already
             carries Agents (its left-hand toggle), Terminal and New, but nothing
             anywhere closes a pane — so the chat, which is where you are looking
             at the pane in question, is where that belongs. Below md the sidebar's
             Agents tab carries it instead, next to the agent whose pane it ends. */}
-        <button
-          type="button"
-          onClick={() => setConfirmClose(true)}
-          title="Close this pane"
-          aria-label="Close this pane"
-          className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground max-md:hidden"
-        >
-          <SquareX className="size-4" />
-        </button>
+            <button
+              type="button"
+              onClick={() => setConfirmClose(true)}
+              title="End agent…"
+              aria-label="End agent…"
+              className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-destructive max-md:hidden"
+            >
+              <Power className="size-4" />
+            </button>
+          </>
+        )}
       </div>
 
       {/* The viewport and its corner control share a positioning context:
@@ -1827,27 +1894,45 @@ export function ChatView({
         />
       )}
 
+      {/* The modal's actions about the AGENT, under the composer: End at the
+          bottom-left, the corner opposite the dismiss, so no slip of the hand
+          turns "I'm done reading" into "kill it". */}
+      {modal && (
+        <div className="flex flex-none items-center justify-between gap-2 px-2.5 pb-2 text-[12px]">
+          <button
+            type="button"
+            onClick={() => setConfirmClose(true)}
+            disabled={!data?.pane_id}
+            className="flex h-7 items-center gap-1.5 rounded-lg px-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+          >
+            <Power className="size-3.5" />
+            End agent…
+          </button>
+          <button
+            type="button"
+            onClick={modal.onOpenTerminal}
+            className="flex h-7 items-center gap-1.5 rounded-lg px-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            Open in terminal
+            <ArrowRight className="size-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Asked, not done: this ends the agent in the pane, and the tap that
-          reaches it is one glyph away. The transcript stays on disk either way,
-          which is the part worth saying out loud — the conversation is not what
-          is being closed. */}
-      <AlertDialog open={confirmClose} onOpenChange={setConfirmClose}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Close this pane?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Herdr closes {data?.title || data?.agent || "this pane"} and the
-              agent running in it stops. Its session transcript stays on disk.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void closePane()}>
-              Close pane
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+          reaches it is one glyph away. In the modal the agent it read is gone
+          with it, so the modal goes too. */}
+      <EndAgentDialog
+        open={confirmClose}
+        onOpenChange={setConfirmClose}
+        name={data?.title || data?.agent || "this agent"}
+        host={data?.host}
+        onEnd={() => {
+          if (!modal) return void closePane()
+          modal.onEnd()
+          modal.onDismiss()
+        }}
+      />
     </div>
   )
 }

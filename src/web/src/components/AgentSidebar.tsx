@@ -1,16 +1,6 @@
-import { Pin, PinOff, Search, SquareX, X } from "lucide-react"
+import { Pin, PinOff, Power, Search, X } from "lucide-react"
 import * as React from "react"
-import { AgentLines } from "@/components/AgentParts"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
+import { AgentLines, EndAgentDialog } from "@/components/AgentParts"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -157,32 +147,17 @@ export function AgentSidebar() {
           </div>
         )}
       </div>
-      <AlertDialog
+      <EndAgentDialog
         open={closing !== null}
         onOpenChange={(open) => {
           if (!open) setClosing(null)
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Close this pane?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Herdr closes {closing ? agentName(closing) : "this pane"} and the
-              agent running in it stops. Its transcript stays on disk.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (closing) void closeAgent(closing)
-              }}
-            >
-              Close pane
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        name={closing ? agentName(closing) : "this agent"}
+        host={closing?.host}
+        onEnd={() => {
+          if (closing) void closeAgent(closing)
+        }}
+      />
     </aside>
   )
 }
@@ -237,8 +212,8 @@ function Row({
           {pinned ? "Unpin" : "Pin to the top"}
         </ContextMenuItem>
         <ContextMenuItem variant="destructive" onSelect={() => onClose(pane)}>
-          <SquareX />
-          Close…
+          <Power />
+          End agent…
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
