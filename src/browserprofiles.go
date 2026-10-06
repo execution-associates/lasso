@@ -149,7 +149,8 @@ func defaultProfileName() string {
 // allBrowserProfiles is every profile, the default first.
 func allBrowserProfiles() []browserProfile {
 	proxy, _ := getSetting(browserProxySetting)
-	return append([]browserProfile{{ID: defaultBrowserProfile, Name: defaultProfileName(), Proxy: proxy}}, loadExtraProfiles()...)
+	cdpURL, _ := getSetting(browserDefaultCDPURLSetting)
+	return append([]browserProfile{{ID: defaultBrowserProfile, Name: defaultProfileName(), Proxy: proxy, CDPURL: cdpURL}}, loadExtraProfiles()...)
 }
 
 // ---------------------------------------------------------------------------
@@ -400,11 +401,19 @@ func (f *browserFleet) update(id string, name, proxy, cdpURL *string) (browserPr
 		}
 	}
 	if id == defaultBrowserProfile {
-		if cdpURL != nil && *cdpURL != "" {
-			// The default profile is the browser lasso always launched, with
-			// bare /cdp and every older config pointing at it; a remote browser
-			// is a profile of its own.
-			return browserProfile{}, errors.New("the default profile is lasso's own browser; create another profile for a remote one")
+		// The default profile keeps its settings keys (an older lasso on the
+		// same db keeps reading browser_proxy); its cdp_url is a key of its own.
+		curProxy, _ := getSetting(browserProxySetting)
+		curURL, _ := getSetting(browserDefaultCDPURLSetting)
+		nextProxy, nextURL := curProxy, curURL
+		if proxy != nil {
+			nextProxy = *proxy
+		}
+		if cdpURL != nil {
+			nextURL = *cdpURL
+		}
+		if nextURL != "" && nextProxy != "" {
+			return browserProfile{}, errRemoteProxy
 		}
 		if name != nil {
 			if err := setSetting(browserDefaultNameSetting, *name); err != nil {
@@ -416,8 +425,12 @@ func (f *browserFleet) update(id string, name, proxy, cdpURL *string) (browserPr
 				return browserProfile{}, fmt.Errorf("save: %w", err)
 			}
 		}
-		p, _ := getSetting(browserProxySetting)
-		return browserProfile{ID: id, Name: defaultProfileName(), Proxy: p}, nil
+		if cdpURL != nil {
+			if err := setSetting(browserDefaultCDPURLSetting, *cdpURL); err != nil {
+				return browserProfile{}, fmt.Errorf("save: %w", err)
+			}
+		}
+		return browserProfile{ID: id, Name: defaultProfileName(), Proxy: nextProxy, CDPURL: nextURL}, nil
 	}
 	for i := range ps {
 		if ps[i].ID != id {
