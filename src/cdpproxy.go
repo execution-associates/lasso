@@ -285,11 +285,12 @@ func rewriteFrontendURLAt(s, wsBase, prefix string) (string, bool) {
 	return u.String(), true
 }
 
-// cdpTransport dials Chromium's loopback port. Keep-alives are pooled by the
-// outbound host, which is 127.0.0.1:<port> — unique per launch, so a relaunch
+// cdpTransport dials the browser: a launched Chromium's loopback port, or a
+// remote browser's cdp_url. Keep-alives are pooled by the outbound host, which
+// for a launched browser is 127.0.0.1:<port> — unique per launch, so a relaunch
 // can never serve a request down the previous instance's connection.
 var cdpTransport = &http.Transport{
-	Proxy:                 nil, // loopback; never through an HTTP(S)_PROXY from the environment
+	Proxy:                 nil, // never through an HTTP(S)_PROXY from the environment
 	DialContext:           (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
 	ResponseHeaderTimeout: 30 * time.Second,
 	IdleConnTimeout:       60 * time.Second,
@@ -407,13 +408,13 @@ func (m *browserManager) serveCDPAt(w http.ResponseWriter, r *http.Request, pref
 	wsBase := cdpWSBase(r)
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.Out.URL.Scheme = "http"
+			pr.Out.URL.Scheme = p.urlScheme()
 			pr.Out.URL.Host = p.target()
 			pr.Out.URL.Path = upstream
 			pr.Out.URL.RawPath = ""
 			// Chromium answers only a Host that is an IP or "localhost" — a DNS
 			// rebinding guard — so the client's own Host cannot pass through.
-			pr.Out.Host = p.target()
+			pr.Out.Host = p.hostHeader()
 			// Chromium ≥111 refuses a websocket whose Origin is not in
 			// --remote-allow-origins. The Origin was checked above; Chromium
 			// never needs to see it.
