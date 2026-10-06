@@ -616,11 +616,6 @@ func createAgent(b Backend, req createAgentReq) (AgentRecord, error) {
 	}
 
 	rootPane := rec.RootPane
-	// A human's New Agent leads the Recent order; an agent spawning one
-	// (no_focus) is not the human acting.
-	if !req.NoFocus {
-		touchAgent(host, rootPane)
-	}
 
 	// herdr just gained a workspace and a pane, and the browser's next move is to
 	// look that pane up so it can focus it. pane.list takes 0.5-1.5s on a busy

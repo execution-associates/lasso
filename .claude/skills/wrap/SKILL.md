@@ -1,6 +1,6 @@
 ---
 name: wrap
-description: "Wrap up a finished feature in a lasso worktree: merge the current branch to local main, cut a release (bump version + push tag), run `lasso update` once the release publishes, then close this agent's own herdr pane. Use when the user says \"wrap\", \"/wrap\", \"wrap it up\", \"ship it\", or asks to finalize/land/release a completed feature from inside a lasso agent."
+description: "Wrap up a finished feature in a lasso worktree: coordinate with any other agent wrapping lasso, merge the current branch to local main, cut a release (bump version + push tag), run `lasso update` once the release publishes, then close this agent's own herdr pane. Use when the user says \"wrap\", \"/wrap\", \"wrap it up\", \"ship it\", or asks to finalize/land/release a completed feature from inside a lasso agent."
 ---
 
 # wrap — land a finished feature, release, update, and close out
@@ -10,7 +10,7 @@ holds a *completed* feature. It takes that branch all the way to a published
 release and then closes the agent. The final step kills this agent's terminal, so
 everything else must succeed first.
 
-End-to-end: **sync → verify → merge → bump → tag → wait for release → `lasso update` → close own herdr pane.**
+End-to-end: **take the wrap lock → sync → verify → merge → bump → tag → wait for release → `lasso update` → release the lock → close own herdr pane.**
 
 **Assume the merge publishes itself.** Titan carries a GLOBAL
 `post-commit`/`post-merge` hook (`core.hooksPath = ~/.config/git/hooks`) that
@@ -42,11 +42,133 @@ Release is what `lasso update` pulls from, so that push is always ours to make.
 
 1. `feature=$(git -C . branch --show-current)`. Abort if it's `main` (nothing to wrap) or empty (detached HEAD).
 2. If the working tree has uncommitted changes (`git status --porcelain` non-empty) that plainly belong to the feature being wrapped, **commit them and continue — don't stop to ask**. Stage everything and commit with a descriptive message summarizing the feature. Only pause to ask the user if the changes look unrelated or surprising (e.g. edits outside the feature's scope, or debris you didn't create).
-3. Locate the main worktree (where `main` is checked out — `/home/stephan/projects/lasso` on titan, `/home/dev/projects/lasso` on a workspace box; derive it, never assume, and ignore the `prunable` worktrees whose paths belong to another machine):
+3. Locate the main worktree (where `main` is checked out — `/home/stephan/projects/exa/lasso` on titan, `/home/dev/projects/lasso` on a workspace box; derive it, never assume, and ignore the `prunable` worktrees whose paths belong to another machine):
    ```bash
    MAIN=$(git worktree list --porcelain | awk '/^worktree /{w=$2} /^branch refs\/heads\/main$/{print w}')
    ```
    Abort if empty.
+
+## 0. Coordinate with other agents wrapping lasso
+
+Several agents work in lasso worktrees at once, and two wraps overlapping is a
+real failure, not a style problem: both bump to the same version and one tag
+push is refused, or one agent's `lasso update` restarts the daemon in the middle
+of the other's verification, or one merges into `main` while the other is
+between its merge and its tag. So **one wrap runs at a time**, arbitrated by a
+lock every worktree can see, and agents talk to each other while they wait.
+
+### 0a. Who else is here
+
+Every agent in another lasso worktree, from herdr (it knows each pane's harness,
+status and cwd), excluding this pane:
+
+```bash
+WTS=$(git worktree list --porcelain | awk '/^worktree /{print $2}')
+herdr agent list | jq -r --arg me "$HERDR_PANE_ID" --arg wts "$WTS" '
+  ($wts | split("\n")) as $w
+  | .result.agents[]
+  | select(.pane_id != $me)
+  | select(.cwd as $c | $w | any(. as $p | $c == $p or ($c | startswith($p + "/"))))
+  | [.pane_id, .agent, .agent_status, .cwd] | @tsv'
+```
+
+**How to message one depends on its harness** (the `agent` column):
+
+- **`claude`: use Claude Code's own messaging**, `ListAgents` then `SendMessage`.
+  A lasso Claude session's name is its worktree directory's basename plus a
+  short suffix (`/…/worktrees/lasso/chat-mode-on-a-n9ox` → `chat-mode-on-a-n9ox-79`).
+  Match on `<basename>-`; if two rows match, append the `[ref]` the listing
+  shows. `ListAgents`' first line is THIS session's own name, which is the
+  address peers reply to, so put it in every message.
+- **Anything else (codex, omp, pi, …): lasso's `send_agent`** with this host and
+  the pane id, then `get_replies` for the answer. It carries its own reply
+  command, so the peer needs no messaging of its own.
+- Never type into another agent's pane with `pane send-text`/`send-keys`; it
+  interleaves with that agent's own turn.
+
+### 0b. Take the lock, or queue behind its holder
+
+The lock is a directory in the git dir every worktree shares, so `mkdir` is the
+atomic test-and-set:
+
+```bash
+LOCK="$(git rev-parse --git-common-dir)/lasso-wrap.lock"
+ME=<this session's name from ListAgents, or "$HERDR_PANE_ID" for a non-Claude agent>
+if mkdir "$LOCK" 2>/dev/null; then
+  printf 'pane=%s\nname=%s\nbranch=%s\nworktree=%s\nstarted=%s\n' \
+    "$HERDR_PANE_ID" "$ME" "$feature" "$PWD" "$(date +%s)" >"$LOCK/owner"
+else
+  cat "$LOCK/owner"                     # someone else is wrapping
+fi
+```
+
+**If someone else holds it:**
+
+1. **Check it is live.** The holder is gone if its `pane=` no longer appears in
+   `herdr agent list` (closed panes are how a successful wrap ends, so a lock
+   left behind by a crash is the only stale case). Only then is it yours to
+   remove: `rm -rf "$LOCK"` and retry the `mkdir`. **Never remove the lock of
+   a pane that still exists**, however old it is. Ask it instead, and if it
+   does not answer, stop and tell the user.
+2. **Queue and tell the holder.** Append yourself, one line, then message it
+   (by its harness, per 0a):
+   ```bash
+   printf '%s\t%s\t%s\n' "$ME" "<claude|codex|…>" "$HERDR_PANE_ID" >>"$LOCK/waiters"
+   ```
+   > Queued to wrap `<feature>` after you. Message `<ME>` when you release
+   > lasso-wrap.lock.
+
+   For a Claude holder, send it with `notify_when_idle: true` too: if the holder
+   stops mid-wrap to ask its human something, the idle notice tells you, and
+   you stay queued rather than taking over a wrap that is half done.
+3. **Wait for the directory to go away, then retry the `mkdir`.** The holder's
+   release message is the normal wake-up. As the backstop, poll in a background
+   task or Monitor (foreground `sleep` is blocked), not a hand-rolled loop of
+   messages: `until [ ! -d "$LOCK" ]; do sleep 20; done`. Another waiter may win
+   the `mkdir` race. That is fine: queue behind it the same way.
+
+### 0c. Look for a wrap in flight that skipped the lock
+
+A worktree branched before this step existed runs an older copy of this skill,
+which knows nothing about the lock. Once you hold it, check the things such a
+wrap leaves behind:
+
+```bash
+COMMON=$(git rev-parse --git-common-dir)
+[ -e "$COMMON/MERGE_HEAD" ] && echo "main worktree is mid-merge"
+git -C "$MAIN" status --porcelain | grep -q . && echo "main worktree is dirty"
+gh run list --repo execution-associates/lasso --workflow release.yml \
+  --json status,displayTitle -q '.[] | select(.status != "completed") | .displayTitle'
+```
+
+Then message every peer from 0a whose status is `working`, once:
+
+> I'm wrapping lasso `<feature>` now and hold lasso-wrap.lock. If you are in the
+> middle of a wrap yourself, tell `<ME>` and I'll wait for you to finish.
+
+Do not wait for replies to start step 1, which touches only this branch. **Before
+step 3** (the first step that publishes anything), read what came back. If a
+peer says it is mid-wrap, or any check above fired, wait until that wrap's
+release has published (`gh run list` shows it completed) and the main worktree
+is clean, then go back to step 1 so main's new commits are merged in and
+verified.
+
+### Holding the lock
+
+- **Release it in step 8**, after step 7 verified the running daemon, and
+  before closing the pane, since a closed pane cannot message anyone.
+- **Stopping before step 3: release it** and tell the waiters, so the queue
+  does not stall behind a wrap that never published anything.
+- **Stopping at or after step 3: keep it.** `main` is already published and the
+  fix-forward is this agent's to finish. Tell every waiter the wrap stopped,
+  why, and that the lock stays held until the human decides.
+
+Releasing, and telling the waiters (each by its harness, per 0a):
+
+```bash
+cat "$LOCK/waiters" 2>/dev/null     # message each: "lasso-wrap.lock released"
+rm -rf "$LOCK"
+```
 
 ## 1. Bring main INTO the feature branch first
 
@@ -302,12 +424,13 @@ root-owned, confirm `pgrep -nf 'lasso .*-listen'` is a *new* pid, and re-check
 `/api/version`. A second lasso on `:8090` means the `lasso restart` branch ran by
 mistake — `lasso stop` kills that one; never SIGKILL the supervised pid.)
 
-## 8. Close this agent — do this LAST
+## 8. Release the wrap lock, then close this agent — do this LAST
 
-Close **this agent's own herdr pane**. Herdr can perform this self-close
+Release the lock and message the waiters first (see "Holding the lock" in step
+0). Only then close **this agent's own herdr pane**. Herdr can perform this self-close
 directly; no `close_agent` MCP call or lasso round-trip is required. This
 terminates the terminal this agent is running in, so nothing after it runs. Only
-reach here once steps 1–7 succeeded.
+reach here once steps 0–7 succeeded.
 
 ```bash
 herdr pane close "$HERDR_PANE_ID"   # confirm with `herdr pane current` if unset
@@ -324,7 +447,7 @@ the agent. After the pane closes the connection drops — that's success, not an
 ## Notes / gotchas
 
 - Each step is checked: if a command fails, **stop and report** rather than barrelling
-  to the close. A half-finished wrap that still closed the agent is the worst outcome.
+  to the close, and handle the wrap lock the way step 0 says for where you stopped. A half-finished wrap that still closed the agent is the worst outcome.
 - The agent's terminal is a herdr pane; herdr is a separate daemon from lasso, so
   the pane survives the `lasso update` daemon restart and updating mid-wrap is safe.
 - **On a workspace box the binary swap sits outside the image pin, deliberately.**

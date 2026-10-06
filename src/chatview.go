@@ -2029,7 +2029,6 @@ func serveChatSend(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "pane not found", http.StatusNotFound)
 		return
 	}
-	touchAgent(be.Name(), req.PaneID)
 	outcome, detail := chatSubmit(be, req.PaneID, kind, req.Text)
 	writeJSON(w, map[string]any{"outcome": outcome, "detail": detail})
 }
@@ -2247,7 +2246,6 @@ func serveChatAnswer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "pane not found", http.StatusNotFound)
 		return
 	}
-	touchAgent(be.Name(), req.PaneID)
 	refuse := func(detail string) {
 		writeJSON(w, map[string]any{"outcome": "refused", "detail": detail})
 	}

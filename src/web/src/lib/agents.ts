@@ -6,7 +6,7 @@ import {
 import * as React from "react"
 import { toast } from "sonner"
 
-import { type AgentSort, api, type HostPane } from "@/lib/api"
+import { api, type HostPane } from "@/lib/api"
 import { moveTabToHost, useApp } from "@/lib/app-store"
 import { qk, queryClient } from "@/lib/query"
 
@@ -183,27 +183,26 @@ function orderByHost(panes: HostPane[], tabHost: string | null): HostPane[] {
     return (a.host_label || a.host).localeCompare(b.host_label || b.host)
   })
 }
-// Attention order for parallel monitoring: an agent that stopped for an answer
-// (blocked) outranks one still producing (working), which outranks rest (idle),
-// which outranks a finished turn nobody has looked at since (done). Unknown and
-// unreported statuses sort last. Same concept as herdr's own agent list, which
-// surfaces what needs a human first.
+// Attention order, herdr's own (its agent panel's "priority" sort): an agent
+// that stopped for an answer (blocked) first, then a finished turn nobody has
+// looked at yet (done), then one still producing (working), then rest (idle).
+// Unknown and unreported statuses sort last.
 export function agentStatusRank(status?: string): number {
   switch (status) {
     case "blocked":
       return 0
-    case "working":
-      return 1
-    case "idle":
-      return 2
     case "done":
+      return 1
+    case "working":
+      return 2
+    case "idle":
       return 3
     default:
       return 4
   }
 }
 
-// A total order over the fleet, used as the last tiebreak under BOTH sorts.
+// A total order over the fleet, used as the priority sort's last tiebreak.
 // Recency alone is not total — two agents with no transcript yet both read 0 —
 // and a comparator that returns 0 for them leaves their relative order to the
 // engine's sort, which is free to differ between two arrays holding the same
@@ -220,8 +219,10 @@ function byRecency(a: HostPane, b: HostPane): number {
   return (b.transcript_at ?? 0) - (a.transcript_at ?? 0)
 }
 
-// Priority sort within one surface: status rank first, then recency, then the
-// total-order tiebreak so rows do not jump between polls.
+// Priority sort within one surface: status rank first, then recency (herdr
+// orders by its last state change, which lasso does not see; the transcript's
+// last write is the nearest stand-in), then the total-order tiebreak so rows
+// do not jump between polls.
 export function sortAgentsByPriority(panes: HostPane[]): HostPane[] {
   return [...panes].sort((a, b) => {
     const byRank =
@@ -229,31 +230,6 @@ export function sortAgentsByPriority(panes: HostPane[]): HostPane[] {
     if (byRank !== 0) return byRank
     return byRecency(a, b) || tiebreak(a, b)
   })
-}
-
-// Most recently acted on through lasso first. Agents nobody has touched
-// follow, newest transcript write first.
-function byTouch(a: HostPane, b: HostPane): number {
-  return (b.touched_at ?? 0) - (a.touched_at ?? 0)
-}
-
-// Recency order, ignoring status: the agent the human last sent to, answered,
-// focused or created leads. Not the transcript's mtime: that moves whenever an
-// agent works, so a busy agent nobody watches would outrank the one you are
-// talking to. Status still reaches the reader through the card's own badge and
-// the group header's "1 blocked · 2 working" counts.
-export function sortAgentsByRecency(panes: HostPane[]): HostPane[] {
-  return [...panes].sort(
-    (a, b) => byTouch(a, b) || byRecency(a, b) || tiebreak(a, b)
-  )
-}
-
-// The one entry point both orders go through, so a surface picks a mode rather
-// than picking a function.
-export function sortAgents(panes: HostPane[], sort: AgentSort): HostPane[] {
-  return sort === "recent"
-    ? sortAgentsByRecency(panes)
-    : sortAgentsByPriority(panes)
 }
 
 export interface AgentHostGroup {
@@ -265,18 +241,17 @@ export interface AgentHostGroup {
 }
 
 // Grouped for the parallel grid: one section per herdr machine, this tab's own
-// machine first and the rest in name order, agents inside each group in the
-// caller's chosen order. Groups (not a flat fleet sort) because a card's
-// transcript is read from that machine — the header says where every composer
-// below it sends.
+// machine first and the rest in name order, agents inside each group in
+// priority order. Groups (not a flat fleet sort) because a card's transcript is
+// read from that machine — the header says where every composer below it
+// sends.
 //
-// The GROUP order is deliberately not a sort mode: which machine a section
+// The GROUP order is deliberately not by priority: which machine a section
 // belongs to never changes on its own, and the reader's own machine leading is
-// orientation rather than priority.
+// orientation.
 export function groupAgentsByHost(
   agents: HostPane[],
-  tabHost: string | null,
-  sort: AgentSort = "priority"
+  tabHost: string | null
 ): AgentHostGroup[] {
   const byHost = new Map<string, HostPane[]>()
   for (const p of agents) {
@@ -287,7 +262,7 @@ export function groupAgentsByHost(
   const groups: AgentHostGroup[] = [...byHost].map(([host, panes]) => ({
     host,
     hostLabel: panes[0]?.host_label || host,
-    panes: sortAgents(panes, sort),
+    panes: sortAgentsByPriority(panes),
     blocked: panes.filter((p) => p.agent_status === "blocked").length,
     working: panes.filter((p) => p.agent_status === "working").length,
   }))
@@ -310,13 +285,10 @@ export interface AgentRepoGroup {
 
 // The grid's by-repo sections, used alone (one section per repo across every
 // machine) or nested inside a machine's section when both toggles are on.
-// Repos in name order with "No repo" last, agents inside in the caller's
-// chosen order: like the machine order, which repo a section is never changes
-// on its own, so it is orientation rather than a sort mode.
-export function groupAgentsByRepo(
-  agents: HostPane[],
-  sort: AgentSort = "priority"
-): AgentRepoGroup[] {
+// Repos in name order with "No repo" last, agents inside in priority order:
+// like the machine order, which repo a section is never changes on its own, so
+// it is orientation rather than priority.
+export function groupAgentsByRepo(agents: HostPane[]): AgentRepoGroup[] {
   const byRepo = new Map<string, HostPane[]>()
   for (const p of agents) {
     const repo = p.repo ?? ""
@@ -327,7 +299,7 @@ export function groupAgentsByRepo(
   const groups: AgentRepoGroup[] = [...byRepo].map(([repo, panes]) => ({
     repo,
     label: repo || "No repo",
-    panes: sortAgents(panes, sort),
+    panes: sortAgentsByPriority(panes),
     blocked: panes.filter((p) => p.agent_status === "blocked").length,
     working: panes.filter((p) => p.agent_status === "working").length,
   }))

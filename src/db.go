@@ -145,7 +145,7 @@ func openDB() error {
 			return fmt.Errorf("%s: %w", pragma, err)
 		}
 	}
-	if _, err := h.Exec(dbSchema + oauthSchema + groupsSchema + pushSchema + agentMsgSchema + agentTouchSchema); err != nil {
+	if _, err := h.Exec(dbSchema + oauthSchema + groupsSchema + pushSchema + agentMsgSchema); err != nil {
 		h.Close()
 		return fmt.Errorf("create schema: %w", err)
 	}
@@ -329,17 +329,9 @@ type uiState struct {
 	// CreatorDefaultHost outranks it, the same way default_agent outranks
 	// last_agent.
 	CreatorLastHost string `json:"creator_last_host"`
-	// AgentsSort is the order the agents grid lays its cards out in:
-	// "priority" (the default, and what the grid always did — blocked before
-	// working before idle before done) or "recent", newest transcript write
-	// first, so the conversations that are moving lead the grid.
-	//
-	// Server-owned rather than per browser so the phone and the desktop show
-	// one order, and a reload does not reset it.
-	AgentsSort string `json:"agents_sort"`
 	// AgentsGroupHost / AgentsGroupRepo are the agents grid's group-by-machine
-	// and group-by-repo toggles. Server-owned for the same reason as
-	// AgentsSort. Grouping by machine is on by default (what the grid always
+	// and group-by-repo toggles. Server-owned rather than per browser so the
+	// phone and the desktop group alike, and a reload does not reset them. Grouping by machine is on by default (what the grid always
 	// did), so it is seeded true in getUIState and an old blob without the key
 	// keeps it.
 	AgentsGroupHost bool `json:"agents_group_host"`
@@ -353,7 +345,7 @@ type uiState struct {
 	// PinnedAgents are the agents grid's pinned cards, in the order they were
 	// pinned, each as the frontend's paneKey (host + NUL + pane id, since pane
 	// ids are unique per host only). A pinned card sits above every other card
-	// and never moves on a status change, whatever AgentsSort says. Written
+	// and never moves on a status change. Written
 	// only through the agent_pins OPS (see uiStateWriter), never as a list:
 	// a tab holding a stale copy would otherwise drop a pin another device
 	// just added.
@@ -557,50 +549,6 @@ func validAppearanceMode(m string) bool {
 
 // The orders the agents grid may lay its cards out in. "priority" is the
 // default and the historical behavior.
-const (
-	agentsSortPriority = "priority"
-	agentsSortRecent   = "recent"
-	// agentsSortLegacyAlpha is the name sort "recent" replaced. A stored blob
-	// or a browser tab still running the old bundle may say it; both mean the
-	// non-priority order, so it is read (and accepted on write) as "recent".
-	agentsSortLegacyAlpha = "alpha"
-)
-
-// agentsSorts is the accepted set, in the order a client error lists them.
-var agentsSorts = []string{agentsSortPriority, agentsSortRecent}
-
-// canonicalAgentsSort maps the legacy spelling onto its replacement and leaves
-// everything else for validAgentsSort to judge.
-func canonicalAgentsSort(s string) string {
-	if s == agentsSortLegacyAlpha {
-		return agentsSortRecent
-	}
-	return s
-}
-
-// validAgentsSort reports whether s is one a caller may send. Exact, for the
-// same reason validAppearanceMode is: coercing an unrecognized value would
-// persist an order nobody chose and hide the client bug that sent it.
-func validAgentsSort(s string) bool {
-	for _, v := range agentsSorts {
-		if s == v {
-			return true
-		}
-	}
-	return false
-}
-
-// normalizeAgentsSort repairs what is already IN the db — every blob written
-// before this field existed carries "", which is the default order rather than
-// an invalid one. Writes are validated instead (see serveUIState).
-func normalizeAgentsSort(s string) string {
-	s = canonicalAgentsSort(s)
-	if validAgentsSort(s) {
-		return s
-	}
-	return agentsSortPriority
-}
-
 // The Browser tab's modes. "live" is the default.
 const (
 	browserModeLive  = "live"
@@ -611,7 +559,7 @@ const (
 var browserModes = []string{browserModeLive, browserModeEmbed}
 
 // validBrowserMode reports whether m is one a caller may send. Exact, for the
-// same reason validAgentsSort is.
+// same reason validAppearanceMode is.
 func validBrowserMode(m string) bool {
 	for _, v := range browserModes {
 		if m == v {
@@ -655,7 +603,6 @@ func getUIState() (uiState, error) {
 		AppearanceMode:         defaultAppearanceMode,
 		PaletteLight:           defaultPaletteLight,
 		PaletteDark:            defaultPaletteDark,
-		AgentsSort:             agentsSortPriority,
 		AgentsGroupHost:        true,
 		PinnedAgents:           []string{},
 		BrowserMode:            browserModeLive,
@@ -692,7 +639,6 @@ func getUIState() (uiState, error) {
 		us.CustomBackgrounds = []string{}
 	}
 	us.AppearanceMode = normalizeAppearanceMode(us.AppearanceMode)
-	us.AgentsSort = normalizeAgentsSort(us.AgentsSort)
 	us.PinnedAgents = mergePinnedAgents(us.PinnedAgents, nil)
 	us.BrowserMode = normalizeBrowserMode(us.BrowserMode)
 	if tabs, err := normalizeSidebarTabs(us.SidebarTabs); err == nil {
