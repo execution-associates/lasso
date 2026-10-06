@@ -38,3 +38,33 @@ func TestPaneErrText(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkspaceRepoLabel(t *testing.T) {
+	// A linked worktree seen first names nothing but the repo...
+	got := workspaceRepoLabel("", "Persist chat sidebar", "lasso", true)
+	if got != "lasso" {
+		t.Fatalf("linked first: %q", got)
+	}
+	// ...the main checkout's label then takes the heading...
+	got = workspaceRepoLabel(got, "Agents", "jessica", false)
+	if got != "Agents" {
+		t.Fatalf("main checkout: %q", got)
+	}
+	// ...and a later linked worktree does not take it back.
+	if got = workspaceRepoLabel(got, "Set up Jessica", "jessica", true); got != "Agents" {
+		t.Fatalf("linked after main: %q", got)
+	}
+	// herdr's "~" placeholder is not a name.
+	if got = workspaceRepoLabel("", "~", "dots", false); got != "dots" {
+		t.Fatalf("placeholder: %q", got)
+	}
+}
+
+func TestRepoKeyName(t *testing.T) {
+	if got := repoKeyName("/Users/x/projects/52labs/mattermost-channel/.git", "install-the-35gb-4kcy"); got != "mattermost-channel" {
+		t.Fatalf("got %q", got)
+	}
+	if got := repoKeyName("/srv/bare-repo", "bare-repo"); got != "bare-repo" {
+		t.Fatalf("non-.git key: %q", got)
+	}
+}
