@@ -457,7 +457,7 @@ function BrowserModeSwitch({
 //   - Live: the shared headless Chromium lasso runs on its own machine, shown
 //     as a CDP screencast and driven with forwarded input (LiveBrowser). Agents
 //     connect to the same Chromium over /cdp, so its tab strip is where their
-//     pages show up. Each browser PROFILE (own cookies, own proxy) is its own
+//     pages show up. Each browser PROFILE (own cookies, own logins) is its own
 //     Chromium; the bar along the bottom picks which one this client shows.
 //   - Embed: an iframe, exactly as the tab always was.
 //
@@ -478,7 +478,7 @@ export function BrowserTab({ active }: { active: boolean }) {
     queryFn: () => api.browserStatus(),
     retry: false,
     staleTime: 5_000,
-    // Only while someone could act on it: a Chromium installed, or a proxy
+    // Only while someone could act on it: a Chromium installed, or a profile
     // changed from another browser, shows up without a reload.
     refetchInterval: active ? 30_000 : false,
   })

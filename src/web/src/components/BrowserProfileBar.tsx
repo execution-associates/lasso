@@ -2,7 +2,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Settings2, Trash2 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
-import { ProxyField } from "@/components/ProxyField"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,16 +29,8 @@ import { cn } from "@/lib/utils"
 // BrowserProfileBar is the strip along the bottom of the Agent browser: which
 // profile this tab is looking at, and (on a server that has profiles) the way
 // into creating, editing and deleting them. Each profile is a separate
-// Chromium with its own cookies and optional proxy, so switching is a
-// reconnect, not a filter over one browser's pages.
-
-function proxyHost(proxy: string): string {
-  try {
-    return new URL(proxy).host || proxy
-  } catch {
-    return proxy
-  }
-}
+// Chromium with its own cookies and logins, so switching is a reconnect, not
+// a filter over one browser's pages.
 
 export function BrowserProfileBar({
   profiles,
@@ -55,7 +46,6 @@ export function BrowserProfileBar({
   manageable: boolean
 }) {
   const [open, setOpen] = React.useState(false)
-  const cur = profiles.find((p) => p.id === current)
   return (
     <div className="flex flex-shrink-0 items-center gap-1.5 border-border border-t bg-background px-2 py-1 text-[12px]">
       <span className="text-muted-foreground">Profile</span>
@@ -73,14 +63,6 @@ export function BrowserProfileBar({
           </option>
         ))}
       </select>
-      {cur?.proxy && (
-        <span
-          className="min-w-0 truncate rounded-full border border-border px-1.5 font-mono text-[11px] text-muted-foreground"
-          title={`Traffic goes through ${cur.proxy}`}
-        >
-          via {proxyHost(cur.proxy)}
-        </span>
-      )}
       {manageable && (
         <Button
           variant="ghost"
@@ -107,17 +89,6 @@ export function BrowserProfileBar({
 }
 
 const fieldLabel = "text-[12px] font-medium text-muted-foreground"
-
-function ProxyLabel() {
-  return (
-    <div className="mt-1 flex items-baseline">
-      <span className={fieldLabel}>Proxy</span>
-      <span className="ml-auto text-[11px] text-muted-foreground">
-        tried top to bottom
-      </span>
-    </div>
-  )
-}
 
 // The dialog has two tabs: Manage edits any existing profile (picked from the
 // list inside the dialog, which does NOT switch the bar's profile), New
@@ -154,50 +125,38 @@ function ProfilesDialog({
   // The edit form is a draft of the profile being edited, reset whenever the
   // dialog opens or a different profile is picked.
   const [name, setName] = React.useState("")
-  const [proxy, setProxy] = React.useState("")
   const [editErr, setEditErr] = React.useState("")
   const editingID = editing?.id
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset on open and on a different profile only, not on every status poll
   React.useEffect(() => {
     if (!open) return
     setName(editing?.name ?? "")
-    setProxy(editing?.proxy ?? "")
     setEditErr("")
   }, [open, editingID])
 
   const [newName, setNewName] = React.useState("")
-  const [newProxy, setNewProxy] = React.useState("")
   const [createErr, setCreateErr] = React.useState("")
   const [confirmDelete, setConfirmDelete] = React.useState(false)
 
   const save = useMutation({
     mutationFn: () => {
       if (!editing) throw new Error("no profile selected")
-      const patch: { name?: string; proxy?: string } = {}
-      if (name.trim() !== editing.name) patch.name = name.trim()
-      if (proxy.trim() !== editing.proxy) patch.proxy = proxy.trim()
-      return api.updateBrowserProfile(editing.id, patch)
+      return api.updateBrowserProfile(editing.id, { name: name.trim() })
     },
     onSuccess: (p) => {
       setEditErr("")
-      toast.success(`Saved ${p.name}`, { description: p.note })
+      toast.success(`Saved ${p.name}`)
     },
-    // A 400 is the validation sentence; a 502 means it was saved but the
-    // relaunch under the new proxy failed. Either belongs under the fields.
+    // A 400 is the validation sentence, which belongs under the field.
     onError: (e: Error) => setEditErr(e.message),
     onSettled: refresh,
   })
 
   const create = useMutation({
-    mutationFn: () =>
-      api.createBrowserProfile({
-        name: newName.trim(),
-        ...(newProxy.trim() ? { proxy: newProxy.trim() } : {}),
-      }),
+    mutationFn: () => api.createBrowserProfile({ name: newName.trim() }),
     onSuccess: (p) => {
       setCreateErr("")
       setNewName("")
-      setNewProxy("")
       toast.success(`Created profile ${p.name}`)
       onPick(p.id)
       setEditID(p.id)
@@ -218,9 +177,7 @@ function ProfilesDialog({
     onSettled: refresh,
   })
 
-  const dirty =
-    !!editing &&
-    (name.trim() !== editing.name || proxy.trim() !== editing.proxy)
+  const dirty = !!editing && name.trim() !== editing.name
 
   return (
     <>
@@ -230,7 +187,7 @@ function ProfilesDialog({
             <DialogTitle>Browser profiles</DialogTitle>
             <DialogDescription>
               Each profile is its own browser with its own cookies and logins,
-              kept between restarts, and can send its traffic through a proxy.
+              kept between restarts.
             </DialogDescription>
           </DialogHeader>
 
@@ -278,9 +235,6 @@ function ProfilesDialog({
                         (showing)
                       </span>
                     )}
-                    <span className="ml-auto min-w-0 truncate font-mono text-[11px] text-muted-foreground">
-                      {p.proxy ? `via ${proxyHost(p.proxy)}` : "direct"}
-                    </span>
                   </button>
                 ))}
               </div>
@@ -307,12 +261,6 @@ function ProfilesDialog({
                     className="h-8 text-[13px]"
                     onChange={(e) => setName(e.target.value)}
                   />
-                  <ProxyLabel />
-                  <ProxyField value={proxy} onValueChange={setProxy} />
-                  <p className="text-[11px] text-muted-foreground">
-                    Changing the proxy restarts this profile's browser; its open
-                    pages are reopened.
-                  </p>
                   {editErr && (
                     <p className="text-[12px] text-destructive [overflow-wrap:anywhere]">
                       {editErr}
@@ -362,8 +310,6 @@ function ProfilesDialog({
                   className="h-8 text-[13px]"
                   onChange={(e) => setNewName(e.target.value)}
                 />
-                <ProxyLabel />
-                <ProxyField value={newProxy} onValueChange={setNewProxy} />
                 {createErr && (
                   <p className="text-[12px] text-destructive [overflow-wrap:anywhere]">
                     {createErr}

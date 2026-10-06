@@ -86,6 +86,6 @@ A push subscription is a URL lasso will POST to on its own, so registering one i
 
 A few more habits worth keeping:
 
-- **Log the shared browser into accounts carefully.** Every agent that can reach `/cdp` or `/browser-mcp` can act as you on those sites, in every [browser profile](./concepts/shared-browser.md): profiles separate cookies and proxies, not access. Log in only where you are happy for your agents to act as you.
+- **Log the shared browser into accounts carefully.** Every agent that can reach `/cdp` or `/browser-mcp` can act as you on those sites, in every [browser profile](./concepts/shared-browser.md): profiles separate cookies, not access. Log in only where you are happy for your agents to act as you.
 - **Keep secrets out of argv.** `UI_AUTH`, `MCP_OAUTH` and `LASSO_MCP_TOKEN` belong in the environment.
 - **Turn off the in-app update on shared boxes** with `-disable-self-update`, so an agent working through the UI cannot rebuild and restart lasso.

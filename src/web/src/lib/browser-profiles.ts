@@ -3,7 +3,7 @@ import { lsGet, lsSet } from "@/lib/app-store"
 import { qk, queryClient } from "@/lib/query"
 
 // Browser profiles: each is its own Chromium with its own persistent cookies
-// and optional proxy (browser.go). Which one the Browser tab shows is a
+// and logins (browser.go). Which one the Browser tab shows is a
 // per-device preference, so it lives in localStorage rather than ui_state —
 // two people (or a laptop and a phone) looking at different profiles of the
 // same lasso is the point of having them.
@@ -30,13 +30,11 @@ export function profilesOf(
     {
       id: DEFAULT_PROFILE,
       name: "Default",
-      proxy: st?.proxy ?? "",
       default: true,
       running: st?.running ?? false,
       started_at: st?.started_at ?? "",
       capped: st?.capped ?? false,
       reason: st?.reason ?? "",
-      note: st?.note,
       pages: st?.pages ?? [],
       ws_path: st?.ws_path || "/cdp",
       mcp_path: "/browser-mcp",

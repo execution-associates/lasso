@@ -27,7 +27,6 @@ func testFleet(t *testing.T) *browserFleet {
 	prevF, prevB := sharedBrowsers, sharedBrowser
 	sharedBrowsers = f
 	sharedBrowser = testBrowserManager(t, nil)
-	sharedBrowser.proxy = func() string { v, _ := getSetting(browserProxySetting); return v }
 	t.Cleanup(func() { sharedBrowsers, sharedBrowser = prevF, prevB })
 	prevChanged := browserProfilesChanged
 	browserProfilesChanged = func() {}
@@ -78,32 +77,32 @@ func TestSlugProfileID(t *testing.T) {
 func TestBrowserProfileCRUD(t *testing.T) {
 	f := testFleet(t)
 
-	p, err := f.create("Work", "", "socks5://127.0.0.1:1080", "")
+	p, err := f.create("Work", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.ID != "work" || p.Proxy != "socks5://127.0.0.1:1080" {
+	if p.ID != "work" || p.Name != "Work" {
 		t.Fatalf("created %+v", p)
 	}
 	// A derived id is made unique; an explicit one that clashes is refused, as
 	// is a duplicate name in any case.
-	if p2, err := f.create("Work!", "", "", ""); err != nil || p2.ID != "work-2" {
+	if p2, err := f.create("Work!", "", ""); err != nil || p2.ID != "work-2" {
 		t.Fatalf("second derived id = %+v, %v", p2, err)
 	}
-	if _, err := f.create("Other", "work", "", ""); err == nil {
+	if _, err := f.create("Other", "work", ""); err == nil {
 		t.Error("an explicit duplicate id was accepted")
 	}
-	if _, err := f.create("WORK", "", "", ""); err == nil {
+	if _, err := f.create("WORK", "", ""); err == nil {
 		t.Error("a duplicate name was accepted")
 	}
-	if _, err := f.create("Default", "", "", ""); err == nil {
+	if _, err := f.create("Default", "", ""); err == nil {
 		t.Error("the default profile's name was accepted for another")
 	}
-	if _, err := f.create("x", "default", "", ""); err == nil {
+	if _, err := f.create("x", "default", ""); err == nil {
 		t.Error("id default was accepted")
 	}
-	if _, err := f.create("Bad", "", "socks5h://h:1", ""); err == nil || !strings.Contains(err.Error(), "socks5h") {
-		t.Errorf("bad proxy: %v", err)
+	if _, err := f.create("Bad", "", "ws://h:9222/devtools/browser/x"); err == nil || !strings.Contains(err.Error(), "websocket") {
+		t.Errorf("bad cdp_url: %v", err)
 	}
 
 	ps := allBrowserProfiles()
@@ -117,18 +116,17 @@ func TestBrowserProfileCRUD(t *testing.T) {
 		t.Errorf("unknown profile error should list the profiles: %v", err)
 	}
 
-	name, clear := "Job", ""
-	if got, err := f.update("work", &name, &clear, nil); err != nil || got.Name != "Job" || got.Proxy != "" {
+	name := "Job"
+	if got, err := f.update("work", &name, nil); err != nil || got.Name != "Job" {
 		t.Fatalf("update = %+v, %v", got, err)
 	}
-	// The default is renamed and re-proxied through its own settings, which is
-	// where an older lasso looks for its proxy.
-	dn, dp := "Personal", "http://127.0.0.1:3128"
-	if _, err := f.update(defaultBrowserProfile, &dn, &dp, nil); err != nil {
+	// The default is renamed through its own setting.
+	dn := "Personal"
+	if _, err := f.update(defaultBrowserProfile, &dn, nil); err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := getSetting(browserProxySetting); v != dp || defaultProfileName() != "Personal" {
-		t.Errorf("default proxy %q name %q", v, defaultProfileName())
+	if defaultProfileName() != "Personal" {
+		t.Errorf("default name %q", defaultProfileName())
 	}
 
 	// Deleting removes its directory — the logins in it.
@@ -163,17 +161,17 @@ func TestBrowserProfileHTTP(t *testing.T) {
 		f.serveProfiles(w, httptest.NewRequest(method, path, strings.NewReader(body)))
 		return w.Code, w.Body.String()
 	}
-	if code, body := do("POST", "/api/browser/profiles", `{"name":"US","proxy":"socks5://10.0.0.1:1080"}`); code != 200 || !strings.Contains(body, `"ws_path":"/cdp/p/us"`) || !strings.Contains(body, `"mcp_path":"/browser-mcp"`) {
+	if code, body := do("POST", "/api/browser/profiles", `{"name":"US"}`); code != 200 || !strings.Contains(body, `"ws_path":"/cdp/p/us"`) || !strings.Contains(body, `"mcp_path":"/browser-mcp"`) {
 		t.Fatalf("create: %d %s", code, body)
 	}
-	if code, body := do("POST", "/api/browser/profiles", `{"name":"Bad","proxy":"socks5://u:p@h:1"}`); code != 400 || !strings.Contains(body, "credentials") {
-		t.Errorf("bad proxy: %d %s", code, body)
+	if code, body := do("POST", "/api/browser/profiles", `{"name":"Bad","cdp_url":"http://u:p@h:9222"}`); code != 400 || !strings.Contains(body, "credentials") {
+		t.Errorf("bad cdp_url: %d %s", code, body)
 	}
-	if code, body := do("PATCH", "/api/browser/profiles/us", `{"name":"Stateside"}`); code != 200 || !strings.Contains(body, `"name":"Stateside"`) || !strings.Contains(body, "socks5://10.0.0.1:1080") {
+	if code, body := do("PATCH", "/api/browser/profiles/us", `{"name":"Stateside"}`); code != 200 || !strings.Contains(body, `"name":"Stateside"`) {
 		t.Errorf("rename: %d %s", code, body)
 	}
-	if code, body := do("PATCH", "/api/browser/profiles/us", `{"proxy":""}`); code != 200 || !strings.Contains(body, `"proxy":""`) {
-		t.Errorf("clear proxy: %d %s", code, body)
+	if code, body := do("PATCH", "/api/browser/profiles/us", `{"cdp_url":"ftp://h"}`); code != 400 || !strings.Contains(body, "cdp_url") {
+		t.Errorf("bad cdp_url patch: %d %s", code, body)
 	}
 	if code, _ := do("PATCH", "/api/browser/profiles/ghost", `{"name":"x"}`); code != 404 {
 		t.Errorf("patch unknown: %d", code)
@@ -258,7 +256,7 @@ func TestCDPProfileRouting(t *testing.T) {
 // guard as the rest of /cdp, and without starting a browser.
 func TestCDPProfilesListing(t *testing.T) {
 	f := testFleet(t)
-	if _, err := f.create("Work", "", "", ""); err != nil {
+	if _, err := f.create("Work", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	fc := newFakeChromium(t)
@@ -325,7 +323,7 @@ func TestCDPProfilesListing(t *testing.T) {
 // the default profile's /cdp — or a client would silently drive the wrong browser.
 func TestCDPProxyServesAProfile(t *testing.T) {
 	f := testFleet(t)
-	if _, err := f.create("Work", "", "", ""); err != nil {
+	if _, err := f.create("Work", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	fc := newFakeChromium(t)
@@ -413,7 +411,7 @@ func TestBrowserProfileMCPTools(t *testing.T) {
 	defer sess.Close()
 
 	var prof browserProfileOut
-	if msg := callTool(t, sess, "create_browser_profile", map[string]any{"name": "Work", "proxy": "socks5://127.0.0.1:9050"}, &prof); msg != "" {
+	if msg := callTool(t, sess, "create_browser_profile", map[string]any{"name": "Work"}, &prof); msg != "" {
 		t.Fatal(msg)
 	}
 	if prof.ID != "work" || prof.MCPEndpoint != "http://"+su.Host+"/browser-mcp" || prof.WSEndpoint != "ws://"+su.Host+"/cdp/p/work" {
@@ -486,7 +484,7 @@ func TestBrowserProfileMCPTools(t *testing.T) {
 	if msg := callTool(t, sess, "list_browser_profiles", map[string]any{}, &list); msg != "" {
 		t.Fatal(msg)
 	}
-	if len(list.Profiles) != 2 || list.Profiles[1].Proxy != "socks5://127.0.0.1:9050" || !list.Profiles[1].Running {
+	if len(list.Profiles) != 2 || list.Profiles[1].Name != "Work" || !list.Profiles[1].Running {
 		t.Errorf("list = %+v", list)
 	}
 
@@ -498,13 +496,13 @@ func TestBrowserProfileMCPTools(t *testing.T) {
 		t.Errorf("shared_browser(work) = %+v", sb)
 	}
 
-	// A proxy change on a stopped profile only stores it.
+	// A rename on a stopped profile only stores it.
 	f.mgrs["work"].proc = nil
 	var upd browserProfileOut
-	if msg := callTool(t, sess, "update_browser_profile", map[string]any{"profile": "work", "proxy": ""}, &upd); msg != "" {
+	if msg := callTool(t, sess, "update_browser_profile", map[string]any{"profile": "work", "name": "Job"}, &upd); msg != "" {
 		t.Fatal(msg)
 	}
-	if upd.Proxy != "" {
+	if upd.Name != "Job" || upd.Running {
 		t.Errorf("update = %+v", upd)
 	}
 

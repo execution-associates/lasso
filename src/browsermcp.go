@@ -502,9 +502,9 @@ func profilesLine() string {
 
 func (s *browserMCPSession) instructions() string {
 	if s.pinned != "" {
-		return browserMCPInstructions + "\n- This session drives the browser PROFILE \"" + s.pinned + "\": its own Chromium, with its own cookies, logins and proxy. Other profiles' pages are not visible here. The bare /browser-mcp URL drives every profile from one MCP server (each tool takes `profile`)."
+		return browserMCPInstructions + "\n- This session drives the browser PROFILE \"" + s.pinned + "\": its own Chromium, with its own cookies and logins. Other profiles' pages are not visible here. The bare /browser-mcp URL drives every profile from one MCP server (each tool takes `profile`)."
 	}
-	line := "\n- Every tool takes an optional `profile`: a browser profile's id or display name, omitted = the default profile. Each profile is its own Chromium with its own cookies, logins, proxy and PAGES, so a pageId from list_pages/new_page means something only in the profile it came from: pass the same `profile` on every call about that page. Profiles created later work here without reconnecting; lasso's list_browser_profiles tool has the current list."
+	line := "\n- Every tool takes an optional `profile`: a browser profile's id or display name, omitted = the default profile. Each profile is its own Chromium with its own cookies, logins and PAGES, so a pageId from list_pages/new_page means something only in the profile it came from: pass the same `profile` on every call about that page. Profiles created later work here without reconnecting; lasso's list_browser_profiles tool has the current list."
 	if ps := profilesLine(); ps != "" {
 		line += " Profiles when this session started: " + ps + "."
 	}
@@ -512,7 +512,7 @@ func (s *browserMCPSession) instructions() string {
 }
 
 func (s *browserMCPSession) profileParamDesc() string {
-	d := "Browser profile to run this in: its id or display name (lasso's list_browser_profiles shows them). Omit for the default profile. Each profile is a separate Chromium with its own cookies, logins, proxy and pages; a pageId from one profile means nothing in another."
+	d := "Browser profile to run this in: its id or display name (lasso's list_browser_profiles shows them). Omit for the default profile. Each profile is a separate Chromium with its own cookies, logins and pages; a pageId from one profile means nothing in another."
 	if ps := profilesLine(); ps != "" {
 		d += " At session start: " + ps + "."
 	}
