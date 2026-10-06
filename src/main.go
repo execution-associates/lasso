@@ -339,6 +339,7 @@ func runServer() {
 	mux.HandleFunc("/api/frameable", serveFrameable)
 	mux.HandleFunc("/api/browser", sharedBrowsers.serveStatus)
 	mux.HandleFunc("/api/browser/proxy", sharedBrowsers.serveProxy)
+	mux.HandleFunc("/api/browser/proxies", serveBrowserProxyScan)
 	mux.HandleFunc("/api/browser/profiles", sharedBrowsers.serveProfiles)
 	mux.HandleFunc("/api/browser/profiles/", sharedBrowsers.serveProfiles)
 	mux.HandleFunc("/api/diff", serveDiff)
