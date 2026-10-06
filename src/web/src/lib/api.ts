@@ -213,9 +213,6 @@ export interface HostPane {
   // When the agent's transcript was last written, unix milliseconds. Absent
   // when the pane has no transcript lasso can read.
   transcript_at?: number
-  // When the human last acted on this agent through lasso (sent, answered,
-  // focused, created), unix ms: the grid's "recent" order.
-  touched_at?: number
 }
 
 export interface PanesPayload {
@@ -384,15 +381,6 @@ export interface AtmospherePref {
 // than a preference.
 export type AppearanceMode = "herdr" | "system" | "light" | "dark"
 
-// How the agents grid orders its cards. "priority" surfaces what needs a human
-// (blocked > working > idle > done); "recent" puts the agent the human last
-// acted on through lasso first (touched_at), so the ones you are working with
-// lead rather than whichever happens to be busy.
-//
-// Server-owned like the rest of UIState, so the phone and the desktop agree and
-// a reload does not reset it.
-export type AgentSort = "priority" | "recent"
-
 // What the sidebar's Browser tab shows: "live" is the shared headless Chromium
 // lasso supervises (a CDP screencast humans and agents drive together), and
 // "embed" is the plain iframe. A lasso with no Chromium shows embed whatever
@@ -447,10 +435,6 @@ export interface UIState {
   // The host the last create actually targeted — so reopening the creator lands
   // where the previous one did. Outranked by creator_default_host when set.
   creator_last_host: string
-  // The order the agents grid lays its cards out in (see AgentSort). Never
-  // send "" — the server answers 400 and drops the whole patch, exactly as it
-  // does for appearance_mode.
-  agents_sort: AgentSort
   // The agents grid's group-by-machine / group-by-repo toggles. Optional
   // because an older server never sends them.
   agents_group_host?: boolean
@@ -459,12 +443,12 @@ export interface UIState {
   // older server never sends it.
   chat_sidebar?: boolean
   // The agents grid's pinned cards, oldest pin first, each a paneKey (host +
-  // NUL + pane id). Pinned cards sit above the rest and ignore agents_sort.
+  // NUL + pane id). Pinned cards sit above the rest and ignore priority.
   // Read-only here: write it through the agent_pins ops (setAgentPinned).
   // Optional because an older server never sends it.
   pinned_agents?: string[]
   // What the Browser tab shows (see BrowserMode). Never send "" — the server
-  // answers 400 and drops the whole patch, as it does for agents_sort.
+  // answers 400 and drops the whole patch, as it does for appearance_mode.
   browser_mode: BrowserMode
   // The right sidebar's tabs, in order, with the ones the human hid (see
   // lib/sidebar-tabs.ts). A whole value: one Settings screen reorders it, so

@@ -29,11 +29,10 @@ import {
   groupAgentsByHost,
   groupAgentsByRepo,
   paneKey,
-  sortAgents,
+  sortAgentsByPriority,
   useAgents,
 } from "@/lib/agents"
 import {
-  type AgentSort,
   api,
   type ChatItem,
   type ChatPayload,
@@ -194,18 +193,14 @@ export function AgentsView({
   }, [])
   const { host: tabHost } = useApp()
   const [filter, setFilter] = React.useState("")
-  // Sort and grouping are persisted server-side, so they do not revert on the
-  // next reload or differ on the phone.
+  // Grouping is persisted server-side, so it does not revert on the next
+  // reload or differ on the phone. The order is always herdr's priority order.
   const {
-    agents_sort: sort,
     agents_group_host: groupByHost = true,
     agents_group_repo: groupByRepo = false,
     pinned_agents: pinnedKeys,
   } = useUIState()
   const grouped = groupByHost || groupByRepo
-  const setSort = (next: AgentSort) => {
-    if (next !== sort) patchUIState({ agents_sort: next })
-  }
 
   // Transcripts live HERE, not per card, for one reason: the search filters on
   // transcript content, and that needs every conversation's text in one place.
@@ -234,11 +229,11 @@ export function AgentsView({
       agentSearchText(p, chats.get(paneKey(p))).includes(q)
     )
   }, [agents, chats, q])
-  // Pinned cards lead the grid in the order they were pinned, deaf to the
-  // sort: the point of a pin is a card that holds still while its agent
+  // Pinned cards lead the grid in the order they were pinned, deaf to
+  // priority: the point of a pin is a card that holds still while its agent
   // blocks, works and finishes. Grouped, they are their own section above the
   // machines; ungrouped, they simply come first in the one grid, so a half
-  // empty pinned row does not waste the width. Server state (like the sort)
+  // empty pinned row does not waste the width. Server state (like the grouping)
   // so the phone and the desktop agree on which cards those are.
   const pinnedSet = React.useMemo(() => new Set(pinnedKeys ?? []), [pinnedKeys])
   const pinned = React.useMemo(() => {
@@ -283,10 +278,10 @@ export function AgentsView({
         items: keys(pinned),
       })
     if (!groupByHost)
-      return [...out, ...groupAgentsByRepo(rest, sort).map((r) => repoGroup(r))]
-    for (const g of groupAgentsByHost(rest, tabHost, sort)) {
+      return [...out, ...groupAgentsByRepo(rest).map((r) => repoGroup(r))]
+    for (const g of groupAgentsByHost(rest, tabHost)) {
       const children = groupByRepo
-        ? groupAgentsByRepo(g.panes, sort).map((r) =>
+        ? groupAgentsByRepo(g.panes).map((r) =>
             repoGroup(r, `host:${g.host}/`)
           )
         : undefined
@@ -304,10 +299,10 @@ export function AgentsView({
       })
     }
     return out
-  }, [grouped, groupByHost, groupByRepo, pinned, rest, tabHost, sort])
+  }, [grouped, groupByHost, groupByRepo, pinned, rest, tabHost])
   const flat = React.useMemo(
-    () => [...pinned, ...sortAgents(rest, sort)],
-    [pinned, rest, sort]
+    () => [...pinned, ...sortAgentsByPriority(rest)],
+    [pinned, rest]
   )
 
   // Drop pins whose agent is gone (see PIN_PRUNE_MISSES). Counted against the
@@ -460,36 +455,15 @@ export function AgentsView({
             )}
           </span>
         </label>
-        {/* Both sort labels stay visible rather than one toggling button: with
-            two named orders, a single button reading "Priority" cannot say
-            whether that is the mode in force or the mode a click would choose.
-            The filled segment is the answer. Fieldsets rather than
-            role="group": same semantics, and the element a screen reader
-            already knows; their UA defaults are reset by the classes. */}
-        <fieldset className="m-0 flex min-w-0 shrink-0 items-center gap-1.5 border-0 p-0">
-          <ControlLabel as="legend">Sort</ControlLabel>
-          <span className="flex h-8 items-center rounded-md border border-input p-0.5">
-            <SortSegment
-              active={sort === "priority"}
-              onClick={() => setSort("priority")}
-              label="Priority"
-              title="Sort by attention: blocked, then working, then idle, then done. Cards move as statuses change."
-            />
-            <SortSegment
-              active={sort === "recent"}
-              onClick={() => setSort("recent")}
-              label="Recent"
-              title="Sort by recency: the agent whose transcript changed most recently comes first."
-            />
-          </span>
-        </fieldset>
-        {/* Same segmented look as Sort, but each segment toggles on its own:
-            both on nests repos inside machines, which a single choice cannot
-            say. aria-pressed plus the fill says which are in force. */}
+        {/* A segmented control whose segments each toggle on their own: both
+            on nests repos inside machines, which a single choice cannot say.
+            aria-pressed plus the fill says which are in force. Fieldset rather
+            than role="group": same semantics, and the element a screen reader
+            already knows; its UA defaults are reset by the classes. */}
         <fieldset className="m-0 flex min-w-0 shrink-0 items-center gap-1.5 border-0 p-0">
           <ControlLabel as="legend">Group</ControlLabel>
           <span className="flex h-8 items-center rounded-md border border-input p-0.5">
-            <SortSegment
+            <ToggleSegment
               active={groupByHost}
               onClick={() => patchUIState({ agents_group_host: !groupByHost })}
               label="Host"
@@ -498,7 +472,7 @@ export function AgentsView({
                 groupByHost ? "Stop grouping by machine" : "Group by machine"
               }
             />
-            <SortSegment
+            <ToggleSegment
               active={groupByRepo}
               onClick={() => patchUIState({ agents_group_repo: !groupByRepo })}
               label="Repo"
@@ -631,10 +605,10 @@ export function AgentsView({
   )
 }
 
-// One segment of the sort control. A button rather than a radio input: it is
+// One segment of the Group control. A button rather than a radio input: it is
 // an action with a state, and the pressed state is what a screen reader needs
 // rather than a group of inputs that look like a form nobody submits.
-function SortSegment({
+function ToggleSegment({
   active,
   onClick,
   label,
