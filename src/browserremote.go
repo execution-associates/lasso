@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -30,6 +29,13 @@ const browserDefaultCDPURLSetting = "browser_default_cdp_url"
 // its own schedule and comes back with a new /devtools/browser/<id>; without a
 // re-read, bare /cdp would keep pointing at the id that is gone.
 const remoteCheckEvery = 2 * time.Second
+
+// isBrowserWSPath says a websocket path is a browser target's: Chromium's
+// /devtools/browser/<id>, or a bare /devtools/browser with no id, which is
+// what a stateless CDP service such as Kitesurf (kitesurf.dev) answers.
+func isBrowserWSPath(p string) bool {
+	return p == "/devtools/browser" || strings.HasPrefix(p, "/devtools/browser/")
+}
 
 // validateCDPURL accepts a remote browser's DevTools HTTP base,
 // http(s)://host[:port], and answers it normalized. "" means "lasso launches
@@ -109,7 +115,7 @@ func dialRemoteBrowser(raw string) (*browserProc, error) {
 		return nil, fmt.Errorf("no browser answering at %s: %w", raw, err)
 	}
 	wu, err := url.Parse(v.WS)
-	if err != nil || !strings.HasPrefix(wu.Path, "/devtools/browser/") {
+	if err != nil || !isBrowserWSPath(wu.Path) {
 		return nil, fmt.Errorf("%s answered /json/version without a browser websocket (%q)", raw, v.WS)
 	}
 	p.wsPath, p.bin = wu.Path, v.Browser
@@ -120,7 +126,8 @@ func dialRemoteBrowser(raw string) (*browserProc, error) {
 // launch, only a browser to (re)find. A browser that has restarted since the
 // last look (a new /devtools/browser/<id>) or stopped answering ends this
 // profile's sessions the way a local browser's exit does, through onStop, so
-// /browser-mcp children reconnect to whatever is there now.
+// /browser-mcp children reconnect to whatever is there now. A browser with an
+// id-less /devtools/browser path cannot be seen restarting, only stopping.
 func (m *browserManager) ensureRemote(ctx context.Context, raw string) (*browserProc, error) {
 	m.mu.Lock()
 	cur, fresh := m.proc, time.Since(m.remoteChecked) < remoteCheckEvery
@@ -165,7 +172,3 @@ func (m *browserManager) ensureRemote(ctx context.Context, raw string) (*browser
 	}
 	return p, nil
 }
-
-// errRemoteProxy refuses a proxy on a remote browser: it browses from where it
-// runs, and its proxy is set there.
-var errRemoteProxy = errors.New("a remote browser's proxy is set where it runs, not in lasso; clear cdp_url to use a proxy")

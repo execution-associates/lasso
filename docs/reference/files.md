@@ -51,7 +51,7 @@ Notable `settings` keys:
 | `repos_root`, `branch_prefix`, `default_agent`, `scratch_setup` | New dialog defaults. |
 | `push_vapid_private` | The VAPID private key identifying this server to push services, generated once. If it changes, every registered device stops receiving notifications. |
 | `plugins`, `plugin_sources` | Plugin approvals (permission fingerprints), trust and VM flags; where each plugin was installed from. |
-| `browser_profiles`, `browser_default_profile_name`, `browser_proxy` | Shared-browser profiles and the default profile's proxy. |
+| `browser_profiles`, `browser_default_profile_name`, `browser_default_cdp_url` | Shared-browser profiles, and the default profile's name and remote address. |
 | `sync_agent_themes`, `theme_sync_off`, `theme_hub`, `theme_written:<host>` | Fleet theme sync: the agent-theme toggle, hosts opted out, and what lasso last wrote where. |
 | `omarchy_installed` | Omarchy themes installed from a URL. |
 | `auto_title_agents`, `terminal_workspace` | The auto-title toggle; the New terminal form's default workspace. |

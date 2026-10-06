@@ -1,6 +1,6 @@
 ---
 title: The shared browser
-description: A real Chromium on lasso's machine that you watch in the Browser tab while agents drive it, with profiles, proxies and resource caps.
+description: A real Chromium on lasso's machine that you watch in the Browser tab while agents drive it, with profiles, remote browsers and resource caps.
 order: 23
 ---
 
@@ -35,7 +35,7 @@ On **Ubuntu 23.10 and later**, Chromium's sandbox needs unprivileged user namesp
 
 Chromium starts on the first `/cdp` connection, when you open the Browser tab in Agent mode, when an agent calls the `shared_browser` MCP tool, or from **Settings → General → Terminal & browser**. It stops again after `-browser-idle` (default 15 minutes) with no CDP client connected. The Browser tab only holds a connection while it is visible, so a closed sidebar or a backgrounded phone doesn't keep it alive.
 
-The `/cdp` address is stable: it survives Chromium stopping, restarting and relaunching, so it is safe to put in an agent's configuration.
+The `/cdp` address is stable: it survives Chromium stopping and restarting, so it is safe to put in an agent's configuration.
 
 ## Resource caps
 
@@ -57,14 +57,11 @@ You pick and manage profiles from the bar along the bottom of the Browser tab in
 
 Cookies and logins persist across restarts. Open tabs do not: an idle stop closes them.
 
-## Proxy
+## Remote browsers
 
-A profile can send all its traffic through a proxy: `socks5://`, `socks4://`, `http://` or `https://` followed by `host` and optionally `:port`. Set the default profile's in **Settings → General → Terminal & browser → Proxy**, and other profiles' from the profile bar or `update_browser_profile`.
+A profile with a `cdp_url` is a browser lasso dials rather than launches: a Chromium already running on another machine, in a container or behind a tunnel, or a hosted CDP service such as [Kitesurf](https://kitesurf.dev), reached at its DevTools HTTP base (`http://host:port` or `https://host`). Set it with `create_browser_profile` or `update_browser_profile`. lasso never starts or stops a remote browser.
 
-- With `socks5://`, DNS is resolved through the proxy too.
-- A comma-separated fallback list in Chromium's own syntax is accepted, for example `socks5://127.0.0.1:1080,direct://` to go direct when the proxy refuses. `direct://` may only come last.
-- Proxies that need a username and password are not supported: Chromium can't authenticate to a SOCKS proxy and ignores credentials in its proxy flag.
-- Changing a proxy restarts that profile's Chromium and reopens the pages it had open.
+lasso passes no proxy settings to any browser. To send a profile's traffic through a proxy, configure it in the browser itself (for a launched Chromium, `LASSO_BROWSER_ARGS`).
 
 ## Running two lassos
 

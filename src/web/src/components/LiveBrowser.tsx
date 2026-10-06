@@ -452,7 +452,7 @@ export function LiveBrowser({
   // Connected only while a human can see the tab. Hidden, the socket closes
   // — which is what lets lasso's idle timer stop Chromium — and it comes back
   // (starting Chromium first if it was stopped) when the tab is shown again.
-  // A drop while visible (a relaunch for a proxy change, an idle stop racing a
+  // A drop while visible (a profile's browser restarted, an idle stop racing a
   // reveal, lasso restarting) reconnects with backoff.
   // biome-ignore lint/correctness/useExhaustiveDependencies: retryNonce is the manual retry trigger
   React.useEffect(() => {

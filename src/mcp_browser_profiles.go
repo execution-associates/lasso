@@ -12,7 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Browser profiles and tabs over MCP: an agent can create, rename, re-proxy
+// Browser profiles and tabs over MCP: an agent can create, rename, re-point
 // and delete profiles (browserprofiles.go), and open, show, list and close
 // tabs in any of them, with the tab it opens appearing on the human's screen
 // the way open_file puts a file there — a `browser-open` SSE event every
@@ -30,7 +30,6 @@ const browserProfileArg = "Browser profile: its id (e.g. \"work\") or its displa
 type browserProfileOut struct {
 	ID          string        `json:"id"`
 	Name        string        `json:"name"`
-	Proxy       string        `json:"proxy"`
 	CDPURL      string        `json:"cdp_url,omitempty"` // a remote browser lasso dials instead of launching
 	Default     bool          `json:"default"`
 	Running     bool          `json:"running"`
@@ -41,7 +40,7 @@ type browserProfileOut struct {
 }
 
 func profileOut(req *mcp.CallToolRequest, st browserProfileStatus) browserProfileOut {
-	o := browserProfileOut{ID: st.ID, Name: st.Name, Proxy: st.Proxy, CDPURL: st.CDPURL, Default: st.Default,
+	o := browserProfileOut{ID: st.ID, Name: st.Name, CDPURL: st.CDPURL, Default: st.Default,
 		Running: st.Running, Tabs: st.Pages, MCPEndpoint: st.MCPPath, WSEndpoint: st.WSPath}
 	if o.Tabs == nil {
 		o.Tabs = []browserPage{}
@@ -68,7 +67,7 @@ func requireLocalBrowser(req *mcp.CallToolRequest) error {
 
 // ---- list_browser_profiles --------------------------------------------------
 
-const listBrowserProfilesDescription = "List lasso's shared-browser PROFILES. Each profile is its own Chromium on lasso's machine, with its own persistent cookies and logins and optionally its own proxy (e.g. socks5://host:1080), shown to the human in lasso's Browser tab (they pick the profile at the bottom of it). `default` is the profile lasso always had. For each profile you get its open `tabs` (only while it runs), `mcp_endpoint` — lasso's ONE browser MCP URL (/browser-mcp, the same for every profile): its chrome-devtools-mcp tools each take an optional `profile`, so pass this profile's `id` to drive its browser; no per-profile MCP server is needed — and `ws_endpoint` for raw CDP/Playwright, which IS per profile. A client with no MCP at all gets the same list from `GET <lasso>/cdp/profiles`, each entry carrying its own ws_url."
+const listBrowserProfilesDescription = "List lasso's shared-browser PROFILES. Each profile is its own Chromium on lasso's machine, with its own persistent cookies and logins (or a remote browser lasso dials, with `cdp_url` set), shown to the human in lasso's Browser tab (they pick the profile at the bottom of it). `default` is the profile lasso always had. For each profile you get its open `tabs` (only while it runs), `mcp_endpoint` — lasso's ONE browser MCP URL (/browser-mcp, the same for every profile): its chrome-devtools-mcp tools each take an optional `profile`, so pass this profile's `id` to drive its browser; no per-profile MCP server is needed — and `ws_endpoint` for raw CDP/Playwright, which IS per profile. A client with no MCP at all gets the same list from `GET <lasso>/cdp/profiles`, each entry carrying its own ws_url."
 
 type listBrowserProfilesIn struct{}
 
@@ -89,13 +88,12 @@ func listBrowserProfilesTool(ctx context.Context, req *mcp.CallToolRequest, _ li
 
 // ---- create / update / delete -------------------------------------------------
 
-const createBrowserProfileDescription = "Create a shared-browser profile: a separate Chromium with its own persistent cookies/logins and, optionally, a proxy all its traffic goes through. It appears in the human's Browser-tab profile picker at once. It starts on first use (open_browser_tab, or connecting to its endpoints). `proxy` is scheme://host[:port] with scheme socks5, socks4, http or https — no credentials (Chromium cannot authenticate to a SOCKS proxy) and no socks5h (Chromium's socks5 already resolves DNS through the proxy). `id` is optional and derived from the name when omitted; it is what you pass as `profile` to the /browser-mcp tools, and what appears in its CDP URL (/cdp/p/<id>). The /browser-mcp server you already have drives it at once: no new MCP server, no reconnect. With `cdp_url` the profile is a REMOTE browser instead: a Chromium already running elsewhere (another machine, a container), reached at its DevTools HTTP endpoint, e.g. http://100.79.171.47:9222. lasso launches nothing and never stops it; how it runs and is secured is up to whoever runs it. A remote browser takes no proxy (it browses from where it runs), and its logins are whatever that browser holds."
+const createBrowserProfileDescription = "Create a shared-browser profile: a separate Chromium with its own persistent cookies/logins. It appears in the human's Browser-tab profile picker at once. It starts on first use (open_browser_tab, or connecting to its endpoints). `id` is optional and derived from the name when omitted; it is what you pass as `profile` to the /browser-mcp tools, and what appears in its CDP URL (/cdp/p/<id>). The /browser-mcp server you already have drives it at once: no new MCP server, no reconnect. With `cdp_url` the profile is a REMOTE browser instead: a Chromium already running elsewhere (another machine, a container), reached at its DevTools HTTP endpoint, e.g. http://100.79.171.47:9222. lasso launches nothing and never stops it; how it runs, where its traffic goes and how it is secured is up to whoever runs it, and its logins are whatever that browser holds."
 
 type createBrowserProfileIn struct {
 	Name   string `json:"name" jsonschema:"Display name, e.g. \"Work\" or \"US exit\"."`
 	ID     string `json:"id,omitempty" jsonschema:"Optional id: 1-32 lowercase letters, digits or dashes. Derived from the name when omitted."`
-	Proxy  string `json:"proxy,omitempty" jsonschema:"Optional proxy for all of this profile's traffic: socks5://host:port (also socks4, http, https). Omit for a direct connection."`
-	CDPURL string `json:"cdp_url,omitempty" jsonschema:"Optional: make this a remote browser lasso dials instead of launching — its DevTools HTTP base, http://host:port or https://host[:port]. Not with proxy."`
+	CDPURL string `json:"cdp_url,omitempty" jsonschema:"Optional: make this a remote browser lasso dials instead of launching — its DevTools HTTP base, http://host:port or https://host[:port]."`
 }
 
 func createBrowserProfileTool(ctx context.Context, req *mcp.CallToolRequest, in createBrowserProfileIn) (*mcp.CallToolResult, browserProfileOut, error) {
@@ -105,7 +103,7 @@ func createBrowserProfileTool(ctx context.Context, req *mcp.CallToolRequest, in 
 	if sharedBrowsers == nil {
 		return nil, browserProfileOut{}, errors.New("browser profiles are not configured on this lasso")
 	}
-	p, err := sharedBrowsers.create(in.Name, in.ID, in.Proxy, in.CDPURL)
+	p, err := sharedBrowsers.create(in.Name, in.ID, in.CDPURL)
 	if err != nil {
 		return nil, browserProfileOut{}, err
 	}
@@ -113,12 +111,11 @@ func createBrowserProfileTool(ctx context.Context, req *mcp.CallToolRequest, in 
 	return nil, profileOut(req, sharedBrowsers.statusOf(p)), nil
 }
 
-const updateBrowserProfileDescription = "Rename a shared-browser profile and/or change its proxy. Pass only what changes: `proxy: \"\"` switches it to a direct connection, an omitted proxy leaves it alone. A proxy change on a RUNNING profile relaunches its Chromium (Chromium reads its proxy once, at launch): the URLs of its open tabs are reopened, but tab ids change and any CDP connection to it is closed and must reconnect, and /browser-mcp's page ids for it are gone (its next call starts fresh: list_pages again). The default profile can be renamed and re-proxied too. `cdp_url` points the profile at a remote browser (\"\" switches it back to one lasso launches); the change detaches whatever it was using, and its page ids are gone."
+const updateBrowserProfileDescription = "Rename a shared-browser profile and/or change its `cdp_url`. Pass only what changes; an omitted field is left alone. The default profile can be renamed and pointed elsewhere too. `cdp_url` points the profile at a remote browser (\"\" switches it back to one lasso launches); the change detaches whatever it was using, and its page ids are gone."
 
 type updateBrowserProfileIn struct {
 	Profile string  `json:"profile" jsonschema:"The profile to change: its id or display name."`
 	Name    *string `json:"name,omitempty" jsonschema:"New display name."`
-	Proxy   *string `json:"proxy,omitempty" jsonschema:"New proxy (socks5://host:port, socks4, http, https), or \"\" for a direct connection. Omit to leave it unchanged."`
 	CDPURL  *string `json:"cdp_url,omitempty" jsonschema:"New remote browser address (http://host:port), or \"\" for a browser lasso launches. Omit to leave it unchanged."`
 }
 
@@ -129,8 +126,8 @@ func updateBrowserProfileTool(ctx context.Context, req *mcp.CallToolRequest, in 
 	if strings.TrimSpace(in.Profile) == "" {
 		return nil, browserProfileOut{}, errors.New("profile is required")
 	}
-	if in.Name == nil && in.Proxy == nil && in.CDPURL == nil {
-		return nil, browserProfileOut{}, errors.New("nothing to change: pass name, proxy and/or cdp_url")
+	if in.Name == nil && in.CDPURL == nil {
+		return nil, browserProfileOut{}, errors.New("nothing to change: pass name and/or cdp_url")
 	}
 	if sharedBrowsers == nil {
 		return nil, browserProfileOut{}, errors.New("browser profiles are not configured on this lasso")
@@ -139,13 +136,7 @@ func updateBrowserProfileTool(ctx context.Context, req *mcp.CallToolRequest, in 
 	if err != nil {
 		return nil, browserProfileOut{}, err
 	}
-	st, err := sharedBrowsers.edit(ctx, id, in.Name, in.Proxy, in.CDPURL)
-	var rl errRelaunch
-	if errors.As(err, &rl) {
-		out := profileOut(req, st)
-		out.Note = rl.Error()
-		return nil, out, nil
-	}
+	st, err := sharedBrowsers.edit(ctx, id, in.Name, in.CDPURL)
 	if err != nil {
 		return nil, browserProfileOut{}, err
 	}
@@ -232,7 +223,7 @@ func listBrowserTabsTool(ctx context.Context, req *mcp.CallToolRequest, in listB
 	return nil, out, nil
 }
 
-const openBrowserTabDescription = "Open a NEW tab in lasso's shared browser and put it on the human's screen: every visible lasso tab switches its Browser tab to that profile and tab (opening the sidebar if needed), the way open_file shows a file. Use it when the human asks you to open a page for them, or in a particular profile (\"open this in my work profile\"). Starts the profile's browser if it is stopped. The page loads from LASSO's machine, through the profile's proxy if it has one, so `localhost` means lasso's machine. To then drive the page, use the /browser-mcp tools (`mcp_endpoint`) with `profile` set to this profile (find the tab with list_pages by its URL), or `ws_endpoint`. Check `delivered`: 0 means no lasso tab is open and the human did NOT see it (the tab is still open in the browser). A profile's browser stops after lasso's idle timeout with nothing connected to it, and its tabs close with it: keep a /browser-mcp or CDP session open while you still need the page. Pass your $HERDR_PANE_ID as pane_id so the human is told which agent opened it."
+const openBrowserTabDescription = "Open a NEW tab in lasso's shared browser and put it on the human's screen: every visible lasso tab switches its Browser tab to that profile and tab (opening the sidebar if needed), the way open_file shows a file. Use it when the human asks you to open a page for them, or in a particular profile (\"open this in my work profile\"). Starts the profile's browser if it is stopped. The page loads from the profile's browser — LASSO's machine for a profile lasso launches — so `localhost` means lasso's machine there. To then drive the page, use the /browser-mcp tools (`mcp_endpoint`) with `profile` set to this profile (find the tab with list_pages by its URL), or `ws_endpoint`. Check `delivered`: 0 means no lasso tab is open and the human did NOT see it (the tab is still open in the browser). A profile's browser stops after lasso's idle timeout with nothing connected to it, and its tabs close with it: keep a /browser-mcp or CDP session open while you still need the page. Pass your $HERDR_PANE_ID as pane_id so the human is told which agent opened it."
 
 type openBrowserTabIn struct {
 	URL     string `json:"url" jsonschema:"The page to open: a full http(s) URL. A bare host[:port] gets https:// (http:// for localhost/127.0.0.1). about:blank opens an empty tab."`
@@ -368,6 +359,9 @@ func openBrowserTabTool(ctx context.Context, req *mcp.CallToolRequest, in openBr
 	// PUT: GET on /json/new is refused since Chromium 111. The query is the
 	// URL itself, unescaped by Chromium.
 	if err := devtoolsDo(p, http.MethodPut, "/json/new?"+url.PathEscape(u), &t); err != nil {
+		if devtoolsNotFound(err) && p.remote() {
+			return nil, browserTabOut{}, fmt.Errorf("profile %q is a remote browser that does not open tabs over the DevTools HTTP endpoint (PUT /json/new answered 404); use its existing page through /browser-mcp (profile %q) or CDP instead: %w", id, id, err)
+		}
 		return nil, browserTabOut{}, fmt.Errorf("open %s in profile %q: %w", u, id, err)
 	}
 	for _, tid := range launchTabs {
@@ -471,6 +465,9 @@ func closeBrowserTabTool(ctx context.Context, req *mcp.CallToolRequest, in close
 		return nil, closeBrowserTabOut{}, err
 	}
 	if err := devtoolsDo(p, http.MethodGet, "/json/close/"+pg.ID, nil); err != nil {
+		if devtoolsNotFound(err) && p.remote() {
+			return nil, closeBrowserTabOut{}, fmt.Errorf("profile %q is a remote browser that does not close tabs over the DevTools HTTP endpoint (/json/close answered 404): %w", id, err)
+		}
 		return nil, closeBrowserTabOut{}, fmt.Errorf("close tab %s: %w", pg.ID, err)
 	}
 	return nil, closeBrowserTabOut{Closed: pg.ID, Profile: id}, nil

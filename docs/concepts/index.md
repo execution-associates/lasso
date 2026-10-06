@@ -23,7 +23,7 @@ lasso's **New** dialog and its `create_agent` MCP tool turn "make a worktree, op
 
 ## The shared browser
 
-lasso can run a real Chromium on its own machine that you watch and click in from the sidebar's Browser tab, while your agents drive the same pages over the Chrome DevTools Protocol or the `/browser-mcp` MCP server. Profiles give it separate logins and proxies. See [The shared browser](./shared-browser.md).
+lasso can run a real Chromium on its own machine that you watch and click in from the sidebar's Browser tab, while your agents drive the same pages over the Chrome DevTools Protocol or the `/browser-mcp` MCP server. Profiles give it separate logins, and a profile can be a remote browser lasso dials. See [The shared browser](./shared-browser.md).
 
 ## Notifications
 

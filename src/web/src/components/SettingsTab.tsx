@@ -446,14 +446,9 @@ export function SettingsTab({ active }: { active: boolean }) {
               </>
             )}
           </SettingsGroup>
-          {/* Kept mounted for the proxy field, which is a draft while focused
-              and reports a refused value inline — a collapse must not eat the
-              error. Its status query runs either way (the Browser tab shares
-              it); only the 5s poll stops while the group is closed. */}
           <SettingsGroup
             id="terminal-browser"
             title="Terminal & browser"
-            keepMounted
             summary={<BrowserSummary />}
           >
             {(open) => (
@@ -2265,51 +2260,13 @@ function SharedBrowserSettings({ active }: { active: boolean }) {
     onSettled: () => queryClient.invalidateQueries({ queryKey: qk.browser }),
   })
 
-  // The field is a draft while focused and follows the server otherwise, so a
-  // proxy changed from another browser lands here without clobbering typing.
-  const [proxy, setProxy] = React.useState("")
-  const [editing, setEditing] = React.useState(false)
-  const [proxyErr, setProxyErr] = React.useState("")
-  const stored = st?.proxy ?? ""
-  React.useEffect(() => {
-    if (!editing) setProxy(stored)
-  }, [stored, editing])
-  const saveProxy = useMutation({
-    mutationFn: (p: string) => api.setBrowserProxy(p),
-    onSuccess: (next) => {
-      setProxyErr("")
-      queryClient.setQueryData(qk.browser, next)
-      toast.success(
-        next.proxy
-          ? `Shared browser now uses ${next.proxy}`
-          : "Shared browser proxy cleared",
-        // e.g. which pages the relaunch reopened.
-        { description: next.note }
-      )
-    },
-    // The server's 400 is a sentence meant for exactly this spot.
-    onError: (e: Error) => setProxyErr(e.message),
-    // A 502 means the proxy was STORED but the relaunch failed; refetch so
-    // the field and the status show what the server now holds.
-    onSettled: () => queryClient.invalidateQueries({ queryKey: qk.browser }),
-  })
-  const commitProxy = () => {
-    setEditing(false)
-    const p = proxy.trim()
-    if (p === stored) {
-      setProxyErr("")
-      return
-    }
-    saveProxy.mutate(p)
-  }
-
   const endpoint = cdpURL()
   // /browser-mcp is lasso's origin, like /cdp: there is one shared browser per
   // lasso whatever host this tab is driving.
   const mcpEndpoint = `${location.origin}/browser-mcp`
   const mcpAdd = `claude mcp add --transport http lasso-browser ${mcpEndpoint}`
   const mcpSessions = st?.mcp_sessions ?? 0
-  const busy = action.isPending || saveProxy.isPending
+  const busy = action.isPending
 
   let state: React.ReactNode
   if (status.isLoading) {
@@ -2424,38 +2381,6 @@ function SharedBrowserSettings({ active }: { active: boolean }) {
         <option value="live">Agent — the shared Chrome agents can drive</option>
         <option value="embed">Iframe — the page inside this tab</option>
       </select>
-
-      <label
-        className={cn(labelClass, "mt-1")}
-        htmlFor="settings-browser-proxy"
-      >
-        Proxy
-      </label>
-      <input
-        id="settings-browser-proxy"
-        {...NO_AUTOCORRECT}
-        className={cn(fieldClass, "max-w-xs font-mono")}
-        placeholder="socks5://host:1080"
-        value={proxy}
-        disabled={status.isError || !st?.available}
-        aria-invalid={proxyErr ? true : undefined}
-        onFocus={() => setEditing(true)}
-        onChange={(e) => {
-          setEditing(true)
-          setProxy(e.target.value)
-        }}
-        onBlur={commitProxy}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur()
-        }}
-      />
-      {proxyErr && <p className="text-[11px] text-destructive">{proxyErr}</p>}
-      <p className="text-[11px] text-muted-foreground">
-        socks5://, socks4://, http:// or https://. Changing it restarts the
-        browser and reopens its pages. With socks5:// DNS is resolved through
-        the proxy too. Chromium cannot log in to a proxy, so one that needs a
-        username and password won't work.
-      </p>
 
       <div className="mt-1 flex flex-wrap items-center gap-1.5">
         <span className={labelClass}>Connect an agent</span>
