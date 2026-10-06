@@ -75,7 +75,13 @@ import {
   toggleHerdrSidebar,
 } from "@/lib/terminal"
 import { patchUIState, uiStateNow, useUIState } from "@/lib/ui-state"
-import { getQueryParam, setQueryParams } from "@/lib/url"
+import {
+  getQueryParam,
+  type LeftView,
+  leftViewFromPath,
+  setQueryParams,
+  writeLeftView,
+} from "@/lib/url"
 import { cn } from "@/lib/utils"
 
 // A built-in tab id (lib/sidebar-tabs.ts:BUILTIN_TABS — "agents" being below
@@ -87,7 +93,6 @@ type RightView = string
 // conversation (ChatView), and the fleet as parallel conversations (AgentsView).
 // Not a RightView — the sidebar and the left column answer different questions,
 // and both chats are about panes, not files.
-type LeftView = "terminal" | "chat" | "agents"
 
 // Shared tab-strip styling: a full-width underline strip, matching the original
 // vanilla UI rather than shadcn's default pill TabsList.
@@ -228,7 +233,22 @@ function Shell() {
   // and sized underneath either way — the chat is an overlay, not a swap — so
   // the shared herdr pty keeps its width (and every other pane keeps its
   // layout) while the chat is up, exactly as the mobile sidebar overlay does.
-  const [leftView, setLeftView] = React.useState<LeftView>("terminal")
+  // It is also the URL's path (lib/url), one history entry per change, so a
+  // chat opened from the grid has a Back that returns to the grid.
+  const [leftView, setLeftView] = React.useState<LeftView>(leftViewFromPath)
+  const viewSynced = React.useRef(false)
+  React.useEffect(() => {
+    writeLeftView(leftView, viewSynced.current)
+    viewSynced.current = true
+  }, [leftView])
+  // The grid stays MOUNTED under a chat opened from it, so Back lands where the
+  // reader left it: its scroll, filter, grouping and every card's own scroll and
+  // draft. Leaving for the terminal lets it go, and its polls with it.
+  const [keepGrid, setKeepGrid] = React.useState(leftView === "agents")
+  React.useEffect(() => {
+    if (leftView === "agents") setKeepGrid(true)
+    else if (leftView === "terminal") setKeepGrid(false)
+  }, [leftView])
   // The chat's own left sidebar: the host's agents, beside the conversation.
   // Per-TAB, like leftView itself and unlike the right sidebar's synced layout —
   // it is a property of this reading surface, not a shape the shared pty is
@@ -351,8 +371,8 @@ function Shell() {
   // Clear URL state we no longer honor, once on mount: a legacy #hash
   // (setQueryParams drops the fragment), the ?view= of the retired left tab
   // strip, and any stale ?pane= from a link written before pane focus left the
-  // URL — so we never look like we honor a param we ignore. ?host= is lasso's
-  // only URL state now, and HostSwitcher owns it.
+  // URL — so we never look like we honor a param we ignore. ?host= (owned by
+  // HostSwitcher) and the path (the left view) are lasso's URL state.
   React.useEffect(() => {
     setQueryParams({ view: null, pane: null })
   }, [])
@@ -362,6 +382,11 @@ function Shell() {
   // step must not re-point it (see lib/pane-focus's restoreHost).
   React.useEffect(() => {
     const onPop = () => {
+      // The path already names the view, so this set pushes nothing. Arriving
+      // at a reading view drops the terminal's focus, as entering one does.
+      const view = leftViewFromPath()
+      setLeftView(view)
+      if (view !== "terminal") blurHerdrTerminal()
       const host = getQueryParam("host") ?? "local"
       if (host !== hostRef.current) {
         restoreHost(host).catch((e) =>
@@ -669,9 +694,17 @@ function Shell() {
         e.preventDefault()
         // From a reading view the question is "which conversation next",
         // across the fleet — herdr's search only knows one machine's panes and
-        // answers by moving a terminal nobody is looking at.
+        // answers by moving a terminal nobody is looking at. The grid already
+        // has that search in its own nav, filtering the cards in place, so
+        // there ⌘K just puts the cursor in it rather than opening a second one.
         if (leftView === "terminal") openHerdrGoto()
-        else setSwitcherOpen(true)
+        else if (leftView === "agents") {
+          const f = document.querySelector<HTMLInputElement>(
+            "input[data-agents-filter]"
+          )
+          f?.focus()
+          f?.select()
+        } else setSwitcherOpen(true)
       } else if (k === "o" || k === "i") {
         e.preventDefault()
         setNewTab(k === "o" ? "agent" : "terminal")
@@ -822,6 +855,30 @@ function Shell() {
                 inputMode="herdr"
                 hidden={false}
               />
+              {/* The grid overlays for the same reason the single chat does: the
+                  terminal stays mounted and sized underneath, so the shared pty
+                  keeps its width while N transcripts (not N terminals) are read
+                  above it. It comes FIRST so a chat opened from it paints on top of
+                  the kept, invisible grid. */}
+              {(leftView === "agents" || (leftView === "chat" && keepGrid)) && (
+                <div
+                  className={cn(
+                    "chat-overlay absolute inset-0 z-20 flex",
+                    // visibility, not display: a display:none box loses its
+                    // scroll offset, which is the thing being kept.
+                    leftView !== "agents" && "invisible"
+                  )}
+                  aria-hidden={leftView !== "agents"}
+                >
+                  <AgentsView
+                    active={leftView === "agents"}
+                    className="min-w-0 flex-1"
+                    onNewAgent={openNew}
+                    onShowChat={() => setLeftView("chat")}
+                    onShowTerminal={() => setLeftView("terminal")}
+                  />
+                </div>
+              )}
               {/* The chat covers the terminal without unmounting it. That is
                   what keeps the shared pty's size (a hidden iframe would refit
                   it to nothing and reflow every other pane), and it is also
@@ -841,19 +898,6 @@ function Shell() {
                     onShowTerminal={() => setLeftView("terminal")}
                     onShowSidebar={openSidebar}
                     onNew={openNewFromChat}
-                  />
-                </div>
-              )}
-              {/* The grid overlays for the same reason the single chat does: the
-                  terminal stays mounted and sized underneath, so the shared pty
-                  keeps its width while N transcripts (not N terminals) are read
-                  above it. */}
-              {leftView === "agents" && (
-                <div className="chat-overlay absolute inset-0 z-20 flex">
-                  <AgentsView
-                    className="min-w-0 flex-1"
-                    onNewAgent={openNew}
-                    onShowChat={() => setLeftView("chat")}
                   />
                 </div>
               )}
