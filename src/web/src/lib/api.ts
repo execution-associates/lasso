@@ -913,7 +913,6 @@ export interface BrowserStatus {
   running: boolean
   binary: string
   reason: string
-  proxy: string
   idle_minutes: number
   started_at: string
   // Launched under a systemd CPU/memory cap.
@@ -925,8 +924,6 @@ export interface BrowserStatus {
   mem_high: string
   pages: BrowserPage[] | null
   ws_path: string
-  // What a relaunch did (e.g. which pages it reopened after a proxy change).
-  note?: string
   // /browser-mcp: chrome-devtools-mcp bridged to agents over HTTP, one URL
   // for every profile, one child per session per profile it has used.
   // `mcp_available` is false when it is not installed on lasso's machine or
@@ -942,42 +939,23 @@ export interface BrowserStatus {
 }
 
 // One browser profile: its own Chromium, its own persistent user-data dir
-// (cookies, logins) and optionally its own proxy. `ws_path` / `mcp_path` are
+// (cookies, logins). `ws_path` / `mcp_path` are
 // lasso-origin paths: "/cdp" for the default profile and "/cdp/p/<id>"
 // otherwise; "/browser-mcp" for every profile (its tools take `profile`).
 export interface BrowserProfileStatus {
   id: string
   name: string
-  proxy: string
   default: boolean
   running: boolean
   started_at: string
   capped: boolean
   reason: string
-  note?: string
   pages: BrowserPage[] | null
   ws_path: string
   mcp_path: string
 }
 
 export type BrowserAction = "start" | "stop" | "restart"
-
-// A SOCKS5 proxy lasso's machine found answering on the scan port, on
-// loopback or a tailnet peer (/api/browser/proxies). `url` is what a profile's
-// proxy field takes.
-export interface ProxyCandidate {
-  name: string
-  addr: string
-  source: "local" | "tailnet"
-  url: string
-}
-
-export interface ProxyScan {
-  port: number
-  proxies: ProxyCandidate[]
-  scanned: number
-  scanned_at: string
-}
 
 // postBrowser answers the status the server returns, or throws its `reason`: a
 // failed start is a 502 whose body is the same status JSON, and httpError would
@@ -1376,22 +1354,11 @@ export const api = {
   // `profile` omitted = the default profile (what an older server has).
   browserAction: (action: BrowserAction, profile?: string) =>
     postBrowser("/api/browser", profile ? { action, profile } : { action }),
-  // A 400 carries the validation message as plain text, which is what the
-  // Settings field shows under the input.
-  setBrowserProxy: (proxy: string, profile?: string) =>
-    postBrowser("/api/browser/proxy", profile ? { proxy, profile } : { proxy }),
-  // Probing every tailnet peer takes up to ~1s; the server caches 30s and
-  // `refresh` forces a new round.
-  browserProxies: (refresh?: boolean) =>
-    getJSON<ProxyScan>(
-      `/api/browser/proxies${refresh ? "?refresh=1" : ""}`,
-      15_000
-    ),
-  createBrowserProfile: (p: { name: string; id?: string; proxy?: string }) =>
+  createBrowserProfile: (p: { name: string; id?: string }) =>
     postJSON<BrowserProfileStatus>("/api/browser/profiles", p),
   updateBrowserProfile: async (
     id: string,
-    patch: { name?: string; proxy?: string }
+    patch: { name?: string }
   ): Promise<BrowserProfileStatus> => {
     const r = await hostFetch(
       `/api/browser/profiles/${encodeURIComponent(id)}`,

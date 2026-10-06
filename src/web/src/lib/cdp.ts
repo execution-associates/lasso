@@ -27,7 +27,7 @@ export function cdpURL(path = "/cdp"): string {
 }
 
 // reconnectDelay is the backoff between reconnect attempts: 1s, 2s, 4s … capped
-// at 15s. A relaunch (proxy change) is back within a couple of seconds; an idle
+// at 15s. A restart is back within a couple of seconds; an idle
 // stop needs a start first, which the caller does before reconnecting.
 export function reconnectDelay(attempt: number): number {
   return Math.min(15_000, 1000 * 2 ** Math.max(0, attempt))

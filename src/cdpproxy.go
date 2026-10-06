@@ -240,11 +240,11 @@ func rewriteCDPTarget(m map[string]any, wsBase, prefix string) {
 
 // cdpPublicPath is the /cdp path for one of Chromium's websocket paths. The
 // browser target maps to bare /cdp — the stable address — rather than to its
-// per-launch id.
+// per-launch id (or to its id-less /devtools/browser, isBrowserWSPath).
 func cdpPublicPath(p string) string { return cdpPublicPathAt("/cdp", p) }
 
 func cdpPublicPathAt(prefix, p string) string {
-	if strings.HasPrefix(p, "/devtools/browser/") {
+	if isBrowserWSPath(p) {
 		return prefix
 	}
 	return prefix + p
@@ -326,7 +326,6 @@ type cdpProfileEntry struct {
 	ID       string        `json:"id"`
 	Name     string        `json:"name"`
 	Default  bool          `json:"default"`
-	Proxy    string        `json:"proxy,omitempty"`
 	Running  bool          `json:"running"`
 	Started  string        `json:"started_at,omitempty"`
 	Tabs     []browserPage `json:"tabs"`
@@ -357,7 +356,7 @@ func serveCDPProfiles(w http.ResponseWriter, r *http.Request) {
 	out := cdpProfilesOut{Profiles: []cdpProfileEntry{}}
 	for _, st := range sharedBrowsers.statuses() {
 		e := cdpProfileEntry{
-			ID: st.ID, Name: st.Name, Default: st.Default, Proxy: st.Proxy,
+			ID: st.ID, Name: st.Name, Default: st.Default,
 			Running: st.Running, Started: st.StartedAt, Tabs: st.Pages,
 			WSPath: st.WSPath, WSURL: wsBase + st.WSPath,
 			HTTPPath: st.WSPath, HTTPURL: httpBase + st.WSPath,
@@ -365,7 +364,6 @@ func serveCDPProfiles(w http.ResponseWriter, r *http.Request) {
 		if e.Tabs == nil {
 			e.Tabs = []browserPage{}
 		}
-		e.Note = st.Note
 		if !st.Running && st.Reason != "" {
 			e.Note = st.Reason
 		}

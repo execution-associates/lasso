@@ -333,7 +333,7 @@ func TestBrowserMCPLazySpawn(t *testing.T) {
 // the session, and an unknown profile is an error naming the real ones.
 func TestBrowserMCPRoutesByProfile(t *testing.T) {
 	f := testFleet(t)
-	if _, err := f.create("Work", "", "", ""); err != nil {
+	if _, err := f.create("Work", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	b := testBrowserMCP(t, "ok", 0)
@@ -403,7 +403,7 @@ func TestBrowserMCPProfileCreatedAfterSessionStart(t *testing.T) {
 	if _, msg := callEcho(t, sess, map[string]any{"profile": "late"}); !strings.Contains(msg, `no browser profile "late"`) {
 		t.Fatalf("before it exists: %q", msg)
 	}
-	if _, err := f.create("Late", "late", "", ""); err != nil {
+	if _, err := f.create("Late", "late", ""); err != nil {
 		t.Fatal(err)
 	}
 	got, msg := callEcho(t, sess, map[string]any{"profile": "Late"})
@@ -423,7 +423,7 @@ func TestBrowserMCPProfileCreatedAfterSessionStart(t *testing.T) {
 // the stopped profile spawns a fresh child.
 func TestBrowserMCPProfileStopClosesOnlyThatChild(t *testing.T) {
 	f := testFleet(t)
-	if _, err := f.create("Work", "work", "", ""); err != nil {
+	if _, err := f.create("Work", "work", ""); err != nil {
 		t.Fatal(err)
 	}
 	b := testBrowserMCP(t, "ok", 0)
@@ -541,7 +541,7 @@ func TestBrowserMCPNoCapByDefault(t *testing.T) {
 // opens, and its first call is refused naming the knob.
 func TestBrowserMCPOptInCap(t *testing.T) {
 	testFleet(t)
-	if _, err := sharedBrowsers.create("Work", "work", "", ""); err != nil {
+	if _, err := sharedBrowsers.create("Work", "work", ""); err != nil {
 		t.Fatal(err)
 	}
 	b := testBrowserMCP(t, "ok", 1)
@@ -582,7 +582,7 @@ func TestBrowserMCPOptInCap(t *testing.T) {
 // `profile`, calls dial that profile, and naming another is refused.
 func TestBrowserMCPPinnedPath(t *testing.T) {
 	f := testFleet(t)
-	if _, err := f.create("Work", "work", "", ""); err != nil {
+	if _, err := f.create("Work", "work", ""); err != nil {
 		t.Fatal(err)
 	}
 	b := testBrowserMCP(t, "ok", 0)
