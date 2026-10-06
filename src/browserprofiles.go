@@ -52,9 +52,12 @@ const browserDefaultNameSetting = "browser_default_profile_name"
 const browserProfileMax = 32
 
 type browserProfile struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Proxy     string `json:"proxy"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Proxy string `json:"proxy"`
+	// CDPURL makes this a remote browser: lasso dials the DevTools endpoint
+	// there instead of launching one (browserremote.go).
+	CDPURL    string `json:"cdp_url,omitempty"`
 	CreatedAt string `json:"created_at"`
 }
 
@@ -221,8 +224,16 @@ func (f *browserFleet) newManagerLocked(id string) *browserManager {
 		return ""
 	}
 	m.saveProxy = func(v string) error {
-		_, err := f.update(id, nil, &v)
+		_, err := f.update(id, nil, &v, nil)
 		return err
+	}
+	m.cdpURL = func() string {
+		for _, p := range loadExtraProfiles() {
+			if p.ID == id {
+				return p.CDPURL
+			}
+		}
+		return ""
 	}
 	m.onStop = func(why string) {
 		if f.onStop != nil {
@@ -279,8 +290,9 @@ func (f *browserFleet) shutdown() {
 	wg.Wait()
 }
 
-// create adds a profile. id "" derives one from the name, made unique.
-func (f *browserFleet) create(name, id, proxy string) (browserProfile, error) {
+// create adds a profile. id "" derives one from the name, made unique. A
+// cdpURL makes it a remote browser, which takes no proxy of lasso's.
+func (f *browserFleet) create(name, id, proxy, cdpURL string) (browserProfile, error) {
 	name, err := cleanProfileName(name)
 	if err != nil {
 		return browserProfile{}, err
@@ -288,6 +300,13 @@ func (f *browserFleet) create(name, id, proxy string) (browserProfile, error) {
 	proxy, err = validateBrowserProxy(proxy)
 	if err != nil {
 		return browserProfile{}, err
+	}
+	cdpURL, err = validateCDPURL(cdpURL)
+	if err != nil {
+		return browserProfile{}, err
+	}
+	if cdpURL != "" && proxy != "" {
+		return browserProfile{}, errRemoteProxy
 	}
 	id = strings.ToLower(strings.TrimSpace(id))
 	explicit := id != ""
@@ -331,7 +350,7 @@ func (f *browserFleet) create(name, id, proxy string) (browserProfile, error) {
 	if strings.EqualFold(defaultProfileName(), name) {
 		return browserProfile{}, fmt.Errorf("a browser profile named %q already exists", name)
 	}
-	p := browserProfile{ID: id, Name: name, Proxy: proxy, CreatedAt: time.Now().UTC().Format(time.RFC3339)}
+	p := browserProfile{ID: id, Name: name, Proxy: proxy, CDPURL: cdpURL, CreatedAt: time.Now().UTC().Format(time.RFC3339)}
 	// A directory left by an earlier profile with the same id would hand the
 	// new one its predecessor's logins.
 	_ = os.RemoveAll(f.profileDir(id))
@@ -342,9 +361,9 @@ func (f *browserFleet) create(name, id, proxy string) (browserProfile, error) {
 	return p, nil
 }
 
-// update renames a profile and/or stores a new proxy for it. It does NOT
-// relaunch a running browser; applyProxy (the caller for a proxy change) does.
-func (f *browserFleet) update(id string, name, proxy *string) (browserProfile, error) {
+// update renames a profile and/or stores a new proxy or cdp_url for it. It
+// does NOT relaunch or detach a running browser; applyProxy and edit do.
+func (f *browserFleet) update(id string, name, proxy, cdpURL *string) (browserProfile, error) {
 	if name != nil {
 		n, err := cleanProfileName(*name)
 		if err != nil {
@@ -358,6 +377,13 @@ func (f *browserFleet) update(id string, name, proxy *string) (browserProfile, e
 			return browserProfile{}, err
 		}
 		proxy = &v
+	}
+	if cdpURL != nil {
+		v, err := validateCDPURL(*cdpURL)
+		if err != nil {
+			return browserProfile{}, err
+		}
+		cdpURL = &v
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -374,6 +400,12 @@ func (f *browserFleet) update(id string, name, proxy *string) (browserProfile, e
 		}
 	}
 	if id == defaultBrowserProfile {
+		if cdpURL != nil && *cdpURL != "" {
+			// The default profile is the browser lasso always launched, with
+			// bare /cdp and every older config pointing at it; a remote browser
+			// is a profile of its own.
+			return browserProfile{}, errors.New("the default profile is lasso's own browser; create another profile for a remote one")
+		}
 		if name != nil {
 			if err := setSetting(browserDefaultNameSetting, *name); err != nil {
 				return browserProfile{}, fmt.Errorf("save: %w", err)
@@ -394,9 +426,17 @@ func (f *browserFleet) update(id string, name, proxy *string) (browserProfile, e
 		if name != nil {
 			ps[i].Name = *name
 		}
+		next := ps[i]
 		if proxy != nil {
-			ps[i].Proxy = *proxy
+			next.Proxy = *proxy
 		}
+		if cdpURL != nil {
+			next.CDPURL = *cdpURL
+		}
+		if next.CDPURL != "" && next.Proxy != "" {
+			return browserProfile{}, errRemoteProxy
+		}
+		ps[i] = next
 		if err := saveExtraProfiles(ps); err != nil {
 			return browserProfile{}, fmt.Errorf("save: %w", err)
 		}
@@ -471,7 +511,7 @@ func (f *browserFleet) statusOf(p browserProfile) browserProfileStatus {
 		st = browserProfileStatus{ID: p.ID, Default: p.ID == defaultBrowserProfile, Pages: []browserPage{},
 			WSPath: cdpPathFor(p.ID), MCPPath: browserMCPPathFor(p.ID)}
 	}
-	st.Name, st.Proxy = p.Name, p.Proxy
+	st.Name, st.Proxy, st.CDPURL = p.Name, p.Proxy, p.CDPURL
 	return st
 }
 
@@ -638,15 +678,16 @@ func (f *browserFleet) serveProfiles(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, f.statuses())
 		case http.MethodPost:
 			var body struct {
-				Name  string `json:"name"`
-				ID    string `json:"id"`
-				Proxy string `json:"proxy"`
+				Name   string `json:"name"`
+				ID     string `json:"id"`
+				Proxy  string `json:"proxy"`
+				CDPURL string `json:"cdp_url"`
 			}
 			if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body); err != nil {
 				http.Error(w, "bad json", http.StatusBadRequest)
 				return
 			}
-			p, err := f.create(body.Name, body.ID, body.Proxy)
+			p, err := f.create(body.Name, body.ID, body.Proxy, body.CDPURL)
 			if err != nil {
 				http.Error(w, err.Error(), profileErrStatus(err))
 				return
@@ -668,14 +709,15 @@ func (f *browserFleet) serveProfiles(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, st)
 	case http.MethodPatch:
 		var body struct {
-			Name  *string `json:"name"`
-			Proxy *string `json:"proxy"`
+			Name   *string `json:"name"`
+			Proxy  *string `json:"proxy"`
+			CDPURL *string `json:"cdp_url"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body); err != nil {
 			http.Error(w, "bad json", http.StatusBadRequest)
 			return
 		}
-		st, err := f.edit(r.Context(), id, body.Name, body.Proxy)
+		st, err := f.edit(r.Context(), id, body.Name, body.Proxy, body.CDPURL)
 		if err != nil {
 			http.Error(w, err.Error(), profileErrStatus(err))
 			return
@@ -693,17 +735,41 @@ func (f *browserFleet) serveProfiles(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// edit renames a profile and/or changes its proxy, relaunching a running
-// browser for a new proxy (the pages it had are reopened). A relaunch that
-// fails leaves the change stored and says so.
-func (f *browserFleet) edit(ctx context.Context, id string, name, proxy *string) (browserProfileStatus, error) {
+// edit renames a profile and/or changes its proxy or cdp_url, relaunching a
+// running browser for a new proxy (the pages it had are reopened). A relaunch
+// that fails leaves the change stored and says so. A cdp_url change detaches
+// whatever this profile was attached to, or stops the browser lasso launched
+// for it, so the next request reaches the new one.
+func (f *browserFleet) edit(ctx context.Context, id string, name, proxy, cdpURL *string) (browserProfileStatus, error) {
 	if _, err := f.profileStatus(id); err != nil {
 		return browserProfileStatus{}, err
 	}
 	if name != nil {
-		if _, err := f.update(id, name, nil); err != nil {
+		if _, err := f.update(id, name, nil, nil); err != nil {
 			return browserProfileStatus{}, err
 		}
+	}
+	if cdpURL != nil {
+		// Stored together with any proxy in the same request, so switching
+		// between remote and launched (which takes clearing or setting the
+		// proxy) is one valid change rather than two invalid halves. Either
+		// way the current browser is let go, and the next request reaches
+		// the new one, launched under the new proxy if it is lasso's.
+		m, err := browserFor(id)
+		if err != nil {
+			return browserProfileStatus{}, err
+		}
+		prevURL, prevProxy := m.remoteURL(), m.proxy()
+		if _, err := f.update(id, nil, proxy, cdpURL); err != nil {
+			return browserProfileStatus{}, err
+		}
+		proxy = nil
+		if m.remoteURL() != prevURL || m.proxy() != prevProxy {
+			if err := m.stop(ctx, "cdp_url changed"); err != nil {
+				return browserProfileStatus{}, err
+			}
+		}
+		browserProfilesChanged()
 	}
 	var relaunchErr error
 	if proxy != nil {
