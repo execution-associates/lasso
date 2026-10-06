@@ -50,6 +50,7 @@ import {
 import { Decoration, type DecorationSet, EditorView } from "@codemirror/view"
 import { tags as t } from "@lezer/highlight"
 import { langForPath } from "@/lib/format"
+import { gleam } from "@/lib/gleam"
 
 const stream = <S>(parser: StreamParser<S>) => StreamLanguage.define(parser)
 
@@ -87,6 +88,7 @@ const BY_ID: Record<string, () => Extension> = {
   r: () => stream(r),
   dart: () => stream(dart),
   erlang: () => stream(erlang),
+  gleam: () => stream(gleam),
   haskell: () => stream(haskell),
   clojure: () => stream(clojure),
   diff: () => stream(diff),
