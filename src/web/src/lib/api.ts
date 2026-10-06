@@ -962,6 +962,23 @@ export interface BrowserProfileStatus {
 
 export type BrowserAction = "start" | "stop" | "restart"
 
+// A SOCKS5 proxy lasso's machine found answering on the scan port, on
+// loopback or a tailnet peer (/api/browser/proxies). `url` is what a profile's
+// proxy field takes.
+export interface ProxyCandidate {
+  name: string
+  addr: string
+  source: "local" | "tailnet"
+  url: string
+}
+
+export interface ProxyScan {
+  port: number
+  proxies: ProxyCandidate[]
+  scanned: number
+  scanned_at: string
+}
+
 // postBrowser answers the status the server returns, or throws its `reason`: a
 // failed start is a 502 whose body is the same status JSON, and httpError would
 // otherwise surface the raw JSON rather than the sentence inside it.
@@ -1363,6 +1380,13 @@ export const api = {
   // Settings field shows under the input.
   setBrowserProxy: (proxy: string, profile?: string) =>
     postBrowser("/api/browser/proxy", profile ? { proxy, profile } : { proxy }),
+  // Probing every tailnet peer takes up to ~1s; the server caches 30s and
+  // `refresh` forces a new round.
+  browserProxies: (refresh?: boolean) =>
+    getJSON<ProxyScan>(
+      `/api/browser/proxies${refresh ? "?refresh=1" : ""}`,
+      15_000
+    ),
   createBrowserProfile: (p: { name: string; id?: string; proxy?: string }) =>
     postJSON<BrowserProfileStatus>("/api/browser/profiles", p),
   updateBrowserProfile: async (
