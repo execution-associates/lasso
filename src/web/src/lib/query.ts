@@ -46,6 +46,9 @@ export const qk = {
   // Server-level: the shared browser's status (browser.go). Shared by the
   // Browser tab and Settings so a start in one shows in the other.
   browser: ["browser"] as const,
+  // Server-level: SOCKS5 proxies found from lasso's machine, for the profile
+  // dialog's proxy dropdown.
+  browserProxies: ["browser-proxies"] as const,
   usage: ["usage"] as const,
   // Server-level: the plugin listing. Refetched on the plugins_rev SSE bump
   // (app-store), so the sidebar strip and Settings share one answer.

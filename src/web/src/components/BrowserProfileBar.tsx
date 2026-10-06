@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Settings2, Trash2 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { ProxyField } from "@/components/ProxyField"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { api, type BrowserProfileStatus } from "@/lib/api"
 import { qk } from "@/lib/query"
 import { cn } from "@/lib/utils"
@@ -95,7 +97,8 @@ export function BrowserProfileBar({
         <ProfilesDialog
           open={open}
           onOpenChange={setOpen}
-          current={cur}
+          profiles={profiles}
+          current={current}
           onPick={onPick}
         />
       )}
@@ -105,33 +108,62 @@ export function BrowserProfileBar({
 
 const fieldLabel = "text-[12px] font-medium text-muted-foreground"
 
+function ProxyLabel() {
+  return (
+    <div className="mt-1 flex items-baseline">
+      <span className={fieldLabel}>Proxy</span>
+      <span className="ml-auto text-[11px] text-muted-foreground">
+        tried top to bottom
+      </span>
+    </div>
+  )
+}
+
+// The dialog has two tabs: Manage edits any existing profile (picked from the
+// list inside the dialog, which does NOT switch the bar's profile), New
+// creates one. It opens on Manage with the bar's profile selected.
 function ProfilesDialog({
   open,
   onOpenChange,
+  profiles,
   current,
   onPick,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  current: BrowserProfileStatus | undefined
+  profiles: BrowserProfileStatus[]
+  current: string
   onPick: (id: string) => void
 }) {
   const queryClient = useQueryClient()
   const refresh = () => queryClient.invalidateQueries({ queryKey: qk.browser })
 
-  // The edit form is a draft of the selected profile, reset whenever the
-  // dialog opens or the selection changes under it.
+  const [tab, setTab] = React.useState<"manage" | "new">("manage")
+  const [editID, setEditID] = React.useState(current)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on open only, not when the bar's profile changes under an open dialog
+  React.useEffect(() => {
+    if (!open) return
+    setTab("manage")
+    setEditID(current)
+  }, [open])
+  const editing =
+    profiles.find((p) => p.id === editID) ??
+    profiles.find((p) => p.default) ??
+    profiles[0]
+
+  // The edit form is a draft of the profile being edited, reset whenever the
+  // dialog opens or a different profile is picked.
   const [name, setName] = React.useState("")
   const [proxy, setProxy] = React.useState("")
   const [editErr, setEditErr] = React.useState("")
-  const curID = current?.id
+  const editingID = editing?.id
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset on open and on a different profile only, not on every status poll
   React.useEffect(() => {
     if (!open) return
-    setName(current?.name ?? "")
-    setProxy(current?.proxy ?? "")
+    setName(editing?.name ?? "")
+    setProxy(editing?.proxy ?? "")
     setEditErr("")
-  }, [open, curID])
+  }, [open, editingID])
 
   const [newName, setNewName] = React.useState("")
   const [newProxy, setNewProxy] = React.useState("")
@@ -140,11 +172,11 @@ function ProfilesDialog({
 
   const save = useMutation({
     mutationFn: () => {
-      if (!current) throw new Error("no profile selected")
+      if (!editing) throw new Error("no profile selected")
       const patch: { name?: string; proxy?: string } = {}
-      if (name.trim() !== current.name) patch.name = name.trim()
-      if (proxy.trim() !== current.proxy) patch.proxy = proxy.trim()
-      return api.updateBrowserProfile(current.id, patch)
+      if (name.trim() !== editing.name) patch.name = name.trim()
+      if (proxy.trim() !== editing.proxy) patch.proxy = proxy.trim()
+      return api.updateBrowserProfile(editing.id, patch)
     },
     onSuccess: (p) => {
       setEditErr("")
@@ -168,24 +200,27 @@ function ProfilesDialog({
       setNewProxy("")
       toast.success(`Created profile ${p.name}`)
       onPick(p.id)
+      setEditID(p.id)
+      setTab("manage")
     },
     onError: (e: Error) => setCreateErr(e.message),
     onSettled: refresh,
   })
 
   const remove = useMutation({
-    mutationFn: (id: string) => api.deleteBrowserProfile(id),
-    onSuccess: () => {
-      toast.success(`Deleted profile ${current?.name ?? ""}`)
-      onPick("default")
+    mutationFn: (p: BrowserProfileStatus) => api.deleteBrowserProfile(p.id),
+    onSuccess: (_, p) => {
+      toast.success(`Deleted profile ${p.name}`)
+      if (p.id === current) onPick("default")
+      setEditID("default")
     },
     onError: (e: Error) => setEditErr(e.message),
     onSettled: refresh,
   })
 
   const dirty =
-    !!current &&
-    (name.trim() !== current.name || proxy.trim() !== current.proxy)
+    !!editing &&
+    (name.trim() !== editing.name || proxy.trim() !== editing.proxy)
 
   return (
     <>
@@ -199,128 +234,160 @@ function ProfilesDialog({
             </DialogDescription>
           </DialogHeader>
 
-          {current && (
-            <form
-              className="flex flex-col gap-1.5"
-              onSubmit={(e) => {
-                e.preventDefault()
-                if (dirty) save.mutate()
-              }}
-            >
-              <h3 className="font-medium text-sm">
-                {current.name}
-                {current.default && (
-                  <span className="ml-1.5 font-normal text-muted-foreground text-xs">
-                    (default)
-                  </span>
-                )}
-              </h3>
-              <label className={fieldLabel} htmlFor="bp-name">
-                Name
-              </label>
-              <Input
-                id="bp-name"
-                value={name}
-                className="h-8 text-[13px]"
-                onChange={(e) => setName(e.target.value)}
-              />
-              <label className={fieldLabel} htmlFor="bp-proxy">
-                Proxy
-              </label>
-              <Input
-                id="bp-proxy"
-                value={proxy}
-                placeholder="socks5://host:1080 (empty = direct)"
-                className="h-8 font-mono text-[13px]"
-                onChange={(e) => setProxy(e.target.value)}
-              />
-              <p className="text-[11px] text-muted-foreground">
-                Changing the proxy restarts this profile's browser; its open
-                pages are reopened.
-              </p>
-              {editErr && (
-                <p className="text-[12px] text-destructive [overflow-wrap:anywhere]">
-                  {editErr}
-                </p>
-              )}
-              <div className="flex items-center gap-1.5">
-                <Button
-                  type="submit"
-                  size="sm"
-                  disabled={!dirty || save.isPending}
-                >
-                  {save.isPending ? "Saving…" : "Save"}
-                </Button>
-                {!current.default && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="ml-auto gap-1 text-destructive"
-                    disabled={remove.isPending}
-                    onClick={() => setConfirmDelete(true)}
-                  >
-                    <Trash2 className="size-3.5" />
-                    Delete
-                  </Button>
-                )}
-              </div>
-            </form>
-          )}
-
-          <form
-            className={cn(
-              "flex flex-col gap-1.5",
-              current && "border-border border-t pt-3"
-            )}
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (newName.trim()) create.mutate()
-            }}
+          <Tabs
+            value={tab}
+            onValueChange={(v) => setTab(v as "manage" | "new")}
           >
-            <h3 className="font-medium text-sm">New profile</h3>
-            <label className={fieldLabel} htmlFor="bp-new-name">
-              Name
-            </label>
-            <Input
-              id="bp-new-name"
-              value={newName}
-              placeholder="e.g. Work"
-              className="h-8 text-[13px]"
-              onChange={(e) => setNewName(e.target.value)}
-            />
-            <label className={fieldLabel} htmlFor="bp-new-proxy">
-              Proxy (optional)
-            </label>
-            <Input
-              id="bp-new-proxy"
-              value={newProxy}
-              placeholder="socks5://host:1080"
-              className="h-8 font-mono text-[13px]"
-              onChange={(e) => setNewProxy(e.target.value)}
-            />
-            {createErr && (
-              <p className="text-[12px] text-destructive [overflow-wrap:anywhere]">
-                {createErr}
-              </p>
-            )}
-            <div>
-              <Button
-                type="submit"
-                size="sm"
-                disabled={!newName.trim() || create.isPending}
+            <TabsList>
+              <TabsTrigger value="manage">Manage</TabsTrigger>
+              <TabsTrigger value="new">New</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="manage" className="flex flex-col gap-3">
+              <div
+                role="listbox"
+                aria-label="Profile to edit"
+                className="flex max-h-44 flex-col overflow-y-auto rounded-lg border border-border p-1"
               >
-                {create.isPending ? "Creating…" : "Create"}
-              </Button>
-            </div>
-          </form>
+                {profiles.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    role="option"
+                    aria-selected={p.id === editing?.id}
+                    onClick={() => setEditID(p.id)}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-md px-2 py-1 text-left text-[13px]",
+                      p.id === editing?.id
+                        ? "bg-accent text-accent-foreground"
+                        : "hover:bg-muted"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "w-2 flex-shrink-0 text-[10px]",
+                        p.running ? "text-emerald-500" : "invisible"
+                      )}
+                      title={p.running ? "Running" : undefined}
+                    >
+                      ●
+                    </span>
+                    <span className="min-w-0 truncate">{p.name}</span>
+                    {p.id === current && (
+                      <span className="flex-shrink-0 text-[11px] text-muted-foreground">
+                        (showing)
+                      </span>
+                    )}
+                    <span className="ml-auto min-w-0 truncate font-mono text-[11px] text-muted-foreground">
+                      {p.proxy ? `via ${proxyHost(p.proxy)}` : "direct"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {editing && (
+                <form
+                  className="flex flex-col gap-1.5"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    if (dirty) save.mutate()
+                  }}
+                >
+                  <label className={fieldLabel} htmlFor="bp-name">
+                    Name
+                    {editing.default && (
+                      <span className="ml-1 font-normal">
+                        (default profile)
+                      </span>
+                    )}
+                  </label>
+                  <Input
+                    id="bp-name"
+                    value={name}
+                    className="h-8 text-[13px]"
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                  <ProxyLabel />
+                  <ProxyField value={proxy} onValueChange={setProxy} />
+                  <p className="text-[11px] text-muted-foreground">
+                    Changing the proxy restarts this profile's browser; its open
+                    pages are reopened.
+                  </p>
+                  {editErr && (
+                    <p className="text-[12px] text-destructive [overflow-wrap:anywhere]">
+                      {editErr}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      type="submit"
+                      size="sm"
+                      disabled={!dirty || save.isPending}
+                    >
+                      {save.isPending ? "Saving…" : "Save"}
+                    </Button>
+                    {!editing.default && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="ml-auto gap-1 text-destructive"
+                        disabled={remove.isPending}
+                        onClick={() => setConfirmDelete(true)}
+                      >
+                        <Trash2 className="size-3.5" />
+                        Delete
+                      </Button>
+                    )}
+                  </div>
+                </form>
+              )}
+            </TabsContent>
+
+            <TabsContent value="new">
+              <form
+                className="flex flex-col gap-1.5"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  if (newName.trim()) create.mutate()
+                }}
+              >
+                <label className={fieldLabel} htmlFor="bp-new-name">
+                  Name
+                </label>
+                <Input
+                  id="bp-new-name"
+                  value={newName}
+                  placeholder="e.g. Work"
+                  className="h-8 text-[13px]"
+                  onChange={(e) => setNewName(e.target.value)}
+                />
+                <ProxyLabel />
+                <ProxyField value={newProxy} onValueChange={setNewProxy} />
+                {createErr && (
+                  <p className="text-[12px] text-destructive [overflow-wrap:anywhere]">
+                    {createErr}
+                  </p>
+                )}
+                <div>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={!newName.trim() || create.isPending}
+                  >
+                    {create.isPending ? "Creating…" : "Create"}
+                  </Button>
+                </div>
+              </form>
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {current?.name}?</AlertDialogTitle>
+            <AlertDialogTitle>Delete {editing?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
               Its browser is stopped and its pages close. Its cookies, logins
               and everything else saved in it are deleted for good.
@@ -331,7 +398,7 @@ function ProfilesDialog({
             <AlertDialogAction
               variant="destructive"
               onClick={() => {
-                if (current) remove.mutate(current.id)
+                if (editing) remove.mutate(editing)
               }}
             >
               Delete
