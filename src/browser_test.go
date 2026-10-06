@@ -24,69 +24,18 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func TestValidateBrowserProxy(t *testing.T) {
-	ok := map[string]string{
-		"":                        "",
-		"  ":                      "",
-		"socks5://host:1080":      "socks5://host:1080",
-		"SOCKS5://Host:1080/":     "socks5://Host:1080",
-		"socks4://10.0.0.1:1080":  "socks4://10.0.0.1:1080",
-		"http://proxy.lan:3128":   "http://proxy.lan:3128",
-		"https://proxy.lan":       "https://proxy.lan",
-		"socks5://[::1]:1080":     "socks5://[::1]:1080",
-		" http://proxy.lan:8080 ": "http://proxy.lan:8080",
-		// Chromium's fallback list: tried in order, direct:// last.
-		"socks5://127.0.0.1:1080,direct://":   "socks5://127.0.0.1:1080,direct://",
-		"SOCKS5://a:1 , http://b:2/ , DIRECT": "socks5://a:1,http://b:2,direct://",
-		"socks5://a:1,socks5://b:2":           "socks5://a:1,socks5://b:2",
-	}
-	for in, want := range ok {
-		got, err := validateBrowserProxy(in)
-		if err != nil || got != want {
-			t.Errorf("validateBrowserProxy(%q) = %q, %v; want %q", in, got, err, want)
-		}
-	}
-	bad := map[string]string{
-		"socks5h://host:1080":         "unsupported proxy scheme",
-		"ftp://host":                  "unsupported proxy scheme",
-		"host:1080":                   "",
-		"proxy.lan":                   "",
-		"socks5://user:pw@host:1080":  "credentials",
-		"http://user@host:3128":       "credentials",
-		"socks5://:1080":              "no host",
-		"http://host:3128/path":       "no path",
-		"http://host:3128?x=1":        "no path",
-		"socks5://host:99999":         "",
-		"http://host:3128#frag":       "no path",
-		"socks5:host":                 "",
-		"http://host:3128/?":          "no path",
-		"socks5://host:1080/wpad.dat": "no path",
-		"direct://,socks5://a:1":      "must come last",
-		"direct://":                   "",
-		"socks5://a:1,,direct://":     "",
-		"socks5://a:1,socks5h://b:2":  "unsupported proxy scheme",
-	}
-	for in, want := range bad {
-		if _, err := validateBrowserProxy(in); err == nil {
-			t.Errorf("validateBrowserProxy(%q) accepted", in)
-		} else if want != "" && !strings.Contains(err.Error(), want) {
-			t.Errorf("validateBrowserProxy(%q) = %v; want it to mention %q", in, err, want)
-		}
-	}
-}
-
 func TestBrowserArgs(t *testing.T) {
-	got := browserArgs("/d/browser-profile", "", false, "", "")
+	got := browserArgs("/d/browser-profile", false, "", "")
 	want := []string{"--headless=new", "--remote-debugging-port=0", "--user-data-dir=/d/browser-profile",
 		"--no-first-run", "--no-default-browser-check", "--window-size=1280,800",
 		"--disable-blink-features=AutomationControlled", "about:blank"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("plain args = %q", got)
 	}
-	if s := browserArgs("/p", "", false, "2", ""); !slices.Contains(s, "--force-device-scale-factor=2") {
+	if s := browserArgs("/p", false, "2", ""); !slices.Contains(s, "--force-device-scale-factor=2") {
 		t.Fatalf("scale 2 not passed: %q", s)
 	}
-	if s := browserArgs("/p", "", false, "1", ""); slices.ContainsFunc(s, func(a string) bool { return strings.HasPrefix(a, "--force-device-scale-factor") }) {
+	if s := browserArgs("/p", false, "1", ""); slices.ContainsFunc(s, func(a string) bool { return strings.HasPrefix(a, "--force-device-scale-factor") }) {
 		t.Fatalf("scale 1 must leave the default: %q", s)
 	}
 	for in, want := range map[string]string{"2": "2", "1.5": "1.5", "": "", "0": "", "-1": "", "abc": "", "9": ""} {
@@ -94,9 +43,9 @@ func TestBrowserArgs(t *testing.T) {
 			t.Errorf("validBrowserScale(%q) = %q, want %q", in, got, want)
 		}
 	}
-	got = browserArgs("/p", "socks5://h:1080", true, "", "  --lang=en-US   --disable-gpu ")
-	tail := got[len(got)-5:]
-	wantTail := []string{"--proxy-server=socks5://h:1080", "--no-sandbox", "--lang=en-US", "--disable-gpu", "about:blank"}
+	got = browserArgs("/p", true, "", "  --lang=en-US   --disable-gpu ")
+	tail := got[len(got)-4:]
+	wantTail := []string{"--no-sandbox", "--lang=en-US", "--disable-gpu", "about:blank"}
 	if !reflect.DeepEqual(tail, wantTail) {
 		t.Fatalf("args tail = %q, want %q", tail, wantTail)
 	}
@@ -411,8 +360,7 @@ func testBrowserManager(t *testing.T, f *fakeChromium) *browserManager {
 		search: func() browserSearch {
 			return browserSearch{Explicit: "/fake/chrome", Exists: func(string) bool { return true }}
 		},
-		proxy: func() string { return "" },
-		sem:   make(chan struct{}, 1),
+		sem: make(chan struct{}, 1),
 	}
 	if f != nil {
 		u, _ := url.Parse(f.srv.URL)
@@ -572,29 +520,6 @@ func TestBrowserStatusListsPagesOnly(t *testing.T) {
 	}
 	if len(st.Pages) != 1 || st.Pages[0].ID != "P1" || st.Pages[0].Title != "Ex" {
 		t.Errorf("pages = %+v, want only the page target", st.Pages)
-	}
-}
-
-func TestBrowserProxyEndpointRejectsBadInput(t *testing.T) {
-	openTestDB(t)
-	m := testBrowserManager(t, nil)
-	m.proxy = func() string { v, _ := getSetting(browserProxySetting); return v }
-	post := func(body string) (int, string) {
-		w := httptest.NewRecorder()
-		m.serveProxy(w, httptest.NewRequest("POST", "/api/browser/proxy", strings.NewReader(body)))
-		return w.Code, w.Body.String()
-	}
-	if code, body := post(`{"proxy":"socks5://u:p@h:1080"}`); code != 400 || !strings.Contains(body, "credentials") {
-		t.Errorf("creds: %d %q", code, body)
-	}
-	if code, _ := post(`{"proxy":"socks5://h:1080"}`); code != 200 {
-		t.Errorf("valid: %d", code)
-	}
-	if v, _ := getSetting(browserProxySetting); v != "socks5://h:1080" {
-		t.Errorf("stored %q", v)
-	}
-	if code, body := post(`{"proxy":""}`); code != 200 || !strings.Contains(body, `"proxy":""`) {
-		t.Errorf("clear: %d %q", code, body)
 	}
 }
 

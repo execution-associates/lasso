@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -103,10 +102,7 @@ func TestRemoteBrowserProfile(t *testing.T) {
 	var stops []string
 	f.onStop = func(profile, why string) { stops = append(stops, profile+": "+why) }
 
-	if _, err := f.create("Mini", "", "socks5://127.0.0.1:1080", rc.srv.URL); !errors.Is(err, errRemoteProxy) {
-		t.Fatalf("remote with a proxy: %v", err)
-	}
-	p, err := f.create("Mini", "", "", rc.srv.URL+"/")
+	p, err := f.create("Mini", "", rc.srv.URL+"/")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,11 +123,6 @@ func TestRemoteBrowserProfile(t *testing.T) {
 	st, _ := f.profileStatus("mini")
 	if !st.Running || st.CDPURL != rc.srv.URL || len(st.Pages) != 1 || st.Pages[0].ID != "R1" {
 		t.Errorf("status = %+v", st)
-	}
-
-	// A proxy is refused on a remote browser, as caller input.
-	if err := m.applyProxy(context.Background(), "socks5://127.0.0.1:1080"); !errors.As(err, new(errBadProxy)) {
-		t.Errorf("applyProxy on a remote browser: %v", err)
 	}
 
 	// Within remoteCheckEvery the same proc is answered without a round trip.
@@ -184,24 +175,18 @@ func TestRemoteBrowserProfile(t *testing.T) {
 func TestRemoteBrowserEditSwitchesKinds(t *testing.T) {
 	f := testFleet(t)
 	rc := newRemoteChromium(t)
-	if _, err := f.create("Mini", "", "socks5://127.0.0.1:1080", ""); err != nil {
+	if _, err := f.create("Mini", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	// Launched with a proxy → remote: refused unless the proxy is cleared in
-	// the same change, which is then one valid edit.
+	// Launched → remote → launched, each one edit.
 	u := rc.srv.URL
-	if _, err := f.edit(context.Background(), "mini", nil, nil, &u); !errors.Is(err, errRemoteProxy) {
-		t.Errorf("remote while a proxy is still set: %v", err)
-	}
-	none := ""
-	st, err := f.edit(context.Background(), "mini", nil, &none, &u)
-	if err != nil || st.CDPURL != u || st.Proxy != "" {
+	st, err := f.edit(context.Background(), "mini", nil, &u)
+	if err != nil || st.CDPURL != u {
 		t.Fatalf("switch to remote: %+v, %v", st, err)
 	}
-	// And back, with a proxy again.
-	proxy := "socks5://127.0.0.1:1080"
-	st, err = f.edit(context.Background(), "mini", nil, &proxy, &none)
-	if err != nil || st.CDPURL != "" || st.Proxy != proxy {
+	none := ""
+	st, err = f.edit(context.Background(), "mini", nil, &none)
+	if err != nil || st.CDPURL != "" {
 		t.Fatalf("switch back: %+v, %v", st, err)
 	}
 }
@@ -209,7 +194,7 @@ func TestRemoteBrowserEditSwitchesKinds(t *testing.T) {
 func TestCDPProxyServesARemoteBrowser(t *testing.T) {
 	f := testFleet(t)
 	rc := newRemoteChromium(t)
-	if _, err := f.create("Mini", "", "", rc.srv.URL); err != nil {
+	if _, err := f.create("Mini", "", rc.srv.URL); err != nil {
 		t.Fatal(err)
 	}
 	lasso := httptest.NewServer(http.HandlerFunc(serveCDPRouted))
@@ -250,17 +235,10 @@ func TestDefaultProfileCanBeRemote(t *testing.T) {
 	rc := newRemoteChromium(t)
 	sharedBrowser.cdpURL = func() string { v, _ := getSetting(browserDefaultCDPURLSetting); return v }
 	u := rc.srv.URL
-	proxy := "socks5://127.0.0.1:1080"
-	if _, err := f.update(defaultBrowserProfile, nil, &proxy, &u); !errors.Is(err, errRemoteProxy) {
-		t.Fatalf("default remote with a proxy: %v", err)
-	}
 	name := "minime"
-	st, err := f.edit(context.Background(), defaultBrowserProfile, &name, nil, &u)
+	st, err := f.edit(context.Background(), defaultBrowserProfile, &name, &u)
 	if err != nil || st.CDPURL != u || st.Name != "minime" {
 		t.Fatalf("default → remote: %+v, %v", st, err)
-	}
-	if v, _ := getSetting(browserProxySetting); v != "" {
-		t.Errorf("browser_proxy = %q", v)
 	}
 	p, err := sharedBrowser.ensure(context.Background())
 	if err != nil || !p.remote() || p.wsPath != "/devtools/browser/one" {
@@ -268,5 +246,125 @@ func TestDefaultProfileCanBeRemote(t *testing.T) {
 	}
 	if bs := sharedBrowser.status(); !bs.Available || !bs.Running || bs.Binary != "Chrome/153.0.8010.53" {
 		t.Errorf("status: available=%v running=%v binary=%q", bs.Available, bs.Running, bs.Binary)
+	}
+}
+
+// kitesurf is a stateless CDP service in Kitesurf's (kitesurf.dev) shape: its
+// browser websocket is a bare /devtools/browser with no id, it lists one page,
+// and it opens no tabs over HTTP (PUT /json/new is a 404).
+func newKitesurf(t *testing.T) (*httptest.Server, *[]string) {
+	t.Helper()
+	var mu sync.Mutex
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		switch r.URL.Path {
+		case "/json/version":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"Browser":"Kitesurf/0.0.1","Protocol-Version":"1.3","webSocketDebuggerUrl":"wss://kitesurf.dev/devtools/browser"}`)
+		case "/json/list", "/json":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `[{"id":"kitesurf","type":"page","title":"","url":"about:blank","webSocketDebuggerUrl":"wss://kitesurf.dev/devtools/page/kitesurf"}]`)
+		case "/devtools/browser":
+			fmt.Fprint(w, "browser target")
+		default:
+			http.Error(w, "not found", http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &seen
+}
+
+func TestRemoteBrowserWithoutAnID(t *testing.T) {
+	f := testFleet(t)
+	ks, seen := newKitesurf(t)
+	var stops []string
+	f.onStop = func(profile, why string) { stops = append(stops, profile+": "+why) }
+	if _, err := f.create("Kite", "kite", ks.URL); err != nil {
+		t.Fatal(err)
+	}
+	m, err := browserFor("kite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := m.ensure(context.Background())
+	if err != nil {
+		t.Fatalf("an id-less /devtools/browser was refused: %v", err)
+	}
+	if p.wsPath != "/devtools/browser" || p.bin != "Kitesurf/0.0.1" {
+		t.Errorf("proc = %+v", p)
+	}
+	// A re-read after remoteCheckEvery finds the same path: the same browser,
+	// not a restart.
+	m.mu.Lock()
+	m.remoteChecked = time.Time{}
+	m.mu.Unlock()
+	if again, err := m.ensure(context.Background()); err != nil || again != p {
+		t.Errorf("re-read: %v, same proc %v", err, again == p)
+	}
+	if len(stops) != 0 {
+		t.Errorf("a re-read of an id-less browser read as a restart: %v", stops)
+	}
+
+	lasso := httptest.NewServer(http.HandlerFunc(serveCDPRouted))
+	defer lasso.Close()
+	lu, _ := url.Parse(lasso.URL)
+	get := func(path string) string {
+		t.Helper()
+		resp, err := http.Get(lasso.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != 200 {
+			t.Fatalf("%s: %d %s", path, resp.StatusCode, b)
+		}
+		return string(b)
+	}
+	// The browser websocket maps to the profile's stable address, like an
+	// id'd one, and a page's keeps its path under the prefix.
+	if body := get("/cdp/p/kite/json/version"); !strings.Contains(body, `"ws://`+lu.Host+`/cdp/p/kite"`) || strings.Contains(body, "kitesurf.dev") {
+		t.Errorf("version = %s", body)
+	}
+	if body := get("/cdp/p/kite/json/list"); !strings.Contains(body, `"ws://`+lu.Host+`/cdp/p/kite/devtools/page/kitesurf"`) {
+		t.Errorf("list = %s", body)
+	}
+	// Bare /cdp/p/kite reaches the id-less browser target.
+	if body := get("/cdp/p/kite"); body != "browser target" {
+		t.Errorf("bare prefix reached %q", body)
+	}
+	found := false
+	for _, s := range *seen {
+		found = found || s == "GET /devtools/browser"
+	}
+	if !found {
+		t.Errorf("upstream never saw /devtools/browser: %v", *seen)
+	}
+
+	// It opens no tabs over HTTP: the 404 is recognizable, so open_browser_tab
+	// can say what happened rather than pass on a bare "not found".
+	err = devtoolsDo(p, http.MethodPut, "/json/new?about:blank", nil)
+	if !devtoolsNotFound(err) {
+		t.Errorf("PUT /json/new = %v, want a 404", err)
+	}
+}
+
+func TestBrowserWSPath(t *testing.T) {
+	for p, want := range map[string]bool{
+		"/devtools/browser":       true,
+		"/devtools/browser/abc":   true,
+		"/devtools/browserx":      false,
+		"/devtools/page/kitesurf": false,
+		"/":                       false,
+	} {
+		if got := isBrowserWSPath(p); got != want {
+			t.Errorf("isBrowserWSPath(%q) = %v", p, got)
+		}
+	}
+	if got := cdpPublicPathAt("/cdp/p/k", "/devtools/browser"); got != "/cdp/p/k" {
+		t.Errorf("public path of an id-less browser = %q", got)
 	}
 }

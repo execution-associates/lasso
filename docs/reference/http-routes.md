@@ -74,7 +74,7 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 | `/api/host-update`, `/api/host-provision` | Update herdr on a host; install and start herdr on a host that lacks it. |
 | `/api/usage` | Provider rate-limit windows for the usage footer. |
 | `/api/frameable` | Whether a URL can be framed, for the Browser tab's iframe mode. |
-| `/api/browser`, `/api/browser/proxy`, `/api/browser/profiles[/…]` | Shared-browser status, proxy and profiles. |
+| `/api/browser`, `/api/browser/profiles[/…]` | Shared-browser status and profiles. |
 | `/api/push`, `/api/push/subscribe`, `/api/push/unsubscribe`, `/api/push/test` | Web Push devices. `subscribe` accepts only an `https` endpoint with a valid P-256 key. |
 | `/api/log` | With `-dev` only: browser log sink. |
 

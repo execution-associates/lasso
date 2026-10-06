@@ -8,7 +8,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,9 +37,6 @@ import (
 // /cdp request, POST /api/browser, or the shared_browser MCP tool) and stops
 // after -browser-idle with nothing connected: headless Chromium on a GPU-less
 // box software-rasterizes, and a forgotten one is several cores of nothing.
-
-// browserProxySetting is the settings-table key holding the proxy URL.
-const browserProxySetting = "browser_proxy"
 
 // browserPortWait bounds how long a launch waits for DevToolsActivePort — the
 // file Chromium writes once its debugging socket is bound, which is therefore
@@ -92,7 +88,7 @@ func defaultBrowserSearch(explicit string) browserSearch {
 // An explicit choice that does not resolve is reported rather than silently
 // replaced by whatever else is installed: someone who pointed lasso at a
 // particular build wants to hear that it is missing, not to find a different
-// browser running under their proxy settings.
+// browser running in its place.
 func resolveBrowserBinary(s browserSearch) (path, reason string, ok bool) {
 	if e := strings.TrimSpace(s.Explicit); e != "" {
 		if strings.EqualFold(e, "off") {
@@ -154,79 +150,6 @@ func newestPlaywrightChromium(s browserSearch) string {
 	return cs[0].path
 }
 
-// validateBrowserProxy checks a proxy setting against what Chromium's
-// --proxy-server actually honours and returns it normalized. "" means none.
-//
-// It may be a comma-separated FALLBACK list, tried in order —
-// "socks5://127.0.0.1:1080,direct://" uses the proxy and connects directly
-// when the proxy refuses (a tunnel that is down). That is Chromium's own
-// --proxy-server list syntax, so it is passed through as-is; direct:// is only
-// accepted last, since nothing after it would ever be tried.
-func validateBrowserProxy(raw string) (string, error) {
-	s := strings.TrimSpace(raw)
-	if s == "" {
-		return "", nil
-	}
-	if !strings.Contains(s, ",") {
-		return validateOneProxy(s)
-	}
-	parts := strings.Split(s, ",")
-	out := make([]string, 0, len(parts))
-	for i, p := range parts {
-		p = strings.TrimSpace(p)
-		if strings.EqualFold(p, "direct://") || strings.EqualFold(p, "direct") {
-			if i != len(parts)-1 {
-				return "", fmt.Errorf("direct:// must come last in a proxy list: nothing after it is ever tried")
-			}
-			if i == 0 {
-				return "", fmt.Errorf("a proxy list needs a proxy before direct://")
-			}
-			out = append(out, "direct://")
-			continue
-		}
-		v, err := validateOneProxy(p)
-		if err != nil {
-			return "", err
-		}
-		if v == "" {
-			return "", fmt.Errorf("empty entry in proxy list %q", s)
-		}
-		out = append(out, v)
-	}
-	return strings.Join(out, ","), nil
-}
-
-// validateOneProxy checks one proxy URL of a --proxy-server setting.
-func validateOneProxy(s string) (string, error) {
-	u, err := url.Parse(s)
-	if err != nil || u.Opaque != "" || u.Scheme == "" {
-		return "", fmt.Errorf("proxy must be a URL like socks5://host:1080 (schemes: socks5, socks4, http, https), or a fallback list like socks5://host:1080,direct://")
-	}
-	switch strings.ToLower(u.Scheme) {
-	case "socks5", "socks4", "http", "https":
-	default:
-		// socks5h in particular: curl's spelling for "resolve DNS through the
-		// proxy", which Chromium does not accept — and does not need, since its
-		// socks5 already resolves hostnames on the proxy side.
-		return "", fmt.Errorf("unsupported proxy scheme %q: Chromium accepts socks5://, socks4://, http:// or https:// (socks5 already sends DNS through the proxy)", u.Scheme)
-	}
-	if u.User != nil {
-		return "", fmt.Errorf("proxy credentials are not supported: Chromium cannot authenticate to a SOCKS proxy, and --proxy-server ignores a username/password for HTTP ones")
-	}
-	if u.Hostname() == "" {
-		return "", fmt.Errorf("proxy URL has no host")
-	}
-	if p := u.Port(); p != "" {
-		if n, err := strconv.Atoi(p); err != nil || n < 1 || n > 65535 {
-			return "", fmt.Errorf("proxy port %q is out of range", p)
-		}
-	}
-	if (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" || u.ForceQuery {
-		return "", fmt.Errorf("proxy URL must be scheme://host[:port], with no path or query")
-	}
-	return strings.ToLower(u.Scheme) + "://" + u.Host, nil
-}
-
 // browserArgs is Chromium's command line, minus the binary.
 //
 // --remote-debugging-port=0 lets the kernel pick the port, which is then read
@@ -243,7 +166,7 @@ func validateOneProxy(s string) (string, error) {
 // and so re-triggers the screencast. Only a scale set at launch reaches the
 // frames. Layout is unchanged (CSS px); raster cost and agent screenshots grow
 // by scale squared. "1" (or empty) leaves Chromium at its default.
-func browserArgs(profile, proxy string, root bool, scale, extra string) []string {
+func browserArgs(profile string, root bool, scale, extra string) []string {
 	args := []string{
 		"--headless=new",
 		"--remote-debugging-port=0",
@@ -259,9 +182,6 @@ func browserArgs(profile, proxy string, root bool, scale, extra string) []string
 	}
 	if scale != "" && scale != "1" {
 		args = append(args, "--force-device-scale-factor="+scale)
-	}
-	if proxy != "" {
-		args = append(args, "--proxy-server="+proxy)
 	}
 	if root {
 		args = append(args, "--no-sandbox")
@@ -541,10 +461,6 @@ type browserConfig struct {
 type browserManager struct {
 	cfg    browserConfig
 	search func() browserSearch
-	proxy  func() string // the stored proxy setting
-	// saveProxy stores a new proxy for this profile. The default profile keeps
-	// it in the browser_proxy setting it always had; nil means that.
-	saveProxy func(string) error
 	// cdpURL is the profile's stored remote browser address; nil or "" means
 	// lasso launches the browser itself (browserremote.go).
 	cdpURL func() string
@@ -563,7 +479,6 @@ type browserManager struct {
 	mu       sync.Mutex
 	proc     *browserProc
 	lastErr  string
-	note     string // the last relaunch's report (pages reopened)
 	lastUsed time.Time
 	// remoteChecked is when a remote browser's /json/version was last read.
 	remoteChecked time.Time
@@ -571,7 +486,7 @@ type browserManager struct {
 	inflight atomic.Int64
 
 	// onStop runs whenever a browser process goes away — a stop, an idle stop,
-	// a relaunch's stop half, a crash — with the reason. The /browser-mcp bridge
+	// a crash — with the reason. The /browser-mcp bridge
 	// hangs off it: every session's child holds a CDP connection to the process
 	// that just ended. It may run with sem held, so it must not block on it.
 	onStop func(why string)
@@ -581,10 +496,6 @@ func newBrowserManager(cfg browserConfig) *browserManager {
 	return &browserManager{
 		cfg:    cfg,
 		search: func() browserSearch { return defaultBrowserSearch(cfg.Explicit) },
-		proxy: func() string {
-			v, _ := getSetting(browserProxySetting)
-			return v
-		},
 		cdpURL: func() string {
 			v, _ := getSetting(browserDefaultCDPURLSetting)
 			return v
@@ -676,8 +587,8 @@ func (m *browserManager) startLocked() (*browserProc, error) {
 		return nil, fmt.Errorf("the browser profile %q was deleted", m.profileID())
 	}
 	if raw := m.remoteURL(); raw != "" {
-		// A relaunch's start half on a remote browser: there is nothing of
-		// lasso's to launch, only the browser at cdp_url to find again.
+		// A cdp_url stored while this launch waited on sem: there is nothing
+		// of lasso's to launch, only the browser at cdp_url to find.
 		p, err := dialRemoteBrowser(raw)
 		m.mu.Lock()
 		if err != nil {
@@ -693,14 +604,6 @@ func (m *browserManager) startLocked() (*browserProc, error) {
 		m.setErr(reason)
 		return nil, errors.New(reason)
 	}
-	proxy, err := validateBrowserProxy(m.proxy())
-	if err != nil {
-		// A stored value that no longer validates (hand-edited db, an older
-		// build's looser rules) must not wedge the feature: launch direct and
-		// say why, rather than refusing to start at all.
-		log.Printf("browser: ignoring stored proxy: %v", err)
-		proxy = ""
-	}
 	if err := os.MkdirAll(m.profileDir(), 0o700); err != nil {
 		m.setErr(err.Error())
 		return nil, err
@@ -710,13 +613,14 @@ func (m *browserManager) startLocked() (*browserProc, error) {
 		return nil, err
 	}
 	extra := os.Getenv("LASSO_BROWSER_ARGS")
-	args := browserArgs(m.profileDir(), proxy, os.Geteuid() == 0, m.cfg.Scale, extra)
+	args := browserArgs(m.profileDir(), os.Geteuid() == 0, m.cfg.Scale, extra)
 	if ua := browserUserAgent(bin); ua != "" && !strings.Contains(extra, "--user-agent") {
 		// Before the trailing about:blank, which must stay last.
 		args = append(args[:len(args)-1:len(args)-1], "--user-agent="+ua, "about:blank")
 	}
 	capped := !m.cfg.Cap.empty() && canCapBrowser()
 	var p *browserProc
+	var err error
 	if capped {
 		p, err = m.launch(bin, args, m.cfg.Cap)
 		if err != nil {
@@ -769,8 +673,7 @@ func (m *browserManager) launch(bin string, args []string, c browserCap) (*brows
 	_ = os.Remove(portFile)
 	// Chromium restores the previous run's tabs from the profile on its own, on
 	// top of the about:blank it is launched with — so every launch left one more
-	// blank tab behind, and a proxy relaunch (which reopens its pages itself)
-	// showed each of them twice. What a launch opens is decided here instead:
+	// blank tab behind. What a launch opens is decided here instead:
 	// logins and cookies persist in the profile, the tab set does not. An idle
 	// stop therefore closes the tabs, which is what "nobody is using it" means.
 	_ = os.RemoveAll(filepath.Join(m.profileDir(), "Default", "Sessions"))
@@ -1085,6 +988,25 @@ type browserPage struct {
 // through an HTTP(S)_PROXY from the environment.
 var browserHTTP = &http.Client{Timeout: 5 * time.Second, Transport: cdpTransport}
 
+// devtoolsHTTPError is a DevTools HTTP endpoint answering something other than
+// 200, kept typed so a caller can tell "this browser has no such endpoint"
+// (404) from a transport failure.
+type devtoolsHTTPError struct {
+	Method, Path, Status, Body string
+	Code                       int
+}
+
+func (e *devtoolsHTTPError) Error() string {
+	return fmt.Sprintf("%s %s: %s: %s", e.Method, e.Path, e.Status, e.Body)
+}
+
+// devtoolsNotFound says err is the browser answering 404: an endpoint it does
+// not implement (a stateless CDP service has no /json/new), or a gone target.
+func devtoolsNotFound(err error) bool {
+	var he *devtoolsHTTPError
+	return errors.As(err, &he) && he.Code == http.StatusNotFound
+}
+
 func devtoolsDo(p *browserProc, method, path string, out any) error {
 	req, err := http.NewRequest(method, p.urlScheme()+"://"+p.target()+path, nil)
 	if err != nil {
@@ -1098,7 +1020,7 @@ func devtoolsDo(p *browserProc, method, path string, out any) error {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("%s %s: %s: %s", method, path, resp.Status, strings.TrimSpace(string(b)))
+		return &devtoolsHTTPError{Method: method, Path: path, Status: resp.Status, Body: strings.TrimSpace(string(b)), Code: resp.StatusCode}
 	}
 	if out == nil {
 		_, _ = io.Copy(io.Discard, resp.Body)
@@ -1127,70 +1049,8 @@ func browserPages(p *browserProc) ([]browserPage, error) {
 	return pages, nil
 }
 
-// relaunch restarts the browser (under a new proxy) and reopens the pages it
-// had. CDP targets do not survive a process, so the best that can be kept is
-// the URLs; an agent mid-session reconnects to /cdp — which is stable across the
-// relaunch by design — and finds its pages back, if not its page ids.
-func (m *browserManager) relaunch(ctx context.Context, why string) error {
-	if err := m.acquire(ctx); err != nil {
-		return err
-	}
-	defer m.release()
-	old := m.current()
-	if old == nil {
-		return nil
-	}
-	var urls []string
-	if pages, err := browserPages(old); err == nil {
-		for _, pg := range pages {
-			if pg.URL != "" && pg.URL != "about:blank" {
-				urls = append(urls, pg.URL)
-			}
-		}
-	}
-	m.stopLocked(why)
-	p, err := m.startLocked()
-	if err != nil {
-		return err
-	}
-	// The launch's own tab(s), by id, taken BEFORE reopening: matching on
-	// about:blank afterwards would also catch a reopened tab that has not
-	// committed its navigation yet, and close the page being restored.
-	var launchTabs []string
-	if len(urls) > 0 {
-		if pages, err := browserPages(p); err == nil {
-			for _, pg := range pages {
-				launchTabs = append(launchTabs, pg.ID)
-			}
-		}
-	}
-	reopened := 0
-	for _, u := range urls {
-		// PUT: GET on /json/new has been refused as an unsafe verb since
-		// Chromium 111. The query is the URL itself, unescaped by Chromium.
-		if err := devtoolsDo(p, http.MethodPut, "/json/new?"+url.PathEscape(u), nil); err != nil {
-			log.Printf("browser: reopen %s after relaunch: %v", u, err)
-			continue
-		}
-		reopened++
-	}
-	if reopened > 0 {
-		// The launch's own about:blank would otherwise sit first in every tab
-		// strip as a page nobody opened.
-		for _, id := range launchTabs {
-			_ = devtoolsDo(p, http.MethodGet, "/json/close/"+id, nil)
-		}
-	}
-	note := fmt.Sprintf("relaunched (%s); reopened %d of %d page(s)", why, reopened, len(urls))
-	m.mu.Lock()
-	m.note = note
-	m.mu.Unlock()
-	log.Printf("browser: %s", note)
-	return nil
-}
-
 // ---------------------------------------------------------------------------
-// HTTP API: /api/browser, /api/browser/proxy
+// HTTP API: /api/browser
 // ---------------------------------------------------------------------------
 
 type browserStatus struct {
@@ -1198,7 +1058,6 @@ type browserStatus struct {
 	Running     bool   `json:"running"`
 	Binary      string `json:"binary"`
 	Reason      string `json:"reason"`
-	Proxy       string `json:"proxy"`
 	IdleMinutes int    `json:"idle_minutes"`
 	StartedAt   string `json:"started_at"`
 	Capped      bool   `json:"capped"`
@@ -1209,8 +1068,6 @@ type browserStatus struct {
 	MemHigh  string        `json:"mem_high"`
 	Pages    []browserPage `json:"pages"`
 	WSPath   string        `json:"ws_path"`
-	// Note reports the last relaunch (a proxy change reopens the pages it had).
-	Note string `json:"note,omitempty"`
 	// The /browser-mcp bridge (browsermcp.go): whether it can serve a session
 	// (chrome-devtools-mcp found and not switched off), which binary, why not,
 	// and how many sessions — one child each — are live right now.
@@ -1228,14 +1085,12 @@ type browserStatus struct {
 type browserProfileStatus struct {
 	ID        string        `json:"id"`
 	Name      string        `json:"name"`
-	Proxy     string        `json:"proxy"`
 	CDPURL    string        `json:"cdp_url,omitempty"` // set for a remote browser lasso dials
 	Default   bool          `json:"default"`
 	Running   bool          `json:"running"`
 	StartedAt string        `json:"started_at"`
 	Capped    bool          `json:"capped"`
 	Reason    string        `json:"reason"` // the last launch's failure, while stopped
-	Note      string        `json:"note,omitempty"`
 	Pages     []browserPage `json:"pages"`
 	WSPath    string        `json:"ws_path"`  // /cdp, or /cdp/p/<id>
 	MCPPath   string        `json:"mcp_path"` // /browser-mcp for every profile (its tools take profile)
@@ -1249,11 +1104,9 @@ func (m *browserManager) profileStatus() browserProfileStatus {
 		ID: id, Default: id == defaultBrowserProfile, Pages: []browserPage{},
 		WSPath: cdpPathFor(id), MCPPath: browserMCPPathFor(id),
 	}
-	st.Proxy = m.proxy()
 	m.mu.Lock()
-	p, lastErr, note := m.proc, m.lastErr, m.note
+	p, lastErr := m.proc, m.lastErr
 	m.mu.Unlock()
-	st.Note = note
 	if p == nil {
 		st.Reason = lastErr
 		return st
@@ -1281,14 +1134,12 @@ func (m *browserManager) status() browserStatus {
 		bin, reason, ok = raw, "", true
 	}
 	st.Available, st.Binary = ok, bin
-	st.Proxy = m.proxy()
 	// Rounded up, so a sub-minute idle (LASSO_BROWSER_IDLE=40s) does not read as
 	// 0 — which is what "never" looks like.
 	st.IdleMinutes = int((m.cfg.Idle + time.Minute - 1) / time.Minute)
 	m.mu.Lock()
-	p, lastErr, note := m.proc, m.lastErr, m.note
+	p, lastErr := m.proc, m.lastErr
 	m.mu.Unlock()
-	st.Note = note
 	switch {
 	case !ok:
 		st.Reason = reason
@@ -1356,76 +1207,5 @@ func (m *browserManager) serveStatus(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, st)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-	}
-}
-
-func (m *browserManager) serveProxy(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if m == nil {
-		http.Error(w, "the shared browser is not configured", http.StatusServiceUnavailable)
-		return
-	}
-	var body struct {
-		Proxy string `json:"proxy"`
-	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body); err != nil {
-		http.Error(w, "bad json", http.StatusBadRequest)
-		return
-	}
-	m.writeProxyResult(w, m.applyProxy(r.Context(), body.Proxy), m.status)
-}
-
-// errBadProxy marks an applyProxy failure that is the caller's input, which
-// the HTTP handlers answer with 400 and the validator's sentence.
-type errBadProxy struct{ error }
-
-// applyProxy validates, stores and (when the browser runs) applies a proxy.
-// --proxy-server is read once, at launch, so a running browser only takes a
-// new proxy by being relaunched, which reopens the pages it had.
-func (m *browserManager) applyProxy(ctx context.Context, raw string) error {
-	proxy, err := validateBrowserProxy(raw)
-	if err != nil {
-		return errBadProxy{err}
-	}
-	if proxy != "" && m.remoteURL() != "" {
-		return errBadProxy{errRemoteProxy}
-	}
-	prev := m.proxy()
-	save := m.saveProxy
-	if save == nil {
-		save = func(v string) error { return setSetting(browserProxySetting, v) }
-	}
-	if err := save(proxy); err != nil {
-		return fmt.Errorf("save: %w", err)
-	}
-	if proxy != prev && m.current() != nil {
-		return m.relaunch(ctx, "proxy changed")
-	}
-	return nil
-}
-
-// writeProxyResult answers a proxy change: 400 for a proxy that did not
-// validate, 500 for one that could not be stored, 502 (with the status, whose
-// reason says why) for one stored but not applied, and the status otherwise.
-func (m *browserManager) writeProxyResult(w http.ResponseWriter, err error, status func() browserStatus) {
-	var bad errBadProxy
-	switch {
-	case err == nil:
-		writeJSON(w, status())
-	case errors.As(err, &bad):
-		http.Error(w, bad.Error(), http.StatusBadRequest)
-	case strings.HasPrefix(err.Error(), "save: "):
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	default:
-		st := status()
-		if st.Reason == "" {
-			st.Reason = err.Error()
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
-		_ = json.NewEncoder(w).Encode(st)
 	}
 }

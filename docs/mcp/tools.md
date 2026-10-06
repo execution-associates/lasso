@@ -306,31 +306,31 @@ Returns:
 
 Lists the shared browser's profiles. Takes no parameters.
 
-Returns `profiles`, each with `id`, `name`, `proxy`, `default`, `running`, `tabs` (only while it runs), `mcp_endpoint` (the one `/browser-mcp` URL; pass this profile's `id` as `profile` to its tools), `ws_endpoint` (this profile's own CDP websocket) and `note`.
+Returns `profiles`, each with `id`, `name`, `cdp_url` (for a remote browser), `default`, `running`, `tabs` (only while it runs), `mcp_endpoint` (the one `/browser-mcp` URL; pass this profile's `id` as `profile` to its tools), `ws_endpoint` (this profile's own CDP websocket) and `note`.
 
 ### `create_browser_profile`
 
-Creates a profile: a separate Chromium with its own persistent cookies and logins and, optionally, a proxy for all its traffic. It appears in the Browser tab's profile picker at once and starts on first use. The `/browser-mcp` server an agent already has drives it immediately, with no reconnect.
+Creates a profile: a separate Chromium with its own persistent cookies and logins. It appears in the Browser tab's profile picker at once and starts on first use. The `/browser-mcp` server an agent already has drives it immediately, with no reconnect.
 
 | parameter | type | | description |
 | --- | --- | --- | --- |
 | `name` | string | | Display name, e.g. `"Work"` or `"US exit"`. |
 | `id` | string | optional | 1-32 lowercase letters, digits or dashes. Derived from the name when omitted. It is the `profile` value for `/browser-mcp` tools and appears in the CDP URL `/cdp/p/<id>`. |
-| `proxy` | string | optional | `scheme://host[:port]` with scheme `socks5`, `socks4`, `http` or `https`. No credentials (Chromium cannot authenticate to a SOCKS proxy) and no `socks5h` (Chromium's `socks5` already resolves DNS through the proxy). Omit for a direct connection. |
+| `cdp_url` | string | optional | Makes the profile a remote browser lasso dials instead of launching: its DevTools HTTP base, `http://host:port` or `https://host[:port]`. |
 
 Returns the profile, in the same shape as a `list_browser_profiles` entry.
 
 ### `update_browser_profile`
 
-Renames a profile and/or changes its proxy. Pass only what changes.
+Renames a profile and/or changes its `cdp_url`. Pass only what changes.
 
 | parameter | type | | description |
 | --- | --- | --- | --- |
 | `profile` | string | | The profile to change. |
 | `name` | string | optional | New display name. |
-| `proxy` | string | optional | New proxy, or `""` for a direct connection. Omit to leave it unchanged. |
+| `cdp_url` | string | optional | New remote browser address, or `""` for a browser lasso launches. Omit to leave it unchanged. |
 
-At least one of `name` or `proxy` is needed. A proxy change on a running profile relaunches its Chromium, since Chromium reads its proxy once at launch: open tabs' URLs are reopened, but tab ids change, any CDP connection to it is closed, and `/browser-mcp` page ids for that profile are gone (call `list_pages` again). The default profile can be renamed and re-proxied too. Returns the updated profile.
+At least one of `name` or `cdp_url` is needed. A `cdp_url` change lets go of the browser the profile was using, so `/browser-mcp` page ids for that profile are gone (call `list_pages` again). The default profile can be renamed and pointed at a remote browser too. Returns the updated profile.
 
 ### `delete_browser_profile`
 

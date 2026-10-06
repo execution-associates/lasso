@@ -19,7 +19,7 @@ const sharedBrowserDescription = "To drive the browser, add lasso's browser MCP 
 
 type sharedBrowserIn struct {
 	Start   *bool  `json:"start,omitempty" jsonschema:"Start the browser if it is not running (default true). Pass false to only report its state."`
-	Profile string `json:"profile,omitempty" jsonschema:"Browser profile (id or display name; list_browser_profiles shows them). Each profile is its own Chromium with its own cookies, logins and proxy, and its own endpoints. Omit for the default profile."`
+	Profile string `json:"profile,omitempty" jsonschema:"Browser profile (id or display name; list_browser_profiles shows them). Each profile is its own Chromium with its own cookies and logins, and its own endpoints. Omit for the default profile."`
 }
 
 type sharedBrowserOut struct {

@@ -88,7 +88,7 @@ The **Browser** tab shows a web page beside the terminal, so you can watch a dev
 
 The mode you pick is saved on the server, so every device opens the same one. Without a Chromium on lasso's machine, the tab uses Iframe and says why.
 
-**Profiles.** In Agent mode, the bar along the bottom of the tab picks the **browser profile**. Each profile is its own Chromium with its own cookies, logins and optional proxy; a dot marks the ones running, and a proxied profile shows `via <host>`. The settings button beside it opens **Browser profiles**, where you can create, rename and delete profiles and set each one's proxy (`socks5://host:1080`; empty means direct). See [Shared browser](../concepts/shared-browser.md).
+**Profiles.** In Agent mode, the bar along the bottom of the tab picks the **browser profile**. Each profile is its own Chromium with its own cookies and logins; a dot marks the ones running. The settings button beside it opens **Browser profiles**, where you can create, rename and delete profiles. See [Shared browser](../concepts/shared-browser.md).
 
 **Links from the terminal.** A link clicked in the terminal opens here. It opens in Iframe mode, since a link you click is your own page rather than one to put in front of every agent; the exception is an `http://` link on an HTTPS lasso, which goes to the Agent browser (or a new tab if there is none). `Cmd`/`Ctrl`-click opens a new browser tab instead. The setting is **Settings → General → Terminal & browser → Open terminal links in the sidebar browser**.
 
@@ -152,7 +152,6 @@ Settings has two panes, **General** and **Themes**. Each pane is a list of colla
 - **Open terminal links in the sidebar browser** (on by default). See [Browser](#browser).
 - **Shared browser**: whether lasso's Chromium is running, its resource cap and open pages, with **Start**, **Restart** and **Stop**, the browser binary, and any problem that keeps it from running.
 - **Browser tab mode**: **Agent** or **Iframe**.
-- **Proxy**: a proxy for the default profile's traffic (`socks5://`, `socks4://`, `http://` or `https://` plus `host:port`).
 - **Connect an agent**: the `/browser-mcp` URL, a ready-to-paste `claude mcp add` command and the raw CDP endpoint, each with a copy button. See [Browser MCP and CDP](../mcp/browser-mcp.md).
 
 **Notifications**

@@ -40,7 +40,7 @@ chrome-devtools-mcp only speaks stdio, so lasso bridges it: each MCP session get
 
 - **Lazy.** Connecting starts nothing. lasso answers `initialize` and the tool list from a copy it learned once per lasso process, so a user-scope entry loaded by every agent session on a machine costs nothing until one of them browses. The process for a profile starts on the first tool call for that profile.
 - **Per session.** chrome-devtools-mcp keeps per-client state (the selected page, console and network buffers, emulation settings), so each agent gets its own and nobody steers anyone else's page.
-- **Profile restarts.** When a profile's browser stops or relaunches (an idle stop, a proxy change, a crash), only that profile's process in each session is closed. The next call to that profile starts a fresh one, with new page ids. The session's processes for other profiles carry on.
+- **Profile restarts.** When a profile's browser stops or restarts (an idle stop, a remote browser restarting, a crash), only that profile's process in each session is closed. The next call to that profile starts a fresh one, with new page ids. The session's processes for other profiles carry on.
 - **Session end.** A session ends when the client closes it, after **30 minutes with no requests** (a long tool call does not count as idle), or when lasso stops. Every process the session holds goes with it.
 - **The browser's own idle stop.** A profile's Chromium stops after `-browser-idle` (15 minutes by default) with no `/cdp` client connected, and its open tabs close with it. A connected chrome-devtools-mcp process holds a CDP connection, which keeps the browser up.
 
@@ -78,7 +78,7 @@ lasso does not fall back to `npx chrome-devtools-mcp@latest`: fetching an unpinn
 const browser = await chromium.connectOverCDP("ws://127.0.0.1:8090/cdp")
 ```
 
-Use `wss://` when lasso is on HTTPS. The address is stable: it survives Chromium being stopped, relaunched, or restarted with a new proxy, so it is safe to put in an agent's config. Connecting also starts the browser if it is stopped.
+Use `wss://` when lasso is on HTTPS. The address is stable: it survives Chromium being stopped or restarted, so it is safe to put in an agent's config. Connecting also starts the browser if it is stopped.
 
 ### Discovering profiles over CDP
 
@@ -88,7 +88,7 @@ A client that speaks only CDP can find every profile without adding an MCP serve
 curl -s http://127.0.0.1:8090/cdp/profiles
 ```
 
-The answer is `{"profiles": [...]}`, the default profile first. Each entry has `id`, `name`, `default`, `proxy` (when set), `running`, `started_at` (while running), `tabs` (the open pages, while running), `ws_path` and `ws_url` (the websocket to hand `connectOverCDP`), `http_path` and `http_url` (the same prefix for `/json/list` and `/json/version`), and a `note` when something is wrong, such as why a stopped profile cannot start. Only `GET` (and `HEAD`) are accepted, and the response is never cached, so a new profile shows up at once. Listing never starts a browser: a profile that is not running is reported as stopped. The route sits behind the same authentication and Origin check as the rest of `/cdp`.
+The answer is `{"profiles": [...]}`, the default profile first. Each entry has `id`, `name`, `default`, `cdp_url` (for a remote browser), `running`, `started_at` (while running), `tabs` (the open pages, while running), `ws_path` and `ws_url` (the websocket to hand `connectOverCDP`), `http_path` and `http_url` (the same prefix for `/json/list` and `/json/version`), and a `note` when something is wrong, such as why a stopped profile cannot start. Only `GET` (and `HEAD`) are accepted, and the response is never cached, so a new profile shows up at once. Listing never starts a browser: a profile that is not running is reported as stopped. The route sits behind the same authentication and Origin check as the rest of `/cdp`.
 
 ## Authentication
 
