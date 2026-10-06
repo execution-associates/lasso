@@ -78,7 +78,7 @@ The leading `-` in `EnvironmentFile=-...` makes the file optional, so the unit s
 
 lasso does not need to start herdr: it connects to herdr's socket. If herdr's server ends up started from inside lasso's terminal, it lives in lasso's cgroup, and restarting `lasso.service` (which `lasso update` does) stops the whole cgroup, taking herdr and every agent pane with it. Run herdr's server under its own unit so lasso can restart freely.
 
-This is the shape lasso itself writes when you use **set up** on a remote host in the host menu, and it works locally too (`~/.config/systemd/user/herdr.service`):
+This is the shape lasso itself writes when you use **set up** on a remote host in the host menu, and it works locally too (`~/.config/systemd/user/herdr.service`). `ExecStart` is `herdr-serve`, a small wrapper that **set up** installs in `~/.local/bin` (its source is `src/assets/herdr-serve.sh`):
 
 ```ini
 [Unit]
@@ -90,15 +90,23 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=%h
 Environment=PATH=%h/.local/bin:%h/.local/share/mise/shims:/usr/local/bin:/usr/bin:/bin
-ExecStart=%h/.local/bin/herdr server
+Environment=HERDR_SERVE_BIN=%h/.local/bin/herdr
+ExecStart=%h/.local/bin/herdr-serve
 ExecStop=%h/.local/bin/herdr server stop
 KillMode=mixed
 Restart=on-failure
 RestartSec=2
+RestartSteps=8
+RestartMaxDelaySec=300
 
 [Install]
 WantedBy=default.target
 ```
+
+Why the wrapper and the backoff:
+
+- **`herdr update --handoff` needs the wrapper.** A handoff starts a successor server and the old one exits cleanly. With a bare `ExecStart=herdr server`, systemd reads that exit as the service stopping, its `ExecStop` stops the successor, and every pane dies. The next herdr client to connect (a saved-machine bridge, a terminal) then starts a server outside systemd. `herdr-serve` stays the main process and supervises the successor, so the handoff keeps every pane.
+- **The backoff caps the damage when a server runs outside the unit anyway.** That server holds the socket, so every start fails with "already running". A fixed 2s retry runs forever at 2s. The backoff slows retries to one every 5 minutes and still takes over once that server is gone. `RestartSteps`/`RestartMaxDelaySec` need systemd 254 or newer; older versions ignore them with a warning.
 
 ### SSH keys in an agent
 

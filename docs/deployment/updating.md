@@ -84,4 +84,4 @@ If the update fails because herdr can't write its own install directory (a syste
 Two other states you may see on a row:
 
 - **restart needed**: the host has a newer herdr installed than the server it is running. Another update won't help, since herdr reports it is already up to date. Restart herdr on that host to pick up the new binary. lasso won't do that for you, because a server it stops may have nothing to bring it back.
-- **set up**: the host is reachable but no herdr server is running. This button installs herdr if it is missing, writes and starts a `herdr.service` systemd user unit, enables lingering, and installs herdr's agent integrations. It needs a Linux host with systemd.
+- **set up**: the host is reachable but no herdr server is running. This button installs herdr if it is missing, writes and starts a `herdr.service` systemd user unit (run through the handoff-safe `herdr-serve` wrapper, see [systemd](./systemd.md#run-herdr-as-its-own-unit)), enables lingering, and installs herdr's agent integrations. It needs a Linux host with systemd.
