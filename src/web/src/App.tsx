@@ -683,9 +683,17 @@ function Shell() {
         e.preventDefault()
         // From a reading view the question is "which conversation next",
         // across the fleet — herdr's search only knows one machine's panes and
-        // answers by moving a terminal nobody is looking at.
+        // answers by moving a terminal nobody is looking at. The grid already
+        // has that search in its own nav, filtering the cards in place, so
+        // there ⌘K just puts the cursor in it rather than opening a second one.
         if (leftView === "terminal") openHerdrGoto()
-        else setSwitcherOpen(true)
+        else if (leftView === "agents") {
+          const f = document.querySelector<HTMLInputElement>(
+            "input[data-agents-filter]"
+          )
+          f?.focus()
+          f?.select()
+        } else setSwitcherOpen(true)
       } else if (k === "o" || k === "i") {
         e.preventDefault()
         setNewTab(k === "o" ? "agent" : "terminal")
