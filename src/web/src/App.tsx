@@ -840,8 +840,7 @@ function Shell() {
                   keeps its width while N transcripts (not N terminals) are read
                   above it. It comes FIRST so a chat opened from it paints on top of
                   the kept, invisible grid. */}
-              {(leftView === "agents" ||
-                (leftView === "chat" && keepGrid)) && (
+              {(leftView === "agents" || (leftView === "chat" && keepGrid)) && (
                 <div
                   className={cn(
                     "chat-overlay absolute inset-0 z-20 flex",
@@ -856,6 +855,7 @@ function Shell() {
                     className="min-w-0 flex-1"
                     onNewAgent={openNew}
                     onShowChat={() => setLeftView("chat")}
+                    onShowTerminal={() => setLeftView("terminal")}
                   />
                 </div>
               )}

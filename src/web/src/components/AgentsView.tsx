@@ -7,29 +7,21 @@ import {
   Pin,
   PinOff,
   Plus,
+  Power,
   Search,
   Send,
   Server,
-  SquareX,
   X,
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
-import { AgentLines } from "@/components/AgentParts"
+import { AgentLines, EndAgentDialog } from "@/components/AgentParts"
+import { ChatView } from "@/components/ChatView"
 import { type GridGroup, GroupedGrid } from "@/components/GroupedGrid"
 import { Markdown } from "@/components/Markdown"
 import { UserBubble } from "@/components/UserBubble"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Orb } from "@/components/ui/orb"
 import {
   type AgentRepoGroup,
@@ -84,6 +76,10 @@ const PIN_PRUNE_MISSES = 3
 // header shows, the harness and cwd it works in, the machine it runs on, and
 // what was actually said — user and agent prose plus tool headings, subjects
 // and result lines. Thinking is skipped (folded in the UI, skipped here).
+// The history.state mark of the chat modal's entry (see openCard).
+const MODAL_STATE = "lassoAgentChat"
+type ModalState = { [MODAL_STATE]?: boolean }
+
 function agentSearchText(pane: HostPane, chat?: ChatPayload): string {
   const bits: (string | undefined)[] = [
     agentName(pane),
@@ -116,6 +112,7 @@ function agentSearchText(pane: HostPane, chat?: ChatPayload): string {
 export function AgentsView({
   active = true,
   onShowChat,
+  onShowTerminal,
   onNewAgent,
   className,
 }: {
@@ -127,6 +124,7 @@ export function AgentsView({
   // the agent is elsewhere), then this flips the view — the chat follows the
   // same pane_id over SSE that the terminal does.
   onShowChat: () => void
+  onShowTerminal: () => void
   onNewAgent: () => void
   className?: string
 }) {
@@ -352,10 +350,41 @@ export function AgentsView({
   const flipRef = useFlip(orderKey)
   const blocked = visible.filter((p) => p.agent_status === "blocked").length
   const working = visible.filter((p) => p.agent_status === "working").length
-  const openCard = (p: HostPane) => async () => {
-    onShowChat()
-    await focusAgent(p)
+  // A card's ⤢ opens its conversation in a MODAL over the grid. It reads the
+  // agent by address and leaves herdr's focus alone, so looking at an agent
+  // from here does not move the TUI or any other client; the modal's own ⤢ and
+  // "Open in terminal" are the explicit ways to focus it.
+  //
+  // The modal is a history entry of its own (same URL, marked state), so Back
+  // closes it, which is the phone's natural way out. Every other dismissal
+  // goes through history.back() too, so the entry never lingers to make a
+  // later Back a no-op; what to do once it is closed waits for the popstate.
+  const [chatOf, setChatOf] = React.useState<HostPane | null>(null)
+  const afterClose = React.useRef<(() => void) | null>(null)
+  React.useEffect(() => {
+    const onPop = () => {
+      if ((window.history.state as ModalState | null)?.[MODAL_STATE]) return
+      setChatOf(null)
+      const then = afterClose.current
+      afterClose.current = null
+      then?.()
+    }
+    window.addEventListener("popstate", onPop)
+    return () => window.removeEventListener("popstate", onPop)
+  }, [])
+  const openCard = (p: HostPane) => () => {
+    setChatOf(p)
+    window.history.pushState({ [MODAL_STATE]: true }, "", window.location.href)
   }
+  const dismissChat = React.useCallback((then?: () => void) => {
+    if ((window.history.state as ModalState | null)?.[MODAL_STATE]) {
+      afterClose.current = then ?? null
+      window.history.back()
+      return
+    }
+    setChatOf(null)
+    then?.()
+  }, [])
   const byKey = React.useMemo(
     () => new Map(visible.map((p) => [paneKey(p), p])),
     [visible]
@@ -547,6 +576,53 @@ export function AgentsView({
               </>
             )}
       </div>
+      <Dialog
+        open={chatOf !== null}
+        onOpenChange={(open) => {
+          if (!open) dismissChat()
+        }}
+      >
+        {/* md+: a large centred window over the dimmed grid. Below md: a
+            full-screen sheet, sized to the visual viewport (--vvh) so the
+            composer stays above a phone's keyboard like the app's own root. */}
+        <DialogContent
+          showCloseButton={false}
+          aria-describedby={undefined}
+          // Focus the window, not its first control: that is the title's
+          // rename button, and the composer would pop a phone's keyboard over
+          // a conversation opened to be read. Esc still works from here.
+          onOpenAutoFocus={(e) => {
+            e.preventDefault()
+            ;(e.currentTarget as HTMLElement).focus()
+          }}
+          className="flex h-[85dvh] max-w-none flex-col gap-0 overflow-hidden p-0 max-md:top-0 max-md:left-0 max-md:h-[var(--vvh,100dvh)] max-md:w-full max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-none md:max-w-3xl"
+        >
+          <DialogTitle className="sr-only">
+            {chatOf ? agentName(chatOf) : "Agent"} chat
+          </DialogTitle>
+          {chatOf && (
+            <ChatView
+              key={paneKey(chatOf)}
+              className="min-h-0 flex-1"
+              address={{ host: chatOf.host, paneID: chatOf.pane_id }}
+              modal={{
+                onDismiss: () => dismissChat(),
+                onOpenFull: () =>
+                  dismissChat(() => {
+                    onShowChat()
+                    void focusAgent(chatOf)
+                  }),
+                onOpenTerminal: () =>
+                  dismissChat(() => {
+                    onShowTerminal()
+                    void focusAgent(chatOf)
+                  }),
+                onEnd: () => void closeAgent(chatOf),
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -774,8 +850,8 @@ function AgentCard({
           <button
             type="button"
             onClick={onOpen}
-            title="Open as single chat"
-            aria-label="Open as single chat"
+            title="Open chat"
+            aria-label="Open chat"
             className="flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             <Maximize2 className="size-3.5" />
@@ -783,11 +859,11 @@ function AgentCard({
           <button
             type="button"
             onClick={() => setConfirmClose(true)}
-            title="Close this pane"
-            aria-label="Close this pane"
-            className="flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"
+            title="End agent…"
+            aria-label="End agent…"
+            className="flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-destructive"
           >
-            <SquareX className="size-3.5" />
+            <Power className="size-3.5" />
           </button>
         </div>
       </header>
@@ -947,21 +1023,13 @@ function AgentCard({
       </footer>
       {/* Asked, not done: this ends the agent in the pane, and the transcript
           stays on disk either way (same contract as the single chat). */}
-      <AlertDialog open={confirmClose} onOpenChange={setConfirmClose}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Close this pane?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Herdr closes {agentName(pane)} and the agent running in it stops.
-              Its session transcript stays on disk.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={onClose}>Close pane</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <EndAgentDialog
+        open={confirmClose}
+        onOpenChange={setConfirmClose}
+        name={agentName(pane)}
+        host={pane.host}
+        onEnd={onClose}
+      />
     </article>
   )
 }

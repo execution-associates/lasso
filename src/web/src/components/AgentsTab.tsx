@@ -1,16 +1,6 @@
-import { Search, SquareX, X } from "lucide-react"
+import { Power, Search, X } from "lucide-react"
 import * as React from "react"
-import { AgentLines } from "@/components/AgentParts"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
+import { AgentLines, EndAgentDialog } from "@/components/AgentParts"
 import { NO_AUTOCORRECT } from "@/components/ui/input"
 import { Orb } from "@/components/ui/orb"
 import {
@@ -152,32 +142,17 @@ export function AgentsTab({ onPick }: { onPick: () => void }) {
           </div>
         )}
       </div>
-      <AlertDialog
+      <EndAgentDialog
         open={closing !== null}
         onOpenChange={(open) => {
           if (!open) setClosing(null)
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Close this pane?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Herdr closes {closing ? agentName(closing) : "this pane"} and the
-              agent running in it stops. Its transcript stays on disk.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (closing) void closeAgent(closing)
-              }}
-            >
-              Close pane
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        name={closing ? agentName(closing) : "this agent"}
+        host={closing?.host}
+        onEnd={() => {
+          if (closing) void closeAgent(closing)
+        }}
+      />
     </div>
   )
 }
@@ -221,11 +196,11 @@ function Tile({
       <button
         type="button"
         onClick={() => onClose(pane)}
-        title={`Close ${agentName(pane)}'s pane`}
-        aria-label={`Close ${agentName(pane)}'s pane`}
+        title={`End ${agentName(pane)}`}
+        aria-label={`End ${agentName(pane)}`}
         className="flex flex-none items-center px-2 text-muted-foreground transition-colors hover:text-destructive"
       >
-        <SquareX className="size-4" />
+        <Power className="size-4" />
       </button>
     </div>
   )
