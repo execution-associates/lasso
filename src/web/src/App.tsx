@@ -1198,7 +1198,7 @@ function Shell() {
             onClick={toggleAgentsView}
           >
             {leftView === "agents" ? <SquareTerminal /> : <Users />}
-            {leftView === "agents" ? "Terminal" : "Agents"}
+            {leftView === "agents" ? "Terminal" : "Grid"}
           </Button>
           {/* The label names where it goes, not where you are: one glance says
               what the click does. Below md this row is gone and the way in is
