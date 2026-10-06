@@ -283,10 +283,6 @@ type hostPane struct {
 	// milliseconds (see paneTranscriptAt): the agents lists' recency order.
 	// Absent for a pane with no readable transcript.
 	TranscriptAt int64 `json:"transcript_at,omitempty"`
-	// TouchedAt is when the human last acted on this agent through lasso, in
-	// unix milliseconds (see touchAgent): the grid's "Recent" order. Absent
-	// when nobody has.
-	TouchedAt int64 `json:"touched_at,omitempty"`
 	// Repo names the git repo the pane works in (its directory name), for the
 	// agents grid's by-repo grouping. See paneRepoName for how it is decided.
 	Repo string `json:"repo,omitempty"`
@@ -497,11 +493,6 @@ func serveUIState(w http.ResponseWriter, r *http.Request) {
 		// blob is normalized on read, so only a caller can make this invalid.
 		if !validAppearanceMode(us.AppearanceMode) {
 			http.Error(w, fmt.Sprintf("appearance_mode must be one of %s", strings.Join(appearanceModes, ", ")), http.StatusBadRequest)
-			return
-		}
-		us.AgentsSort = canonicalAgentsSort(us.AgentsSort)
-		if !validAgentsSort(us.AgentsSort) {
-			http.Error(w, fmt.Sprintf("agents_sort must be one of %s", strings.Join(agentsSorts, ", ")), http.StatusBadRequest)
 			return
 		}
 		if !validBrowserMode(us.BrowserMode) {
@@ -1326,7 +1317,6 @@ func enumerateHostPanes(b Backend, host, hostLabel string) ([]hostPane, error) {
 	}
 	out := make([]hostPane, 0, len(pl.Panes))
 	transcriptAt := paneTranscriptTimes(b, host, pl.Panes)
-	touchedAt := agentTouches(host)
 	for _, p := range pl.Panes {
 		kind, isAgent := agentKind[p.PaneID]
 		status := p.AgentStatus
@@ -1375,7 +1365,6 @@ func enumerateHostPanes(b Backend, host, hostLabel string) ([]hostPane, error) {
 			Focused:        p.Focused,
 			Prompt:         prompt,
 			TranscriptAt:   transcriptAt[p.PaneID],
-			TouchedAt:      touchedAt[p.PaneID],
 		})
 	}
 	// Newest first: herdr assigns workspaces/tabs monotonically increasing numbers

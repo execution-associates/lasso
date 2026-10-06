@@ -48,8 +48,6 @@ const DEFAULTS: UIState = {
   // on the tab's own host, which is what it always did.
   creator_default_host: "",
   creator_last_host: "",
-  // Mirrors getUIState in db.go: the grid's historical order.
-  agents_sort: "priority",
   agents_group_host: true,
   agents_group_repo: false,
   chat_sidebar: false,
