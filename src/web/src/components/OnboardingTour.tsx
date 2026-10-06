@@ -94,7 +94,7 @@ export const TOUR_STEPS: TourStep[] = [
     only: "desktop",
     body: (
       <>
-        Agents lays out every agent as its own card, grouped by machine, so you
+        Grid lays out every agent as its own card, grouped by machine, so you
         can keep an eye on several and answer whichever is waiting on you.{" "}
         <Kbd>⌘E</Kbd>
       </>

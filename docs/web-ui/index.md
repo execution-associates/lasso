@@ -16,7 +16,7 @@ The left column is herdr itself, served by `ttyd`. Anything you type goes to her
 The same column has two reading views that cover the terminal without unmounting it:
 
 - **Chat** renders the focused agent's session as a conversation with a composer to reply. Toggle it with the footer's **Chat** button or `⌘J`.
-- **Agents** lays out every agent lasso can reach as a grid of cards, one transcript per card, grouped by machine. Toggle it with the footer's **Agents** button or `⌘E`.
+- **Grid** lays out every agent lasso can reach as a grid of cards, one transcript per card, grouped by machine. Toggle it with the footer's **Grid** button or `⌘E`.
 
 Both are described in [The terminal](./terminal.md#chat-view).
 
@@ -35,11 +35,11 @@ At desktop widths (768 px and wider) a single footer row runs along the bottom. 
 
 | Control | What it does |
 | --- | --- |
-| Left sidebar toggle | In the terminal, toggles herdr's own sidebar (it sends herdr's `prefix` + `b` chord). In Chat, shows or hides lasso's agent list. Disabled in the Agents grid. `⌘B`. |
+| Left sidebar toggle | In the terminal, toggles herdr's own sidebar (it sends herdr's `prefix` + `b` chord). In Chat, shows or hides lasso's agent list. Disabled in the Grid. `⌘B`. |
 | **Switch host** (server icon) | Opens the host menu: the local machine, every reachable alias from your SSH config with its herdr version and any update or set-up action, and lasso's own version. Picking a host moves this browser tab to it. See [Hosts](../concepts/hosts.md). |
 | **Keyboard shortcuts** (keyboard icon) | Opens the shortcut reference. `⌘/`. |
 | Usage | Each tracked provider's quota windows. They scroll inside their own track, so a long list never pushes the buttons offscreen. See [Usage](./sidebar.md#usage). |
-| **Agents** | Switches the left column to the Agents grid, and back (the button then reads **Terminal**). `⌘E`. |
+| **Grid** | Switches the left column to the Grid, and back (the button then reads **Terminal**). `⌘E`. |
 | **Chat** | Switches the left column to the chat view, and back (the button then reads **Terminal**). `⌘J`. |
 | **New** | Opens the [New dialog](./new-agent.md) on its Agent form. `⌘O` opens it on Agent, `⌘I` on Terminal. |
 | **Sidebar** | Shows or hides the right sidebar. While it is collapsed, the button carries the working tree's git status badge so you can still see it. `⌘\`. |
@@ -68,7 +68,7 @@ Adding lasso to your home screen, HTTPS, and enabling notifications are covered 
 
 The first time anyone opens a lasso, a short tour walks through the interface. It spotlights each control in turn and lets you try the ones that change a view in place (Chat, Agents, the sidebar tabs). Use `←` and `→` to move and `Esc` to skip.
 
-On a desktop it covers the terminal, **New**, **Chat**, **Agents**, the host menu, the sidebar and the shortcut reference. On a phone it covers the terminal and the input dial, since the footer controls do not exist there.
+On a desktop it covers the terminal, **New**, **Chat**, **Grid**, the host menu, the sidebar and the shortcut reference. On a phone it covers the terminal and the input dial, since the footer controls do not exist there.
 
 Finishing or skipping the tour is recorded on the server, so it does not reappear in other browsers. Replay it from **Settings → General → Take the tour**.
 
@@ -82,7 +82,7 @@ Every app shortcut uses the `⌘` key only, never `Ctrl`, so none of them collid
 
 | Keys | Action |
 | --- | --- |
-| `⌘K` | In the terminal, opens herdr's own pane search (the same as herdr's `Ctrl-B g`). In Chat or the Agents grid, opens a fleet-wide agent picker instead. |
+| `⌘K` | In the terminal, opens herdr's own pane search (the same as herdr's `Ctrl-B g`). In Chat or the Grid, opens a fleet-wide agent picker instead. |
 | `⌘O` | New agent |
 | `⌘I` | New terminal (from Chat, returns to the terminal first) |
 | `⌘/` | Toggle the keyboard shortcut reference |
@@ -92,7 +92,7 @@ Every app shortcut uses the `⌘` key only, never `Ctrl`, so none of them collid
 | Keys | Action |
 | --- | --- |
 | `⌘J` | Chat ⟷ terminal |
-| `⌘E` | Agents grid ⟷ terminal |
+| `⌘E` | Grid ⟷ terminal |
 | `⌘B` | Left sidebar: herdr's in the terminal, the agent list in Chat |
 | `⌘\` | Toggle the right sidebar |
 | `⌘⇧F` | Open the sidebar on Files |
@@ -109,6 +109,6 @@ Every app shortcut uses the `⌘` key only, never `Ctrl`, so none of them collid
 | `⌘S` (or `Ctrl-S`) | File viewer | Save |
 | `Esc` | File viewer | Close |
 
-In the Agents grid, each card's composer sends on `↩` and breaks the line on `⇧↩`.
+In the Grid, each card's composer sends on `↩` and breaks the line on `⇧↩`.
 
 When the Browser tab's Agent mode has focus, it forwards keys to the page except the app shortcuts above, which still reach lasso.
