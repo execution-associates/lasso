@@ -95,6 +95,7 @@ const LANGS: Record<string, string> = {
   ex: "elixir",
   exs: "elixir",
   erl: "erlang",
+  gleam: "gleam",
   hs: "haskell",
   clj: "clojure",
   diff: "diff",
