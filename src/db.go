@@ -344,6 +344,12 @@ type uiState struct {
 	// keeps it.
 	AgentsGroupHost bool `json:"agents_group_host"`
 	AgentsGroupRepo bool `json:"agents_group_repo"`
+	// ChatSidebar is whether the chat view's left agent list is open.
+	// Server-owned like the grid's toggles, so a reload, another tab and the
+	// phone all open the chat the way it was last left. It takes no width from
+	// the terminal (the chat is an overlay over it), so syncing it cannot
+	// reflow anyone's pty. Closed by default.
+	ChatSidebar bool `json:"chat_sidebar"`
 	// PinnedAgents are the agents grid's pinned cards, in the order they were
 	// pinned, each as the frontend's paneKey (host + NUL + pane id, since pane
 	// ids are unique per host only). A pinned card sits above every other card

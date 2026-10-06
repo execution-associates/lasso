@@ -68,9 +68,16 @@ export function AgentLines({
   pane,
   current,
   meta,
+  name,
+  hideHost,
 }: {
   pane: HostPane
   current: boolean
+  // Overrides agentName — for a row under a heading that already says the
+  // workspace, where repeating it would leave every row reading the same.
+  name?: string
+  // Drops the machine chip, for a row under a heading that already names it.
+  hideHost?: boolean
   // Trailing row-two content for surfaces with more to say — the grid card's
   // herdr tab and token count. The list surfaces pass nothing and read
   // exactly as before.
@@ -86,17 +93,19 @@ export function AgentLines({
             current ? "text-foreground" : "text-muted-foreground"
           )}
         >
-          {agentName(pane)}
+          {name || agentName(pane)}
         </span>
         <AgentStatus status={pane.agent_status} />
       </span>
       <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-        <span
-          className="shrink-0 rounded-sm bg-muted px-1 text-[10px] text-foreground/70"
-          title={pane.host}
-        >
-          {pane.host_label || pane.host}
-        </span>
+        {!hideHost && (
+          <span
+            className="shrink-0 rounded-sm bg-muted px-1 text-[10px] text-foreground/70"
+            title={pane.host}
+          >
+            {pane.host_label || pane.host}
+          </span>
+        )}
         {sub && <span className="min-w-0 flex-1 truncate">{sub}</span>}
         {meta}
       </span>

@@ -198,6 +198,12 @@ export interface HostPane {
   // the agent, else read off the cwd (a lasso worktree, or a repos_root
   // checkout). Absent when neither names one.
   repo?: string
+  // herdr's own grouping of the pane's workspace (worktree.repo_key): every
+  // checkout of one repo shares the key, and repo_label is the heading herdr's
+  // sidebar gives that group. Absent outside a git checkout or on an older
+  // lasso.
+  repo_key?: string
+  repo_label?: string
   agent?: string
   agent_status?: string
   // Whether an agent is running here. `agent` names the harness when herdr's
@@ -449,6 +455,9 @@ export interface UIState {
   // because an older server never sends them.
   agents_group_host?: boolean
   agents_group_repo?: boolean
+  // Whether the chat view's left agent list is open. Optional because an
+  // older server never sends it.
+  chat_sidebar?: boolean
   // The agents grid's pinned cards, oldest pin first, each a paneKey (host +
   // NUL + pane id). Pinned cards sit above the rest and ignore agents_sort.
   // Read-only here: write it through the agent_pins ops (setAgentPinned).

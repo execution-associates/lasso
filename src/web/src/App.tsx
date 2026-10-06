@@ -249,12 +249,12 @@ function Shell() {
     if (leftView === "agents") setKeepGrid(true)
     else if (leftView === "terminal") setKeepGrid(false)
   }, [leftView])
-  // The chat's own left sidebar: the host's agents, beside the conversation.
-  // Per-TAB, like leftView itself and unlike the right sidebar's synced layout —
-  // it is a property of this reading surface, not a shape the shared pty is
-  // measured against (it takes no width from it: the chat is an overlay over a
-  // terminal that stays sized, so opening this cannot reflow every other pane).
-  const [chatSidebar, setChatSidebar] = React.useState(false)
+  // The chat's own left sidebar: the fleet's agents, beside the conversation.
+  // Server state (ui_state.chat_sidebar), so a reload or another device opens
+  // the chat as it was left. Unlike the right sidebar's layout it needs no
+  // ownership claim: it takes no width from the shared pty (the chat is an
+  // overlay over a terminal that stays sized), and only a click writes it.
+  const chatSidebar = useUIState().chat_sidebar ?? false
   const toggleLeftView = React.useCallback(() => {
     // From the grid the Chat button means the single conversation; otherwise a
     // straight terminal <-> chat flip.
@@ -288,9 +288,10 @@ function Shell() {
   // terminal it is herdr's OWN sidebar — a chord into the TUI, because herdr's
   // socket API has no method for it and reports no state for it either, so the
   // button is an action rather than an indicator. In the chat it is lasso's agent
-  // list, whose state this tab does own.
+  // list, whose state lasso does own (ui_state.chat_sidebar).
   const toggleLeftSidebar = React.useCallback(() => {
-    if (leftView === "chat") setChatSidebar((open) => !open)
+    if (leftView === "chat")
+      patchUIState({ chat_sidebar: !(uiStateNow().chat_sidebar ?? false) })
     else toggleHerdrSidebar()
   }, [leftView])
   const [collapsed, setCollapsed] = React.useState(false)

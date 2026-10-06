@@ -94,3 +94,24 @@ func TestAgentsGroupPatch(t *testing.T) {
 		t.Fatalf("grouping not persisted: %+v", stored)
 	}
 }
+
+// The chat's agent list open/closed is server state: closed on a fresh
+// install, kept across a neighbouring patch, and persisted.
+func TestChatSidebarPatch(t *testing.T) {
+	openTestDB(t)
+
+	if got := postUIState(t, `{"client_id":"A","user_intent":false}`); got.ChatSidebar {
+		t.Fatal("fresh install should have the chat sidebar closed")
+	}
+	postUIState(t, `{"chat_sidebar":true,"client_id":"A","user_intent":true}`)
+	if got := postUIState(t, `{"agents_sort":"recent","client_id":"B","user_intent":true}`); !got.ChatSidebar {
+		t.Fatal("chat_sidebar lost by an unrelated patch")
+	}
+	stored, err := getUIState()
+	if err != nil {
+		t.Fatalf("getUIState: %v", err)
+	}
+	if !stored.ChatSidebar {
+		t.Fatalf("chat_sidebar not persisted: %+v", stored)
+	}
+}

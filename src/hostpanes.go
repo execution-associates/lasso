@@ -8,6 +8,7 @@ import (
 	"log"
 	"maps"
 	"net/http"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -289,6 +290,13 @@ type hostPane struct {
 	// Repo names the git repo the pane works in (its directory name), for the
 	// agents grid's by-repo grouping. See paneRepoName for how it is decided.
 	Repo string `json:"repo,omitempty"`
+	// RepoKey / RepoLabel are herdr's own grouping of the pane's workspace
+	// (workspace.list's worktree.repo_key): every checkout of one repo, main
+	// and linked worktrees alike, shares a key. The label is what herdr's
+	// sidebar heads that group with — see workspaceRepoLabel. Absent when the
+	// workspace is not in a git checkout, or herdr is too old to say.
+	RepoKey   string `json:"repo_key,omitempty"`
+	RepoLabel string `json:"repo_label,omitempty"`
 	// Prompt is the initial prompt the user gave the agent when creating it
 	// (lasso's AgentRecord.Description, not anything herdr knows). It's shipped so
 	// the pane switcher can search the full prompt text; the UI need not display it.
@@ -1215,17 +1223,28 @@ func enumerateHostPanes(b Backend, host, hostLabel string) ([]hostPane, error) {
 		}
 	}
 	wss := map[string]meta{}
+	wsRepo := map[string]string{} // workspace id -> herdr's repo_key
+	repoLabel := map[string]string{}
 	if r, err := b.HerdrCall("workspace.list", map[string]any{}); err == nil {
 		var wl struct {
 			Workspaces []struct {
 				WorkspaceID string `json:"workspace_id"`
 				Label       string `json:"label"`
 				Number      int    `json:"number"`
+				Worktree    *struct {
+					RepoKey  string `json:"repo_key"`
+					RepoName string `json:"repo_name"`
+					Linked   bool   `json:"is_linked_worktree"`
+				} `json:"worktree"`
 			} `json:"workspaces"`
 		}
 		if json.Unmarshal(r, &wl) == nil {
 			for _, w := range wl.Workspaces {
 				wss[w.WorkspaceID] = meta{w.Label, w.Number}
+				if wt := w.Worktree; wt != nil && wt.RepoKey != "" {
+					wsRepo[w.WorkspaceID] = wt.RepoKey
+					repoLabel[wt.RepoKey] = workspaceRepoLabel(repoLabel[wt.RepoKey], w.Label, repoKeyName(wt.RepoKey, wt.RepoName), wt.Linked)
+				}
 			}
 		}
 	}
@@ -1348,6 +1367,8 @@ func enumerateHostPanes(b Backend, host, hostLabel string) ([]hostPane, error) {
 			TerminalTitle:  p.TerminalTitleStripped,
 			Cwd:            cwd,
 			Repo:           paneRepoName(recRepo, cwd, roots),
+			RepoKey:        wsRepo[p.WorkspaceID],
+			RepoLabel:      repoLabel[wsRepo[p.WorkspaceID]],
 			Agent:          kind,
 			AgentStatus:    status,
 			HasAgent:       isAgent,
@@ -1468,4 +1489,30 @@ func paneRepoName(recRepo, cwd string, roots func() []string) string {
 	rel := strings.TrimPrefix(cwd, strings.TrimSuffix(best, "/")+"/")
 	name, _, _ := strings.Cut(rel, "/")
 	return name
+}
+
+// workspaceRepoLabel folds one workspace into its repo group's heading. The
+// main checkout's workspace label wins, as in herdr's sidebar (the jessica
+// repo heads as "Agents" when that is what its workspace is called); with no
+// main checkout open the repo's own name stands in, never a linked worktree's
+// label, which names one task rather than the repo.
+func workspaceRepoLabel(cur, wsLabel, repoName string, linked bool) string {
+	if !linked && wsLabel != "" && wsLabel != "~" {
+		return wsLabel
+	}
+	if cur != "" {
+		return cur
+	}
+	return repoName
+}
+
+// repoKeyName names a repo by its repo_key, the shared .git directory, rather
+// than by herdr's repo_name: an older herdr reports the CHECKOUT's directory
+// there, so a linked worktree named its repo after its own task slug.
+func repoKeyName(repoKey, fallback string) string {
+	k := strings.TrimSuffix(strings.TrimRight(repoKey, "/"), "/.git")
+	if k == repoKey || k == "" {
+		return fallback
+	}
+	return path.Base(k)
 }
