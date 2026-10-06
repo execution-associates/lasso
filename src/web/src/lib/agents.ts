@@ -37,6 +37,102 @@ export function agentName(p: HostPane): string {
   )
 }
 
+// The name of an agent INSIDE its workspace, for a row under that workspace's
+// heading: agentName minus the workspace label, so two agents in one workspace
+// read as their panes or tabs rather than as the same name twice.
+export function agentNameInWorkspace(p: HostPane): string {
+  return p.pane_label || p.tab_label || p.terminal_title || p.pane_id
+}
+
+// The fleet as herdr's own sidebar draws it: machine → repo → agents. A repo
+// is herdr's worktree.repo_key, so a lasso worktree's workspace sits under the
+// repo it was cut from, beside the main checkout's; a workspace outside any git
+// checkout is a group of its own. Keys carry the host, since herdr's ids (and
+// a repo_key path) are only unique per machine.
+export interface AgentTreeGroup {
+  key: string
+  label: string
+  panes: HostPane[]
+}
+
+export interface AgentHostNode {
+  host: string
+  label: string
+  groups: AgentTreeGroup[]
+}
+
+// buildAgentTree keeps the order it is given inside each host: a group sits
+// where its first member did and its members keep their relative order, so a
+// list sorted by priority stays sorted group by group. Hosts are ordered with
+// `firstHost` (the tab's own) leading and the rest by name, so a machine does
+// not jump up the list each time one of its agents changes state.
+export function buildAgentTree(
+  panes: HostPane[],
+  firstHost?: string
+): AgentHostNode[] {
+  const hosts = new Map<string, AgentHostNode>()
+  const groups = new Map<string, AgentTreeGroup>()
+  for (const p of panes) {
+    let h = hosts.get(p.host)
+    if (!h) {
+      h = { host: p.host, label: p.host_label || p.host, groups: [] }
+      hosts.set(p.host, h)
+    }
+    const key = `${p.host}\u0000${
+      p.repo_key ? `repo:${p.repo_key}` : `ws:${p.workspace_id || p.pane_id}`
+    }`
+    let g = groups.get(key)
+    if (!g) {
+      g = {
+        key,
+        label: p.repo_key
+          ? p.repo_label || p.repo || agentName(p)
+          : agentName(p),
+        panes: [],
+      }
+      groups.set(key, g)
+      h.groups.push(g)
+    }
+    g.panes.push(p)
+  }
+  for (const h of hosts.values()) disambiguate(h.groups)
+  return [...hosts.values()].sort((a, b) => {
+    if (a.host === firstHost) return -1
+    if (b.host === firstHost) return 1
+    return a.label.localeCompare(b.label)
+  })
+}
+
+// Two repos on one machine can head with the same name (a marketing-site
+// whose workspace is called "website" beside a repo that IS website), so each
+// clashing heading gets the tail of its repo's path: "website · exa/marketing-site".
+function disambiguate(groups: AgentTreeGroup[]) {
+  const count = new Map<string, number>()
+  for (const g of groups) count.set(g.label, (count.get(g.label) ?? 0) + 1)
+  for (const g of groups) {
+    const repoKey = g.panes[0]?.repo_key
+    if ((count.get(g.label) ?? 0) < 2 || !repoKey) continue
+    const tail = repoKey
+      .replace(/\/\.git\/?$/, "")
+      .split("/")
+      .filter(Boolean)
+      .slice(-2)
+      .join("/")
+    if (tail) g.label = `${g.label} · ${tail}`
+  }
+}
+
+// A row's name under its repo heading: its own workspace's name when that is
+// a different one (a linked worktree's task title), otherwise what is inside
+// the workspace, so the main checkout's agents do not all repeat the heading.
+export function agentNameInGroup(p: HostPane, group: AgentTreeGroup): string {
+  const name = agentName(p)
+  // repo_label too: a disambiguated heading no longer equals it verbatim.
+  return name === group.label || name === p.repo_label
+    ? agentNameInWorkspace(p)
+    : name
+}
+
 // The harness and the last cwd segment — which for an agent is the worktree it
 // was started in. The second half of "which one is this", after its machine.
 export function agentSub(p: HostPane): string {
@@ -55,17 +151,6 @@ export function agentMatches(p: HostPane, terms: string[]): boolean {
     .join(" ")
     .toLowerCase()
   return terms.every((t) => hay.includes(t))
-}
-
-// pinFirst puts the agents grid's pins (ui_state.pinned_agents, oldest pin
-// first) ahead of everything else, keeping the rest in the order given. A pin
-// whose agent is not in the list is skipped here; the grid is what forgets it.
-export function pinFirst(panes: HostPane[], pinnedKeys?: string[]): HostPane[] {
-  if (!pinnedKeys?.length) return panes
-  const byKey = new Map(panes.map((p) => [paneKey(p), p]))
-  const pinned = pinnedKeys.flatMap((k) => byKey.get(k) ?? [])
-  const pinnedSet = new Set(pinnedKeys)
-  return [...pinned, ...panes.filter((p) => !pinnedSet.has(paneKey(p)))]
 }
 
 // renameAgent relabels whatever agentName reads first, which is also what the

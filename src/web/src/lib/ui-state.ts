@@ -52,6 +52,7 @@ const DEFAULTS: UIState = {
   agents_sort: "priority",
   agents_group_host: true,
   agents_group_repo: false,
+  chat_sidebar: false,
   pinned_agents: [],
   // Mirrors getUIState in db.go. BrowserTab still shows embed until the
   // server says a Chromium is available.
