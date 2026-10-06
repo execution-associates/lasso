@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -474,6 +475,36 @@ func TestProvisionScriptCoversEveryHarness(t *testing.T) {
 	want := "for agent in " + strings.Join(harnessIDs(), " ") + "; do"
 	if !strings.Contains(provisionScript, want) {
 		t.Errorf("provisionScript missing %q", want)
+	}
+}
+
+// The provisioned unit runs herdr through the embedded herdr-serve wrapper, so
+// a live handoff cannot leave the server outside systemd, and the script is
+// valid shell once the wrapper is spliced into its heredoc.
+func TestProvisionScriptInstallsHerdrServe(t *testing.T) {
+	if strings.Contains(provisionScript, herdrServePlaceholder) {
+		t.Fatalf("provisionScript still carries the herdr-serve placeholder")
+	}
+	for _, line := range strings.Split(herdrServeScript, "\n") {
+		if line == herdrServeEOF {
+			t.Fatalf("herdr-serve contains its heredoc terminator %q", herdrServeEOF)
+		}
+	}
+	for _, want := range []string{
+		"<<'" + herdrServeEOF + "'\n" + herdrServeScript,
+		"ExecStart=$serve_bin\n",
+		"Environment=HERDR_SERVE_BIN=$herdr_bin\n",
+		"RestartMaxDelaySec=",
+	} {
+		if !strings.Contains(provisionScript, want) {
+			t.Errorf("provisionScript missing %q", want)
+		}
+	}
+	if strings.Contains(provisionScript, "ExecStart=$herdr_bin server") {
+		t.Errorf("provisionScript still runs a bare herdr server")
+	}
+	if err := exec.Command("bash", "-n", "-c", provisionScript).Run(); err != nil {
+		t.Errorf("provisionScript is not valid bash: %v", err)
 	}
 }
 
