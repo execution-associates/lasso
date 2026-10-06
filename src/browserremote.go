@@ -21,6 +21,10 @@ import (
 // everything above that — /cdp/p/<id>, /browser-mcp, the Browser tab — is the
 // same code a launched browser goes through.
 
+// browserDefaultCDPURLSetting holds the default profile's cdp_url. The other
+// profiles keep theirs in their entry of the browser_profiles list.
+const browserDefaultCDPURLSetting = "browser_default_cdp_url"
+
 // remoteCheckEvery is how long a remote browser's identity is trusted before
 // the next /cdp request re-reads /json/version. A remote browser restarts on
 // its own schedule and comes back with a new /devtools/browser/<id>; without a

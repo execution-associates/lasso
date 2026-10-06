@@ -585,6 +585,10 @@ func newBrowserManager(cfg browserConfig) *browserManager {
 			v, _ := getSetting(browserProxySetting)
 			return v
 		},
+		cdpURL: func() string {
+			v, _ := getSetting(browserDefaultCDPURLSetting)
+			return v
+		},
 		sem: make(chan struct{}, 1),
 	}
 }
@@ -1272,6 +1276,10 @@ func (m *browserManager) status() browserStatus {
 		return st
 	}
 	bin, reason, ok := resolveBrowserBinary(m.search())
+	if raw := m.remoteURL(); raw != "" {
+		// A remote browser needs no Chromium on this machine.
+		bin, reason, ok = raw, "", true
+	}
 	st.Available, st.Binary = ok, bin
 	st.Proxy = m.proxy()
 	// Rounded up, so a sub-minute idle (LASSO_BROWSER_IDLE=40s) does not read as

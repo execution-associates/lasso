@@ -133,11 +133,6 @@ func TestRemoteBrowserProfile(t *testing.T) {
 	if err := m.applyProxy(context.Background(), "socks5://127.0.0.1:1080"); !errors.As(err, new(errBadProxy)) {
 		t.Errorf("applyProxy on a remote browser: %v", err)
 	}
-	// The default profile stays lasso's own browser.
-	u := rc.srv.URL
-	if _, err := f.update(defaultBrowserProfile, nil, nil, &u); err == nil {
-		t.Error("the default profile took a cdp_url")
-	}
 
 	// Within remoteCheckEvery the same proc is answered without a round trip.
 	if again, _ := m.ensure(context.Background()); again != proc {
@@ -247,5 +242,31 @@ func TestCDPProxyServesARemoteBrowser(t *testing.T) {
 		if h != ru.Host {
 			t.Errorf("remote browser saw Host %q, want %q", h, ru.Host)
 		}
+	}
+}
+
+func TestDefaultProfileCanBeRemote(t *testing.T) {
+	f := testFleet(t)
+	rc := newRemoteChromium(t)
+	sharedBrowser.cdpURL = func() string { v, _ := getSetting(browserDefaultCDPURLSetting); return v }
+	u := rc.srv.URL
+	proxy := "socks5://127.0.0.1:1080"
+	if _, err := f.update(defaultBrowserProfile, nil, &proxy, &u); !errors.Is(err, errRemoteProxy) {
+		t.Fatalf("default remote with a proxy: %v", err)
+	}
+	name := "minime"
+	st, err := f.edit(context.Background(), defaultBrowserProfile, &name, nil, &u)
+	if err != nil || st.CDPURL != u || st.Name != "minime" {
+		t.Fatalf("default → remote: %+v, %v", st, err)
+	}
+	if v, _ := getSetting(browserProxySetting); v != "" {
+		t.Errorf("browser_proxy = %q", v)
+	}
+	p, err := sharedBrowser.ensure(context.Background())
+	if err != nil || !p.remote() || p.wsPath != "/devtools/browser/one" {
+		t.Fatalf("ensure: %+v, %v", p, err)
+	}
+	if bs := sharedBrowser.status(); !bs.Available || !bs.Running || bs.Binary != "Chrome/153.0.8010.53" {
+		t.Errorf("status: available=%v running=%v binary=%q", bs.Available, bs.Running, bs.Binary)
 	}
 }
