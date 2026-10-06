@@ -202,6 +202,26 @@ function Pane({
   )
 }
 
+// A toggle's label that flips between words without resizing the button: every
+// label sits in the same grid cell, so the cell is as wide as the widest, and
+// only the shown one is visible. Measuring by layout rather than a fixed width
+// keeps it right under any font the typography settings pick.
+function SwapLabel({ show, children }: { show: number; children: string[] }) {
+  return (
+    <span className="grid">
+      {children.map((label, i) => (
+        <span
+          key={label}
+          aria-hidden={i !== show}
+          className={cn("[grid-area:1/1]", i !== show && "invisible")}
+        >
+          {label}
+        </span>
+      ))}
+    </span>
+  )
+}
+
 export function App() {
   return (
     <AppProvider>
@@ -1198,7 +1218,9 @@ function Shell() {
             onClick={toggleAgentsView}
           >
             {leftView === "agents" ? <SquareTerminal /> : <Users />}
-            {leftView === "agents" ? "Terminal" : "Grid"}
+            <SwapLabel show={leftView === "agents" ? 0 : 1}>
+              {["Terminal", "Grid"]}
+            </SwapLabel>
           </Button>
           {/* The label names where it goes, not where you are: one glance says
               what the click does. Below md this row is gone and the way in is
@@ -1216,7 +1238,9 @@ function Shell() {
             onClick={toggleLeftView}
           >
             {leftView === "chat" ? <SquareTerminal /> : <MessageSquare />}
-            {leftView === "chat" ? "Terminal" : "Chat"}
+            <SwapLabel show={leftView === "chat" ? 0 : 1}>
+              {["Terminal", "Chat"]}
+            </SwapLabel>
           </Button>
           <Button
             variant="ghost"
