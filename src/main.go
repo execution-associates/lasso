@@ -1387,7 +1387,6 @@ func serveFocus(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.PaneID != "" {
 		if _, err := be.HerdrCall("pane.focus", map[string]any{"pane_id": req.PaneID}); err == nil {
-			touchAgent(be.Name(), req.PaneID)
 			writeFocused(w, be, req.Reveal)
 			return
 		} else if req.WorkspaceID == "" {
