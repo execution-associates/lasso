@@ -42,6 +42,7 @@ import {
   type HostPane,
 } from "@/lib/api"
 import { useApp } from "@/lib/app-store"
+import { mergeItems } from "@/lib/chat-merge"
 import {
   newestUserID,
   type QueuedEcho,
@@ -77,50 +78,6 @@ import { cn } from "@/lib/utils"
 // The cap is Settings → Chat text's column width (--chat-measure, pinned by
 // lib/chat-text.ts); 56rem is its default, for the instant before it is set.
 const MEASURE = "mx-auto w-full max-w-[var(--chat-measure,56rem)] px-4"
-
-// mergeItems folds a freshly-read page into what is already on screen: rows that
-// are already here are UPDATED in place (a tool card completing, an output
-// growing) and rows that are new are APPENDED — the transcript is append-only,
-// so anything unseen is newer than everything seen.
-//
-// Replacing the list instead, which is what a single-page view does, is what
-// makes a conversation develop a hole: the live window is the last N kilobytes,
-// so once the file grows past it the rows at its start fall out, and they are
-// exactly the history someone scrolls up to find.
-//
-// A page is parsed INDEPENDENTLY of its neighbours, so an older page can hold a
-// call whose result landed in a newer one and parse it as still running. Letting
-// that version through would flip a finished card back to "running" for good, so
-// a state regression is refused and the newer parse stands. That is also what
-// makes the result independent of the order the pages arrived in, which is not
-// something a fetch loop can promise.
-function mergeItems(prev: ChatItem[], incoming: ChatItem[]): ChatItem[] {
-  if (prev.length === 0) return incoming
-  const at = new Map<string, number>()
-  for (let i = 0; i < prev.length; i++) at.set(prev[i].id, i)
-  let changed = false
-  const out = prev.slice()
-  for (const item of incoming) {
-    const i = at.get(item.id)
-    if (i === undefined) {
-      at.set(item.id, out.length)
-      out.push(item)
-      changed = true
-    } else if (out[i] !== item && !regresses(item, out[i])) {
-      out[i] = item
-      changed = true
-    }
-  }
-  return changed ? out : prev
-}
-
-// regresses reports whether an incoming row says LESS than the one on screen: a
-// tool that has finished cannot become a tool that is running again.
-function regresses(incoming: ChatItem, current: ChatItem): boolean {
-  const a = incoming.tool
-  const b = current.tool
-  return Boolean(a && b && b.state !== "running" && a.state === "running")
-}
 
 // Row is one rendered row: a lone item, or a run of calls collapsed into one card.
 type Row =
