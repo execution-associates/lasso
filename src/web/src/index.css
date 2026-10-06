@@ -313,12 +313,29 @@
     /* Bottom: a sliver — just enough that the backdrop peeks in at the screen's
      * edge rather than being cut off square by the app. What keeps the controls
      * clear of the display's corner curve is their own horizontal inset (px-4
-     * in ChatView), so this no longer has to carry that job. */
-    --safe-bottom: 16px;
-    /* Top: left to the device's own inset. Insetting the app further pushes the
-     * header down out of the notch, which looks like a gap rather than
-     * symmetry. */
-    --safe-top: env(safe-area-inset-top, 0px);
+     * in ChatView), so this no longer has to carry that job. Where the top
+     * clears iOS's edge blur, the bottom grows a little more than the ramp so
+     * the backdrop frames the app evenly; a bare 16px everywhere else. */
+    --edge-ramp: 0px;
+    --safe-bottom: calc(16px + var(--edge-ramp) * 1.2);
+    /* Top: the device's own inset, plus clearance for iOS 26's edge blur (see
+     * --edge-ramp below). */
+    --safe-top: calc(env(safe-area-inset-top, 0px) + var(--edge-ramp));
+  }
+  /* iOS 26 draws a Liquid Glass scroll-edge blur over an installed web app,
+   * reaching ~40pt below the status bar. It is system chrome painted ABOVE the
+   * web view: no meta tag, status-bar style or opaque strip turns it off, so
+   * the only fix is to keep the app's surface below it. The band it leaves is
+   * backdrop, like the rest of the top strip. Portrait only: landscape hides
+   * the status bar, and the ramp with it. -webkit-touch-callout scopes this to
+   * iOS WebKit, since Android's installed apps have no such blur. */
+  @supports (-webkit-touch-callout: none) {
+    @media (display-mode: standalone) and (pointer: coarse) and
+      (orientation: portrait) {
+      :root {
+        --edge-ramp: 2.5rem;
+      }
+    }
   }
   @media (display-mode: standalone) and (pointer: coarse) {
     body {
