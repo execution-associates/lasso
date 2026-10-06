@@ -7,7 +7,7 @@ nav_title: New agent
 
 The **New** dialog starts a coding agent in a fresh herdr pane, or opens a plain terminal, on any host lasso can reach. Open it with the footer's **New** button, `⌘O` (agent form) or `⌘I` (terminal form), or the input dial's **New** target on a phone.
 
-It has two tabs, **Agent** and **Terminal**. From the chat view or the Agents grid only the agent form is offered, titled **New agent**, since those views have no terminal to show a new shell in. `⌘↩` (or `Ctrl↩`) submits either form from any field.
+It has two tabs, **Agent** and **Terminal**. From the chat view or the Grid only the agent form is offered, titled **New agent**, since those views have no terminal to show a new shell in. `⌘↩` (or `Ctrl↩`) submits either form from any field.
 
 ## Choosing the host
 

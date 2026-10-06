@@ -36,7 +36,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     title: "Views",
     shortcuts: [
       { keys: "⌘J", label: "Chat ⟷ terminal" },
-      { keys: "⌘E", label: "Agents grid ⟷ terminal" },
+      { keys: "⌘E", label: "Grid ⟷ terminal" },
       {
         keys: "⌘B",
         label: "Left sidebar (herdr's in the terminal, agents in chat)",

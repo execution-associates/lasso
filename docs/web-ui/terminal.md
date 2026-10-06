@@ -92,15 +92,15 @@ A pane running anything else, or a plain shell, shows a note instead of a conver
 - The paperclip button attaches a file: it is uploaded to the agent's host and its path goes with the message.
 - If lasso cannot tell whether a message landed, it keeps your draft rather than clearing it or sending it twice.
 
-**The header** shows the agent's name (the workspace label lasso's auto-titler wrote, else the session's own title). Click it to rename the agent. The header also has a pin (pins the agent to the top of the agent list and the Agents grid) and a button to close the agent's pane, which asks for confirmation first. On a phone the header carries **Show the terminal** and **Open the sidebar** buttons, since there is no footer.
+**The header** shows the agent's name (the workspace label lasso's auto-titler wrote, else the session's own title). Click it to rename the agent. The header also has a pin (pins the agent to the top of the agent list and the Grid) and a button to close the agent's pane, which asks for confirmation first. On a phone the header carries **Show the terminal** and **Open the sidebar** buttons, since there is no footer.
 
 **The agent list.** At desktop widths, the footer's left-hand toggle (or `⌘B`) opens a column beside the conversation listing every agent across all connected hosts, this tab's host first, with pinned agents leading and the rest ordered so a blocked agent is at the top. Filter it by name, harness, worktree or machine. Picking an agent moves this tab to its host if needed, focuses its pane, and shows its conversation. On a phone the same list is the sidebar's [Agents tab](./sidebar.md#agents).
 
 `⌘K` in Chat opens a fleet-wide agent picker rather than herdr's pane search.
 
-## Agents grid
+## Grid
 
-The Agents grid shows every agent lasso can reach as its own card at once, so you can watch several and answer whichever is waiting on you. Open it with the footer's **Agents** button or `⌘E` (desktop widths only).
+The Grid shows every agent lasso can reach as its own card at once, so you can watch several and answer whichever is waiting on you. Open it with the footer's **Grid** button or `⌘E` (desktop widths only).
 
 - Each card shows the tail of that agent's transcript (the same source as Chat) and has its own composer, addressed to that agent's own host and pane. `↩` sends, `⇧↩` breaks the line. Pasted or picked files are uploaded to the agent's host.
 - **Priority** sorts by attention: blocked, then working, then idle, then done, with the most recently active agent first within each status, so cards move as statuses change. **Recent** ignores status and puts the agent whose transcript changed most recently first, so the conversations that are moving lead the grid. The sort is saved on the server, so your phone and your desktop show the same order.
