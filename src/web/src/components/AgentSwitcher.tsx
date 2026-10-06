@@ -13,7 +13,7 @@ import type { HostPane } from "@/lib/api"
 import { blurHerdrTerminal } from "@/lib/terminal"
 import { cn } from "@/lib/utils"
 
-// ⌘K from a reading view (the chat or the agents grid). In the terminal ⌘K is
+// ⌘K from the chat (the agents grid focuses its own filter instead). In the terminal ⌘K is
 // herdr's own pane search, which searches ONE machine's panes and answers by
 // moving the terminal; from a conversation the question is "which conversation
 // next", across the fleet, so this is the same list the agent sidebar shows
