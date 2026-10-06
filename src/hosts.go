@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -940,7 +941,7 @@ const hostProvisionTimeout = 5 * time.Minute
 
 // provisionScript bootstraps herdr-under-systemd on a remote Linux host, end to
 // end and idempotently: ensure herdr (herdr.dev/install.sh), write a systemd
-// --user unit for the server, enable lingering so it survives logout/reboot,
+// --user unit for the server (run through the herdr-serve wrapper), enable lingering so it survives logout/reboot,
 // start it, and install the agent-state integrations for every harness lasso
 // can spawn so herdr gets authoritative idle/working/blocked hooks instead of
 // screen-scraping. It's shell-agnostic — rather than trust the login shell's
@@ -950,7 +951,28 @@ const hostProvisionTimeout = 5 * time.Minute
 // The integration list is substituted from the harness table rather than
 // spelled out, so adding a harness can't leave newly-spawnable agents
 // screen-scraped on every remote host until someone notices.
-var provisionScript = strings.Replace(provisionScriptTemplate, harnessIDsPlaceholder, strings.Join(harnessIDs(), " "), 1)
+var provisionScript = strings.NewReplacer(
+	harnessIDsPlaceholder, strings.Join(harnessIDs(), " "),
+	herdrServePlaceholder, herdrServeScript,
+).Replace(provisionScriptTemplate)
+
+// herdrServeScript is the unit's ExecStart wrapper (see its header). A bare
+// `ExecStart=herdr server` loses its server on `herdr update --handoff`, which
+// lasso's own host update runs: systemd reads the old server's clean exit as
+// the service stopping, ExecStop stops the successor, and the next herdr client
+// to connect (a saved-machine bridge, say) starts one OUTSIDE systemd. The
+// unit then fails "already running" every RestartSec, forever. That is how
+// visiquate's herdr.service reached a million restarts.
+//
+//go:embed assets/herdr-serve.sh
+var herdrServeScript string
+
+// herdrServePlaceholder marks where provisionScriptTemplate wants the wrapper's
+// body, inside a quoted heredoc so none of it is expanded.
+const herdrServePlaceholder = "@HERDR_SERVE@"
+
+// herdrServeEOF ends that heredoc; the script must never contain it as a line.
+const herdrServeEOF = "LASSO_HERDR_SERVE_EOF"
 
 // harnessIDsPlaceholder marks where provisionScriptTemplate wants the harness
 // list. Its `@`s keep it from being mistaken for shell syntax if substitution
@@ -993,6 +1015,14 @@ log "herdr $("$herdr_bin" --version 2>/dev/null)"
 
 # 2. systemd --user unit -----------------------------------------------------
 # Written unconditionally (marked managed) so re-provisioning refreshes it.
+mkdir -p "$HOME/.local/bin"
+serve_bin="$HOME/.local/bin/herdr-serve"
+log "writing $serve_bin"
+cat > "$serve_bin.tmp" <<'LASSO_HERDR_SERVE_EOF'
+@HERDR_SERVE@
+LASSO_HERDR_SERVE_EOF
+chmod 755 "$serve_bin.tmp" && mv -f "$serve_bin.tmp" "$serve_bin" || { echo "ERROR: could not install $serve_bin" >&2; exit 4; }
+
 unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 mkdir -p "$unit_dir"
 log "writing $unit_dir/herdr.service"
@@ -1007,13 +1037,22 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=$HOME
 Environment=PATH=$HOME/.local/bin:$HOME/.local/share/mise/shims:/usr/local/bin:/usr/bin:/bin
-ExecStart=$herdr_bin server
+Environment=HERDR_SERVE_BIN=$herdr_bin
+# herdr-serve stays the main PID across a live handoff (herdr update --handoff)
+# and supervises the successor, so the handoff keeps every pane.
+ExecStart=$serve_bin
 # Graceful shutdown via herdr's own API so panes are torn down cleanly.
 ExecStop=$herdr_bin server stop
 # Only signal the main server process, not every pane in the cgroup.
 KillMode=mixed
 Restart=on-failure
+# Back off to one try every 5 minutes. A herdr server started outside systemd
+# holds the socket and makes every start fail with "already running"; a fixed
+# 2s retry turned that into a million restarts. It still retries forever, so
+# the unit takes over once that server goes away.
 RestartSec=2
+RestartSteps=8
+RestartMaxDelaySec=300
 
 [Install]
 WantedBy=default.target
