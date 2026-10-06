@@ -78,7 +78,7 @@ func TestSlugProfileID(t *testing.T) {
 func TestBrowserProfileCRUD(t *testing.T) {
 	f := testFleet(t)
 
-	p, err := f.create("Work", "", "socks5://127.0.0.1:1080")
+	p, err := f.create("Work", "", "socks5://127.0.0.1:1080", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,22 +87,22 @@ func TestBrowserProfileCRUD(t *testing.T) {
 	}
 	// A derived id is made unique; an explicit one that clashes is refused, as
 	// is a duplicate name in any case.
-	if p2, err := f.create("Work!", "", ""); err != nil || p2.ID != "work-2" {
+	if p2, err := f.create("Work!", "", "", ""); err != nil || p2.ID != "work-2" {
 		t.Fatalf("second derived id = %+v, %v", p2, err)
 	}
-	if _, err := f.create("Other", "work", ""); err == nil {
+	if _, err := f.create("Other", "work", "", ""); err == nil {
 		t.Error("an explicit duplicate id was accepted")
 	}
-	if _, err := f.create("WORK", "", ""); err == nil {
+	if _, err := f.create("WORK", "", "", ""); err == nil {
 		t.Error("a duplicate name was accepted")
 	}
-	if _, err := f.create("Default", "", ""); err == nil {
+	if _, err := f.create("Default", "", "", ""); err == nil {
 		t.Error("the default profile's name was accepted for another")
 	}
-	if _, err := f.create("x", "default", ""); err == nil {
+	if _, err := f.create("x", "default", "", ""); err == nil {
 		t.Error("id default was accepted")
 	}
-	if _, err := f.create("Bad", "", "socks5h://h:1"); err == nil || !strings.Contains(err.Error(), "socks5h") {
+	if _, err := f.create("Bad", "", "socks5h://h:1", ""); err == nil || !strings.Contains(err.Error(), "socks5h") {
 		t.Errorf("bad proxy: %v", err)
 	}
 
@@ -118,13 +118,13 @@ func TestBrowserProfileCRUD(t *testing.T) {
 	}
 
 	name, clear := "Job", ""
-	if got, err := f.update("work", &name, &clear); err != nil || got.Name != "Job" || got.Proxy != "" {
+	if got, err := f.update("work", &name, &clear, nil); err != nil || got.Name != "Job" || got.Proxy != "" {
 		t.Fatalf("update = %+v, %v", got, err)
 	}
 	// The default is renamed and re-proxied through its own settings, which is
 	// where an older lasso looks for its proxy.
 	dn, dp := "Personal", "http://127.0.0.1:3128"
-	if _, err := f.update(defaultBrowserProfile, &dn, &dp); err != nil {
+	if _, err := f.update(defaultBrowserProfile, &dn, &dp, nil); err != nil {
 		t.Fatal(err)
 	}
 	if v, _ := getSetting(browserProxySetting); v != dp || defaultProfileName() != "Personal" {
@@ -258,7 +258,7 @@ func TestCDPProfileRouting(t *testing.T) {
 // guard as the rest of /cdp, and without starting a browser.
 func TestCDPProfilesListing(t *testing.T) {
 	f := testFleet(t)
-	if _, err := f.create("Work", "", ""); err != nil {
+	if _, err := f.create("Work", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	fc := newFakeChromium(t)
@@ -325,7 +325,7 @@ func TestCDPProfilesListing(t *testing.T) {
 // the default profile's /cdp — or a client would silently drive the wrong browser.
 func TestCDPProxyServesAProfile(t *testing.T) {
 	f := testFleet(t)
-	if _, err := f.create("Work", "", ""); err != nil {
+	if _, err := f.create("Work", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	fc := newFakeChromium(t)

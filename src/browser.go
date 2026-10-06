@@ -492,9 +492,38 @@ type browserProc struct {
 	// stopping marks a stop lasso asked for, so the exit watcher does not
 	// record it as a crash.
 	stopping atomic.Bool
+	// addr and scheme are set for a remote browser (a profile with a cdp_url,
+	// browserremote.go): the host:port lasso dials and http or https. A remote
+	// browser has no cmd, pid or port of lasso's.
+	addr   string
+	scheme string
 }
 
-func (p *browserProc) target() string { return fmt.Sprintf("127.0.0.1:%d", p.port) }
+func (p *browserProc) target() string {
+	if p.addr != "" {
+		return p.addr
+	}
+	return fmt.Sprintf("127.0.0.1:%d", p.port)
+}
+
+func (p *browserProc) remote() bool { return p.addr != "" }
+
+// urlScheme is how lasso talks to the browser: http, or https for a remote one
+// behind TLS.
+func (p *browserProc) urlScheme() string {
+	if p.scheme != "" {
+		return p.scheme
+	}
+	return "http"
+}
+
+// hostHeader is the Host the browser is sent (see cdpHostHeader).
+func (p *browserProc) hostHeader() string {
+	if !p.remote() {
+		return p.target()
+	}
+	return cdpHostHeader(p.scheme, p.addr)
+}
 
 type browserConfig struct {
 	Explicit string        // -browser / LASSO_BROWSER
@@ -516,6 +545,9 @@ type browserManager struct {
 	// saveProxy stores a new proxy for this profile. The default profile keeps
 	// it in the browser_proxy setting it always had; nil means that.
 	saveProxy func(string) error
+	// cdpURL is the profile's stored remote browser address; nil or "" means
+	// lasso launches the browser itself (browserremote.go).
+	cdpURL func() string
 	// id is the profile this manager runs ("" reads as the default profile)
 	// and dir its user-data-dir ("" = the default <lassoDir>/browser-profile).
 	id  string
@@ -533,6 +565,8 @@ type browserManager struct {
 	lastErr  string
 	note     string // the last relaunch's report (pages reopened)
 	lastUsed time.Time
+	// remoteChecked is when a remote browser's /json/version was last read.
+	remoteChecked time.Time
 
 	inflight atomic.Int64
 
@@ -574,6 +608,14 @@ func (m *browserManager) profileID() string {
 	return m.id
 }
 
+// remoteURL is the profile's cdp_url, "" for a browser lasso launches.
+func (m *browserManager) remoteURL() string {
+	if m.cdpURL == nil {
+		return ""
+	}
+	return m.cdpURL()
+}
+
 func (m *browserManager) pidFile() string { return filepath.Join(m.profileDir(), "lasso-browser.pid") }
 
 // begin/end bracket every /cdp request. A proxied websocket holds ServeHTTP for
@@ -608,6 +650,9 @@ func (m *browserManager) release() { <-m.sem }
 
 // ensure returns the running browser, launching it if nothing is.
 func (m *browserManager) ensure(ctx context.Context) (*browserProc, error) {
+	if raw := m.remoteURL(); raw != "" {
+		return m.ensureRemote(ctx, raw)
+	}
 	if p := m.current(); p != nil {
 		return p, nil
 	}
@@ -625,6 +670,19 @@ func (m *browserManager) ensure(ctx context.Context) (*browserProc, error) {
 func (m *browserManager) startLocked() (*browserProc, error) {
 	if m.retired.Load() {
 		return nil, fmt.Errorf("the browser profile %q was deleted", m.profileID())
+	}
+	if raw := m.remoteURL(); raw != "" {
+		// A relaunch's start half on a remote browser: there is nothing of
+		// lasso's to launch, only the browser at cdp_url to find again.
+		p, err := dialRemoteBrowser(raw)
+		m.mu.Lock()
+		if err != nil {
+			m.lastErr = err.Error()
+		} else {
+			m.proc, m.lastErr, m.remoteChecked, m.lastUsed = p, "", time.Now(), time.Now()
+		}
+		m.mu.Unlock()
+		return p, err
 	}
 	bin, reason, ok := resolveBrowserBinary(m.search())
 	if !ok {
@@ -882,9 +940,15 @@ func (m *browserManager) stopLocked(why string) {
 	if p == nil {
 		return
 	}
-	log.Printf("browser: stopping profile %q, pid %d (%s)", m.profileID(), p.pid, why)
-	m.kill(p)
-	_ = os.Remove(m.pidFile())
+	if p.remote() {
+		// Never the remote browser itself: it is not lasso's to stop. Only
+		// lasso's side lets go, and the next /cdp request finds it again.
+		log.Printf("browser: detaching profile %q from remote %s (%s)", m.profileID(), p.addr, why)
+	} else {
+		log.Printf("browser: stopping profile %q, pid %d (%s)", m.profileID(), p.pid, why)
+		m.kill(p)
+		_ = os.Remove(m.pidFile())
+	}
 	if m.onStop != nil {
 		m.onStop(why)
 	}
@@ -1013,13 +1077,16 @@ type browserPage struct {
 	Title string `json:"title"`
 }
 
-var browserHTTP = &http.Client{Timeout: 5 * time.Second}
+// browserHTTP shares cdpTransport, so a remote browser is never reached
+// through an HTTP(S)_PROXY from the environment.
+var browserHTTP = &http.Client{Timeout: 5 * time.Second, Transport: cdpTransport}
 
 func devtoolsDo(p *browserProc, method, path string, out any) error {
-	req, err := http.NewRequest(method, "http://"+p.target()+path, nil)
+	req, err := http.NewRequest(method, p.urlScheme()+"://"+p.target()+path, nil)
 	if err != nil {
 		return err
 	}
+	req.Host = p.hostHeader()
 	resp, err := browserHTTP.Do(req)
 	if err != nil {
 		return err
@@ -1158,6 +1225,7 @@ type browserProfileStatus struct {
 	ID        string        `json:"id"`
 	Name      string        `json:"name"`
 	Proxy     string        `json:"proxy"`
+	CDPURL    string        `json:"cdp_url,omitempty"` // set for a remote browser lasso dials
 	Default   bool          `json:"default"`
 	Running   bool          `json:"running"`
 	StartedAt string        `json:"started_at"`
@@ -1313,6 +1381,9 @@ func (m *browserManager) applyProxy(ctx context.Context, raw string) error {
 	proxy, err := validateBrowserProxy(raw)
 	if err != nil {
 		return errBadProxy{err}
+	}
+	if proxy != "" && m.remoteURL() != "" {
+		return errBadProxy{errRemoteProxy}
 	}
 	prev := m.proxy()
 	save := m.saveProxy
