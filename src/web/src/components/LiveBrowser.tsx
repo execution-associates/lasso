@@ -366,6 +366,15 @@ export function LiveBrowser({
     // here: the screencast ignores emulated scale factors, so lasso launches
     // Chromium at the right one (--force-device-scale-factor, browser.go).
     try {
+      // A headed browser (a remote profile, e.g. Chrome on a Mac) re-lays out
+      // only the ACTIVE tab of a window: a background tab keeps its old size
+      // however the window is resized, and reads outerWidth/outerHeight as 0.
+      // The tab on screen here is the one the human is looking at, so it is
+      // made the active one first. Headless has no visible tab strip, so this
+      // changes nothing there.
+      await c
+        .send("Target.activateTarget", { targetId: s.targetId })
+        .catch(() => {})
       const { windowId } = await c.send<{ windowId: number }>(
         "Browser.getWindowForTarget",
         { targetId: s.targetId }
