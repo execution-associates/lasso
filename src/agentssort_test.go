@@ -68,3 +68,29 @@ func TestAgentsSortPatch(t *testing.T) {
 		t.Fatalf("stored legacy alpha not read as recent")
 	}
 }
+
+// The grid's grouping toggles are server state like its sort: grouping by
+// machine is on for an install that never chose, and a neighbouring patch
+// leaves both alone.
+func TestAgentsGroupPatch(t *testing.T) {
+	openTestDB(t)
+
+	got := postUIState(t, `{"client_id":"A","user_intent":false}`)
+	if !got.AgentsGroupHost || got.AgentsGroupRepo {
+		t.Fatalf("fresh install grouping wrong: host=%v repo=%v", got.AgentsGroupHost, got.AgentsGroupRepo)
+	}
+
+	postUIState(t, `{"agents_group_host":false,"agents_group_repo":true,"client_id":"A","user_intent":true}`)
+	got = postUIState(t, `{"agents_sort":"recent","client_id":"B","user_intent":true}`)
+	if got.AgentsGroupHost || !got.AgentsGroupRepo {
+		t.Fatalf("grouping lost by an unrelated patch: host=%v repo=%v", got.AgentsGroupHost, got.AgentsGroupRepo)
+	}
+
+	stored, err := getUIState()
+	if err != nil {
+		t.Fatalf("getUIState: %v", err)
+	}
+	if stored.AgentsGroupHost || !stored.AgentsGroupRepo {
+		t.Fatalf("grouping not persisted: %+v", stored)
+	}
+}

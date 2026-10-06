@@ -296,6 +296,7 @@ function Shell() {
   const [collapsed, setCollapsed] = React.useState(false)
   const [newOpen, setNewOpen] = React.useState(false)
   const [newTab, setNewTab] = React.useState<NewDialogTab>("agent")
+  const [newBoth, setNewBoth] = React.useState(false)
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false)
   const [switcherOpen, setSwitcherOpen] = React.useState(false)
   const [hostMenuOpen, setHostMenuOpen] = React.useState(false)
@@ -478,6 +479,16 @@ function Shell() {
   // ⌘I's business — and the mobile dial's "new" command shares this.
   const openNew = React.useCallback(() => {
     setNewTab("agent")
+    setNewBoth(false)
+    setNewOpen(true)
+  }, [])
+  // The mobile chat header's New: the one creator a reading view opens with
+  // BOTH tabs, since below md that header is the chat's whole chrome and there
+  // is no footer New to fall back on for a terminal. A terminal made from it
+  // switches the view to the terminal (onTerminalCreated below).
+  const openNewFromChat = React.useCallback(() => {
+    setNewTab("agent")
+    setNewBoth(true)
     setNewOpen(true)
   }, [])
 
@@ -697,6 +708,7 @@ function Shell() {
       } else if (k === "o" || k === "i") {
         e.preventDefault()
         setNewTab(k === "o" ? "agent" : "terminal")
+        setNewBoth(false)
         // ⌘I asks for a TERMINAL, and chat mode's creator has no terminal to
         // offer (see NewDialog's agentsOnly) — so it hands the screen back
         // first, rather than opening an agent form in answer to a terminal
@@ -885,6 +897,7 @@ function Shell() {
                     className="min-w-0 flex-1"
                     onShowTerminal={() => setLeftView("terminal")}
                     onShowSidebar={openSidebar}
+                    onNew={openNewFromChat}
                   />
                 </div>
               )}
@@ -1053,7 +1066,11 @@ function Shell() {
           // and below md (the only width that tab exists at) it is the only New
           // on screen. Derived rather than latched because the modal blocks the
           // page: nothing can change the view out from under it.
-          agentsOnly={leftView !== "terminal" || rightView === "agents"}
+          agentsOnly={
+            !newBoth && (leftView !== "terminal" || rightView === "agents")
+          }
+          terminalHidden={leftView !== "terminal"}
+          onTerminalCreated={() => setLeftView("terminal")}
         />
         <OnboardingTour
           open={tourOpen}

@@ -193,14 +193,16 @@ export function AgentsView({
     }
   }, [])
   const { host: tabHost } = useApp()
-  const [groupByHost, setGroupByHost] = React.useState(true)
-  const [groupByRepo, setGroupByRepo] = React.useState(false)
-  const grouped = groupByHost || groupByRepo
   const [filter, setFilter] = React.useState("")
-  // Persisted server-side rather than held here beside groupByHost, so the
-  // order does not revert on the next reload or differ on the phone. Grouping
-  // stays local: it changes what the layout says, not the order inside it.
-  const { agents_sort: sort, pinned_agents: pinnedKeys } = useUIState()
+  // Sort and grouping are persisted server-side, so they do not revert on the
+  // next reload or differ on the phone.
+  const {
+    agents_sort: sort,
+    agents_group_host: groupByHost = true,
+    agents_group_repo: groupByRepo = false,
+    pinned_agents: pinnedKeys,
+  } = useUIState()
+  const grouped = groupByHost || groupByRepo
   const setSort = (next: AgentSort) => {
     if (next !== sort) patchUIState({ agents_sort: next })
   }
@@ -489,7 +491,7 @@ export function AgentsView({
           <span className="flex h-8 items-center rounded-md border border-input p-0.5">
             <SortSegment
               active={groupByHost}
-              onClick={() => setGroupByHost((v) => !v)}
+              onClick={() => patchUIState({ agents_group_host: !groupByHost })}
               label="Host"
               icon={<Server className="size-3.5" />}
               title={
@@ -498,7 +500,7 @@ export function AgentsView({
             />
             <SortSegment
               active={groupByRepo}
-              onClick={() => setGroupByRepo((v) => !v)}
+              onClick={() => patchUIState({ agents_group_repo: !groupByRepo })}
               label="Repo"
               icon={<FolderGit2 className="size-3.5" />}
               title={groupByRepo ? "Stop grouping by repo" : "Group by repo"}

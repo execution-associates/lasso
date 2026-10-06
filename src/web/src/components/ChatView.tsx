@@ -17,6 +17,7 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Plus,
   Power,
   Search,
   Send,
@@ -1319,6 +1320,7 @@ export function ChatView({
   modal,
   onShowTerminal,
   onShowSidebar,
+  onNew,
   className,
 }: {
   // A named agent to read instead of herdr's focused pane. Reading by address
@@ -1334,6 +1336,9 @@ export function ChatView({
   // the way to the agent list and the creator there, both of which live in that
   // panel below md.
   onShowSidebar?: () => void
+  // The creator, with both its Agent and Terminal tabs (App.tsx:openNewFromChat).
+  // Below md only: at md+ the footer's New is on screen. Not in the modal.
+  onNew?: () => void
   // Merged onto the root. The view is a flex ROW's second child whenever the
   // agent sidebar is beside it (see App.tsx), and it has to be told to take the
   // width that is left over rather than its content's own.
@@ -1665,7 +1670,9 @@ export function ChatView({
             inside the terminal iframe this view covers); Terminal is the way
             back, which the footer's toggle is at md+. Sidebar takes the outer
             edge, where the panel it opens comes from and where the footer keeps
-            its own sidebar control at md+. */}
+            its own sidebar control at md+. New leads them: the footer's New is
+            md+ too, and the sidebar's New agent makes only agents, so this is a
+            phone's one way to a terminal from the chat. */}
         {modal ? (
           <>
             <button
@@ -1696,6 +1703,15 @@ export function ChatView({
           </>
         ) : (
           <>
+            <button
+              type="button"
+              onClick={onNew}
+              title="New agent or terminal"
+              aria-label="New agent or terminal"
+              className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground md:hidden"
+            >
+              <Plus className="size-4" />
+            </button>
             <button
               type="button"
               onClick={onShowTerminal}
