@@ -128,10 +128,6 @@ func dialRemoteBrowser(raw string) (*browserProc, error) {
 // profile's sessions the way a local browser's exit does, through onStop, so
 // /browser-mcp children reconnect to whatever is there now. A browser with an
 // id-less /devtools/browser path cannot be seen restarting, only stopping.
-//
-// (Kept for the line below.)
-// profile's sessions the way a local browser's exit does, through onStop, so
-// /browser-mcp children reconnect to whatever is there now.
 func (m *browserManager) ensureRemote(ctx context.Context, raw string) (*browserProc, error) {
 	m.mu.Lock()
 	cur, fresh := m.proc, time.Since(m.remoteChecked) < remoteCheckEvery
