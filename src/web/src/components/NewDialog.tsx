@@ -304,6 +304,8 @@ export function NewDialog({
   tab,
   onTabChange,
   agentsOnly = false,
+  terminalHidden = agentsOnly,
+  onTerminalCreated,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -316,6 +318,14 @@ export function NewDialog({
   // (focusCreatedAgent), which is what puts its conversation on screen without
   // anyone switching views.
   agentsOnly?: boolean
+  // The terminal is a hidden iframe under a reading view, so a dismissal must
+  // not focus it (see onCloseAutoFocus). Defaults to agentsOnly; it differs only
+  // for the mobile chat header's New, which offers both tabs from the chat.
+  terminalHidden?: boolean
+  // Runs before the dialog closes on a terminal create, so a caller in a
+  // reading view can switch to the terminal (the chat cannot show a shell) and
+  // the close then hands the keyboard to the view the new shell is on.
+  onTerminalCreated?: () => void
 }) {
   const [showAdvanced, setShowAdvanced] = React.useState(false)
   const [terminalCreating, setTerminalCreating] = React.useState(false)
@@ -985,7 +995,7 @@ export function NewDialog({
           // instead — the composer takes it on the next tap, as it does after a
           // pick in the sidebar's Agents tab.
           e.preventDefault()
-          if (agentsOnly) blurHerdrTerminal()
+          if (terminalHidden) blurHerdrTerminal()
           else focusHerdrTerminal()
         }}
       >
@@ -1413,6 +1423,7 @@ export function NewDialog({
               creating={terminalCreating}
               setCreating={setTerminalCreating}
               onCreated={() => {
+                onTerminalCreated?.()
                 onOpenChange(false)
                 rememberCreatorHost(selectedHost)
               }}
