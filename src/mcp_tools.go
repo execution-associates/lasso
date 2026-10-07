@@ -89,6 +89,7 @@ func registerMCPTools(s *mcp.Server) {
 
 	registerBrowserProfileTools(s)
 	registerAgentMessagingTools(s)
+	registerSettingsTools(s)
 }
 
 // ---------------------------------------------------------------------------
