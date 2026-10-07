@@ -15,7 +15,7 @@ There are two MCP servers, usually registered by `lasso connect`:
 
 | Server | URL | What it is for |
 | --- | --- | --- |
-| `lasso` | `<lasso>/mcp` | Agents, hosts, `notify`, `open_file`, browser profiles and tabs |
+| `lasso` | `<lasso>/mcp` | Agents, hosts, `notify`, `open_file`, browser profiles and tabs, settings |
 | `lasso-browser` | `<lasso>/browser-mcp` | chrome-devtools-mcp's tools (navigate, click, fill, screenshot, console, network) against the shared browser |
 
 If your tools are missing, check `claude mcp list` (or your CLI's equivalent) and ask the human to run `lasso connect`. Every MCP tool also has a shell form: `lasso mcp` lists them, `lasso mcp <tool> -h` shows flags, and `lasso notify`, `lasso open` and `lasso closeme` are shortcuts for the common ones.
@@ -86,6 +86,10 @@ A real Chromium on lasso's machine that the human watches, and can click in, fro
 - **Logged-in accounts are the human's.** Reading is fine; posting, sending, accepting or buying needs their go-ahead.
 - **Profiles** are separate Chromiums with their own cookies, logins and proxy. Every `lasso-browser` tool takes an optional `profile` (id or display name; omitted means the default). Page ids belong to one profile, so pass the same `profile` on every call about a page. Manage profiles with `list_browser_profiles`, `create_browser_profile`, `update_browser_profile`, `delete_browser_profile`.
 - To put a page on the human's screen from `/mcp`, use `open_browser_tab`; `show_browser_tab`, `list_browser_tabs` and `close_browser_tab` manage existing tabs.
+
+## Settings
+
+`get_settings` reads everything lasso's Settings tab shows (UI preferences, agent defaults, per-repo setup, theme, notification devices, browser, plugins) and `update_settings` changes it, with the same validation the tab applies. Pass only what changes; `ui` is a patch. Plugins are read-only: enabling, trusting, installing or updating one needs the human in the Settings tab, so ask them.
 
 ## Plugin tools
 

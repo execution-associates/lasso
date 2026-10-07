@@ -388,6 +388,51 @@ Closes a tab. Close the tabs you opened when you are done; leave the human's and
 
 Returns `closed` (the tab id) and `profile`.
 
+## Settings
+
+These tools read and change what lasso's Settings tab shows. Each write runs through the same handler the Settings tab calls, so the validation is the same and every open lasso tab updates live. Both require a caller whose reach includes `local`, because the settings live in lasso's own database; `agents` and `repos` also need the `host` they name.
+
+**Plugins are read-only here.** Enabling a plugin approves its permissions, trusting one runs it outside its sandbox, and installing or updating one changes what an approval covers. Those need a human in the Settings tab, so no MCP tool does them.
+
+### `get_settings`
+
+| parameter | type | | description |
+| --- | --- | --- | --- |
+| `section` | string | optional | One of `ui`, `agents`, `repos`, `theme`, `notifications`, `browser`, `plugins`. Omit for all of them. |
+| `host` | string | optional | Whose creator settings `agents` and `repos` show. Defaults to `local`. |
+
+Returns one key per section:
+
+| section | contents |
+| --- | --- |
+| `ui` | The synced UI preferences (`ui_state`): appearance mode and palettes, backdrops, typography, chat and terminal text, browser mode, sidebar tabs, usage tracking, creator host, grid grouping and the rest. |
+| `agents` | `host`'s creator defaults (`repos_root`, `branch_prefix`, `default_agent`, `default_terminal_workspace`, `scratch_setup`) and `auto_title`. |
+| `repos` | Each repo under `host`'s repo roots with its `copy_files` and `setup`. |
+| `theme` | herdr's current theme, the selectable `themes`, `sync_agent_themes`, `theme_sync_off` and the installable `catalog`. |
+| `notifications` | Registered push `devices`, by id and label. Endpoints are never returned. |
+| `browser` | The shared browser's status. Profiles have their own tools. |
+| `plugins` | Each plugin's state, read-only. |
+
+A section that fails (an unreachable host, say) is listed under `errors` and the others are still returned.
+
+### `update_settings`
+
+Pass only what changes; an omitted field is left alone. Returns the affected sections as they now read.
+
+| parameter | type | | description |
+| --- | --- | --- | --- |
+| `ui` | object | optional | A patch of the `ui` section. Only the keys you send change. `typography`, `chat_text`, `terminal_text` and `theme_atmosphere` merge per field, and `""` or `null` deletes one; `sidebar_tabs` is replaced whole. Pinned agents change through `agent_pins: {<key>: true\|false}` and the background gallery through `remember_background` / `forget_background`. |
+| `auto_title` | boolean | optional | Name new agents from their prompt. |
+| `agent_defaults` | object | optional | `host`'s creator defaults: any of `repos_root`, `branch_prefix`, `default_agent`, `default_terminal_workspace`, `scratch_setup`. `""` clears one. |
+| `repo` | object | optional | `{path, copy_files?, setup?}`: one repository's per-repo settings on `host`. |
+| `host` | string | optional | Whose creator settings `agent_defaults` and `repo` write. Defaults to `local`. |
+| `theme` | string | optional | Switch herdr's theme fleet-wide. Refused while an appearance palette is set; change `ui.palette_light` / `palette_dark` / `appearance_mode` instead. |
+| `sync_agent_themes` | boolean | optional | Mirror the theme into agent CLIs' own theme files. |
+| `theme_sync` | object | optional | `{host, enabled}`: stop or resume theme writes to one host. |
+| `sync_theme_now` | boolean | optional | Push the current theme to every reachable host. Runs in the background; the outcome arrives as a toast in lasso. |
+| `install_theme_url` | string | optional | Install an Omarchy theme from a URL. |
+| `remove_push_device` | string | optional | Forget the notification device with this id. |
+
 ## Plugin tools
 
 Enabled plugins add tools named `<plugin>__<tool>`. Their parameters and results are whatever the plugin's own MCP server defines; `lasso mcp` lists them alongside the built-ins. See [Plugins](../plugins/index.md).
