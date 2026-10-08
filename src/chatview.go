@@ -223,7 +223,40 @@ type chatPayload struct {
 	// whose session or log has not landed yet — so the view shows progress (the
 	// orb) rather than a sentence that reads as a dead end.
 	Starting bool `json:"starting,omitempty"`
+	// ServedBy is the host the rows were read from. It is Host for an ordinary
+	// pane and another machine when the pane's own host does not have the log
+	// (transcripthost.go): a client addressing the FILES — a relative image in
+	// the prose, the transcript itself — goes there, while the composer, the
+	// ask answerer and the pane close still go to Host, where the pane is.
+	ServedBy string `json:"served_by,omitempty"`
+	// Unavailable is Note for a program: why there are no rows, and for a
+	// session whose log was looked for, which hosts were asked. Set exactly
+	// when no transcript was read.
+	Unavailable *chatUnavailable `json:"unavailable,omitempty"`
 }
+
+// chatUnavailable says why a chat has no transcript to show.
+type chatUnavailable struct {
+	// Reason is one of the chatReason* values.
+	Reason string `json:"reason"`
+	// Checked are the hosts whose disks were looked at and do not have the log,
+	// the pane's own host first. Set only for chatReasonNotFound.
+	Checked []string `json:"checked,omitempty"`
+	// Unanswered are hosts that were not reached in time (or at all), so the log
+	// may be on one of them. Empty means every host lasso drives said no.
+	Unanswered []string `json:"unanswered,omitempty"`
+}
+
+// The reasons an empty chat gives. not_found is the one a client acts on: the
+// pane names a real session whose log no host asked has yet — not written
+// yet, or on a machine in Unanswered.
+const (
+	chatReasonNoSession   = "no_session"         // no live agent, or herdr names no session
+	chatReasonStarting    = "starting"           // lasso is still bringing the agent up
+	chatReasonUnsupported = "unsupported"        // a harness or session shape lasso cannot read
+	chatReasonNotFound    = "not_found"          // a named session whose log is on no host asked
+	chatReasonMachine     = "machine_unreadable" // the herdr machine on screen could not be read
+)
 
 // ---------------------------------------------------------------------------
 // record shapes
@@ -332,6 +365,9 @@ type chatTranscript struct {
 	// sentence that reads as a dead end, which is what a freshly created agent
 	// used to get for its whole boot.
 	Starting bool
+	// Reason is Note's chatReason* code. chatReasonNotFound is what makes
+	// resolvePaneLog look on the other hosts.
+	Reason string
 }
 
 // paneTranscript resolves the pane's agent transcript from herdr's own
@@ -360,13 +396,14 @@ func paneTranscript(b Backend, p pane, booting bool) chatTranscript {
 		return chatTranscript{
 			Note:     "Waiting for the agent to start…",
 			Starting: true,
+			Reason:   chatReasonStarting,
 		}
 	}
 	// An agent_session outlives the agent (herdr keeps it to resume the pane),
 	// so the pane must still be running one — otherwise a plain shell sitting in
 	// the directory of an exited agent would keep showing that session.
 	if !paneHasLiveAgent(p) {
-		return chatTranscript{Note: "No agent session in this pane."}
+		return chatTranscript{Note: "No agent session in this pane.", Reason: chatReasonNoSession}
 	}
 	// Codex is resolved from the pane's own process, not herdr's session alone:
 	// herdr has been seen reporting no session for a codex pane while naming its
@@ -384,27 +421,28 @@ func paneTranscript(b Backend, p pane, booting bool) chatTranscript {
 			return chatTranscript{Path: path, Harness: "codex"}
 		}
 		if s == nil {
-			return chatTranscript{Note: "No agent session in this pane."}
+			return chatTranscript{Note: "No agent session in this pane.", Reason: chatReasonNoSession}
 		}
 		// Codex writes its log with the first turn, so a fresh session's id
-		// names a file that is coming.
+		// names a file that is coming — or one on another host (resolvePaneLog).
 		return chatTranscript{
 			Note:     "This session's transcript is not on this host yet.",
 			Starting: true,
+			Reason:   chatReasonNotFound,
 		}
 	}
 	// A live agent with no session reported, that lasso is not starting: herdr has
 	// no session for this pane and never will (a bot, a session someone started by
 	// hand). A wait here would promise a transcript that is not coming.
 	if s == nil {
-		return chatTranscript{Note: "No agent session in this pane."}
+		return chatTranscript{Note: "No agent session in this pane.", Reason: chatReasonNoSession}
 	}
 	agent := strings.ToLower(strings.TrimSpace(s.Agent))
 	v := strings.TrimSpace(s.Value)
 	switch s.Kind {
 	case "path":
 		if !filepath.IsAbs(v) || !strings.HasSuffix(v, ".jsonl") {
-			return chatTranscript{Note: "This agent's transcript is not readable by lasso yet."}
+			return chatTranscript{Note: "This agent's transcript is not readable by lasso yet.", Reason: chatReasonUnsupported}
 		}
 		return chatTranscript{Path: v, Harness: agent}
 	case "id":
@@ -415,16 +453,19 @@ func paneTranscript(b Backend, p pane, booting bool) chatTranscript {
 				}
 			}
 			// The id is real but its log is not on this machine yet — the session
-			// has not written one, or it lives on the other side of an ssh hop.
-			// A running agent's log is expected to arrive, so this is a wait.
+			// has not written one, or it lives on another host (a herdr machine
+			// mirroring a workspace whose agent ran elsewhere), which
+			// resolvePaneLog then looks for. A running agent's log is expected to
+			// arrive, so this is a wait.
 			return chatTranscript{
 				Note:     "This session's transcript is not on this host yet.",
 				Starting: true,
+				Reason:   chatReasonNotFound,
 			}
 		}
-		return chatTranscript{Note: "This agent's transcript is not readable by lasso yet."}
+		return chatTranscript{Note: "This agent's transcript is not readable by lasso yet.", Reason: chatReasonUnsupported}
 	}
-	return chatTranscript{Note: "No agent session in this pane."}
+	return chatTranscript{Note: "No agent session in this pane.", Reason: chatReasonNoSession}
 }
 
 // chatBootGrace is how long a pane lasso created may still be called "starting"
@@ -1751,13 +1792,14 @@ func serveChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if scr.note != "" {
-		writeChat(w, chatPayload{Host: scr.host, Note: scr.note})
+		writeChat(w, chatPayload{Host: scr.host, Note: scr.note, Unavailable: &chatUnavailable{Reason: chatReasonMachine}})
 		return
 	}
 	// Everything below reads the pane's transcript, and it must read it on the
 	// machine that pane lives on: `be` is rebound to the screen's backend so the
-	// pane listing, the records, the stat and every byte of the file come from
-	// one host.
+	// pane listing, the records and the stat come from one host. The one
+	// exception is a pane whose host does not have its log at all, which
+	// resolvePaneLog finds on another host and reports as served_by.
 	be, p := scr.be, scr.pane
 	// herdr's own view of the pane is what answers "is it generating right now",
 	// and it answers BEFORE the transcript can. Both harnesses write a COMPLETE
@@ -1796,32 +1838,27 @@ func serveChat(w http.ResponseWriter, r *http.Request) {
 	// This host's records, for the one question herdr cannot answer: is the agent
 	// in this pane one lasso is still starting? A read that fails just means no.
 	recs, _ := listAgents(be.Name())
-	tx := paneTranscript(be, p, paneBooting(recs, p.PaneID))
+	// The log is the pane's host's when it has it, else whichever host lasso
+	// drives that does (resolvePaneLog): the pane is still addressed on `be`,
+	// but the transcript's bytes are read from `src`.
+	lg := resolvePaneLog(be, p, paneBooting(recs, p.PaneID))
+	tx := lg.tx
 	if tx.Path == "" {
 		// The note distinguishes the situations that matter to whoever is
 		// looking at the empty view: an agent that never ran here, a harness
-		// lasso cannot read, and a session whose log is not on this host yet.
-		// Some of those are a WAIT — a live agent whose session has not been
-		// reported or written yet — and Starting is what tells them apart from
-		// the ones that are simply over.
+		// lasso cannot read, and a session whose log is on no host lasso could
+		// ask. Some of those are a WAIT — a live agent whose session has not
+		// been reported or written yet — and Starting is what tells them apart
+		// from the ones that are simply over. Unavailable says the same for a
+		// program, with the hosts that were asked.
 		out.Note = tx.Note
 		out.Starting = tx.Starting
+		out.Unavailable = lg.unavailable
 		writeChat(w, out)
 		return
 	}
-	path := tx.Path
-	info, err := be.Stat(path)
-	if err != nil || info.IsDir() {
-		// herdr named a transcript and the pane is running an agent, so this is
-		// not a missing file so much as one not written yet: every harness here
-		// creates its log with the first message. That is the state a freshly
-		// created agent sits in until it is prompted, so it is a wait rather
-		// than a dead end.
-		out.Note = "The agent's transcript is not readable yet."
-		out.Starting = true
-		writeChat(w, out)
-		return
-	}
+	path, info, src := tx.Path, lg.info, lg.be
+	out.ServedBy = lg.host
 	// `before` asks for the window ENDING at that transcript offset — the page
 	// above the one already on screen. Absent (or out of range) means the tail,
 	// which is what a view opens on.
@@ -1831,7 +1868,7 @@ func serveChat(w http.ResponseWriter, r *http.Request) {
 			end = n
 		}
 	}
-	parsed := readLogPage(be, path, tx.Harness, info.Size(), end)
+	parsed := readLogPage(src, path, tx.Harness, info.Size(), end)
 	out.Items = parsed.items
 	out.Model = parsed.model
 	out.Tokens = parsed.tokens
