@@ -5,6 +5,7 @@ package main
 //	lasso mcp                    list the tools the running server offers
 //	lasso mcp <tool> -h          one tool's flags, from its live schema
 //	lasso mcp <tool> [flags]     call it
+//	lasso mcp -herdr ...         the same against /herdr-mcp (herdr's socket API)
 //
 // This is the general case of `lasso notify`, and it exists for the same reason:
 // an agent with lasso's MCP server configured calls the tools directly, while one
@@ -104,10 +105,14 @@ usage:
   lasso mcp <tool> -h             show one tool's flags
   lasso mcp <tool> [flags]        call it
   lasso mcp <tool> -json          print the whole MCP result envelope
+  lasso mcp -herdr [<tool> ...]   the same against /herdr-mcp: herdr's own
+                                  socket API (pane-list, agent-read, ...) on
+                                  any host lasso drives
 
 flags (before the tool name):
   -json             print the full result envelope, not just the structured output
   -timeout <dur>    give up after this long (default `+mcpCLITimeout.String()+`)
+  -herdr            talk to /herdr-mcp instead of /mcp
 
 Tool names take either spelling: list-hosts or list_hosts. Flags are derived
 from the schema the running server advertises, so they follow it automatically.
@@ -137,6 +142,7 @@ func cliMCP(args []string) {
 	fs.Usage = func() { printMCPUsage(os.Stderr) }
 	full := fs.Bool("json", false, "print the full MCP result envelope")
 	timeout := fs.Duration("timeout", mcpCLITimeout, "give up after this long")
+	herdr := fs.Bool("herdr", false, "talk to /herdr-mcp instead of /mcp")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			os.Exit(0)
@@ -152,7 +158,11 @@ func cliMCP(args []string) {
 
 	setup, cancelSetup := context.WithTimeout(root, *timeout)
 	defer cancelSetup()
-	sess, err := dialMCP(setup, mcpEndpoint(), mcpCLIClient())
+	endpoint := mcpEndpoint()
+	if *herdr {
+		endpoint = lassoBaseURL() + "/herdr-mcp"
+	}
+	sess, err := dialMCP(setup, endpoint, mcpCLIClient())
 	if err != nil {
 		fatal("mcp: %v", err)
 	}

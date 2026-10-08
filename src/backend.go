@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"io"
 	"io/fs"
@@ -127,19 +128,32 @@ func herdrTimeoutFor(method string) time.Duration {
 // fresh connection to sock. This is the body the old package-level herdrCall
 // used; both backends share it (local socket vs forwarded remote socket).
 func herdrCallSock(sock, method string, params any) (json.RawMessage, error) {
+	return herdrCallSockWithin(context.Background(), sock, method, params, herdrTimeoutFor(method))
+}
+
+// herdrCallSockWithin is herdrCallSock with the read deadline chosen by the
+// caller, abandoned early when ctx ends. /herdr-mcp needs both: it forwards
+// arbitrary methods, some of which block inside herdr for minutes on purpose
+// (agent.wait, pane.wait_for_output), and a caller that hangs up should not
+// leave the connection waiting out that window.
+func herdrCallSockWithin(ctx context.Context, sock, method string, params any, timeout time.Duration) (json.RawMessage, error) {
 	conn, err := net.DialTimeout("unix", sock, 2*time.Second)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
+	defer context.AfterFunc(ctx, func() { conn.Close() })()
 	req := map[string]any{"id": "ui", "method": method, "params": params}
 	b, _ := json.Marshal(req)
 	if _, err := conn.Write(append(b, '\n')); err != nil {
 		return nil, err
 	}
-	_ = conn.SetReadDeadline(time.Now().Add(herdrTimeoutFor(method)))
+	_ = conn.SetReadDeadline(time.Now().Add(timeout))
 	line, err := bufio.NewReader(conn).ReadBytes('\n')
 	if err != nil && len(line) == 0 {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, err
 	}
 	var resp struct {
@@ -190,6 +204,25 @@ func (b *localBackend) HerdrSock() string { return b.sock }
 
 func (b *localBackend) HerdrCall(method string, params any) (json.RawMessage, error) {
 	return herdrCallSock(b.sock, method, params)
+}
+
+func (b *localBackend) HerdrCallWithin(ctx context.Context, method string, params any, timeout time.Duration) (json.RawMessage, error) {
+	return herdrCallSockWithin(ctx, b.sock, method, params, timeout)
+}
+
+// herdrDeadlineCaller is a backend whose herdr round-trip can take a caller's
+// deadline and context: both real backends. herdrCallWithin falls back to the
+// plain HerdrCall for anything else (the tests' in-memory fakes), which have
+// no socket to time out on.
+type herdrDeadlineCaller interface {
+	HerdrCallWithin(ctx context.Context, method string, params any, timeout time.Duration) (json.RawMessage, error)
+}
+
+func herdrCallWithin(ctx context.Context, b Backend, method string, params any, timeout time.Duration) (json.RawMessage, error) {
+	if dc, ok := b.(herdrDeadlineCaller); ok {
+		return dc.HerdrCallWithin(ctx, method, params, timeout)
+	}
+	return b.HerdrCall(method, params)
 }
 
 func (b *localBackend) ReadDir(path string) ([]fileEntry, error) {

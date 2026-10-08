@@ -9,7 +9,7 @@ Most agents spend their time in a terminal, and not every agent has lasso's MCP 
 
 | command | what it does |
 | --- | --- |
-| `lasso mcp` | list and call every tool on `/mcp` |
+| `lasso mcp` | list and call every tool on `/mcp` (with `-herdr`, on `/herdr-mcp`) |
 | `lasso notify` | push a notification to the human (the [`notify`](./tools.md#notify) tool) |
 | `lasso open` | show a file in the human's sidebar viewer (the [`open_file`](./tools.md#open_file) tool) |
 | `lasso closeme` | close the agent this shell runs in |
@@ -60,6 +60,7 @@ Flags before the tool name:
 | --- | --- | --- |
 | `-json` | off | Print the full MCP result envelope instead of just the structured output. Also accepted after the tool name, unless that tool has a parameter called `json`. |
 | `-timeout <dur>` | `2m0s` | Give up after this long. A tool argument whose name contains `timeout` extends the deadline to cover it (plus 15 seconds), so a tool asked to wait longer is not cut off. |
+| `-herdr` | off | Talk to [`/herdr-mcp`](./herdr-mcp.md) instead of `/mcp`: herdr's own socket API, e.g. `lasso mcp -herdr pane-read -host gigachad -pane-id w1:p1 -source recent`. |
 
 **Output.** Every lasso tool returns structured output, and that JSON is what is printed: indented on a terminal, compact when piped, so `| jq` needs no flag.
 

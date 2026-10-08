@@ -44,7 +44,8 @@ you**.
 - **A browser you and your agents share.** A real Chromium you watch and click
   in while an agent drives it.
 - **Agents orchestrating agents.** An MCP server lets one agent spawn, list,
-  inspect and close the others, across the fleet.
+  inspect and close the others, across the fleet, and `/herdr-mcp` serves
+  herdr's own API as MCP tools on any host (no separate herdr-mcp to run).
 
 ## Install
 
@@ -75,7 +76,7 @@ lasso never belongs on a public interface.
 | [Getting started](docs/getting-started/index.md) | Install, first run, connecting agents, the phone app |
 | [Concepts](docs/concepts/index.md) | Hosts, agents and worktrees, the shared browser, notifications |
 | [Web UI](docs/web-ui/index.md) | The terminal, the sidebar, the New dialog, theming |
-| [MCP server](docs/mcp/index.md) | Tools, the browser MCP, the CLI, OAuth, agent scope |
+| [MCP server](docs/mcp/index.md) | Tools, the browser and herdr MCPs, the CLI, OAuth, agent scope |
 | [Plugins](docs/plugins/index.md) | Installing plugins, and [writing one](docs/plugins/authoring.md) |
 | [Deployment](docs/deployment/index.md) | systemd, Cloudflare Tunnel and Access, tailnet, updating |
 | [Security](docs/security.md) · [Troubleshooting](docs/troubleshooting.md) | |
