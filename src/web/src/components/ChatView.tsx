@@ -1537,11 +1537,13 @@ export function ChatView({
 
   // A relative path in an agent's prose is relative to WHERE IT IS WORKING, on
   // the machine it is working on — so resolve it the same way the file viewer
-  // resolves one in a README, through /api/file on the session's own host. A
-  // stable identity matters: it decides the markdown components map, and a new
-  // one per render would rebuild every diagram on every poll.
+  // resolves one in a README, through /api/file on the session's own host. That
+  // is the host the transcript was read from (`served_by`), which is not the
+  // pane's when its herdr mirrors a session that ran elsewhere. A stable
+  // identity matters: it decides the markdown components map, and a new one
+  // per render would rebuild every diagram on every poll.
   const cwd = data?.cwd
-  const dataHost = data?.host
+  const dataHost = data?.served_by ?? data?.host
   const resolveImage = React.useCallback(
     (src: string | undefined) =>
       cwd ? resolveMarkdownSrc(src, `${cwd}/`, dataHost ?? null) : src,

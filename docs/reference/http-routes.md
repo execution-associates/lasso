@@ -36,7 +36,7 @@ So on a loopback or tailnet lasso with no `UI_AUTH` and no `MCP_OAUTH`, **everyt
 | `/api/events` | Server-sent events: focused pane, layout, theme and state revisions, pushed to the browser. |
 | `/api/host` | `POST`: attach the calling tab to a host (spawns its terminals if needed). It switches nothing for other tabs. |
 | `/api/hosts` | The host list from `~/.ssh/config`, with each host's reachability and herdr version. |
-| `/api/active`, `/api/panes`, `/api/all-panes` | The focused pane; one host's panes; panes across the fleet. |
+| `/api/active`, `/api/panes`, `/api/all-panes` | The focused pane; one host's panes; panes across the fleet. A pane's `transcript_at` is its log's mtime on whichever host has the log. |
 | `/api/focus`, `/api/close`, `/api/rename`, `/api/workspace-rename` | Focus, close or rename herdr panes, tabs and workspaces. |
 | `/api/clients`, `/api/term-claim` | The browsers attached to this lasso; which tab owns the terminal's size. |
 | `/api/ui-state` | Read and patch the shared UI state stored in `lasso.db`. |
@@ -62,7 +62,7 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 | `/api/agent/close`, `/api/agent/reopen`, `/api/agent-history` | Close an agent (what `lasso closeme` calls); reopen a closed agent's directory; past agents for the pane switcher. |
 | `/api/create-terminal`, `/api/workspaces` | Open a plain terminal; list workspaces to put it in. |
 | `/api/agent-config`, `/api/repo-config`, `/api/repos`, `/api/repo-branches`, `/api/auto-title` | New dialog settings, repos and branches. |
-| `/api/chat`, `/api/chat/send`, `/api/chat/answer` | The chat view: read an agent's transcript, send it a message, answer its question dialog. |
+| `/api/chat`, `/api/chat/send`, `/api/chat/answer` | The chat view: read an agent's transcript, send it a message, answer its question dialog. `/api/chat`'s `host` is the pane's machine; the log may be served from another host lasso drives, named by `served_by`. An empty answer carries `unavailable: {reason, checked, unanswered}`. |
 
 ### Settings, themes and maintenance
 

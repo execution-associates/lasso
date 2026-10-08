@@ -54,6 +54,13 @@ var codexPaths sync.Map // host + "\x00" + id -> path
 // and its neighbours are tried. An older, random id falls back to a newest-first
 // walk.
 func findCodexTranscript(b Backend, id string) string {
+	return findCodexTranscriptIn(b, id, true)
+}
+
+// findCodexTranscriptIn is findCodexTranscript with the walk for a legacy
+// (non-v7) id made optional: that walk is up to 400 day directories, which the
+// cross-host search (transcripthost.go) cannot afford on a remote host.
+func findCodexTranscriptIn(b Backend, id string, walk bool) string {
 	key := b.Name() + "\x00" + id
 	if v, ok := codexPaths.Load(key); ok {
 		if isFile(b, v.(string)) {
@@ -74,7 +81,7 @@ func findCodexTranscript(b Backend, id string) string {
 				break
 			}
 		}
-	} else {
+	} else if walk {
 		found = walkCodexSessions(b, root, suffix)
 	}
 	if found == "" {
