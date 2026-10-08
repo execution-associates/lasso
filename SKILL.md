@@ -11,18 +11,19 @@ Full documentation: `docs/` in this repo, starting at [docs/index.md](docs/index
 
 ## How you reach it
 
-There are two MCP servers, usually registered by `lasso connect`:
+There are three MCP servers, usually registered by `lasso connect`:
 
 | Server | URL | What it is for |
 | --- | --- | --- |
 | `lasso` | `<lasso>/mcp` | Agents, hosts, `notify`, `open_file`, browser profiles and tabs, settings |
 | `lasso-browser` | `<lasso>/browser-mcp` | chrome-devtools-mcp's tools (navigate, click, fill, screenshot, console, network) against the shared browser |
+| `lasso-herdr` | `<lasso>/herdr-mcp` | herdr's socket API, one tool per herdr method (`pane_list`, `pane_read`, `agent_prompt`, ...), on any host lasso drives; pass `host` (or `machine`), omit it for your own host |
 
 If your tools are missing, check `claude mcp list` (or your CLI's equivalent) and ask the human to run `lasso connect`. Every MCP tool also has a shell form: `lasso mcp` lists them, `lasso mcp <tool> -h` shows flags, and `lasso notify`, `lasso open` and `lasso closeme` are shortcuts for the common ones.
 
 ## Rules that matter
 
-- **lasso does not talk to agents.** It creates, lists, inspects and closes them. To prompt another agent, read its screen, or wait for it, use herdr (`herdr agent prompt` / `read` / `wait`) or your harness's own agent messaging.
+- **lasso's `/mcp` does not drive herdr directly.** It creates, lists, inspects, messages and closes agents. For herdr's own methods (prompt an agent, read a pane, split one, send keys) use the `lasso-herdr` tools on any host, `herdr` in a shell on the same machine, or your harness's own agent messaging.
 - **You must pass `$HERDR_PANE_ID` yourself.** The MCP server runs in lasso's process and cannot see your environment. Pass it as `pane_id` to `whoami`, `notify`, `open_file` and `close_agent`.
 - **`host` defaults to your own host**, not lasso's. Pass a host only to act on another machine, and only one `list_hosts` returns.
 - **An empty listing is usually scope, not an outage.** Your credential bounds which hosts you can see.

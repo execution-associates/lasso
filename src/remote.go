@@ -326,6 +326,13 @@ func (b *remoteBackend) HerdrCall(method string, params any) (json.RawMessage, e
 	return herdrCallSock(b.localSock, method, params)
 }
 
+func (b *remoteBackend) HerdrCallWithin(ctx context.Context, method string, params any, timeout time.Duration) (json.RawMessage, error) {
+	if b.localSock == "" {
+		return nil, fmt.Errorf("no herdr connection to %s (files-only)", b.alias)
+	}
+	return herdrCallSockWithin(ctx, b.localSock, method, params, timeout)
+}
+
 // runOut runs a shell command string on the remote host over the control master
 // and returns stdout, surfacing stderr in the error.
 func (b *remoteBackend) runOut(remoteCmd string) (string, error) {

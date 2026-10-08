@@ -1,14 +1,15 @@
 package main
 
-// `lasso connect` — register lasso's two MCP servers with the agent CLIs
-// installed on THIS machine, so onboarding is one command:
+// `lasso connect` — register lasso's MCP servers with the agent CLIs installed
+// on THIS machine, so onboarding is one command:
 //
 //	lasso          <base>/mcp          orchestration: create/list/inspect/close agents, notify, shared_browser
 //	lasso-browser  <base>/browser-mcp  chrome-devtools-mcp against the shared browser
+//	lasso-herdr    <base>/herdr-mcp    herdr's socket API, one tool per method, on any host
 //
-// Two servers rather than one because they are two jobs: an agent that only
-// needs to drive a page is not handed the fleet, and one orchestrating agents
-// is not handed thirty browser tools it will never call.
+// Separate servers rather than one because they are separate jobs: an agent
+// that only needs to drive a page is not handed the fleet, and one
+// orchestrating agents is not handed thirty browser tools it will never call.
 //
 // Every CLI is registered through its OWN mechanism, found by reading its help
 // on a real install rather than assumed:
@@ -53,6 +54,7 @@ import (
 const (
 	connectServerName  = "lasso"
 	connectBrowserName = "lasso-browser"
+	connectHerdrName   = "lasso-herdr"
 
 	// connectProbeTimeout bounds the initialize + shared_browser round trip.
 	connectProbeTimeout = 15 * time.Second
@@ -67,14 +69,16 @@ func printConnectUsage(w io.Writer) {
 usage:
   lasso connect [flags]
 
-Registers two streamable-HTTP MCP servers with every supported agent CLI found
-on this machine (claude, codex, opencode, omp; pi has no MCP client):
+Registers lasso's streamable-HTTP MCP servers with every supported agent CLI
+found on this machine (claude, codex, opencode, omp; pi has no MCP client):
 
   lasso           <url>/mcp           create, list, inspect and close agents; notify; shared_browser
   lasso-browser   <url>/browser-mcp   chrome-devtools-mcp against lasso's shared browser
+  lasso-herdr     <url>/herdr-mcp     herdr's socket API (pane_list, agent_prompt, ...) on any host
 
-It asks the server first: /mcp must answer (or nothing is registered), and
-lasso-browser is registered only when lasso says /browser-mcp can serve.
+It asks the server first: /mcp must answer (or nothing is registered),
+lasso-browser is registered only when lasso says /browser-mcp can serve, and
+lasso-herdr only when /herdr-mcp lists herdr's tools.
 Re-running is safe — an entry already identical is left alone, a different
 one is replaced.
 
@@ -88,7 +92,8 @@ flags:
   -only a,b         only these CLIs (claude, codex, opencode, omp, pi)
   -scope <s>        Claude Code scope: user (default), local, or project
   -browser=false    do not register lasso-browser
-  -remove           unregister both servers from every CLI instead
+  -herdr=false      do not register lasso-herdr
+  -remove           unregister every lasso server from every CLI instead
   -dry-run          print what would be run or written; change nothing
   -force            skip the probe (register even if lasso does not answer)
 
@@ -192,8 +197,9 @@ func maskSecret(v string) string {
 }
 
 // connectBase resolves the base URL the entries point at: -url, else the same
-// LASSO_URL/LASSO_LISTEN resolution notify and mcp use. A pasted /mcp or
-// /browser-mcp suffix is dropped, since both servers hang off the base.
+// LASSO_URL/LASSO_LISTEN resolution notify and mcp use. A pasted /mcp,
+// /browser-mcp or /herdr-mcp suffix is dropped, since every server hangs off
+// the base.
 func connectBase(flagURL string) (string, error) {
 	b := strings.TrimSpace(flagURL)
 	if b == "" {
@@ -205,7 +211,7 @@ func connectBase(flagURL string) (string, error) {
 	}
 	u.RawQuery, u.Fragment = "", ""
 	s := strings.TrimRight(u.String(), "/")
-	for _, suf := range []string{"/browser-mcp", "/mcp"} {
+	for _, suf := range []string{"/browser-mcp", "/herdr-mcp", "/mcp"} {
 		s = strings.TrimSuffix(s, suf)
 	}
 	return s, nil
@@ -231,12 +237,15 @@ func (t headerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 type connectProbe struct {
 	browserOK     bool
 	browserReason string
+	herdrOK       bool
+	herdrReason   string
 }
 
 // probeLasso proves /mcp answers with these headers — the same ones the CLIs
-// will send — and asks shared_browser (start:false, so probing never launches
-// Chromium) whether /browser-mcp can serve. An error means /mcp itself is out
-// of reach; a browser that cannot be asked about is just an unavailable one.
+// will send — asks shared_browser (start:false, so probing never launches
+// Chromium) whether /browser-mcp can serve, and lists /herdr-mcp's tools. An
+// error means /mcp itself is out of reach; a browser or herdr endpoint that
+// cannot be asked about is just an unavailable one.
 func probeLasso(ctx context.Context, base string, h []connectHeader) (connectProbe, error) {
 	hc := &http.Client{Transport: headerTransport{h: h, base: http.DefaultTransport}}
 	sess, err := dialMCP(ctx, base+"/mcp", hc)
@@ -244,19 +253,24 @@ func probeLasso(ctx context.Context, base string, h []connectHeader) (connectPro
 		return connectProbe{}, err
 	}
 	defer sess.Close()
+	var p connectProbe
+	p.herdrOK, p.herdrReason = probeHerdrMCP(ctx, base, hc)
 	res, err := sess.CallTool(ctx, &mcp.CallToolParams{Name: "shared_browser", Arguments: map[string]any{"start": false}})
 	if err != nil {
-		return connectProbe{browserReason: "could not ask lasso about its browser: " + err.Error()}, nil
+		p.browserReason = "could not ask lasso about its browser: " + err.Error()
+		return p, nil
 	}
 	if res.IsError {
-		return connectProbe{browserReason: toolErrorText(res)}, nil
+		p.browserReason = toolErrorText(res)
+		return p, nil
 	}
 	raw, _ := json.Marshal(res.StructuredContent)
 	var out sharedBrowserOut
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return connectProbe{browserReason: "unreadable shared_browser answer: " + err.Error()}, nil
+		p.browserReason = "unreadable shared_browser answer: " + err.Error()
+		return p, nil
 	}
-	p := connectProbe{browserOK: out.MCPAvailable, browserReason: out.MCPReason}
+	p.browserOK, p.browserReason = out.MCPAvailable, out.MCPReason
 	if !p.browserOK && p.browserReason == "" {
 		p.browserReason = out.Note
 		if p.browserReason == "" {
@@ -264,6 +278,27 @@ func probeLasso(ctx context.Context, base string, h []connectHeader) (connectPro
 		}
 	}
 	return p, nil
+}
+
+// probeHerdrMCP asks /herdr-mcp for its tools. Registering it is only worth it
+// once herdr's schema has loaded there: until then its one tool is
+// machine_list, and an agent handed that would conclude herdr has no API.
+func probeHerdrMCP(ctx context.Context, base string, hc *http.Client) (bool, string) {
+	sess, err := dialMCP(ctx, base+"/herdr-mcp", hc)
+	if err != nil {
+		return false, "lasso does not answer on /herdr-mcp (a lasso older than this CLI?): " + err.Error()
+	}
+	defer sess.Close()
+	tools, err := listMCPTools(ctx, sess)
+	if err != nil {
+		return false, "could not list /herdr-mcp's tools: " + err.Error()
+	}
+	for _, t := range tools {
+		if t.Name != herdrMachineListTool {
+			return true, ""
+		}
+	}
+	return false, "lasso's /herdr-mcp has no herdr tools yet: herdr's schema has not loaded on lasso's machine (is herdr installed there? `herdr api schema --json`)"
 }
 
 // ---------------------------------------------------------------------------
@@ -1277,7 +1312,8 @@ func cliConnect(args []string) {
 	only := fs.String("only", "", "comma-separated agent CLIs")
 	scope := fs.String("scope", "user", "Claude Code scope: user, local or project")
 	browser := fs.Bool("browser", true, "register lasso-browser too")
-	remove := fs.Bool("remove", false, "unregister both servers")
+	herdr := fs.Bool("herdr", true, "register lasso-herdr too")
+	remove := fs.Bool("remove", false, "unregister every lasso server")
 	dryRun := fs.Bool("dry-run", false, "print what would change; change nothing")
 	force := fs.Bool("force", false, "skip the probe")
 	if err := fs.Parse(args); err != nil {
@@ -1315,11 +1351,15 @@ func cliConnect(args []string) {
 	servers := []struct{ name, url, skip string }{
 		{connectServerName, base + "/mcp", ""},
 		{connectBrowserName, base + "/browser-mcp", ""},
+		{connectHerdrName, base + "/herdr-mcp", ""},
 	}
-	var browserWhy string
+	var browserWhy, herdrWhy string
 	if !*remove {
 		if !*browser {
 			servers[1].skip = "-browser=false"
+		}
+		if !*herdr {
+			servers[2].skip = "-herdr=false"
 		}
 		if !*force {
 			ctx, cancel := context.WithTimeout(context.Background(), connectProbeTimeout)
@@ -1334,6 +1374,10 @@ func cliConnect(args []string) {
 			if !p.browserOK && *browser {
 				browserWhy = p.browserReason
 				servers[1].skip = "lasso's /browser-mcp is unavailable (see below)"
+			}
+			if !p.herdrOK && *herdr {
+				herdrWhy = p.herdrReason
+				servers[2].skip = "lasso's /herdr-mcp is unavailable (see below)"
 			}
 		}
 	}
@@ -1351,7 +1395,7 @@ func cliConnect(args []string) {
 		auth = strings.Join(hs, ", ")
 	}
 	if *remove {
-		fmt.Printf("lasso connect: removing %s and %s%s\n", connectServerName, connectBrowserName, mode)
+		fmt.Printf("lasso connect: removing %s, %s and %s%s\n", connectServerName, connectBrowserName, connectHerdrName, mode)
 	} else {
 		fmt.Printf("lasso connect → %s  [%s]%s\n", base, auth, mode)
 	}
@@ -1393,6 +1437,10 @@ func cliConnect(args []string) {
 		fmt.Println("On lasso's machine, install Chrome or Chromium and chrome-devtools-mcp")
 		fmt.Println("(npm i -g chrome-devtools-mcp), then run lasso connect again.")
 		fmt.Println("docs/mcp/browser-mcp.md has the details.")
+	}
+	if herdrWhy != "" {
+		fmt.Printf("\nlasso-herdr was not registered: %s\n", herdrWhy)
+		fmt.Println("docs/mcp/herdr-mcp.md has the details.")
 	}
 	if failed {
 		os.Exit(1)

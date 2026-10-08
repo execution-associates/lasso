@@ -1,25 +1,27 @@
 ---
 title: MCP
-description: The two MCP servers lasso exposes, what each is for, how agents connect to them, and how they are secured.
+description: The three MCP servers lasso exposes, what each is for, how agents connect to them, and how they are secured.
 order: 40
 nav_title: Overview
 ---
 
-lasso exposes its features to agents over the [Model Context Protocol](https://modelcontextprotocol.io). An agent connected to lasso can spawn, inspect and close **other** agents on any host lasso can reach, push a notification to your phone, open a file in your sidebar, and drive the shared browser you are watching.
+lasso exposes its features to agents over the [Model Context Protocol](https://modelcontextprotocol.io). An agent connected to lasso can spawn, inspect and close **other** agents on any host lasso can reach, push a notification to your phone, open a file in your sidebar, drive the shared browser you are watching, and call herdr's own API on any of those hosts.
 
-## Two servers
+## Three servers
 
-lasso serves two streamable-HTTP MCP servers from the same port:
+lasso serves three streamable-HTTP MCP servers from the same port:
 
 | name | path | what it is for |
 | --- | --- | --- |
 | `lasso` | `/mcp` | Orchestration: hosts, repos and branches, creating and closing agents, `whoami`, `notify`, `open_file`, and managing the shared browser's profiles and tabs. Enabled plugins add their tools here. |
 | `lasso-browser` | `/browser-mcp` | Google's [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp) tool set (navigate, click, fill, screenshot, console, network, performance traces), already pointed at lasso's [shared browser](../concepts/shared-browser.md). |
+| `lasso-herdr` | `/herdr-mcp` | herdr's socket API, one tool per herdr method (`pane_list`, `pane_read`, `agent_prompt`, ...), on any host lasso drives. The standalone herdr-mcp bridge's tools, so that bridge no longer has to run beside lasso. |
 
-They are two servers because they are two jobs. An agent that only orchestrates is not handed thirty browser tools, an agent that only browses is not handed the power to spawn agents, and each can be added, gated or removed on its own.
+They are separate servers because they are separate jobs. An agent that only orchestrates is not handed thirty browser tools or ninety raw herdr methods, an agent that only browses is not handed the power to spawn agents, and each can be added, gated or removed on its own.
 
 - [Tools reference](./tools.md) lists every tool on `/mcp` with its parameters.
 - [The browser MCP server](./browser-mcp.md) covers `/browser-mcp` and the raw CDP endpoint at `/cdp`.
+- [The herdr MCP server](./herdr-mcp.md) covers `/herdr-mcp`.
 - [Shell commands](./cli.md) covers `lasso mcp`, `lasso notify`, `lasso open` and `lasso closeme`, which reach the same tools from a terminal.
 
 ## Connecting an agent
@@ -30,14 +32,15 @@ On the machine an agent runs on:
 lasso connect
 ```
 
-It registers both servers with every agent CLI it finds there (Claude Code, Codex, OpenCode, omp), after checking that lasso answers. On a machine other than lasso's, pass the URL that machine reaches lasso on: `lasso connect -url https://lasso.example.com`. See [Connect your agents](../getting-started/connect-agents.md) for the details and the manual equivalent, which for Claude Code is:
+It registers all three servers with every agent CLI it finds there (Claude Code, Codex, OpenCode, omp), after checking that lasso answers. On a machine other than lasso's, pass the URL that machine reaches lasso on: `lasso connect -url https://lasso.example.com`. See [Connect your agents](../getting-started/connect-agents.md) for the details and the manual equivalent, which for Claude Code is:
 
 ```bash
 claude mcp add --transport http lasso         http://127.0.0.1:8090/mcp
 claude mcp add --transport http lasso-browser http://127.0.0.1:8090/browser-mcp
+claude mcp add --transport http lasso-herdr   http://127.0.0.1:8090/herdr-mcp
 ```
 
-Other CLIs add the same two URLs as streamable-HTTP MCP servers.
+Other CLIs add the same URLs as streamable-HTTP MCP servers.
 
 ## Talking to agents
 
@@ -60,13 +63,15 @@ Every MCP session receives a short set of instructions at `initialize`, so an ag
 - An agent in a lasso-created pane passes its `$HERDR_PANE_ID` to `whoami` to find its own record, and shuts itself down with `close_agent`, never `herdr pane close` (which leaves the agent record and staged prompt files behind).
 - To show the human what it is doing, an agent puts a one-line summary on its pane's status card with `herdr pane report-metadata "$HERDR_PANE_ID" --source agent:self --token summary="<what you're doing>" --ttl-ms 1800000`, and does not use `herdr pane report-agent`, which overrides herdr's own status detection.
 
+`/herdr-mcp` sends herdr-mcp's instructions (the agent workflow from `worktree_create` to `agent_read`, which read sources to use, which methods are destructive) with `machine` replaced by lasso's `host`.
+
 `/browser-mcp` sends its own instructions: the human's Browser tab shows one page (the most recently opened), so open your own page and close it when done; `localhost` means lasso's machine; and the accounts logged into the browser are the human's, so posting, sending, accepting or buying needs their go-ahead.
 
 ## Authentication at a glance
 
 `/mcp` is **open by default**. That is the same trust model as lasso's file endpoints: fine on loopback, on a private tailnet, or behind an edge gate such as Cloudflare Access, and not fine on an address strangers can reach.
 
-| setup | `/mcp` | `/browser-mcp` and `/cdp` |
+| setup | `/mcp` and `/herdr-mcp` | `/browser-mcp` and `/cdp` |
 | --- | --- | --- |
 | nothing set | open | open |
 | `UI_AUTH=user:pass` only | open | `UI_AUTH` basic credentials |

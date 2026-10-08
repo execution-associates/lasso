@@ -412,6 +412,16 @@ func runServer() {
 	browserMCPHandler := withBrowserMCPAuth(browserMCP, authUser, authPass, hasAuth)
 	mux.Handle("/browser-mcp", browserMCPHandler)
 	mux.Handle("/browser-mcp/", browserMCPHandler)
+	// herdr's own socket API as MCP tools (herdrmcp.go), the standalone
+	// herdr-mcp bridge's surface served from here. It drives the same hosts as
+	// /mcp's tools on the same credentials, so it takes /mcp's gate exactly:
+	// exempt from UI_AUTH below, withMCPAuth in front, and every call checked
+	// against the caller's host scope.
+	herdrMCP = newHerdrMCPServer()
+	go herdrMCP.run(ctx)
+	herdrMCPHandler := withMCPAuth(herdrMCP.handler(), authUser, authPass, hasAuth)
+	mux.Handle("/herdr-mcp", herdrMCPHandler)
+	mux.Handle("/herdr-mcp/", herdrMCPHandler)
 	dist, err := fs.Sub(distFS, "web/dist")
 	if err != nil {
 		log.Fatalf("dist fs: %v", err)
@@ -444,6 +454,7 @@ func runServer() {
 		"/mcp",
 		"/cdp",
 		"/browser-mcp",
+		"/herdr-mcp",
 		"/.well-known/oauth-protected-resource",
 		"/.well-known/oauth-authorization-server",
 		"/oauth/register",

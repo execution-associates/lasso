@@ -4,7 +4,7 @@ description: lasso's route table, and which auth gate guards each route.
 order: 99
 ---
 
-Everything lasso serves comes from one listener (`-listen`). The browser UI uses the `/api/*` routes; agents use `/mcp`, `/browser-mcp` and `/cdp`. The `/api/*` routes are lasso's own UI API, not a stable public interface: they can change between releases. Script lasso through [`lasso mcp`](../mcp/cli.md) or the MCP server instead.
+Everything lasso serves comes from one listener (`-listen`). The browser UI uses the `/api/*` routes; agents use `/mcp`, `/herdr-mcp`, `/browser-mcp` and `/cdp`. The `/api/*` routes are lasso's own UI API, not a stable public interface: they can change between releases. Script lasso through [`lasso mcp`](../mcp/cli.md) or the MCP server instead.
 
 ## Auth gates
 
@@ -12,12 +12,13 @@ A request passes through these layers, outermost first:
 
 1. **Internal CDP token.** lasso's own chrome-devtools-mcp children reach `/cdp` with a random per-process token, honored on `/cdp` paths only, ahead of every other gate.
 2. **The Access header gate**, when `-require-access-header` is on: every route, with no exemptions, answers 403 without a non-empty `Cf-Access-Authenticated-User-Email` header (or with one not in `-access-allowed-emails`). Off by default, and nothing reads the header while it is off.
-3. **UI_AUTH basic auth**, when `UI_AUTH` is set: every route **except** `/mcp`, `/cdp`, `/browser-mcp`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/oauth/register` and `/oauth/token` (and their subpaths). `/oauth/authorize` stays behind it on purpose: that is where a human approves a client.
+3. **UI_AUTH basic auth**, when `UI_AUTH` is set: every route **except** `/mcp`, `/herdr-mcp`, `/cdp`, `/browser-mcp`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/oauth/register` and `/oauth/token` (and their subpaths). `/oauth/authorize` stays behind it on purpose: that is where a human approves a client.
 4. **Per-route gates** on the exempt routes:
 
 | route | gate | open by default? | with `UI_AUTH` only | with `MCP_OAUTH` |
 | --- | --- | --- | --- | --- |
 | `/mcp` | `withMCPAuth` | yes | open | bearer token or `UI_AUTH` basic credentials |
+| `/herdr-mcp` | `withMCPAuth` | yes | open | same as `/mcp`; each call's host is checked against the token's scope |
 | `/cdp` | `withCDPAuth` | yes | `UI_AUTH` basic | bearer token or `UI_AUTH` basic; the token's scope must include lasso's own machine |
 | `/browser-mcp` | `withBrowserMCPAuth` | yes | `UI_AUTH` basic | same as `/cdp` |
 

@@ -95,6 +95,10 @@ One wrinkle, inherited from credential hosts: `local` is the literal name of the
 
 With a per-host credential, tools that take an optional `host` default to the credential's host, not to lasso's box. `list_hosts` shows only the hosts the credential may address. `whoami` searches only the credential's host, which also means a pane id that exists on several hosts still resolves. `close_agent` with no `host` searches every host the caller may reach. See [Tools reference](./tools.md#how-host-and-scope-work).
 
+## `/herdr-mcp` follows the same scope
+
+[`/herdr-mcp`](./herdr-mcp.md) takes `/mcp`'s credentials and applies the same host check to every call: with no `host` a call lands on the credential's own host, and a host outside its reach is refused with the same explanation `/mcp` gives. Its attached-client methods (`popup_close`, `server_live_handoff`, ...) always run on `local`, so they need a caller whose reach includes lasso's machine.
+
 ## The shared browser follows the same scope
 
 The [browser tools](./tools.md#browser) on `/mcp` and the two endpoints they hand out, [`/browser-mcp` and `/cdp`](./browser-mcp.md), drive a Chromium running on **lasso's own machine**, so all of them require a caller whose reach includes `local`. Plugin tools have the same requirement. A `self`-scoped credential for another host gets a tool error, and the same bearer token presented to `/browser-mcp` or `/cdp` directly is refused with 403: the check is on the endpoint, not only in the tool. Fleet scope, or a group or grant that brings in `local`, opens it.

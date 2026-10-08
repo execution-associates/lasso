@@ -68,6 +68,7 @@ func TestConnectBase(t *testing.T) {
 		"https://lasso.example.com/":         "https://lasso.example.com",
 		"https://lasso.example.com/mcp":      "https://lasso.example.com",
 		"http://100.1.2.3:8190/browser-mcp/": "http://100.1.2.3:8190",
+		"http://100.1.2.3:8190/herdr-mcp":    "http://100.1.2.3:8190",
 		"http://h:1/sub/path":                "http://h:1/sub/path",
 	}
 	for in, want := range cases {
@@ -475,10 +476,35 @@ func TestProbeLasso(t *testing.T) {
 	if p.browserOK || !strings.Contains(p.browserReason, "not configured") {
 		t.Errorf("probe = %+v", p)
 	}
+	// A lasso with no /herdr-mcp (here: the 404 above) is not registered as one.
+	if p.herdrOK || !strings.Contains(p.herdrReason, "/herdr-mcp") {
+		t.Errorf("herdr probe against a lasso without it = %+v", p)
+	}
 
 	dead := httptest.NewServer(http.NotFoundHandler())
 	dead.Close()
 	if _, err := probeLasso(ctx, dead.URL, nil); err == nil {
 		t.Error("an unreachable lasso probed fine")
+	}
+}
+
+// lasso-herdr is registered only once /herdr-mcp has herdr's tools: before the
+// schema loads its only tool is machine_list, which is no API at all.
+func TestProbeHerdrMCP(t *testing.T) {
+	h := newHerdrMCPServer()
+	srv := httptest.NewServer(http.StripPrefix("/herdr-mcp", h.handler()))
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	ok, why := probeHerdrMCP(ctx, srv.URL, http.DefaultClient)
+	if ok || !strings.Contains(why, "no herdr tools yet") {
+		t.Errorf("probe before the schema loaded = %v %q", ok, why)
+	}
+	if _, _, _, err := h.reload([]byte(herdrFixtureSchema)); err != nil {
+		t.Fatal(err)
+	}
+	if ok, why = probeHerdrMCP(ctx, srv.URL, http.DefaultClient); !ok {
+		t.Errorf("probe with herdr's tools loaded = %v %q", ok, why)
 	}
 }

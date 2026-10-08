@@ -10,7 +10,7 @@ lasso is one Go binary. It embeds its React frontend, keeps its state in a SQLit
 
 ## The pieces
 
-**The web server.** One listener serves the embedded single-page app, the `/api/*` routes behind it, and the agent-facing endpoints: the MCP server at `/mcp`, chrome-devtools-mcp at `/browser-mcp`, and raw CDP at `/cdp`. Live state (the focused pane, the layout, theme and settings revisions) reaches the browser over server-sent events at `/api/events`. See [HTTP routes](./http-routes.md).
+**The web server.** One listener serves the embedded single-page app, the `/api/*` routes behind it, and the agent-facing endpoints: the MCP server at `/mcp`, herdr's socket API as MCP tools at `/herdr-mcp`, chrome-devtools-mcp at `/browser-mcp`, and raw CDP at `/cdp`. Live state (the focused pane, the layout, theme and settings revisions) reaches the browser over server-sent events at `/api/events`. See [HTTP routes](./http-routes.md).
 
 **Terminals through ttyd.** The terminal column is a real terminal: lasso spawns [ttyd](https://github.com/tsl0922/ttyd) running `herdr` (or `herdr --remote <host>` for a remote host) and reverse-proxies it, WebSocket included, at `/terminal/<host>/`. The Terminal tab is a second ttyd running a plain shell (or `ssh <host>`) at `/shell/<host>/`. Each ttyd listens on its own unix socket named by lasso's PID and the host, so several lasso instances never collide, and a host keeps its terminals warm: switching back to a host re-points the proxy at a ttyd that is already running instead of spawning a new one. Terminals for hosts nobody is looking at are retired after a while.
 

@@ -1,18 +1,19 @@
 ---
 title: Connect your agents
-description: Register lasso's two MCP servers with the agent CLIs on a machine, with lasso connect or by hand.
+description: Register lasso's MCP servers with the agent CLIs on a machine, with lasso connect or by hand.
 order: 11
 nav_title: Connect agents
 ---
 
-lasso exposes two MCP servers, and an agent CLI needs both registered to use everything lasso offers:
+lasso exposes three MCP servers, and an agent CLI needs all three registered to use everything lasso offers:
 
 | Server name | URL | What it gives an agent |
 | --- | --- | --- |
 | `lasso` | `<lasso URL>/mcp` | Create, list, inspect and close agents on any host; `whoami`; `notify` the human; `open_file` in the human's sidebar; the shared browser's profiles and tabs. See [MCP tools](../mcp/tools.md). |
 | `lasso-browser` | `<lasso URL>/browser-mcp` | chrome-devtools-mcp's tools (navigate, click, fill, screenshot, console, network, ...) against lasso's [shared browser](../concepts/shared-browser.md). See [The browser MCP](../mcp/browser-mcp.md). |
+| `lasso-herdr` | `<lasso URL>/herdr-mcp` | herdr's socket API, one tool per herdr method (`pane_list`, `pane_split`, `agent_prompt`, ...), on any host lasso drives. See [The herdr MCP](../mcp/herdr-mcp.md). |
 
-They are two servers because they are two jobs. An agent that only needs to drive a page is not handed the whole fleet, and one orchestrating agents is not handed thirty browser tools it will never call.
+They are separate servers because they are separate jobs. An agent that only needs to drive a page is not handed the whole fleet, and one orchestrating agents is not handed thirty browser tools it will never call.
 
 ## lasso connect
 
@@ -20,12 +21,13 @@ They are two servers because they are two jobs. An agent that only needs to driv
 lasso connect
 ```
 
-`lasso connect` finds the supported agent CLIs installed on this machine and registers both servers with each of them, through each CLI's own mechanism. Re-running it is safe: an entry that is already identical is left alone, and a different one is replaced. "Identical" is decided by reading what the CLI actually stored, so a hand edit is noticed.
+`lasso connect` finds the supported agent CLIs installed on this machine and registers every server with each of them, through each CLI's own mechanism. Re-running it is safe: an entry that is already identical is left alone, and a different one is replaced. "Identical" is decided by reading what the CLI actually stored, so a hand edit is noticed.
 
 Before it registers anything it asks the server:
 
 - `/mcp` must answer, with the same headers the CLIs will send. If it doesn't, nothing is registered, lasso connect prints the likeliest reason, and it exits 1.
-- `lasso-browser` is registered only when lasso says `/browser-mcp` can serve, which needs Chrome or Chromium and `chrome-devtools-mcp` installed on **lasso's** machine. Otherwise `lasso` is registered alone and the output says what is missing.
+- `lasso-browser` is registered only when lasso says `/browser-mcp` can serve, which needs Chrome or Chromium and `chrome-devtools-mcp` installed on **lasso's** machine. Otherwise it is skipped and the output says what is missing.
+- `lasso-herdr` is registered only when `/herdr-mcp` lists herdr's tools, which needs herdr installed on **lasso's** machine (lasso reads the tool list from `herdr api schema --json`). `-herdr=false` skips it.
 
 The probe never launches the browser.
 
@@ -45,7 +47,7 @@ The output has one line per CLI and server, with a status such as `added`, `upda
 
 | Flag | Default | Effect |
 | --- | --- | --- |
-| `-url <url>` | `$LASSO_URL`, else `http://$LASSO_LISTEN`, else `http://127.0.0.1:8090` | The URL **this machine** reaches lasso on. A trailing `/mcp` or `/browser-mcp` is dropped, since both servers hang off the base URL. |
+| `-url <url>` | `$LASSO_URL`, else `http://$LASSO_LISTEN`, else `http://127.0.0.1:8090` | The URL **this machine** reaches lasso on. A trailing `/mcp`, `/browser-mcp` or `/herdr-mcp` is dropped, since every server hangs off the base URL. |
 | `-token <token>` | `$LASSO_MCP_TOKEN` | Bearer token to register, sent as `Authorization: Bearer <token>`. |
 | `-header 'Name: value'` | none | An extra header to probe with and register. Repeatable. A header with the same name as one lasso adds (such as `Authorization`) replaces it. |
 | `-only a,b` | all | Only these CLIs: any of `claude`, `codex`, `opencode`, `omp`, `pi`. |
@@ -101,17 +103,18 @@ The lasso binary on that machine is only used as the installer here; it does not
 lasso connect -remove
 ```
 
-This removes `lasso` and `lasso-browser` from every detected CLI. Claude Code and Codex are asked to remove them (`claude mcp remove`, `codex mcp remove`); omp's `mcp.json` is edited. OpenCode has no remove command, so lasso deletes the entry from whichever of `opencode.jsonc`, `opencode.json` or `config.json` holds it. A file that contains comments or trailing commas is refused rather than rewritten (a rewrite would drop them); delete `mcp.lasso` and `mcp.lasso-browser` from it by hand.
+This removes `lasso`, `lasso-browser` and `lasso-herdr` from every detected CLI. Claude Code and Codex are asked to remove them (`claude mcp remove`, `codex mcp remove`); omp's `mcp.json` is edited. OpenCode has no remove command, so lasso deletes the entry from whichever of `opencode.jsonc`, `opencode.json` or `config.json` holds it. A file that contains comments or trailing commas is refused rather than rewritten (a rewrite would drop them); delete `mcp.lasso`, `mcp.lasso-browser` and `mcp.lasso-herdr` from it by hand.
 
 Combine with `-dry-run` to see what would be removed first.
 
 ## Registering by hand
 
-Any MCP client that speaks streamable HTTP can add the two URLs itself. For Claude Code:
+Any MCP client that speaks streamable HTTP can add the URLs itself. For Claude Code:
 
 ```bash
 claude mcp add --transport http lasso         http://127.0.0.1:8090/mcp
 claude mcp add --transport http lasso-browser http://127.0.0.1:8090/browser-mcp
+claude mcp add --transport http lasso-herdr   http://127.0.0.1:8090/herdr-mcp
 ```
 
 For Codex and OpenCode:
@@ -119,9 +122,11 @@ For Codex and OpenCode:
 ```bash
 codex mcp add lasso --url http://127.0.0.1:8090/mcp
 codex mcp add lasso-browser --url http://127.0.0.1:8090/browser-mcp
+codex mcp add lasso-herdr --url http://127.0.0.1:8090/herdr-mcp
 
 opencode mcp add lasso --url http://127.0.0.1:8090/mcp
 opencode mcp add lasso-browser --url http://127.0.0.1:8090/browser-mcp
+opencode mcp add lasso-herdr --url http://127.0.0.1:8090/herdr-mcp
 ```
 
 For omp, in `~/.omp/agent/mcp.json`:
@@ -130,7 +135,8 @@ For omp, in `~/.omp/agent/mcp.json`:
 {
   "mcpServers": {
     "lasso": { "type": "http", "url": "http://127.0.0.1:8090/mcp" },
-    "lasso-browser": { "type": "http", "url": "http://127.0.0.1:8090/browser-mcp" }
+    "lasso-browser": { "type": "http", "url": "http://127.0.0.1:8090/browser-mcp" },
+    "lasso-herdr": { "type": "http", "url": "http://127.0.0.1:8090/herdr-mcp" }
   }
 }
 ```
@@ -141,6 +147,6 @@ Settings → General → Terminal & browser in the web UI also shows the browser
 
 ## Next
 
-- [MCP overview](../mcp/index.md): what the two servers are for and how they are secured.
+- [MCP overview](../mcp/index.md): what the three servers are for and how they are secured.
 - [MCP tools](../mcp/tools.md): every tool on `/mcp` and its parameters.
 - [The lasso CLI for agents](../mcp/cli.md): `lasso notify`, `lasso open`, `lasso mcp`, for agents without MCP.
