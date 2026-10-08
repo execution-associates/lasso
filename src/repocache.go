@@ -83,6 +83,23 @@ func (c *ttlCache[T]) get(key string, force bool, fetch func() (T, error)) (T, e
 	return v, nil
 }
 
+// peek returns key's value only if it is cached and fresh — never fetching, so
+// a caller on a deadline can use what the warmer already holds.
+func (c *ttlCache[T]) peek(key string) (T, bool) {
+	c.mu.Lock()
+	e := c.entries[key]
+	c.mu.Unlock()
+	var zero T
+	if e == nil || !e.mu.TryLock() {
+		return zero, false
+	}
+	defer e.mu.Unlock()
+	if e.at.IsZero() || time.Since(e.at) >= c.ttl {
+		return zero, false
+	}
+	return e.val, true
+}
+
 // invalidate drops key so the next get refetches.
 func (c *ttlCache[T]) invalidate(key string) {
 	c.mu.Lock()

@@ -340,6 +340,23 @@ export interface ChatPayload {
   // That emptiness is a pane still coming up — a live agent whose session or
   // log has not landed yet — so the view shows progress rather than a verdict.
   starting?: boolean
+  // The host the rows were read from: `host` for an ordinary pane, another
+  // machine when the pane's own host does not have the log. Files the
+  // transcript refers to are there; the pane itself is still on `host`.
+  served_by?: string
+  // Why items is empty, for a program: `not_found` names a session whose log
+  // no host asked has yet, with the hosts checked and the ones that did not
+  // answer in time.
+  unavailable?: {
+    reason:
+      | "no_session"
+      | "starting"
+      | "unsupported"
+      | "not_found"
+      | "machine_unreadable"
+    checked?: string[]
+    unanswered?: string[]
+  }
 }
 
 // What became of a submitted message. `uncertain` means bytes may have reached

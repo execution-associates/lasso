@@ -174,18 +174,29 @@ func safeSessionID(v string) string {
 // agent was started with `cd x && claude`, or resumed from elsewhere — every
 // project dir is probed for the id. "" when the transcript isn't there.
 func findClaudeTranscript(b Backend, id, launchHint string, p pane) string {
+	return findClaudeTranscriptIn(b, id, true, launchHint, p.Cwd, p.ForegroundCwd)
+}
+
+// findClaudeTranscriptIn is findClaudeTranscript over explicit candidate dirs.
+// `scan` allows the every-project-dir fallback: one ReadDir plus a stat per
+// project, nothing on a local disk and a round trip each over SFTP, which is
+// why the cross-host search (transcripthost.go) turns it off for a remote host.
+func findClaudeTranscriptIn(b Backend, id string, scan bool, dirs ...string) string {
 	home, err := b.HomeDir()
 	if err != nil || home == "" {
 		return ""
 	}
 	root := filepath.Join(claudeDir(home), "projects")
-	for _, dir := range []string{launchHint, p.Cwd, p.ForegroundCwd} {
+	for _, dir := range dirs {
 		if dir == "" {
 			continue
 		}
 		if path := filepath.Join(root, claudeProjectSlug(dir), id+".jsonl"); isFile(b, path) {
 			return path
 		}
+	}
+	if !scan {
+		return ""
 	}
 	ents, err := b.ReadDir(root)
 	if err != nil {
