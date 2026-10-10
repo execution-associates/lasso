@@ -3,8 +3,9 @@ package main
 // Bot jobs: scheduled prompts and webhooks delivered into a bot's session
 // through lasso's own channel (docs/design/bots.md, "Jobs").
 //
-//	bot_jobs     one row per job: its message, cron schedule and timezone,
-//	             whether it is enabled, and its webhook key
+//	bot_jobs     one row per job: its message, cron schedule (or one-time
+//	             run) and timezone, whether it is enabled, its webhook key,
+//	             and for a watch its command and the last run's result
 //	bot_events   the queue and the history: one row per delivery attempt
 //
 // The pieces:
@@ -21,6 +22,9 @@ package main
 //     session, and acks it: claim, notify, ack, so delivery is at-least-once.
 //   - An event for a stopped bot is dropped and logged, never queued: a bot
 //     started after a week away must not get a week of stale sweeps.
+//   - A job with a command is a watch (botjobcmd.go): each firing runs the
+//     command, and only what it prints (or a damped failure report) becomes
+//     an event.
 
 import (
 	"crypto/rand"
@@ -59,6 +63,16 @@ CREATE TABLE IF NOT EXISTS bot_jobs (
 	next_at     TEXT NOT NULL DEFAULT '',
 	created_at  TEXT NOT NULL,
 	updated_at  TEXT NOT NULL,
+	command     TEXT NOT NULL DEFAULT '',
+	timeout     INTEGER NOT NULL DEFAULT 0,
+	once_at     TEXT NOT NULL DEFAULT '',
+	fail_streak   INTEGER NOT NULL DEFAULT 0,
+	fail_reported INTEGER NOT NULL DEFAULT 0,
+	last_run_at     TEXT NOT NULL DEFAULT '',
+	last_run_result TEXT NOT NULL DEFAULT '',
+	last_run_exit   INTEGER NOT NULL DEFAULT 0,
+	last_run_ms     INTEGER NOT NULL DEFAULT 0,
+	last_run_note   TEXT NOT NULL DEFAULT '',
 	UNIQUE(bot, name)
 );
 CREATE TABLE IF NOT EXISTS bot_events (
@@ -75,7 +89,9 @@ CREATE TABLE IF NOT EXISTS bot_events (
 	created_at TEXT NOT NULL,
 	fired_at   TEXT NOT NULL,
 	claimed_at TEXT NOT NULL DEFAULT '',
-	done_at    TEXT NOT NULL DEFAULT ''
+	done_at    TEXT NOT NULL DEFAULT '',
+	runs       TEXT NOT NULL DEFAULT '',
+	run_status TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS bot_events_queue ON bot_events(bot, status);
 CREATE INDEX IF NOT EXISTS bot_events_job ON bot_events(job_id, id);
@@ -116,6 +132,23 @@ type botJob struct {
 	NextAt     string `json:"next_at"`
 	CreatedAt  string `json:"created_at"`
 	UpdatedAt  string `json:"updated_at"`
+	// Command makes the job a watch: each firing runs it in the bot's folder
+	// and delivers only what it prints. Timeout bounds one run, in seconds
+	// (0 = botCommandTimeoutDefault).
+	Command string `json:"command"`
+	Timeout int    `json:"timeout"`
+	// OnceAt is a one-time run (UTC RFC 3339), the alternative to Cron.
+	OnceAt string `json:"once_at"`
+	// The watch's run state, written only by the runner (recordBotRun),
+	// never by a save: the failure streak and the streak length last
+	// reported, and the newest run's result.
+	FailStreak    int    `json:"fail_streak"`
+	FailReported  int    `json:"-"`
+	LastRunAt     string `json:"last_run_at"`
+	LastRunResult string `json:"last_run_result"` // quiet | output | error | timeout
+	LastRunExit   int    `json:"last_run_exit"`
+	LastRunMS     int64  `json:"last_run_ms"`
+	LastRunNote   string `json:"last_run_note,omitempty"`
 }
 
 // botEvent is one delivery: queued, in flight, delivered or dropped.
@@ -131,6 +164,11 @@ type botEvent struct {
 	CreatedAt string `json:"created_at"`
 	FiredAt   string `json:"fired_at"`
 	DoneAt    string `json:"done_at,omitempty"`
+	// Watch: the body is a command's runs (count of them, each under its own
+	// header), not one repeated message. RunStatus is error or timeout when
+	// the newest run that changed the watch's health failed.
+	Watch     bool   `json:"watch,omitempty"`
+	RunStatus string `json:"run_status,omitempty"`
 }
 
 func nowStamp(t time.Time) string { return t.UTC().Format(time.RFC3339) }
@@ -163,8 +201,18 @@ func (j *botJob) normalize() error {
 	if utf8.RuneCountInString(j.Message) > botJobMessageMax {
 		return fmt.Errorf("message must be at most %d characters", botJobMessageMax)
 	}
-	if j.Message == "" && !j.Webhook {
-		return fmt.Errorf("a job needs a message (or a webhook, whose body becomes the message)")
+	j.Command = strings.TrimSpace(j.Command)
+	if len(j.Command) > botCommandMax {
+		return fmt.Errorf("command must be at most %d bytes", botCommandMax)
+	}
+	if strings.ContainsRune(j.Command, 0) || !utf8.ValidString(j.Command) {
+		return fmt.Errorf("command must be text")
+	}
+	if j.Timeout < 0 || j.Timeout > botCommandTimeoutMax {
+		return fmt.Errorf("timeout must be 1-%d seconds (0 for the default %d)", botCommandTimeoutMax, botCommandTimeoutDefault)
+	}
+	if j.Message == "" && !j.Webhook && j.Command == "" {
+		return fmt.Errorf("a job needs a message, a command, or a webhook (whose body becomes the message)")
 	}
 	j.Cron = strings.Join(strings.Fields(j.Cron), " ")
 	if j.Cron != "" {
@@ -176,8 +224,19 @@ func (j *botJob) normalize() error {
 	if j.TZ == "" {
 		j.TZ = "UTC"
 	}
-	if _, err := time.LoadLocation(j.TZ); err != nil || j.TZ == "Local" {
+	loc, err := time.LoadLocation(j.TZ)
+	if err != nil || j.TZ == "Local" {
 		return fmt.Errorf("unknown time zone %q", j.TZ)
+	}
+	if j.OnceAt = strings.TrimSpace(j.OnceAt); j.OnceAt != "" {
+		if j.Cron != "" {
+			return fmt.Errorf("a job runs on a repeating schedule or once, not both")
+		}
+		t, err := parseOnceAt(j.OnceAt, loc)
+		if err != nil {
+			return err
+		}
+		j.OnceAt = nowStamp(t)
 	}
 	if j.Webhook && j.WebhookKey == "" {
 		j.WebhookKey = botRandomKey(24)
@@ -185,9 +244,34 @@ func (j *botJob) normalize() error {
 	return nil
 }
 
-// computeNext is the job's next scheduled fire after now, "" for none.
+// parseOnceAt reads a one-time run: RFC 3339 with an offset, or a wall-clock
+// "2006-01-02T15:04[:05]" (a space works too) in the job's zone.
+func parseOnceAt(s string, loc *time.Location) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+	for _, layout := range []string{"2006-01-02T15:04:05", "2006-01-02T15:04", "2006-01-02 15:04:05", "2006-01-02 15:04"} {
+		if t, err := time.ParseInLocation(layout, s, loc); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("once_at %q: use a date and time like 2026-11-20T08:00 (in the job's time zone) or RFC 3339", s)
+}
+
+// computeNext is the job's next scheduled fire after now, "" for none. A
+// one-time run that has passed has none: it fired, or lasso missed it by more
+// than a tick and the scheduler fired it late (see botJobsTick).
 func (j *botJob) computeNext(now time.Time) string {
-	if !j.Enabled || j.Cron == "" {
+	if !j.Enabled {
+		return ""
+	}
+	if j.OnceAt != "" {
+		if t, ok := parseStamp(j.OnceAt); ok && t.After(now) {
+			return j.OnceAt
+		}
+		return ""
+	}
+	if j.Cron == "" {
 		return ""
 	}
 	s, err := parseCronSchedule(j.Cron)
@@ -207,13 +291,16 @@ func (j *botJob) computeNext(now time.Time) string {
 
 // --- storage -----------------------------------------------------------------
 
-const botJobCols = `id, bot, name, message, cron, tz, enabled, webhook, webhook_key, next_at, created_at, updated_at`
+const botJobCols = `id, bot, name, message, cron, tz, enabled, webhook, webhook_key, next_at, created_at, updated_at,
+	command, timeout, once_at, fail_streak, fail_reported, last_run_at, last_run_result, last_run_exit, last_run_ms, last_run_note`
 
 func scanBotJob(row interface{ Scan(...any) error }) (*botJob, error) {
 	var j botJob
 	var enabled, webhook int
 	if err := row.Scan(&j.ID, &j.Bot, &j.Name, &j.Message, &j.Cron, &j.TZ, &enabled, &webhook,
-		&j.WebhookKey, &j.NextAt, &j.CreatedAt, &j.UpdatedAt); err != nil {
+		&j.WebhookKey, &j.NextAt, &j.CreatedAt, &j.UpdatedAt,
+		&j.Command, &j.Timeout, &j.OnceAt, &j.FailStreak, &j.FailReported,
+		&j.LastRunAt, &j.LastRunResult, &j.LastRunExit, &j.LastRunMS, &j.LastRunNote); err != nil {
 		return nil, err
 	}
 	j.Enabled, j.Webhook = enabled != 0, webhook != 0
@@ -250,9 +337,10 @@ func getBotJob(bot, name string) (*botJob, error) {
 func insertBotJob(j *botJob, now time.Time) error {
 	j.CreatedAt, j.UpdatedAt = nowStamp(now), nowStamp(now)
 	j.NextAt = j.computeNext(now)
-	res, err := db.Exec(`INSERT INTO bot_jobs (bot, name, message, cron, tz, enabled, webhook, webhook_key, next_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		j.Bot, j.Name, j.Message, j.Cron, j.TZ, boolInt(j.Enabled), boolInt(j.Webhook), j.WebhookKey, j.NextAt, j.CreatedAt, j.UpdatedAt)
+	res, err := db.Exec(`INSERT INTO bot_jobs (bot, name, message, cron, tz, enabled, webhook, webhook_key, next_at, created_at, updated_at, command, timeout, once_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		j.Bot, j.Name, j.Message, j.Cron, j.TZ, boolInt(j.Enabled), boolInt(j.Webhook), j.WebhookKey, j.NextAt, j.CreatedAt, j.UpdatedAt,
+		j.Command, j.Timeout, j.OnceAt)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return fmt.Errorf("%s already has a job named %q", j.Bot, j.Name)
@@ -264,13 +352,16 @@ func insertBotJob(j *botJob, now time.Time) error {
 }
 
 // updateBotJob saves j over the row with its id. A rename carries the job's
-// history along (events are keyed by id, labelled by name).
+// history along (events are keyed by id, labelled by name). The run state is
+// the runner's and is left alone.
 func updateBotJob(j *botJob, now time.Time) error {
 	j.UpdatedAt = nowStamp(now)
 	j.NextAt = j.computeNext(now)
-	_, err := db.Exec(`UPDATE bot_jobs SET name = ?, message = ?, cron = ?, tz = ?, enabled = ?, webhook = ?, webhook_key = ?, next_at = ?, updated_at = ?
+	_, err := db.Exec(`UPDATE bot_jobs SET name = ?, message = ?, cron = ?, tz = ?, enabled = ?, webhook = ?, webhook_key = ?, next_at = ?, updated_at = ?,
+		command = ?, timeout = ?, once_at = ?
 		WHERE id = ?`,
-		j.Name, j.Message, j.Cron, j.TZ, boolInt(j.Enabled), boolInt(j.Webhook), j.WebhookKey, j.NextAt, j.UpdatedAt, j.ID)
+		j.Name, j.Message, j.Cron, j.TZ, boolInt(j.Enabled), boolInt(j.Webhook), j.WebhookKey, j.NextAt, j.UpdatedAt,
+		j.Command, j.Timeout, j.OnceAt, j.ID)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return fmt.Errorf("%s already has a job named %q", j.Bot, j.Name)
@@ -351,7 +442,7 @@ func enqueueBotEvent(j *botJob, kind, content, source string, now time.Time) (in
 	// message is the same, and the count tells the bot how many it covers.
 	if kind != "webhook" {
 		var id int64
-		err := db.QueryRow(`SELECT id FROM bot_events WHERE job_id = ? AND status = 'pending' AND kind IN ('schedule', 'run') ORDER BY id LIMIT 1`, j.ID).Scan(&id)
+		err := db.QueryRow(`SELECT id FROM bot_events WHERE job_id = ? AND status = 'pending' AND kind IN ('schedule', 'run') AND runs = '' ORDER BY id LIMIT 1`, j.ID).Scan(&id)
 		if err == nil {
 			if _, err := db.Exec(`UPDATE bot_events SET count = count + 1, fired_at = ?, content = ? WHERE id = ?`, stamp, content, id); err != nil {
 				return 0, "", err
@@ -366,13 +457,18 @@ func enqueueBotEvent(j *botJob, kind, content, source string, now time.Time) (in
 		return 0, "", err
 	}
 	id, _ := res.LastInsertId()
-	// Over the cap, the oldest undelivered events go.
+	botEventQueued(j.Bot, stamp)
+	return id, "pending", nil
+}
+
+// botEventQueued trims the bot's queue to its cap (the oldest undelivered
+// events go) and wakes its channel.
+func botEventQueued(bot, stamp string) {
 	_, _ = db.Exec(`UPDATE bot_events SET status = 'dropped', reason = 'too many undelivered events', done_at = ?
 		WHERE bot = ? AND status = 'pending' AND id NOT IN (
 			SELECT id FROM bot_events WHERE bot = ? AND status = 'pending' ORDER BY id DESC LIMIT ?)`,
-		stamp, j.Bot, j.Bot, botEventQueueMax)
-	botEventNotify(j.Bot)
-	return id, "pending", nil
+		stamp, bot, bot, botEventQueueMax)
+	botEventNotify(bot)
 }
 
 // claimBotEvents hands the channel the bot's queued events (and any claim
@@ -383,7 +479,7 @@ func claimBotEvents(bot string, now time.Time) ([]botEvent, error) {
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.Query(`SELECT id, job, kind, content, count, created_at, fired_at FROM bot_events
+	rows, err := tx.Query(`SELECT id, job, kind, content, count, created_at, fired_at, runs != '', run_status FROM bot_events
 		WHERE bot = ? AND (status = 'pending' OR (status = 'claimed' AND claimed_at < ?)) ORDER BY id LIMIT 20`,
 		bot, nowStamp(now.Add(-botEventReclaim)))
 	if err != nil {
@@ -392,7 +488,7 @@ func claimBotEvents(bot string, now time.Time) ([]botEvent, error) {
 	var out []botEvent
 	for rows.Next() {
 		var e botEvent
-		if err := rows.Scan(&e.ID, &e.Job, &e.Kind, &e.Content, &e.Count, &e.CreatedAt, &e.FiredAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.Job, &e.Kind, &e.Content, &e.Count, &e.CreatedAt, &e.FiredAt, &e.Watch, &e.RunStatus); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -419,7 +515,7 @@ func ackBotEvents(bot string, ids []int64, now time.Time) error {
 }
 
 func listBotJobEvents(jobID int64, limit int) ([]botEvent, error) {
-	rows, err := db.Query(`SELECT id, job, kind, count, status, reason, source, created_at, fired_at, done_at
+	rows, err := db.Query(`SELECT id, job, kind, count, status, reason, source, created_at, fired_at, done_at, runs != '', run_status
 		FROM bot_events WHERE job_id = ? ORDER BY id DESC LIMIT ?`, jobID, limit)
 	if err != nil {
 		return nil, err
@@ -428,7 +524,7 @@ func listBotJobEvents(jobID int64, limit int) ([]botEvent, error) {
 	out := []botEvent{}
 	for rows.Next() {
 		var e botEvent
-		if err := rows.Scan(&e.ID, &e.Job, &e.Kind, &e.Count, &e.Status, &e.Reason, &e.Source, &e.CreatedAt, &e.FiredAt, &e.DoneAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.Job, &e.Kind, &e.Count, &e.Status, &e.Reason, &e.Source, &e.CreatedAt, &e.FiredAt, &e.DoneAt, &e.Watch, &e.RunStatus); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -442,9 +538,12 @@ var botJobsMaintainedAt atomic.Int64
 
 // botJobsTick fires every enabled job whose schedule came due. A fire missed
 // while lasso was down fires once on the next tick, then the schedule carries
-// on from now. Called from botTick, so only the runner-lock holder fires.
+// on from now. Called from botTick, so only the runner-lock holder fires. A
+// watch's command runs in the background (startBotJobCommand), at most one
+// run per job at a time: a firing that finds the last run still going is
+// skipped, as a systemd timer skips a unit that is still active.
 func botJobsTick(now time.Time) {
-	rows, err := db.Query(`SELECT ` + botJobCols + ` FROM bot_jobs WHERE enabled = 1 AND cron != ''`)
+	rows, err := db.Query(`SELECT ` + botJobCols + ` FROM bot_jobs WHERE enabled = 1 AND (cron != '' OR once_at != '')`)
 	if err != nil {
 		return
 	}
@@ -458,6 +557,11 @@ func botJobsTick(now time.Time) {
 	for _, j := range due {
 		at, ok := parseStamp(j.NextAt)
 		if ok && at.After(now) {
+			continue
+		}
+		if ok && j.Command != "" {
+			_, _ = db.Exec(`UPDATE bot_jobs SET next_at = ? WHERE id = ?`, j.computeNext(now), j.ID)
+			startBotJobCommand(j, "schedule")
 			continue
 		}
 		if ok {
@@ -718,12 +822,14 @@ type botJobView struct {
 	WebhookPath string    `json:"webhook_path,omitempty"`
 	Last        *botEvent `json:"last,omitempty"`
 	Queued      int       `json:"queued"`
+	// Running: this lasso is running the watch's command now.
+	Running bool `json:"running"`
 }
 
 func botJobViews(jobs []*botJob) []botJobView {
 	out := make([]botJobView, 0, len(jobs))
 	for _, j := range jobs {
-		v := botJobView{botJob: j}
+		v := botJobView{botJob: j, Running: botJobCommandRunning(j.ID)}
 		if j.Webhook {
 			v.WebhookPath = "/hooks/bots/" + j.Bot + "/" + j.Name
 		}
@@ -759,6 +865,9 @@ type botJobInput struct {
 	Timezone *string `json:"timezone"`
 	Enabled  *bool   `json:"enabled"`
 	Webhook  *bool   `json:"webhook"`
+	Command  *string `json:"command"`
+	Timeout  *int    `json:"timeout"`
+	OnceAt   *string `json:"once_at"`
 }
 
 func (in *botJobInput) apply(j *botJob) {
@@ -780,6 +889,27 @@ func (in *botJobInput) apply(j *botJob) {
 	if in.Webhook != nil {
 		j.Webhook = *in.Webhook
 	}
+	if in.Command != nil {
+		j.Command = *in.Command
+	}
+	if in.Timeout != nil {
+		j.Timeout = *in.Timeout
+	}
+	if in.OnceAt != nil {
+		j.OnceAt = *in.OnceAt
+	}
+}
+
+// checkOnceAhead refuses a one-time run set in the past: it would never fire.
+// A save that leaves an already-fired one-time run alone is fine.
+func checkOnceAhead(j *botJob, prev string, now time.Time) error {
+	if j.OnceAt == "" || j.OnceAt == prev {
+		return nil
+	}
+	if t, ok := parseStamp(j.OnceAt); ok && !t.After(now) {
+		return fmt.Errorf("once_at %s has already passed", j.OnceAt)
+	}
+	return nil
 }
 
 // createBotJob, saveBotJob and runBotJob are shared by the API and the MCP tools.
@@ -790,6 +920,9 @@ func createBotJob(rec *botRecord, in botJobInput) (*botJob, error) {
 	j := &botJob{Bot: rec.Name, Enabled: true}
 	in.apply(j)
 	if err := j.normalize(); err != nil {
+		return nil, err
+	}
+	if err := checkOnceAhead(j, "", time.Now()); err != nil {
 		return nil, err
 	}
 	if err := insertBotJob(j, time.Now()); err != nil {
@@ -804,6 +937,9 @@ func saveBotJob(j *botJob, in botJobInput) error {
 	if err := next.normalize(); err != nil {
 		return err
 	}
+	if err := checkOnceAhead(&next, j.OnceAt, time.Now()); err != nil {
+		return err
+	}
 	if err := updateBotJob(&next, time.Now()); err != nil {
 		return err
 	}
@@ -811,8 +947,15 @@ func saveBotJob(j *botJob, in botJobInput) error {
 	return nil
 }
 
-func runBotJob(j *botJob) (int64, string, error) {
-	return enqueueBotEvent(j, "run", j.Message, "", time.Now())
+// runBotJob is Run now. A plain job queues its message; a watch runs its
+// command and answers what came of it (botRunNowResult), waiting up to
+// botRunNowWait for the run before answering "running".
+func runBotJob(j *botJob) (botRunNowResult, error) {
+	if j.Command != "" {
+		return runBotJobCommandNow(j), nil
+	}
+	id, status, err := enqueueBotEvent(j, "run", j.Message, "", time.Now())
+	return botRunNowResult{EventID: id, Status: status}, err
 }
 
 func rotateBotJobKey(j *botJob) error {
@@ -826,8 +969,8 @@ func rotateBotJobKey(j *botJob) error {
 // serveBotJobs answers /api/bots/<name>/jobs[/…]:
 //
 //	GET    jobs                    every job, plus the channel's state
-//	POST   jobs                    create {name, message, cron, timezone, enabled, webhook}
-//	POST   jobs/preview            {cron, timezone} → the next fires, or the error
+//	POST   jobs                    create {name, message, cron, once_at, timezone, enabled, webhook, command, timeout}
+//	POST   jobs/preview            {cron | once_at, timezone} → the next fires, or the error
 //	PUT    jobs/<job>              save the fields the body names
 //	DELETE jobs/<job>
 //	POST   jobs/<job>/run          fire it now
@@ -875,10 +1018,15 @@ func serveBotJobs(w http.ResponseWriter, r *http.Request, rec *botRecord, rest s
 		}
 		var in struct {
 			Cron     string `json:"cron"`
+			OnceAt   string `json:"once_at"`
 			Timezone string `json:"timezone"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&in); err != nil {
 			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
+		if strings.TrimSpace(in.OnceAt) != "" {
+			writeJSON(w, botOncePreview(in.OnceAt, in.Timezone, time.Now()))
 			return
 		}
 		writeJSON(w, botSchedulePreview(in.Cron, in.Timezone, time.Now()))
@@ -911,12 +1059,12 @@ func serveBotJobs(w http.ResponseWriter, r *http.Request, rec *botRecord, rest s
 		}
 		writeJSON(w, map[string]any{"ok": true})
 	case action == "run" && r.Method == http.MethodPost:
-		id, status, err := runBotJob(j)
+		res, err := runBotJob(j)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, map[string]any{"event_id": id, "status": status})
+		writeJSON(w, res)
 	case action == "rotate" && r.Method == http.MethodPost:
 		if err := rotateBotJobKey(j); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -953,4 +1101,23 @@ func botSchedulePreview(cron, tz string, now time.Time) map[string]any {
 		next = append(next, nowStamp(t))
 	}
 	return map[string]any{"next": next}
+}
+
+// botOncePreview validates a one-time run and answers it as the single next fire.
+func botOncePreview(onceAt, tz string, now time.Time) map[string]any {
+	if strings.TrimSpace(tz) == "" {
+		tz = "UTC"
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil || tz == "Local" {
+		return map[string]any{"error": fmt.Sprintf("unknown time zone %q", tz)}
+	}
+	t, err := parseOnceAt(strings.TrimSpace(onceAt), loc)
+	if err != nil {
+		return map[string]any{"error": err.Error()}
+	}
+	if !t.After(now) {
+		return map[string]any{"error": "that time has already passed"}
+	}
+	return map[string]any{"next": []string{nowStamp(t)}}
 }

@@ -449,12 +449,12 @@ Sets a bot's picture, shown in the Bots view and on its notifications, from an i
 
 ### `list_bot_jobs`, `create_bot_job`, `update_bot_job`, `delete_bot_job`, `run_bot_job`
 
-A bot's jobs: messages lasso delivers into its session through its `lasso-channel`, on a schedule, from a webhook, or when run by hand. Each takes the bot's `name`, and all but `list_bot_jobs` take `job`. Changes apply at once, with no restart.
+A bot's jobs: messages lasso delivers into its session through its `lasso-channel`, on a schedule, from a webhook, or when run by hand. A job with a `command` is a watch: each firing runs the command in the bot's folder (as lasso's user, minimal environment) and delivers only what it prints, with failures reported damped (1st, 2nd, 4th, 8th… in a row, plus one recovery notice). Each takes the bot's `name`, and all but `list_bot_jobs` take `job`. Changes apply at once, with no restart.
 
-- `list_bot_jobs` returns `jobs` (each with `message`, `cron`, `timezone`, `enabled`, `webhook`, `webhook_path`, `webhook_key`, `next_at`, `last` and `queued`) and `channel` (`available`, `connected`). A webhook's URL is lasso's own origin + `webhook_path` + `?key=` + `webhook_key`.
-- `create_bot_job` takes `message`, `cron` (5-field cron, several joined with `;`; empty for none), `timezone` (IANA, default UTC), `webhook` and `paused`.
-- `update_bot_job` changes only what it is passed: `rename`, `message`, `cron`, `timezone`, `webhook`, `enabled`.
-- `run_bot_job` fires the job now (a paused one too) and returns `event_id` and `status`: `pending`, or `dropped` when the bot is stopped.
+- `list_bot_jobs` returns `jobs` (each with `message`, `cron`, `once_at`, `timezone`, `enabled`, `webhook`, `webhook_path`, `webhook_key`, `next_at`, `last`, `queued`, and for a watch `command`, `timeout`, `running`, `fail_streak` and the newest run's `last_run_at`, `last_run_result` (`quiet`, `output`, `error`, `timeout`), `last_run_exit`, `last_run_ms`, `last_run_note`) and `channel` (`available`, `connected`). A webhook's URL is lasso's own origin + `webhook_path` + `?key=` + `webhook_key`.
+- `create_bot_job` takes `message`, `cron` (5-field cron, several joined with `;`; empty for none), `once_at` (a single run instead of `cron`: `2026-11-20T08:00` read in `timezone`, or RFC 3339; must be in the future), `timezone` (IANA, default UTC), `webhook`, `paused`, `command` and `timeout` (seconds one run may take, 1-3600, default 60).
+- `update_bot_job` changes only what it is passed: `rename`, `message`, `cron`, `once_at`, `timezone`, `webhook`, `enabled`, `command` (empty makes it an ordinary job), `timeout`.
+- `run_bot_job` fires the job now (a paused one too) and returns `event_id` and `status`: `pending`, or `dropped` when the bot is stopped. A watch runs its command, waiting up to 20 seconds, and can also answer `quiet` (no output, nothing delivered), `failed` (with `exit` and `detail`; `event_id` is set when the failure was reported rather than damped), `running` (still going; it delivers only if it prints) or `busy`.
 
 Jobs are only for bots on lasso's own machine.
 
