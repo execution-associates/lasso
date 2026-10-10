@@ -35,6 +35,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -180,12 +181,20 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 		// The launch task picker's choices; nil (unknown) when mise cannot
 		// list the folder, which the page shows as just the current task.
 		tasks, _ := botLaunchTasks(b, dir)
+		// The server lasso adds for the bot's own settings tools, shown as a
+		// read-only connection: "" when it adds none (another host, MCP_OAUTH,
+		// or a server of the human's own named lasso).
+		lassoMCP := ""
+		if url, ok := botLassoMCP(rec); ok && !slices.ContainsFunc(rec.MCP, func(m botMCPServer) bool { return m.Name == "lasso" }) {
+			lassoMCP = url
+		}
 		writeJSON(w, map[string]any{
 			"bot":       v,
 			"dir_path":  dir,
 			"launch":    botTaskScript(rec, dir, botEnvKeys(b, dir)),
 			"claude_md": filepath.Join(dir, "CLAUDE.md"),
 			"tasks":     tasks,
+			"lasso_mcp": lassoMCP,
 		})
 	case http.MethodPut:
 		in, err := decodeBotInput(r, *rec)

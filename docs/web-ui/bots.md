@@ -78,7 +78,11 @@ The gear in the conversation's header opens `/bots/<name>/settings`. **General**
 
 ### Connections
 
-The MCP servers the bot gets. Each has a name and a type: **stdio** (a command, its arguments one per line, and environment variables) or **http**/**sse** (a URL and headers). Tick **Channel** on a server that also delivers messages for the bot to answer.
+The MCP servers the bot gets, as a grid of cards. Each card shows the server's name, a **CHANNEL** badge or its type, its command or URL, and its environment-variable count or sign-in state. A dot marks a card with unsaved changes. The chips above filter the grid: **All**, **Channels**, or **Tools** (everything that is not a channel), each with its count, and the choice is remembered in this browser. **Add connection** under Channels starts the new server as a channel.
+
+Click a card, or **Add connection**, to edit it in a dialog. A server is **stdio** (a command, its arguments one per line, and environment variables) or **http**/**sse** (a URL and headers). Tick **Channel** on a server that also delivers messages for the bot to answer. **Done** keeps the change in the page and the footer's **Save** writes it; **Remove connection** takes the server out. Closing the dialog on a new server that was never filled in drops it.
+
+A dashed **lasso** card, *added by lasso*, is the server lasso gives every bot on its own machine for its settings tools. It is shown so the grid is complete, and cannot be edited.
 
 **Only these servers** starts the bot with these servers and nothing else, without your claude.ai connectors or user-level MCP servers.
 
