@@ -136,6 +136,8 @@ function atmosphereSignature(): string {
     uiStateSettled(),
     ui.theme_atmosphere ?? {},
     ui.custom_backgrounds ?? [],
+    // The character layer repaints through the same chokepoint.
+    ui.texture,
   ])
 }
 

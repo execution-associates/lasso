@@ -1,0 +1,266 @@
+/* The character layer (lib/character.ts, docs/design/theme-atmosphere.md).
+ *
+ * Every rule here is gated on :root[data-fx], which applyAtmosphere sets only
+ * while the chrome follows a palette and the texture is not off — so the flat
+ * Nothing appearance, and Texture: Off, render exactly the chrome as it was.
+ * Colors come only from the active palette: --fx-a/b/c are its blue, magenta
+ * and yellow (or their fallbacks), --fx-ink its background pushed toward
+ * black, and every alpha scales with --fx-k (the texture level, already
+ * reduced on light canvases).
+ *
+ * Two kinds of surface. GROUNDS (.fx-ground: the sidebar, the footer, the bots
+ * list, the agents column) carry the grain and the light. PLATES (the
+ * terminal, the conversation, cards, dialogs, menus) never do: what is read
+ * sits on a clean surface. */
+
+:root[data-fx] {
+  --radius: 0.375rem;
+  --shadow-elev-sm: 0 1px 2px
+    color-mix(in oklab, var(--fx-ink) 35%, transparent);
+  --shadow-elev-md:
+    0 8px 24px -14px color-mix(in oklab, var(--fx-ink) 75%, transparent),
+    0 1px 2px color-mix(in oklab, var(--fx-ink) 30%, transparent);
+  --shadow-elev-pop:
+    0 14px 36px -16px color-mix(in oklab, var(--fx-ink) 80%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--foreground) 7%, transparent);
+  --shadow-elev-modal:
+    0 30px 80px -30px color-mix(in oklab, var(--fx-ink) 90%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--foreground) 8%, transparent);
+  --fx-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* --- grounds: the grain and the light, fixed to the viewport so they read as
+ * one field across every ground they show through ------------------------- */
+:root[data-fx] .fx-ground {
+  isolation: isolate;
+}
+:root[data-fx] :where(.fx-ground) {
+  position: relative;
+}
+:root[data-fx] .fx-ground::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--fx-grain, none), var(--fx-glow, none);
+  background-size:
+    256px 256px,
+    100vw 100vh;
+  background-repeat: repeat, no-repeat;
+  background-attachment: fixed, fixed;
+  image-rendering: pixelated;
+}
+
+/* --- plates: a palette wash and a vertical sheen, with noise against banding.
+ * Never grain. ------------------------------------------------------------- */
+:root[data-fx]
+  :is(
+    [data-slot="card"],
+    [data-slot="dialog-content"],
+    [data-slot="alert-dialog-content"],
+    [data-slot="dropdown-menu-content"],
+    [data-slot="context-menu-content"],
+    .fx-plate
+  ) {
+  background-image:
+    var(--fx-noise),
+    radial-gradient(
+      90% 70% at 100% 0%,
+      color-mix(in oklab, var(--fx-a) calc(9% * var(--fx-k)), transparent),
+      transparent 70%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(
+        in oklab,
+        var(--foreground) calc(4% * var(--fx-k)),
+        transparent
+      ),
+      transparent 45%,
+      color-mix(in oklab, var(--fx-ink) calc(14% * var(--fx-k)), transparent)
+    );
+}
+:root[data-fx] :is([data-slot="card"], .fx-plate) {
+  box-shadow: var(--shadow-elev-md);
+}
+:root[data-fx]
+  :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]) {
+  box-shadow: var(--shadow-elev-modal);
+}
+:root[data-fx]
+  :is([data-slot="dropdown-menu-content"], [data-slot="context-menu-content"]) {
+  box-shadow: var(--shadow-elev-pop);
+}
+
+/* --- controls -------------------------------------------------------------- */
+:root[data-fx] [data-slot="button"][data-variant="default"] {
+  background-image: linear-gradient(
+    180deg,
+    rgb(255 255 255 / calc(0.32 * var(--fx-k))),
+    transparent 55%,
+    rgb(0 0 0 / calc(0.1 * var(--fx-k)))
+  );
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.22),
+    0 1px 2px color-mix(in oklab, var(--fx-ink) 40%, transparent);
+}
+:root[data-fx] [data-slot="button"][data-variant="default"]:hover {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--primary) 55%, transparent),
+    0 4px 22px -4px color-mix(in oklab, var(--fx-b) 60%, transparent);
+}
+:root[data-fx]
+  :is(
+    [data-slot="button"][data-variant="outline"],
+    [data-slot="input"],
+    .fx-field
+  ) {
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--fx-ink) calc(18% * var(--fx-k)), transparent),
+    transparent 70%
+  );
+}
+
+/* --- light where attention is: the active tab, the selected row, a view's
+ * header ------------------------------------------------------------------- */
+:root[data-fx] .fx-tab {
+  position: relative;
+}
+:root[data-fx] .fx-tab[data-state="active"] {
+  border-bottom-color: transparent;
+}
+:root[data-fx] .fx-tab[data-state="active"]::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--fx-a), var(--primary));
+  box-shadow: 0 0 10px 1px color-mix(in oklab, var(--primary) 50%, transparent);
+}
+:root[data-fx] .fx-row {
+  position: relative;
+}
+:root[data-fx] .fx-row:has([aria-current="page"]) > [aria-current="page"] {
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--fx-b) calc(16% * var(--fx-k)), transparent),
+    transparent 85%
+  );
+}
+:root[data-fx] .fx-row:has([aria-current="page"])::after {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(var(--primary), var(--fx-b));
+  box-shadow: 0 0 10px 1px color-mix(in oklab, var(--fx-b) 60%, transparent);
+}
+:root[data-fx] .fx-headline {
+  position: relative;
+}
+:root[data-fx] .fx-headline::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    var(--primary),
+    var(--fx-b) 30%,
+    color-mix(in oklab, var(--foreground) 14%, transparent) 60%,
+    transparent
+  );
+}
+
+/* --- signature pieces ------------------------------------------------------ */
+:root[data-fx] .fx-bubble {
+  background-image: linear-gradient(
+    160deg,
+    color-mix(in oklab, var(--primary) calc(12% * var(--fx-k)), transparent),
+    color-mix(in oklab, var(--fx-b) calc(10% * var(--fx-k)), transparent)
+  );
+  border-color: color-mix(in oklab, var(--primary) 30%, transparent);
+}
+:root[data-fx] .fx-avatar {
+  background-image: linear-gradient(
+    135deg,
+    oklch(0.66 0.14 var(--av-h)),
+    oklch(0.5 0.15 calc(var(--av-h) + 40))
+  );
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18);
+}
+:root[data-fx] .fx-meter {
+  background-image: linear-gradient(90deg, var(--fx-a), var(--primary));
+}
+
+/* --- motion ---------------------------------------------------------------- */
+:root[data-fx] .fx-in {
+  animation: fx-fade-up 0.32s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@keyframes fx-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+:root[data-fx] .fx-live {
+  position: relative;
+}
+:root[data-fx] .fx-live::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: fx-live 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+@keyframes fx-live {
+  from {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  to {
+    transform: scale(2.8);
+    opacity: 0;
+  }
+}
+.fx-skel {
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--foreground) 10%, transparent);
+}
+:root[data-fx] .fx-skel {
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--foreground) 8%, transparent) 30%,
+    color-mix(in oklab, var(--fx-a) 22%, transparent) 50%,
+    color-mix(in oklab, var(--foreground) 8%, transparent) 70%
+  );
+  background-size: 200% 100%;
+  animation: fx-shimmer 1.6s linear infinite;
+}
+@keyframes fx-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-fx] .fx-in,
+  :root[data-fx] .fx-live::after,
+  :root[data-fx] .fx-skel {
+    animation: none;
+  }
+}

@@ -71,7 +71,7 @@ function BotRow({
     <div
       data-bot-row={bot.name}
       className={cn(
-        "group/row relative flex items-center rounded-lg",
+        "group/row fx-row fx-in relative flex items-center rounded-lg",
         dragging && "z-10 bg-card shadow-lg ring-1 ring-border"
       )}
     >
@@ -493,11 +493,11 @@ export function BotsView({
       <nav
         aria-label="Bots"
         className={cn(
-          "flex min-h-0 w-full flex-none flex-col border-border bg-card md:w-72 md:border-r",
+          "fx-ground flex min-h-0 w-full flex-none flex-col border-border bg-card md:w-72 md:border-r",
           !listScreen && "max-md:hidden"
         )}
       >
-        <div className="flex flex-none items-center gap-1 border-border border-b px-2.5 py-1.5">
+        <div className="fx-headline flex flex-none items-center gap-1 border-border border-b px-2.5 py-1.5">
           <span className="font-medium text-[13px] text-foreground">Bots</span>
           <span className="ml-auto" />
           <button

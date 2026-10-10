@@ -416,6 +416,7 @@ export type AppearanceMode = "herdr" | "system" | "light" | "dark"
 // "embed" is the plain iframe. A lasso with no Chromium shows embed whatever
 // this says — the choice is kept for when one is installed.
 export type BrowserMode = "live" | "embed"
+export type Texture = "subtle" | "full" | "off"
 
 // Persisted, global UI preferences (SQLite-backed): sidebar layout, the Files
 // tab's click behavior, footer preferences, the appearance mode and its
@@ -477,6 +478,9 @@ export interface UIState {
   // Read-only here: write it through the agent_pins ops (setAgentPinned).
   // Optional because an older server never sends it.
   pinned_agents?: string[]
+  // How much character the palette chrome carries (lib/character.ts). Never
+  // send "": the server answers 400, as it does for browser_mode.
+  texture: Texture
   // What the Browser tab shows (see BrowserMode). Never send "" — the server
   // answers 400 and drops the whole patch, as it does for appearance_mode.
   browser_mode: BrowserMode

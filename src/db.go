@@ -358,6 +358,11 @@ type uiState struct {
 	// same kind of browser; a lasso with no Chromium falls back to embed in
 	// the tab itself without rewriting this choice.
 	BrowserMode string `json:"browser_mode"`
+	// Texture is how much character the chrome carries when it follows a
+	// palette: "subtle" (the default), "full", or "off" (the grain, the light
+	// pools and the sheens all gone). Server-owned like the backdrop, so every
+	// screen on this lasso looks the same.
+	Texture string `json:"texture"`
 	// SidebarTabs is the right sidebar's tab strip as the human arranged it:
 	// order, and which are hidden. Built-in ids (sidebarBuiltinTabs) and plugin
 	// tabs ("plugin:<name>:<tab>") alike. Empty means the default order with
@@ -580,6 +585,36 @@ func normalizeBrowserMode(m string) string {
 	return browserModeLive
 }
 
+// The chrome's texture levels. "subtle" is the default.
+const (
+	textureSubtle = "subtle"
+	textureFull   = "full"
+	textureOff    = "off"
+)
+
+// textures is the accepted set, in the order a client error lists them.
+var textures = []string{textureSubtle, textureFull, textureOff}
+
+// validTexture reports whether t is one a caller may send. Exact, for the same
+// reason validAppearanceMode is.
+func validTexture(t string) bool {
+	for _, v := range textures {
+		if t == v {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeTexture repairs what is already IN the db: a blob written before
+// this field existed carries "", which means the default.
+func normalizeTexture(t string) string {
+	if validTexture(t) {
+		return t
+	}
+	return textureSubtle
+}
+
 // normalizeAppearanceMode repairs what is already IN the db — a blob written
 // before this field existed, or one hand-edited — so every read answers a mode
 // the frontend can switch on. Writes are validated instead (see serveUIState).
@@ -607,6 +642,7 @@ func getUIState() (uiState, error) {
 		AgentsGroupHost:        true,
 		PinnedAgents:           []string{},
 		BrowserMode:            browserModeLive,
+		Texture:                textureSubtle,
 		SidebarTabs:            []sidebarTab{},
 		Typography:             map[string]string{},
 		ChatText:               map[string]any{},
@@ -642,6 +678,7 @@ func getUIState() (uiState, error) {
 	us.AppearanceMode = normalizeAppearanceMode(us.AppearanceMode)
 	us.PinnedAgents = mergePinnedAgents(us.PinnedAgents, nil)
 	us.BrowserMode = normalizeBrowserMode(us.BrowserMode)
+	us.Texture = normalizeTexture(us.Texture)
 	if tabs, err := normalizeSidebarTabs(us.SidebarTabs); err == nil {
 		us.SidebarTabs = tabs
 	} else {

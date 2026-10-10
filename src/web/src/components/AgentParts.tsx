@@ -50,7 +50,12 @@ export function AgentStatus({
       {status === "working" ? (
         <Orb state="working" px={12} />
       ) : (
-        <span className="size-1.5 rounded-full bg-current opacity-70" />
+        <span
+          className={cn(
+            "size-1.5 rounded-full bg-current opacity-70",
+            status === "blocked" && "fx-live"
+          )}
+        />
       )}
       {speaking && status}
     </span>
