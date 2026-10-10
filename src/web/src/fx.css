@@ -163,6 +163,99 @@
   background: linear-gradient(var(--primary), var(--fx-b));
   box-shadow: 0 0 10px 1px color-mix(in oklab, var(--fx-b) 60%, transparent);
 }
+/* A raised tile (the bots list rows): lit from above, a hairline edge whose top
+ * catches the light and whose bottom falls into shade, and a soft shadow under
+ * it. Only box-shadow and background-image, so the row's own hover/selected
+ * background-color (Tailwind, layered) still shows through. */
+:root[data-fx] .fx-tile {
+  /* The tile's own edge (the 1px ring below) replaces a flat border. */
+  border-color: transparent;
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--card) 70%, transparent),
+    color-mix(in oklab, var(--card) 30%, transparent)
+  );
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / calc(0.1 + 0.2 * var(--fx-k))),
+    inset 0 -1px 0 color-mix(in oklab, var(--fx-ink) 14%, transparent),
+    0 0 0 1px color-mix(in oklab, var(--fx-ink) 12%, transparent),
+    0 1px 2px color-mix(in oklab, var(--fx-ink) 22%, transparent),
+    0 6px 14px -10px color-mix(in oklab, var(--fx-ink) 55%, transparent);
+  transition:
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+/* Only a tile that is itself the click target lifts: a button (a bot row), a
+ * closed settings group, which is all header, or a wrapper that opts in with
+ * .fx-tile-lift (an agent tile, two buttons side by side). An open group holds
+ * controls, and a panel that moved under the pointer on a slider would be
+ * wrong. */
+:root[data-fx]
+  :is(
+    button.fx-tile,
+    .fx-tile[data-state="closed"],
+    .fx-tile.fx-tile-lift
+  ):hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / calc(0.14 + 0.24 * var(--fx-k))),
+    inset 0 -1px 0 color-mix(in oklab, var(--fx-ink) 14%, transparent),
+    0 0 0 1px color-mix(in oklab, var(--fx-ink) 14%, transparent),
+    0 2px 4px color-mix(in oklab, var(--fx-ink) 22%, transparent),
+    0 10px 20px -12px color-mix(in oklab, var(--fx-ink) 65%, transparent);
+}
+:root[data-fx]
+  :is(
+    button.fx-tile,
+    .fx-tile[data-state="closed"],
+    .fx-tile.fx-tile-lift
+  ):active {
+  transform: none;
+}
+/* "This is the one" on a tile, where the flat chrome used a primary border
+ * (which the tile hides). An outline, so the hover shadow cannot replace it. */
+:root[data-fx] .fx-tile[data-current] {
+  outline: 1px solid color-mix(in oklab, var(--primary) 50%, transparent);
+}
+/* The selected row keeps its palette wash (the .fx-row rule above) on top of
+ * the tile's sheen; same specificity, so this one wins by coming later. */
+:root[data-fx] .fx-row > .fx-tile[aria-current="page"] {
+  background-image:
+    linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--fx-b) calc(16% * var(--fx-k)), transparent),
+      transparent 85%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--card) 70%, transparent),
+      color-mix(in oklab, var(--card) 30%, transparent)
+    );
+}
+/* Settings groups (and the card after them) as tiles: the flat chrome's rule
+ * between groups gives way to a gap, since the tiles' own edges now separate
+ * them. */
+:root[data-fx] :is(.fx-tile-group, .fx-tile-card) {
+  border-top-width: 0;
+  border-radius: var(--radius-lg);
+  padding-inline: 0.625rem;
+}
+:root[data-fx] .fx-tile-group[data-state="open"] {
+  padding-bottom: 0.5rem;
+}
+:root[data-fx] .fx-tile-card {
+  padding-block: 0.625rem;
+}
+:root[data-fx] .fx-tile-group + :is(.fx-tile-group, .fx-tile-card) {
+  margin-top: 0.5rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-fx] .fx-tile,
+  :root[data-fx] .fx-tile:hover {
+    transform: none;
+    transition: none;
+  }
+}
 :root[data-fx] .fx-headline {
   position: relative;
 }

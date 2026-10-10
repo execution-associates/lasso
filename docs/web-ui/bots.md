@@ -61,7 +61,7 @@ The gear in the conversation's header opens `/bots/<name>/settings`. **General**
 | Field | What it does |
 | --- | --- |
 | **Name** | Set when the bot is created, then fixed: lowercase letters, digits and dashes, up to 40. It names the herdr agent, the default folder and the address. |
-| **Avatar** | An emoji or up to 8 characters. Empty shows the name's first letter on a colour taken from the name. Once the bot exists, clicking the avatar sets an image instead (see [Pictures](#pictures)). |
+| **Avatar** | A picture, set once the bot exists by clicking the avatar (see [Pictures](#pictures)). Without one it shows the name's first letter on a colour taken from the name. |
 | **Host** | Set when the bot is created: the machine it runs on and where its folder lives. |
 | **Workspace** | The herdr workspace its pane opens in. Default **Bots**. |
 | **Folder** | Its working directory. Default `~/bots/<name>`. |
@@ -74,7 +74,7 @@ The gear in the conversation's header opens `/bots/<name>/settings`. **General**
 
 #### Pictures
 
-Click the avatar next to the Avatar field to upload a PNG, JPEG, WebP or GIF of up to 2 MB (a square one looks best). It shows in the list, the conversation and the bot's notifications. Click it again to replace the picture, or the small × on its corner to remove it. The picture is saved as soon as you pick it, not with the form. lasso keeps it in the bot's folder as `.lasso/avatar.<ext>`. Without a picture the text or emoji avatar shows, and SVG images are not accepted.
+Click the avatar under Avatar to upload a PNG, JPEG, WebP or GIF of up to 2 MB (a square one looks best). It shows in the list, the conversation and the bot's notifications. Click it again to replace the picture, or the small × on its corner to remove it. The picture is saved as soon as you pick it, not with the form. lasso keeps it in the bot's folder as `.lasso/avatar.<ext>`. Without a picture the name's first letter shows, and SVG images are not accepted.
 
 ### Connections
 
@@ -98,16 +98,17 @@ Keep secrets out of this page. Write `${VAR}` in a server's environment or heade
 
 ### Jobs
 
-Scheduled prompts and webhooks that lasso delivers into the bot's session, shown as a grid of square cards (as many to a row as fit). Each card shows the job's name, its schedule in plain words with the time zone ("Every day at 6 AM, noon and 6 PM · PT"), when it runs next and when it last ran (✓ delivered, ✗ dropped: hover for why), and the start of its message. Badges mark a **webhook**, a **paused** job, and **queued ×N** when it fired while the bot was busy or not listening. Enabled jobs come first, by next run, then jobs with no schedule, then paused ones. **Run now** fires a job at once (a paused one too). **Copy URL** copies a webhook's address. The **⋯** menu pauses, resumes, duplicates or deletes. Changes take effect immediately, with no save of the bot and no restart.
+Scheduled prompts, watches and webhooks that lasso delivers into the bot's session, shown as a grid of square cards (as many to a row as fit). Each card shows the job's name, its schedule in plain words with the time zone ("Every day at 6 AM, noon and 6 PM · PT"), when it runs next and when it last ran (✓ delivered, ✗ dropped: hover for why), and the start of its message. A watch's card adds **Checked**: when its command last ran and what came of it ("3m ago, quiet", "1h ago, failed (exit 1) ×5"; hover a failure for its last stderr line). Badges mark a **watch**, a **webhook**, a **paused** job, and **queued ×N** when it fired while the bot was busy or not listening. Enabled jobs come first, by next run, then jobs with no schedule, then paused ones. **Run now** fires a job at once (a paused one too); for a watch it runs the command and says what came of it: delivered, no output (nothing delivered), or failed. **Copy URL** copies a webhook's address. The **⋯** menu pauses, resumes, duplicates or deletes. Changes take effect immediately, with no save of the bot and no restart.
 
 Click a card, or **New job**, to edit it:
 
-- **Message:** the instruction delivered each time the job fires.
-- **Schedule:** **Every…** (minutes or hours), **Daily**, **Weekdays**, **Weekly** (pick days), **Monthly** (pick a day), each with one or more times, or **Custom** for a cron expression. The time zone defaults to your browser's. A box under it reads the schedule back as a sentence with its next three run times, or says why it is not valid.
+- **Message:** the instruction delivered each time the job fires. For a watch it is optional and is shown above the command's output.
+- **Command:** optional. A job with a command is a **watch**: each time it fires, lasso runs the command (with `sh -c`, in the bot's folder) and delivers only what it prints. Exit 0 with no output delivers nothing, which is the point: the bot is woken only when something changed. Exit 0 with output delivers the message, then the output. A non-zero exit or a timeout (**Timeout**, 60 seconds unless set, up to 3600) is reported to the bot, damped to the 1st, 2nd, 4th, 8th… failure in a row, with one notice when it works again. The command runs as lasso's user with a minimal environment, not a login shell: use absolute paths, and have the script fetch its own secrets (`secret KEY`). **Last check** shows the newest run. A watch for a stopped bot does not run at all.
+- **Schedule:** **Once** (a date and time), **Every…** (minutes or hours), **Daily**, **Weekdays**, **Weekly** (pick days), **Monthly** (pick a day), each with one or more times, or **Custom** for a cron expression. The time zone defaults to your browser's. A box under it reads the schedule back as a sentence with its next three run times, or says why it is not valid. A one-time run fires once (late, if lasso was down at the time) and then has no next run.
 - **Webhook:** turn it on and save to get a URL. Anything that POSTs to it fires the job, and the request body is delivered after the message, marked as coming from the caller. The URL's `key` is its only credential, so it is masked until **Show**, and **Rotate key** replaces it (the old URL stops working at once). A caller that sends headers can use `Authorization: Bearer <key>` instead. From outside the tailnet, the hostname's edge (Cloudflare Access) must let `/hooks/` through.
-- **Recent:** the job's last deliveries: when, what fired it, and whether it was delivered or dropped.
+- **Recent:** the job's last deliveries: when, what fired it, and whether it was delivered or dropped. A watch's quiet runs add nothing here; a reported failure is marked **failed** or **timed out**.
 
-The line under the description says whether the bot is listening. Jobs reach a bot through lasso's own channel, which it gets from its next start: a bot that was running before lasso had jobs offers **Restart**. A job that fires while the bot is **stopped** is dropped, not saved for later, and one nobody picks up within a day is dropped too. Firings that pile up while the bot is busy arrive as one delivery with a count. Jobs are offered only to bots on lasso's own machine.
+The line under the description says whether the bot is listening. Jobs reach a bot through lasso's own channel, which it gets from its next start: a bot that was running before lasso had jobs offers **Restart**. A job that fires while the bot is **stopped** is dropped, not saved for later, and one nobody picks up within a day is dropped too. Firings that pile up while the bot is busy arrive as one delivery with a count; for a watch, each run that printed stays in that delivery under its own header. Jobs are offered only to bots on lasso's own machine.
 
 ### Skills
 
