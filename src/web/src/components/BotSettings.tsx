@@ -23,6 +23,7 @@ import {
   startBot,
   stopBot,
 } from "@/components/BotParts"
+import { Markdown, resolveMarkdownSrc } from "@/components/Markdown"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1450,14 +1451,21 @@ function ServerFields({
 
 function SkillRow({
   skill,
+  onOpen,
   children,
 }: {
   skill: BotSkill
+  onOpen: () => void
   children?: React.ReactNode
 }) {
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-border bg-card px-3 py-2">
-      <div className="min-w-0 flex-1">
+    <div className="flex items-start gap-2 rounded-lg border border-border bg-card px-3 py-2 hover:bg-accent/40">
+      <button
+        type="button"
+        onClick={onOpen}
+        title={`Open ${skill.name}'s SKILL.md`}
+        className="min-w-0 flex-1 cursor-pointer text-left"
+      >
         <div className="font-medium font-mono text-[12.5px] text-foreground">
           {skill.name}
         </div>
@@ -1466,9 +1474,80 @@ function SkillRow({
             {skill.description}
           </div>
         )}
-      </div>
+      </button>
       {children}
     </div>
+  )
+}
+
+// A SKILL.md opens with YAML frontmatter, which markdown would render as a rule
+// and a paragraph of keys. The listing already shows its description.
+const frontmatterRE = /^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/
+
+// A skill's SKILL.md, rendered, read from the bot's host. The path is the
+// skill directory as the listing gave it, so a user-level skill and a project
+// one open the same way; relative images resolve against that directory.
+function SkillViewer({
+  skill,
+  host,
+  onClose,
+}: {
+  skill: BotSkill | null
+  host: string
+  onClose: () => void
+}) {
+  const path = skill ? `${skill.path}/SKILL.md` : ""
+  const file = useQuery({
+    queryKey: ["bot-skill-md", host, path],
+    queryFn: () => api.fileText(path, host),
+    enabled: !!skill,
+    staleTime: 0,
+  })
+  const resolveImage = React.useMemo(
+    () => (src: string | undefined) => resolveMarkdownSrc(src, path, host),
+    [path, host]
+  )
+  return (
+    <Dialog open={!!skill} onOpenChange={(o) => !o && onClose()}>
+      {skill && (
+        <DialogContent className="flex h-[85dvh] flex-col gap-3 sm:max-w-3xl">
+          <DialogHeader className="min-w-0 pr-8">
+            <DialogTitle className="font-mono">{skill.name}</DialogTitle>
+            {skill.description && (
+              <DialogDescription className="line-clamp-3">
+                {skill.description}
+              </DialogDescription>
+            )}
+            <div
+              className="truncate font-mono text-[11.5px] text-muted-foreground"
+              title={path}
+            >
+              {path}
+            </div>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border bg-[var(--h-bg)]">
+            {file.isPending && (
+              <div className="p-4">
+                <Orb state="working" px={16} />
+              </div>
+            )}
+            {file.error && (
+              <p className="p-4 text-[12px] text-destructive">
+                {(file.error as Error).message}
+              </p>
+            )}
+            {file.data !== undefined && (
+              <div className="md-body">
+                <Markdown
+                  source={file.data.replace(frontmatterRE, "")}
+                  resolveImageSrc={resolveImage}
+                />
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      )}
+    </Dialog>
   )
 }
 
@@ -1491,6 +1570,7 @@ function SkillsTab({ bot }: { bot: BotView }) {
   const [source, setSource] = React.useState("")
   const [busy, setBusy] = React.useState(false)
   const [removing, setRemoving] = React.useState<string | null>(null)
+  const [viewing, setViewing] = React.useState<BotSkill | null>(null)
   const machine = bot.host === "local" ? "this machine" : bot.host
   const running = !!bot.pane_id
 
@@ -1573,10 +1653,12 @@ function SkillsTab({ bot }: { bot: BotView }) {
         {userSkills.data && userSkills.data.skills.length > 0 && (
           <div className="max-h-72 overflow-y-auto rounded-lg border border-border bg-card">
             {userSkills.data.skills.map((s) => (
-              <div
+              <button
+                type="button"
                 key={s.path}
                 title={s.description || undefined}
-                className="flex min-w-0 items-baseline gap-2 border-border/60 border-b px-3 py-1.5 last:border-b-0"
+                onClick={() => setViewing(s)}
+                className="flex w-full min-w-0 cursor-pointer items-baseline gap-2 border-border/60 border-b px-3 py-1.5 text-left last:border-b-0 hover:bg-accent/40"
               >
                 <span className="shrink-0 font-mono text-[12px] text-foreground">
                   {s.name}
@@ -1584,7 +1666,7 @@ function SkillsTab({ bot }: { bot: BotView }) {
                 <span className="min-w-0 truncate text-[11.5px] text-muted-foreground">
                   {s.description}
                 </span>
-              </div>
+              </button>
             ))}
           </div>
         )}
@@ -1610,7 +1692,7 @@ function SkillsTab({ bot }: { bot: BotView }) {
         )}
         <div className="flex flex-col gap-1.5">
           {skills.data?.skills.map((s) => (
-            <SkillRow key={s.name} skill={s}>
+            <SkillRow key={s.name} skill={s} onOpen={() => setViewing(s)}>
               {removing === s.name ? (
                 <span className="flex shrink-0 items-center gap-1">
                   <Button
@@ -1679,6 +1761,11 @@ function SkillsTab({ bot }: { bot: BotView }) {
           </div>
         </Field>
       </section>
+      <SkillViewer
+        skill={viewing}
+        host={bot.host}
+        onClose={() => setViewing(null)}
+      />
     </div>
   )
 }
