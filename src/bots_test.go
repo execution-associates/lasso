@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -574,6 +575,60 @@ func TestBotLaunchTask(t *testing.T) {
 	r.LaunchTask = "global"
 	if err := botCheckLaunchTask(b, r); err == nil {
 		t.Error("accepted a task from outside the folder")
+	}
+}
+
+// closingHerdr is a host whose one pane is the bot's, and records pane.close.
+type closingHerdr struct {
+	*localBackend
+	closed []string
+}
+
+func (f *closingHerdr) HerdrCall(method string, params any) (json.RawMessage, error) {
+	switch method {
+	case "pane.list":
+		return json.RawMessage(`{"panes":[]}`), nil
+	case "pane.close":
+		f.closed = append(f.closed, params.(map[string]any)["pane_id"].(string))
+		return json.RawMessage(`{}`), nil
+	}
+	return nil, &herdrError{Code: "not_found", Message: method}
+}
+
+// Delete works on a running bot: it is stopped (marked, then its pane closed)
+// before the row goes.
+func TestBotDeleteStopsARunningBot(t *testing.T) {
+	useBotTestEnv(t)
+	f := &closingHerdr{localBackend: &localBackend{}}
+	prevB := botBackend
+	botBackend = func(string) (Backend, error) { return f, nil }
+	t.Cleanup(func() { botBackend = prevB })
+	dir := t.TempDir()
+	r := &botRecord{Name: "runner", Dir: dir}
+	if err := r.normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if err := insertBot(r); err != nil {
+		t.Fatal(err)
+	}
+	prev := pluginAgentPane
+	pluginAgentPane = func(_ Backend, agent string) (pane, error) {
+		if agent == "runner" && len(f.closed) == 0 {
+			return pane{PaneID: "w:p9", Cwd: dir}, nil
+		}
+		return pane{}, errPluginAgentNotRunning
+	}
+	t.Cleanup(func() { pluginAgentPane = prev })
+	w := httptest.NewRecorder()
+	serveBots(w, httptest.NewRequest("DELETE", "/api/bots/runner", nil))
+	if w.Code != 200 {
+		t.Fatalf("delete: %d %s", w.Code, w.Body)
+	}
+	if len(f.closed) != 1 || f.closed[0] != "w:p9" {
+		t.Errorf("closed panes = %v, want the bot's", f.closed)
+	}
+	if _, err := getBot("runner"); !errors.Is(err, errBotNotFound) {
+		t.Errorf("the row is still there: %v", err)
 	}
 }
 

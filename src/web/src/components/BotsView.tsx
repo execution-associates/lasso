@@ -14,11 +14,24 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
-import { BotAvatar, BotStateMark, startBot } from "@/components/BotParts"
+import {
+  BotAvatar,
+  BotStateMark,
+  DeleteBotDialog,
+  startBot,
+  stopBot,
+} from "@/components/BotParts"
 import { BotSettings } from "@/components/BotSettings"
 import { BotsManage } from "@/components/BotsManage"
 import { ChatView } from "@/components/ChatView"
 import { Button } from "@/components/ui/button"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,8 +43,10 @@ import { Orb } from "@/components/ui/orb"
 import { api, type BotView } from "@/lib/api"
 import { moveTabToHost } from "@/lib/app-store"
 import {
+  botRunning,
   botsKey,
   botUnread,
+  invalidateBots,
   markBotSeen,
   relativeTime,
   seedBotsSeen,
@@ -68,6 +83,8 @@ function BotRow({
   unread,
   now,
   onPick,
+  onSettings,
+  onDelete,
   dragging,
   onGrab,
 }: {
@@ -76,6 +93,8 @@ function BotRow({
   unread: boolean
   now: number
   onPick: () => void
+  onSettings: () => void
+  onDelete: () => void
   dragging: boolean
   // pointerdown on the grip: starts a drag (useBotDrag).
   onGrab: (e: React.PointerEvent) => void
@@ -85,7 +104,8 @@ function BotRow({
     : bot.state === "stopped"
       ? "Stopped"
       : "No messages yet"
-  return (
+  const running = botRunning(bot)
+  const row = (
     <div
       data-bot-row={bot.name}
       className={cn(
@@ -149,6 +169,46 @@ function BotRow({
       </button>
     </div>
   )
+  // Right-click (long-press on touch): what the settings page offers, without
+  // opening it first.
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={onPick}>Open chat</ContextMenuItem>
+        <ContextMenuItem onSelect={onSettings}>Settings…</ContextMenuItem>
+        <ContextMenuSeparator />
+        {running ? (
+          <>
+            <ContextMenuItem onSelect={() => void restartBot(bot.name)}>
+              Restart
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => void stopBot(bot.name)}>
+              Stop
+            </ContextMenuItem>
+          </>
+        ) : (
+          <ContextMenuItem onSelect={() => void startBot(bot.name)}>
+            Start
+          </ContextMenuItem>
+        )}
+        <ContextMenuSeparator />
+        <ContextMenuItem variant="destructive" onSelect={onDelete}>
+          Delete…
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  )
+}
+
+async function restartBot(name: string) {
+  try {
+    await api.bots.restart(name, false)
+  } catch (e) {
+    toast.error(`could not restart ${name}: ${(e as Error).message}`)
+  } finally {
+    void invalidateBots(name)
+  }
 }
 
 // What the right side shows for a bot that is not running: there is no pane,
@@ -525,6 +585,8 @@ export function BotsView({
   const now = useMinuteClock()
 
   const drag = useBotDrag(bots)
+  // The bot whose right-click Delete… is being confirmed.
+  const [deleting, setDeleting] = React.useState<BotView | null>(null)
 
   const routeName =
     route.page === "chat" || route.page === "settings" ? route.name : null
@@ -727,11 +789,22 @@ export function BotsView({
               selected={routeName === b.name}
               unread={botUnread(b, seenMap) && routeName !== b.name}
               onPick={() => go({ page: "chat", name: b.name })}
+              onSettings={() => go({ page: "settings", name: b.name })}
+              onDelete={() => setDeleting(b)}
               dragging={drag.dragging === b.name}
               onGrab={(e) => drag.grab(e, b.name)}
             />
           ))}
         </div>
+        <DeleteBotDialog
+          bot={deleting}
+          open={!!deleting}
+          onOpenChange={(o) => !o && setDeleting(null)}
+          onDeleted={() => {
+            if (routeName === deleting?.name) go({ page: "list" }, false)
+            setDeleting(null)
+          }}
+        />
         <div className="flex-none border-border border-t p-1.5">
           <button
             type="button"
