@@ -770,3 +770,29 @@ func TestBotAvatar(t *testing.T) {
 		t.Error("clear left the file")
 	}
 }
+
+func TestBotNotification(t *testing.T) {
+	bots.mu.Lock()
+	bots.notified = map[string]string{}
+	bots.mu.Unlock()
+	r := &botRecord{Name: "news", Host: "local", AvatarImage: "avatar.png?v=7"}
+	view := func(state, kind, at string) botView {
+		return botView{botRecord: r, State: state, LastKind: kind, LastAt: at, LastText: "NYT lead changed"}
+	}
+	if _, ok := botNotification(r, view("idle", "agent", "t1")); ok {
+		t.Fatal("the first sighting notified (it is a baseline)")
+	}
+	if _, ok := botNotification(r, view("idle", "agent", "t1")); ok {
+		t.Fatal("the same message notified twice")
+	}
+	if _, ok := botNotification(r, view("working", "agent", "t2")); ok {
+		t.Fatal("a turn still running notified")
+	}
+	if _, ok := botNotification(r, view("idle", "user", "t3")); ok {
+		t.Fatal("the human's own message notified")
+	}
+	n, ok := botNotification(r, view("idle", "agent", "t4"))
+	if !ok || n.Kind != notifBotMessage || n.URL != "/bots/news" || n.Icon != "/api/bots/news/avatar?v=7" || n.Tag != "bot:news" || n.Body != "NYT lead changed" {
+		t.Fatalf("got %v %+v", ok, n)
+	}
+}

@@ -464,22 +464,29 @@ func botReportSession(b Backend, r *botRecord, p pane, sessions []claudeSessionE
 // per bot, and opening it lands on that bot's chat; the service worker skips
 // showing it to a screen that already has that chat in front of it.
 func botNotifyCheck(b Backend, r *botRecord, sessions []claudeSessionEntry) {
-	v := botStatus(b, r, sessions)
+	if n, ok := botNotification(r, botStatus(b, r, sessions)); ok {
+		publishNotification(n)
+	}
+}
+
+// botNotification decides, from the bot's current view, whether there is news
+// to push, and records what has been seen either way.
+func botNotification(r *botRecord, v botView) (notification, bool) {
 	if v.State != "idle" || v.LastKind != "agent" || v.LastAt == "" {
-		return
+		return notification{}, false
 	}
 	bots.mu.Lock()
 	prev, seen := bots.notified[r.Name]
 	bots.notified[r.Name] = v.LastAt
 	bots.mu.Unlock()
 	if !seen || prev == v.LastAt {
-		return
+		return notification{}, false
 	}
 	icon := ""
 	if _, rev, ok := strings.Cut(r.AvatarImage, "?"); ok {
 		icon = "/api/bots/" + url.PathEscape(r.Name) + "/avatar?" + rev
 	}
-	publishNotification(notification{
+	return notification{
 		Kind:  notifBotMessage,
 		Title: r.Name,
 		Body:  v.LastText,
@@ -487,5 +494,5 @@ func botNotifyCheck(b Backend, r *botRecord, sessions []claudeSessionEntry) {
 		Host:  r.Host,
 		URL:   "/bots/" + url.PathEscape(r.Name),
 		Icon:  icon,
-	})
+	}, true
 }
