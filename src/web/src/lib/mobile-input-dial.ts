@@ -17,20 +17,15 @@ const TRACKING_CLASS = "__lasso_mobile_input_dial_tracking"
 const HOLD_MS = 140
 const ROOT_SIZE = 58
 const ITEM_SIZE = 54
-// The two dedicated destination buttons, above-right and below-right of the
-// root: chat, and the app's right sidebar. Deliberately smaller than ROOT_SIZE —
-// they are destinations, not the control you are operating, and neither may read
-// as a second dial — but not smaller than the 44px a thumb needs.
+// The dedicated destination button above-right of the root, the view picker.
+// Deliberately smaller than ROOT_SIZE — a destination, not the control you are
+// operating, and it may not read as a second dial — but not smaller than the
+// 44px a thumb needs.
 const SAT_SIZE = 44
-// How far the dial's own box floats above the safe-area inset. It is NOT the 18px
-// the root itself wants: the satellite BELOW the root hangs 41px past that box
-// (its centre sits 48px under the root's, plus its 22px radius, less the box's
-// own 29px half-height), so the box is lifted by exactly that much to land the
-// lowest button on the same 18px line the root used to sit on. The group grows
-// upward only, which is why TERMINAL_BOTTOM_GAP is unchanged — the lowest painted
-// pixel of the dial is where it always was.
-const SAT_DROP = 41
-const DIAL_BOTTOM = 18 + SAT_DROP
+// How far the dial's own box floats above the safe-area inset: the root's own
+// 18px, in the thumb's home corner. The picker button hangs ABOVE the root, so
+// nothing paints below this line and TERMINAL_BOTTOM_GAP still clears it.
+const DIAL_BOTTOM = 18
 const BACK_RADIUS = 44
 const TERMINAL_BOTTOM_GAP = 24
 // The width at which the footer — the only other route to New, both sidebars,
@@ -63,8 +58,8 @@ type DialTarget = {
 // left free on purpose: that space belongs to the dedicated chat button above
 // the root (.dial-chat), which is a destination rather than one of the
 // terminal's input controls, and belongs one tap away rather than on an arc
-// where a target is a hold-and-slide from its neighbour. The sidebar
-// (.dial-sidebar) left the arc for the same reason and sits below the root.
+// where a target is a hold-and-slide from its neighbour. The sidebar is one
+// of the picker's entries rather than a button of its own.
 const ROOT_TARGETS: readonly DialTarget[] = [
   {
     id: "new",
@@ -292,25 +287,17 @@ ${sel} .dial-menu {
   inset: 0;
   pointer-events: none;
 }
-/* The two destinations — chat above the root, the app's right sidebar below it —
-   rather than targets on the arc, where each would be one hold-and-slide from the
-   wrong neighbour. Both sit to the RIGHT of the root rather than stacked on its
-   axis: the circles must NOT overlap, which needs their centres 51px apart
-   (58/2 + 44/2), while the smaller one still has to break the root's top (or
-   bottom) line, which needs |dy| < 51. So the separation is bought with dx, and
-   the screen edge caps dx: this spends 11px of it past the root's box, leaving
-   4px to the edge against the root's own 18px inset. Hence ~66° off horizontal
-   and a 3px overlap of the box, rims ~1.4px clear. The drop and the angle trade
-   against each other and against that margin: a 6px drop at the same margin puts
-   the rims back through each other, which is the state this replaced, so the
-   angle gives way to the separation. The two are exact mirrors (a bottom offset
-   against the same top offset, off the same left edge), which is what makes them read as one column beside the
-   root, and each circle owns its own hit area outright. They wear the closed
-   root's recipe (a ~15% wash behind the lifted edge), so they are the same chrome
-   at a smaller size; the glyphs are the ones the arc's own Chat and Sidebar
-   targets carried. */
-${sel} .dial-chat,
-${sel} .dial-sidebar {
+/* The destination above the root, the view picker, rather than a target on the
+   arc, where it would be one hold-and-slide from the wrong neighbour. It sits to
+   the RIGHT of the root rather than stacked on its axis: the circles must NOT
+   overlap, which needs their centres 51px apart (58/2 + 44/2), while the smaller
+   one still has to break the root's top line, which needs |dy| < 51. So the
+   separation is bought with dx, and the screen edge caps dx: this spends 11px of
+   it past the root's box, leaving 4px to the edge against the root's own 18px
+   inset. Hence ~66° off horizontal and a 3px overlap of the box, rims ~1.4px
+   clear. It wears the closed root's recipe (a ~15% wash behind the lifted edge),
+   so it is the same chrome at a smaller size. */
+${sel} .dial-chat {
   position: absolute;
   left: calc(100% - 30px);
   z-index: 3;
@@ -331,20 +318,14 @@ ${sel} .dial-sidebar {
 ${sel} .dial-chat {
   bottom: calc(100% - 3px);
 }
-${sel} .dial-sidebar {
-  top: calc(100% - 3px);
-}
-${sel} .dial-chat:hover,
-${sel} .dial-sidebar:hover {
+${sel} .dial-chat:hover {
   background: color-mix(in srgb, var(--h-hover, #1a1a1a) 72%, transparent);
 }
-${sel} .dial-chat:active,
-${sel} .dial-sidebar:active {
+${sel} .dial-chat:active {
   background: color-mix(in srgb, var(--h-panel, #111) 82%, transparent);
   transform: scale(.94);
 }
-${sel} .dial-chat:focus-visible,
-${sel} .dial-sidebar:focus-visible {
+${sel} .dial-chat:focus-visible {
   outline: 2px solid var(--h-accent, #fff);
   outline-offset: 3px;
 }
@@ -683,8 +664,8 @@ function buildTerminalInputDial(win: Window, id: string): () => void {
     return button
   }
 
-  // The glyphs the arc's own Chat and Sidebar targets carried, so each control
-  // reads the same as the one it replaces.
+  // The glyph the arc's own Chat target carried, so the control reads the same
+  // as the one it replaces.
   const chatButton = satellite(
     "dial-chat",
     "☰",
@@ -692,15 +673,8 @@ function buildTerminalInputDial(win: Window, id: string): () => void {
     "Read this session as chat",
     "chat"
   )
-  const sidebarButton = satellite(
-    "dial-sidebar",
-    "▣",
-    "Sidebar",
-    "Toggle the sidebar",
-    "sidebar"
-  )
 
-  dial.append(menu, root, chatButton, sidebarButton)
+  dial.append(menu, root, chatButton)
   doc.body.appendChild(dial)
   win.requestAnimationFrame(() => win.dispatchEvent(new Event("resize")))
   let open = false
