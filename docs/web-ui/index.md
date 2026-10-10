@@ -95,6 +95,7 @@ Every app shortcut uses the `⌘` key only, never `Ctrl`, so none of them collid
 | `⌘J` | Chat ⟷ terminal |
 | `⌘E` | Grid ⟷ terminal |
 | `⌘.` | Bots ⟷ terminal |
+| `⌘;` | Terminal, from any view |
 | `⌘B` | Left sidebar: herdr's in the terminal, the agent list in Chat |
 | `⌘\` | Toggle the right sidebar |
 | `⌘⇧F` | Open the sidebar on Files |

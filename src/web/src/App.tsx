@@ -121,7 +121,7 @@ const MAIN_VIEWS: {
   icon: LucideIcon
   shortcut?: string
 }[] = [
-  { id: "terminal", label: "Terminal", icon: SquareTerminal },
+  { id: "terminal", label: "Terminal", icon: SquareTerminal, shortcut: "⌘;" },
   { id: "chat", label: "Chat", icon: MessageSquare, shortcut: "⌘J" },
   { id: "agents", label: "Grid", icon: Users, shortcut: "⌘E" },
   { id: "bots", label: "Bots", icon: Bot, shortcut: "⌘." },
@@ -792,7 +792,7 @@ function Shell() {
   }, [toggleSidebar, openNew, openHostMenu])
 
   // ⌘K → herdr's own pane search, ⌘O/⌘I → the agent/terminal tabs in the New
-  // dialog, ⌘J/⌘E/⌘B → the left column's views and sidebar, ⌘\ and ⌘⇧F/S/B →
+  // dialog, ⌘;/⌘J/⌘E/⌘./⌘B → the left column's views and sidebar, ⌘\ and ⌘⇧F/S/B →
   // the right sidebar, ⌘/ → toggles the keyboard-shortcuts reference. Bound to the Cmd key only (not Ctrl) so it
   // never clobbers terminal control keys like Ctrl-H (backspace). The
   // herdr/shell terminal iframes re-dispatch Cmd-shortcuts to this document, so
@@ -861,6 +861,13 @@ function Shell() {
       } else if (k === ".") {
         e.preventDefault()
         toggleBotsView()
+      } else if (k === ";") {
+        // The terminal's own key: not a toggle, since from any view the
+        // answer is the same place.
+        e.preventDefault()
+        setLeftView("terminal")
+        if (!window.matchMedia("(pointer: coarse)").matches)
+          focusHerdrTerminal()
       } else if (k === "b") {
         e.preventDefault()
         // Same rule as the footer button, which is disabled in the grid and a
