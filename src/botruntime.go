@@ -116,7 +116,7 @@ func startBot(b Backend, r *botRecord, fresh bool) error {
 	_ = setBotStopped(r.Name, false)
 	invalidatePaneList(b.Name())
 	waitPaneReady(b, paneID)
-	if err := paneRun(b, paneID, botLaunchCommand(session)); err != nil {
+	if err := paneRun(b, paneID, botLaunchCommand(r.task(), session)); err != nil {
 		return fmt.Errorf("launch: %w", err)
 	}
 	return nil
@@ -431,7 +431,7 @@ func botReportSession(b Backend, r *botRecord, p pane, sessions []claudeSessionE
 	if done {
 		return
 	}
-	argv := botResumeArgv(sid)
+	argv := botResumeArgv(r.task(), sid)
 	if err := validateResumeArgv(argv); err != nil {
 		log.Printf("bots:     %s: %v", r.Name, err)
 		return

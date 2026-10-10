@@ -21,10 +21,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -294,4 +296,51 @@ func botEnvUnset(b Backend, dir, key string) error {
 	}
 	_, err := botRun(b, dir, "fnox", []string{"remove", key}, nil)
 	return err
+}
+
+// botLaunchTasks lists the mise tasks defined in the bot's folder that can
+// launch it: the generated `bot` and any the human wrote, never `restart`.
+// mise's own listing, so a task in the bot's mise.toml counts as well as a file
+// in .mise/tasks/; tasks from the global config are left out.
+func botLaunchTasks(b Backend, dir string) ([]string, error) {
+	out, err := botRun(b, dir, "mise", []string{"tasks", "ls", "--json"}, nil)
+	if err != nil {
+		return nil, err
+	}
+	var tasks []struct {
+		Name   string `json:"name"`
+		Source string `json:"source"`
+	}
+	if err := json.Unmarshal(out, &tasks); err != nil {
+		return nil, fmt.Errorf("read mise's task list: %w", err)
+	}
+	prefix := filepath.Clean(dir) + string(filepath.Separator)
+	names := []string{}
+	for _, t := range tasks {
+		if t.Name == "restart" || !strings.HasPrefix(t.Source, prefix) || !botTaskRE.MatchString(t.Name) {
+			continue
+		}
+		names = append(names, t.Name)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// botCheckLaunchTask refuses a launch task the folder does not define, which
+// would leave keep-running relaunching a command that fails. A folder mise
+// cannot list is not refused: its task list is unknown, not empty.
+func botCheckLaunchTask(b Backend, r *botRecord) error {
+	if r.LaunchTask == "" {
+		return nil
+	}
+	names, err := botLaunchTasks(b, expandTildeOn(b, r.Dir))
+	if err != nil {
+		return nil
+	}
+	for _, n := range names {
+		if n == r.LaunchTask {
+			return nil
+		}
+	}
+	return fmt.Errorf("the folder has no mise task %q (it has: %s)", r.LaunchTask, strings.Join(names, ", "))
 }

@@ -837,6 +837,9 @@ export interface BotFields {
   keep_running: boolean
   // Push a notification when the bot finishes a turn with a new message.
   notify: boolean
+  // The mise task that launches it, "" for the generated `bot`. Left out of
+  // a save, the stored one stays: the Launch tab sets it on its own.
+  launch_task?: string
 }
 
 export interface BotView extends BotFields {
@@ -870,6 +873,9 @@ export interface BotDetail {
   launch: string
   // Absolute path of the bot's CLAUDE.md on its host.
   claude_md: string
+  // The folder's mise tasks that can launch it (`bot` and the human's own),
+  // or null when mise could not list them.
+  tasks: string[] | null
 }
 
 // A bot's picture URL, or "" for the initials avatar. avatar_image carries

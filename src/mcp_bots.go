@@ -117,6 +117,7 @@ type updateBotIn struct {
 	MCP            *[]botMCPServer `json:"mcp,omitempty" jsonschema:"the COMPLETE list of MCP servers (it replaces the current one, so read it with get_bot first). channel:true makes a server a Claude Code channel; for a server that needs OAuth set oauth:true and ask the human to sign in from lasso's Bots view"`
 	StrictMCP      *bool           `json:"strict_mcp,omitempty" jsonschema:"true: only these MCP servers, no claude.ai connectors or user-level servers"`
 	ExtraArgs      *[]string       `json:"extra_args,omitempty" jsonschema:"extra claude CLI arguments, one element per argument"`
+	LaunchTask     *string         `json:"launch_task,omitempty" jsonschema:"the mise task in the bot's folder that launches it (a mode, such as another provider); empty or bot for the generated one. It must exist, set its environment, and end with exec mise run bot -- \"$@\""`
 	KeepRunning    *bool           `json:"keep_running,omitempty" jsonschema:"relaunch the bot if it stops unexpectedly"`
 	Notify         *bool           `json:"notify,omitempty" jsonschema:"push a notification to the human's devices each time the bot finishes a reply"`
 	Avatar         *string         `json:"avatar,omitempty" jsonschema:"up to 8 characters (an emoji or initials) for the bot's avatar"`
@@ -193,6 +194,7 @@ func updateBotTool(ctx context.Context, req *mcp.CallToolRequest, in updateBotIn
 	set(&next.PermissionMode, in.PermissionMode)
 	set(&next.Avatar, in.Avatar)
 	set(&next.Workspace, in.Workspace)
+	set(&next.LaunchTask, in.LaunchTask)
 	if in.MCP != nil {
 		next.MCP = *in.MCP
 	}
@@ -209,6 +211,9 @@ func updateBotTool(ctx context.Context, req *mcp.CallToolRequest, in updateBotIn
 		next.Notify = *in.Notify
 	}
 	if err := next.normalize(); err != nil {
+		return nil, botChangeOut{}, err
+	}
+	if err := botCheckLaunchTask(b, &next); err != nil {
 		return nil, botChangeOut{}, err
 	}
 	if err := updateBot(&next); err != nil {
