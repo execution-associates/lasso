@@ -1813,6 +1813,9 @@ export const api = {
   // the host it runs on, and every call about one bot is addressed by name.
   bots: {
     list: () => getJSON<{ bots: BotView[] }>("/api/bots"),
+    // The list's order, as dragged. Bots it does not name go after.
+    reorder: (names: string[]) =>
+      sendJSON<{ ok: boolean }>("PUT", "/api/bots/order", { names }),
     get: (name: string) => getJSON<BotDetail>(botURL(name)),
     // A 200 can still carry `error`: the row was created but its folder could
     // not be written (or it would not start), which Settings is where to fix.

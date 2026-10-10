@@ -1,11 +1,11 @@
 import {
   ChevronLeft,
+  GripVertical,
   LayoutGrid,
   ListChecks,
   Play,
   Plus,
   RotateCcw,
-  Search,
   Settings,
 } from "lucide-react"
 import * as React from "react"
@@ -15,11 +15,11 @@ import { BotSettings } from "@/components/BotSettings"
 import { BotsManage } from "@/components/BotsManage"
 import { ChatView } from "@/components/ChatView"
 import { Button } from "@/components/ui/button"
-import { NO_AUTOCORRECT } from "@/components/ui/input"
 import { Orb } from "@/components/ui/orb"
 import { api, type BotView } from "@/lib/api"
 import { moveTabToHost } from "@/lib/app-store"
 import {
+  botsKey,
   botUnread,
   markBotSeen,
   relativeTime,
@@ -28,6 +28,7 @@ import {
   useBotsSeen,
   useMinuteClock,
 } from "@/lib/bots"
+import { queryClient } from "@/lib/query"
 import {
   type BotsRoute,
   botsRouteNow,
@@ -49,12 +50,17 @@ function BotRow({
   unread,
   now,
   onPick,
+  dragging,
+  onGrab,
 }: {
   bot: BotView
   selected: boolean
   unread: boolean
   now: number
   onPick: () => void
+  dragging: boolean
+  // pointerdown on the grip: starts a drag (useBotDrag).
+  onGrab: (e: React.PointerEvent) => void
 }) {
   const preview = bot.last_text
     ? `${bot.last_kind === "user" ? "You: " : ""}${bot.last_text}`
@@ -62,50 +68,68 @@ function BotRow({
       ? "Stopped"
       : "No messages yet"
   return (
-    <button
-      type="button"
-      onClick={onPick}
-      aria-current={selected ? "page" : undefined}
+    <div
+      data-bot-row={bot.name}
       className={cn(
-        "flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left hover:bg-accent/60",
-        selected && "bg-accent"
+        "group/row relative flex items-center rounded-lg",
+        dragging && "z-10 bg-card shadow-lg ring-1 ring-border"
       )}
     >
-      <BotAvatar bot={bot} />
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span
-            className={cn(
-              "min-w-0 truncate text-[13px] text-foreground",
-              unread ? "font-semibold" : "font-medium"
-            )}
-          >
-            {bot.name}
-          </span>
-          <BotStateMark bot={bot} className="min-w-0" />
-          <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
-            {relativeTime(bot.last_at, now)}
-          </span>
-        </span>
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span
-            className={cn(
-              "min-w-0 flex-1 truncate text-[12px]",
-              unread ? "text-foreground" : "text-muted-foreground"
-            )}
-          >
-            {preview}
-          </span>
-          {unread && (
-            <span
-              role="img"
-              aria-label="Unread"
-              className="size-2 shrink-0 rounded-full bg-primary"
-            />
-          )}
-        </span>
+      {/* The grip: dragging it reorders the list. Its own element, so a tap on
+          the row still opens the bot and a scroll on a phone still scrolls. */}
+      <span
+        role="presentation"
+        onPointerDown={onGrab}
+        title="Drag to reorder"
+        className="absolute inset-y-0 left-0 flex w-4 cursor-grab touch-none items-center justify-center text-muted-foreground/50 opacity-0 active:cursor-grabbing group-hover/row:opacity-100 max-md:opacity-100"
+      >
+        <GripVertical className="size-3.5" />
       </span>
-    </button>
+      <button
+        type="button"
+        onClick={onPick}
+        aria-current={selected ? "page" : undefined}
+        className={cn(
+          "flex w-full items-center gap-2.5 rounded-lg py-2 pr-2 pl-4 text-left hover:bg-accent/60",
+          selected && "bg-accent"
+        )}
+      >
+        <BotAvatar bot={bot} />
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span
+              className={cn(
+                "min-w-0 truncate text-[13px] text-foreground",
+                unread ? "font-semibold" : "font-medium"
+              )}
+            >
+              {bot.name}
+            </span>
+            <BotStateMark bot={bot} className="min-w-0" />
+            <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
+              {relativeTime(bot.last_at, now)}
+            </span>
+          </span>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-[12px]",
+                unread ? "text-foreground" : "text-muted-foreground"
+              )}
+            >
+              {preview}
+            </span>
+            {unread && (
+              <span
+                role="img"
+                aria-label="Unread"
+                className="size-2 shrink-0 rounded-full bg-primary"
+              />
+            )}
+          </span>
+        </span>
+      </button>
+    </div>
   )
 }
 
@@ -210,6 +234,88 @@ function BackToList({ onClick }: { onClick: () => void }) {
   )
 }
 
+// useBotDrag reorders the list by dragging a row's grip: pointer events rather
+// than HTML drag and drop, which a phone's touch never fires. The order shown
+// while dragging is local; on release it is saved and the list re-read, and
+// until then the cached list is rewritten so the next poll does not flash the
+// old order back.
+function useBotDrag(bots: BotView[]) {
+  const [dragging, setDragging] = React.useState<string | null>(null)
+  const [names, setNames] = React.useState<string[] | null>(null)
+  const order = React.useMemo(() => {
+    if (!names) return bots
+    const by = new Map(bots.map((b) => [b.name, b]))
+    const out = names.flatMap((n) => {
+      const b = by.get(n)
+      return b ? [b] : []
+    })
+    // A bot that appeared mid-drag goes at the end.
+    for (const b of bots) if (!names.includes(b.name)) out.push(b)
+    return out
+  }, [bots, names])
+
+  const grab = (e: React.PointerEvent, name: string) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    const list = (e.currentTarget as HTMLElement).closest(".overflow-y-auto")
+    if (!list) return
+    let current = bots.map((b) => b.name)
+    setDragging(name)
+    setNames(current)
+    const move = (ev: PointerEvent) => {
+      // The slot is the number of OTHER rows whose middle is above the pointer.
+      const rows = [
+        ...list.querySelectorAll<HTMLElement>("[data-bot-row]"),
+      ].filter((r) => r.dataset.botRow !== name)
+      let slot = 0
+      for (const r of rows) {
+        const box = r.getBoundingClientRect()
+        if (ev.clientY > box.top + box.height / 2) slot++
+      }
+      const rest = current.filter((n) => n !== name)
+      const next = [...rest.slice(0, slot), name, ...rest.slice(slot)]
+      if (next.join("\n") !== current.join("\n")) {
+        current = next
+        setNames(next)
+      }
+    }
+    const up = () => {
+      window.removeEventListener("pointermove", move)
+      window.removeEventListener("pointerup", up)
+      window.removeEventListener("pointercancel", up)
+      setDragging(null)
+      const before = bots.map((b) => b.name).join("\n")
+      if (current.join("\n") === before) {
+        setNames(null)
+        return
+      }
+      queryClient.setQueryData<{ bots: BotView[] }>(botsKey, (old) => {
+        if (!old) return old
+        const rank = new Map(current.map((n, i) => [n, i]))
+        return {
+          ...old,
+          bots: [...old.bots].sort(
+            (a, b) =>
+              (rank.get(a.name) ?? rank.size) - (rank.get(b.name) ?? rank.size)
+          ),
+        }
+      })
+      setNames(null)
+      api.bots
+        .reorder(current)
+        .catch((err) => toast.error(`could not save the order: ${err.message}`))
+        .finally(
+          () => void queryClient.invalidateQueries({ queryKey: botsKey })
+        )
+    }
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", up)
+    window.addEventListener("pointercancel", up)
+  }
+
+  return { order, dragging, grab }
+}
+
 export function BotsView({
   active,
   onShowTerminal,
@@ -244,29 +350,15 @@ export function BotsView({
   }, [])
 
   const { data, isPending, error } = useBots(active)
-  const bots = React.useMemo(
-    () =>
-      [...(data?.bots ?? [])].sort((a, b) =>
-        (b.last_at ?? b.updated_at).localeCompare(a.last_at ?? a.updated_at)
-      ),
-    [data]
-  )
+  // The server's order, which is the human's: dragged in this list.
+  const bots = React.useMemo(() => data?.bots ?? [], [data])
   const seenMap = useBotsSeen()
   React.useEffect(() => {
     if (data?.bots) seedBotsSeen(data.bots)
   }, [data])
   const now = useMinuteClock()
 
-  const [filter, setFilter] = React.useState("")
-  const shown = React.useMemo(() => {
-    const terms = filter.toLowerCase().split(/\s+/).filter(Boolean)
-    if (terms.length === 0) return bots
-    return bots.filter((b) => {
-      const hay =
-        `${b.name} ${b.host} ${b.workspace} ${b.last_text ?? ""}`.toLowerCase()
-      return terms.every((t) => hay.includes(t))
-    })
-  }, [bots, filter])
+  const drag = useBotDrag(bots)
 
   const routeName =
     route.page === "chat" || route.page === "settings" ? route.name : null
@@ -429,23 +521,6 @@ export function BotsView({
             <LayoutGrid className="size-4" />
           </button>
         </div>
-        <div className="flex-none px-2.5 pt-2 pb-1">
-          <label className="flex items-center gap-1.5 rounded-lg border border-input bg-background px-2 focus-within:border-ring">
-            <Search className="size-3.5 shrink-0 text-muted-foreground" />
-            <input
-              {...NO_AUTOCORRECT}
-              data-bots-filter
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setFilter("")
-              }}
-              placeholder="Search bots"
-              aria-label="Search bots"
-              className="h-8 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground md:text-[13px]"
-            />
-          </label>
-        </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1">
           {error && (
             <div className="px-2 py-2 text-[12px] text-destructive">
@@ -457,12 +532,7 @@ export function BotsView({
               No bots yet. Create one with +.
             </div>
           )}
-          {bots.length > 0 && shown.length === 0 && (
-            <div className="px-2 py-3 text-[12px] text-muted-foreground">
-              No bot matches “{filter}”.
-            </div>
-          )}
-          {shown.map((b) => (
+          {drag.order.map((b) => (
             <BotRow
               key={b.name}
               bot={b}
@@ -470,6 +540,8 @@ export function BotsView({
               selected={routeName === b.name}
               unread={botUnread(b, seenMap) && routeName !== b.name}
               onPick={() => go({ page: "chat", name: b.name })}
+              dragging={drag.dragging === b.name}
+              onGrab={(e) => drag.grab(e, b.name)}
             />
           ))}
         </div>

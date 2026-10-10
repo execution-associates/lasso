@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS bots (
 	keep_running    INTEGER NOT NULL DEFAULT 1,
 	stopped         INTEGER NOT NULL DEFAULT 0,
 	last_session_id TEXT NOT NULL DEFAULT '',
+	position        INTEGER NOT NULL DEFAULT 0,
 	created_at      TEXT NOT NULL,
 	updated_at      TEXT NOT NULL
 );
@@ -118,6 +119,12 @@ func (r *botRecord) normalize() error {
 	r.Name = strings.TrimSpace(r.Name)
 	if !botNameRE.MatchString(r.Name) {
 		return fmt.Errorf("name must be 1-40 lowercase letters, digits or dashes, starting with a letter or digit")
+	}
+	// Words the API and the view's URLs use for themselves (/api/bots/order,
+	// /bots/manage).
+	switch r.Name {
+	case "order", "skill-library", "manage", "new":
+		return fmt.Errorf("%q is reserved; pick another name", r.Name)
 	}
 	if r.Host == "" {
 		r.Host = "local"
@@ -461,7 +468,8 @@ func scanBot(row interface{ Scan(...any) error }) (*botRecord, error) {
 }
 
 func listBots() ([]*botRecord, error) {
-	rows, err := db.Query(`SELECT ` + botCols + ` FROM bots ORDER BY name`)
+	// The human's order (dragged in the list), then creation order.
+	rows, err := db.Query(`SELECT ` + botCols + ` FROM bots ORDER BY position, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -497,8 +505,9 @@ func insertBot(r *botRecord) error {
 	r.CreatedAt, r.UpdatedAt = now, now
 	mcp, _ := json.Marshal(r.MCP)
 	extra, _ := json.Marshal(r.ExtraArgs)
-	res, err := db.Exec(`INSERT INTO bots (host, name, dir, workspace, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	// A new bot goes to the end of the list.
+	res, err := db.Exec(`INSERT INTO bots (host, name, dir, workspace, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, position, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM bots), ?, ?)`,
 		r.Host, r.Name, r.Dir, r.Workspace, r.Model, r.Effort, r.PermissionMode, string(mcp), boolInt(r.StrictMCP),
 		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Stopped), r.LastSessionID, r.CreatedAt, r.UpdatedAt)
 	if err != nil {
@@ -532,6 +541,25 @@ func setBotSession(name, sessionID string) error {
 func setBotStopped(name string, stopped bool) error {
 	_, err := db.Exec(`UPDATE bots SET stopped = ? WHERE name = ?`, boolInt(stopped), name)
 	return err
+}
+
+// reorderBots stores the list's order: names first, in that order, then any
+// bot the list did not name (one created meanwhile) after them.
+func reorderBots(names []string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`UPDATE bots SET position = position + ?`, len(names)+1); err != nil {
+		return err
+	}
+	for i, n := range names {
+		if _, err := tx.Exec(`UPDATE bots SET position = ? WHERE name = ?`, i+1, n); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func deleteBot(name string) error {

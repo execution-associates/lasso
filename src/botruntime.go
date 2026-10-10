@@ -264,9 +264,17 @@ func botCachedLine(name string) (string, string, string) {
 	return l.text, l.kind, l.at
 }
 
-// previewText flattens prose to one line of at most 160 characters.
+// previewMarkup is the markdown a one-line preview shows as noise.
+var previewMarkup = strings.NewReplacer("**", "", "__", "", "`", "", "~~", "")
+
+// previewText flattens prose to one line of at most 160 characters, without
+// its markdown emphasis or heading marks.
 func previewText(s string) string {
-	s = strings.Join(strings.Fields(s), " ")
+	fields := strings.Fields(previewMarkup.Replace(s))
+	for len(fields) > 0 && strings.Trim(fields[0], "#>-*") == "" {
+		fields = fields[1:]
+	}
+	s = strings.Join(fields, " ")
 	if utf8.RuneCountInString(s) > 160 {
 		r := []rune(s)
 		s = string(r[:159]) + "…"
