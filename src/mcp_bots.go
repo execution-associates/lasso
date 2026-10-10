@@ -77,6 +77,10 @@ func registerBotTools(s *mcp.Server) {
 		Description: "Remove one of a bot's environment variables. A running bot sees the change after a restart.",
 	}, unsetBotEnvTool)
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "set_bot_avatar",
+		Description: "Set a bot's picture (its avatar in lasso's Bots view and its notifications) from an image file on its host, or clear it. PNG, JPEG, WebP or GIF, at most 2 MB; a square image looks best. A bot asked to change its own picture downloads or generates the image to a file, then calls this with its own name.",
+	}, setBotAvatarTool)
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "start_bot",
 		Description: "Start a stopped bot. It resumes its last conversation unless fresh is true.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in botNameIn) (*mcp.CallToolResult, botStateOut, error) {
@@ -246,6 +250,41 @@ func unsetBotEnvTool(ctx context.Context, req *mcp.CallToolRequest, in botEnvIn)
 		return nil, botChangeOut{}, err
 	}
 	return nil, botChangeOut{OK: true, RestartNeeded: botRunning(b, rec)}, nil
+}
+
+type setBotAvatarIn struct {
+	Name  string `json:"name" jsonschema:"the bot's name"`
+	Path  string `json:"path,omitempty" jsonschema:"an image file on the bot's host (absolute, or ~/…): PNG, JPEG, WebP or GIF, at most 2 MB. Download or generate it to a file first."`
+	Clear bool   `json:"clear,omitempty" jsonschema:"remove the picture, back to the initials avatar"`
+}
+
+func setBotAvatarTool(ctx context.Context, req *mcp.CallToolRequest, in setBotAvatarIn) (*mcp.CallToolResult, botChangeOut, error) {
+	rec, b, err := botForCaller(req, in.Name)
+	if err != nil {
+		return nil, botChangeOut{}, err
+	}
+	if in.Clear {
+		if err := clearBotAvatar(b, rec); err != nil {
+			return nil, botChangeOut{}, err
+		}
+		return nil, botChangeOut{OK: true}, nil
+	}
+	path := expandTildeOn(b, strings.TrimSpace(in.Path))
+	if !filepath.IsAbs(path) {
+		return nil, botChangeOut{}, fmt.Errorf("path must be absolute or start with ~/")
+	}
+	fi, err := b.Stat(path)
+	if err != nil || fi.IsDir() || fi.Size() > botAvatarMax {
+		return nil, botChangeOut{}, fmt.Errorf("%s is not an image file of at most %d MB", path, botAvatarMax>>20)
+	}
+	data, err := b.ReadFile(path)
+	if err != nil {
+		return nil, botChangeOut{}, err
+	}
+	if err := storeBotAvatar(b, rec, data); err != nil {
+		return nil, botChangeOut{}, err
+	}
+	return nil, botChangeOut{OK: true, Note: "the new picture shows in lasso right away; no restart needed"}, nil
 }
 
 func listBotsTool(ctx context.Context, req *mcp.CallToolRequest, _ listBotsIn) (*mcp.CallToolResult, listBotsOut, error) {

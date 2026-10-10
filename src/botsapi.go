@@ -8,6 +8,7 @@ package main
 //	GET    /api/bots/skill-library?host=      skills a bot can copy in (~/.claude/skills)
 //	GET    /api/bots/oauth/callback           an OAuth redirect lands here (botoauth.go)
 //	POST   /api/bots/oauth/finish             {url}: the address a localhost redirect left the browser on
+//	GET    /api/bots/<name>/avatar            its picture; PUT (raw image body) / DELETE
 //	GET    /api/bots/<name>/oauth             each signed-in server's status
 //	POST   /api/bots/<name>/oauth             {server, origin}: begin a sign-in → {authorize_url, state, localhost}
 //	DELETE /api/bots/<name>/oauth?server=     sign out
@@ -107,6 +108,8 @@ func serveBots(w http.ResponseWriter, r *http.Request) {
 		serveBotSkills(w, r, b, rec)
 	case "oauth":
 		serveBotOAuth(w, r, b, rec)
+	case "avatar":
+		serveBotAvatar(w, r, b, rec)
 	default:
 		http.NotFound(w, r)
 	}
@@ -119,9 +122,10 @@ type botInput struct {
 	Restart bool `json:"restart"`
 }
 
-func decodeBotInput(r *http.Request) (*botInput, error) {
-	var in botInput
-	in.KeepRunning = true
+// decodeBotInput reads a create or save body over base, so a field the body
+// leaves out keeps base's value (a create's defaults, or a save's current row).
+func decodeBotInput(r *http.Request, base botRecord) (*botInput, error) {
+	in := botInput{botRecord: base}
 	if err := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1<<20)).Decode(&in); err != nil {
 		return nil, fmt.Errorf("bad body: %w", err)
 	}
@@ -129,13 +133,13 @@ func decodeBotInput(r *http.Request) (*botInput, error) {
 }
 
 func serveBotCreate(w http.ResponseWriter, r *http.Request) {
-	in, err := decodeBotInput(r)
+	in, err := decodeBotInput(r, botRecord{KeepRunning: true, Notify: true})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	rec := in.botRecord
-	rec.ID, rec.LastSessionID, rec.Stopped = 0, "", !in.Start
+	rec.ID, rec.LastSessionID, rec.Stopped, rec.AvatarImage = 0, "", !in.Start, ""
 	if err := rec.normalize(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -176,7 +180,7 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 			"claude_md": filepath.Join(dir, "CLAUDE.md"),
 		})
 	case http.MethodPut:
-		in, err := decodeBotInput(r)
+		in, err := decodeBotInput(r, *rec)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -185,6 +189,7 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 		// Identity and runtime state are not editable here.
 		next.ID, next.Host, next.Name = rec.ID, rec.Host, rec.Name
 		next.LastSessionID, next.Stopped, next.CreatedAt = rec.LastSessionID, rec.Stopped, rec.CreatedAt
+		next.AvatarImage = rec.AvatarImage
 		if err := next.normalize(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
