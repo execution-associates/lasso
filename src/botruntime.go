@@ -65,21 +65,25 @@ var botBackend = func(host string) (Backend, error) { return namedHostBackend(ho
 // findBotPane finds the bot's pane: by herdr agent name first (the task script
 // claims it), then the claude pane running in the bot's folder — a pane herdr
 // restored comes back unnamed until the script's rename lands.
+//
+// A name match counts only in the bot's own folder: another agent may already
+// hold the name (a bot replacing a hand-run agent of the same name), and
+// taking its pane would let Stop close it and rewrite its herdr resume_argv.
 func findBotPane(b Backend, r *botRecord) (pane, bool) {
-	if p, err := pluginAgentPane(b, r.Name); err == nil {
+	dir := filepath.Clean(expandTildeOn(b, r.Dir))
+	inDir := func(p pane) bool {
+		return filepath.Clean(p.Cwd) == dir || filepath.Clean(p.ForegroundCwd) == dir
+	}
+	if p, err := pluginAgentPane(b, r.Name); err == nil && inDir(p) {
 		return p, true
 	}
 	panes, err := panesRaw(b)
 	if err != nil {
 		return pane{}, false
 	}
-	dir := filepath.Clean(expandTildeOn(b, r.Dir))
 	for _, p := range panes {
 		kind, _ := paneAgentPresence(p)
-		if kind != "claude" {
-			continue
-		}
-		if filepath.Clean(p.Cwd) == dir || filepath.Clean(p.ForegroundCwd) == dir {
+		if kind == "claude" && inDir(p) {
 			return p, true
 		}
 	}

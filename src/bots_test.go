@@ -522,6 +522,29 @@ func TestBotTickRelaunchesAfterGrace(t *testing.T) {
 	}
 }
 
+// A bot never claims another agent's pane because it holds the bot's name:
+// Stop would close it and the resume report would rewrite its restore.
+func TestFindBotPaneNeedsTheBotsFolder(t *testing.T) {
+	b := useBotTestEnv(t)
+	r := &botRecord{Name: "jessica", Dir: "/tmp/bots/jessica"}
+	held := pane{PaneID: "w:p1", Cwd: "/home/x/projects/jessica", ForegroundCwd: "/home/x/projects/jessica"}
+	prev := pluginAgentPane
+	pluginAgentPane = func(_ Backend, agent string) (pane, error) {
+		if agent == "jessica" {
+			return held, nil
+		}
+		return pane{}, errPluginAgentNotRunning
+	}
+	t.Cleanup(func() { pluginAgentPane = prev })
+	if p, ok := findBotPane(b, r); ok {
+		t.Fatalf("took %s, a pane in another folder", p.PaneID)
+	}
+	held.Cwd = "/tmp/bots/jessica"
+	if p, ok := findBotPane(b, r); !ok || p.PaneID != "w:p1" {
+		t.Fatalf("missed the bot's own pane: %v %v", p.PaneID, ok)
+	}
+}
+
 // fakeOAuthMCP is an MCP server that wants OAuth, with its own authorization
 // server: the 401 names the resource metadata, which names the issuer.
 func fakeOAuthMCP(t *testing.T) (*httptest.Server, *sync.Map) {
