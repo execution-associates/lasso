@@ -129,7 +129,7 @@ function BotRow({
         onClick={onPick}
         aria-current={selected ? "page" : undefined}
         className={cn(
-          "flex w-full items-center gap-2.5 rounded-lg py-2 pr-2 pl-4 text-left hover:bg-accent/60",
+          "fx-tile flex w-full items-center gap-2.5 rounded-lg py-2 pr-2 pl-4 text-left hover:bg-accent/60",
           selected && "bg-accent"
         )}
       >
@@ -801,7 +801,7 @@ export function BotsView({
           </button>
           <ViewsButton onOpen={onOpenViews} />
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1">
+        <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-2 py-2">
           {error && (
             <div className="px-2 py-2 text-[12px] text-destructive">
               could not list bots: {(error as Error).message}

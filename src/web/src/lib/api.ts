@@ -833,7 +833,6 @@ export interface BotFields {
   mcp: BotMCPServer[]
   strict_mcp: boolean
   extra_args: string[]
-  avatar: string
   keep_running: boolean
   // Push a notification when the bot finishes a turn with a new message.
   notify: boolean
@@ -896,6 +895,10 @@ export interface BotJobEvent {
   created_at: string
   fired_at: string
   done_at?: string
+  // A watch's event: count is how many runs of its command it holds.
+  watch?: boolean
+  // A watch event that reports its command failing.
+  run_status?: "error" | "timeout"
 }
 
 // A scheduled prompt and/or webhook lasso delivers into a bot's session.
@@ -918,15 +921,44 @@ export interface BotJob {
   queued: number
   created_at: string
   updated_at: string
+  // A one-time run (UTC ISO) instead of a cron schedule; "" for none.
+  once_at: string
+  // A watch's shell command, run on each firing; only its output is
+  // delivered. "" for an ordinary job.
+  command: string
+  // Seconds one run may take; 0 for the default (60).
+  timeout: number
+  // The watch's newest run, and its failures in a row.
+  last_run_at: string
+  last_run_result: "" | "quiet" | "output" | "error" | "timeout"
+  last_run_exit: number
+  last_run_ms: number
+  last_run_note?: string
+  fail_streak: number
+  // This lasso is running the command now.
+  running: boolean
 }
 
 export interface BotJobFields {
   name?: string
   message?: string
   cron?: string
+  once_at?: string
   timezone?: string
   enabled?: boolean
   webhook?: boolean
+  command?: string
+  timeout?: number
+}
+
+// Run now's answer. Every job: pending (queued) or dropped (the bot is
+// stopped). A watch also: quiet (printed nothing, nothing delivered), failed
+// (exit/detail; event_id set when it was reported), running, busy.
+export interface BotJobRunResult {
+  event_id: number
+  status: "pending" | "dropped" | "quiet" | "failed" | "running" | "busy"
+  exit?: number
+  detail?: string
 }
 
 export interface BotChannelState {
@@ -2018,7 +2050,7 @@ export const api = {
         botURL(name, `/jobs/${encodeURIComponent(job)}`)
       ),
     jobRun: (name: string, job: string) =>
-      postJSON<{ event_id: number; status: string }>(
+      postJSON<BotJobRunResult>(
         botURL(name, `/jobs/${encodeURIComponent(job)}/run`),
         {}
       ),
@@ -2031,11 +2063,17 @@ export const api = {
       getJSON<{ events: BotJobEvent[] }>(
         botURL(name, `/jobs/${encodeURIComponent(job)}/events`)
       ),
-    // Validates a schedule and lists its next fires (ISO), or says why not.
-    jobPreview: (name: string, cron: string, timezone: string) =>
+    // Validates a schedule (or a one-time run) and lists its next fires
+    // (ISO), or says why not.
+    jobPreview: (
+      name: string,
+      cron: string,
+      timezone: string,
+      once_at?: string
+    ) =>
       postJSON<{ next?: string[]; error?: string }>(
         botURL(name, "/jobs/preview"),
-        { cron, timezone }
+        { cron, timezone, once_at }
       ),
     // The host's own ~/.claude/skills, to pick from.
     skillLibrary: (host: string) =>
