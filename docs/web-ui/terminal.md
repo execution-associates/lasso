@@ -61,7 +61,7 @@ Hold the dial and slide to a target, then let go; or tap it to open the ring and
 | **Lasso** | Opens a second ring: **Search** (herdr's pane search, the same as `⌘K`) and **Host** (the host menu) |
 | **Common keys** | Opens a second ring of keys: **Escape**, **Control C**, **Tab**, **Shift Tab**, **Enter**, **Up arrow**, **Down arrow** |
 
-Two smaller buttons sit beside the dial and are always one tap away: **Chat** above it (the view picker: Terminal, [Chat](#chat-view), [Bots](./bots.md), any plugin views, and the sidebar) and **Sidebar** below it (open the right sidebar).
+A smaller button above the dial is always one tap away: **Chat**, the view picker (Terminal, [Chat](#chat-view), [Bots](./bots.md), any plugin views, and **Sidebar**, which opens the right sidebar).
 
 The keys are sent as real key presses, so they work in whatever keyboard mode the app in the pane has turned on. The dial lives inside the terminal's own frame, which is what keeps the iOS on-screen keyboard open while you use it.
 
