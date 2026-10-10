@@ -439,13 +439,13 @@ func TestBrowserProfileMCPTools(t *testing.T) {
 
 	// surface: the UI's names and the stored ones both reach the payload as
 	// the stored vocabulary; anything else is refused before a tab opens.
-	if msg := callTool(t, sess, "open_browser_tab", map[string]any{"url": "https://b.test", "profile": "work", "surface": "iframe"}, &tab); msg != "" {
+	if msg := callTool(t, sess, "open_browser_tab", map[string]any{"url": "https://b.test", "browser": "work", "surface": "iframe"}, &tab); msg != "" {
 		t.Fatal(msg)
 	}
 	if len(events) != 2 || events[1].Mode != "embed" {
 		t.Errorf("surface iframe events = %+v", events)
 	}
-	if msg := callTool(t, sess, "open_browser_tab", map[string]any{"url": "https://b.test", "profile": "work", "surface": "Live"}, &tab); msg != "" {
+	if msg := callTool(t, sess, "open_browser_tab", map[string]any{"url": "https://b.test", "browser": "work", "surface": "Live"}, &tab); msg != "" {
 		t.Fatal(msg)
 	}
 	if len(events) != 3 || events[2].Mode != "live" {
@@ -462,7 +462,7 @@ func TestBrowserProfileMCPTools(t *testing.T) {
 		return n
 	}
 	before := puts()
-	if msg := callTool(t, sess, "open_browser_tab", map[string]any{"url": "https://b.test", "profile": "work", "surface": "popup"}, &tab); !strings.Contains(msg, `"agent" or "iframe"`) {
+	if msg := callTool(t, sess, "open_browser_tab", map[string]any{"url": "https://b.test", "browser": "work", "surface": "popup"}, &tab); !strings.Contains(msg, `"agent" or "iframe"`) {
 		t.Errorf("bad surface: %q", msg)
 	}
 	if len(events) != 3 || puts() != before {
