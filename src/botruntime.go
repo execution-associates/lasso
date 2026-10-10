@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,6 +39,7 @@ type botRuntime struct {
 	starting map[string]time.Time // name -> when lasso typed the launch
 	misses   map[string]int
 	reported map[string]string // name -> pane+session last reported to herdr
+	notified map[string]string // name -> time of the newest message already notified
 	lines    map[string]botLastLine
 	runLock  *os.File // held while this lasso runs the loop (botsOwnLoop)
 }
@@ -53,6 +55,7 @@ var bots = &botRuntime{
 	starting: map[string]time.Time{},
 	misses:   map[string]int{},
 	reported: map[string]string{},
+	notified: map[string]string{},
 	lines:    map[string]botLastLine{},
 }
 
@@ -370,6 +373,9 @@ func botTick() {
 				sessions[r.Host] = readClaudeSessions(b)
 			}
 			botReportSession(b, r, p, sessions[r.Host])
+			if r.Notify {
+				botNotifyCheck(b, r, sessions[r.Host])
+			}
 			continue
 		}
 		if r.Stopped || !r.KeepRunning {
@@ -449,4 +455,37 @@ func botReportSession(b Backend, r *botRecord, p pane, sessions []claudeSessionE
 	bots.reported[r.Name] = key
 	delete(bots.starting, r.Name)
 	bots.mu.Unlock()
+}
+
+// botNotifyCheck pushes a notification when the bot has finished a turn with
+// a message newer than the last one told about: idle, and its newest prose row
+// is its own. The first sighting of each bot after lasso starts only sets the
+// baseline, so a restart does not replay the last answer of every bot. Tagged
+// per bot, and opening it lands on that bot's chat; the service worker skips
+// showing it to a screen that already has that chat in front of it.
+func botNotifyCheck(b Backend, r *botRecord, sessions []claudeSessionEntry) {
+	v := botStatus(b, r, sessions)
+	if v.State != "idle" || v.LastKind != "agent" || v.LastAt == "" {
+		return
+	}
+	bots.mu.Lock()
+	prev, seen := bots.notified[r.Name]
+	bots.notified[r.Name] = v.LastAt
+	bots.mu.Unlock()
+	if !seen || prev == v.LastAt {
+		return
+	}
+	icon := ""
+	if _, rev, ok := strings.Cut(r.AvatarImage, "?"); ok {
+		icon = "/api/bots/" + url.PathEscape(r.Name) + "/avatar?" + rev
+	}
+	publishNotification(notification{
+		Kind:  notifBotMessage,
+		Title: r.Name,
+		Body:  v.LastText,
+		Tag:   "bot:" + r.Name,
+		Host:  r.Host,
+		URL:   "/bots/" + url.PathEscape(r.Name),
+		Icon:  icon,
+	})
 }

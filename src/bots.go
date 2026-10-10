@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS bots (
 	stopped         INTEGER NOT NULL DEFAULT 0,
 	last_session_id TEXT NOT NULL DEFAULT '',
 	position        INTEGER NOT NULL DEFAULT 0,
+	avatar_image    TEXT NOT NULL DEFAULT '',
+	notify          INTEGER NOT NULL DEFAULT 1,
 	created_at      TEXT NOT NULL,
 	updated_at      TEXT NOT NULL
 );
@@ -89,7 +91,14 @@ type botRecord struct {
 	StrictMCP      bool           `json:"strict_mcp"`
 	ExtraArgs      []string       `json:"extra_args"`
 	Avatar         string         `json:"avatar"`
-	KeepRunning    bool           `json:"keep_running"`
+	// AvatarImage is the picture in the bot's folder (.lasso/avatar.<ext>)
+	// with a ?v= revision, or "": served at /api/bots/<name>/avatar. Written
+	// only by storeBotAvatar, never by a settings save.
+	AvatarImage string `json:"avatar_image"`
+	// Notify: push a notification when the bot finishes a turn with a new
+	// message (botNotifyTick).
+	Notify      bool `json:"notify"`
+	KeepRunning bool `json:"keep_running"`
 	// Stopped is the human's Stop: keep-running leaves a stopped bot alone
 	// until Start clears it.
 	Stopped       bool   `json:"stopped"`
@@ -361,7 +370,7 @@ func botSystemPrompt(r *botRecord, dir string) string {
 - CLAUDE.md in that folder is your standing instructions. Project skills go in .claude/skills/ there.
 - lasso generates .lasso/mcp.json, .mise/config.toml and .mise/tasks/ from its Bots settings and overwrites them on every save: change those through lasso, not by editing the files.
 - Your environment and secrets come from fnox.toml through mise, and only reach you at launch.
-- You can configure yourself when your human asks. Lasso's MCP tools (server "lasso") take your name, %q: get_bot reads your settings, update_bot changes your model, effort, permission mode, MCP servers (including which are channels), extra args, keep-running and avatar, and set_bot_env / unset_bot_env manage your variables (secret ones encrypted). Edit CLAUDE.md and the files in .claude/skills/ directly. A server that needs OAuth must be signed in by your human in lasso's Bots view. Settings, MCP servers and variables take effect after you restart.
+- You can configure yourself when your human asks. Lasso's MCP tools (server "lasso") take your name, %q: get_bot reads your settings, update_bot changes your model, effort, permission mode, MCP servers (including which are channels), extra args, keep-running and avatar, set_bot_avatar sets your picture from an image file, and set_bot_env / unset_bot_env manage your variables (secret ones encrypted). Edit CLAUDE.md and the files in .claude/skills/ directly. A server that needs OAuth must be signed in by your human in lasso's Bots view. Settings, MCP servers and variables take effect after you restart.
 - You CAN restart yourself, and it is safe: run `+"`mise run restart`"+` in %s with your shell tool. That is the supported way, made for exactly this; it is not killing a process or closing a pane by hand. It ends this session a few seconds after your turn finishes and starts it again in the same pane, on this same conversation. Do it whenever your human asks you to restart, and when you need a new skill, MCP server, setting or variable to take effect; say you are restarting before you run it.`,
 		r.Name, dir, r.Name, dir)
 }
@@ -563,16 +572,18 @@ func botWriteTask(b Backend, r *botRecord, dir string) error {
 
 // --- storage -----------------------------------------------------------------
 
-const botCols = `id, host, name, dir, workspace, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, created_at, updated_at`
+const botCols = `id, host, name, dir, workspace, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, created_at, updated_at, avatar_image, notify`
 
 func scanBot(row interface{ Scan(...any) error }) (*botRecord, error) {
 	var r botRecord
 	var mcp, extra string
-	var strict, keep, stopped int
+	var strict, keep, stopped, notify int
 	if err := row.Scan(&r.ID, &r.Host, &r.Name, &r.Dir, &r.Workspace, &r.Model, &r.Effort, &r.PermissionMode,
-		&mcp, &strict, &extra, &r.Avatar, &keep, &stopped, &r.LastSessionID, &r.CreatedAt, &r.UpdatedAt); err != nil {
+		&mcp, &strict, &extra, &r.Avatar, &keep, &stopped, &r.LastSessionID, &r.CreatedAt, &r.UpdatedAt,
+		&r.AvatarImage, &notify); err != nil {
 		return nil, err
 	}
+	r.Notify = notify != 0
 	r.StrictMCP, r.KeepRunning, r.Stopped = strict != 0, keep != 0, stopped != 0
 	_ = json.Unmarshal([]byte(mcp), &r.MCP)
 	_ = json.Unmarshal([]byte(extra), &r.ExtraArgs)
@@ -624,10 +635,10 @@ func insertBot(r *botRecord) error {
 	mcp, _ := json.Marshal(r.MCP)
 	extra, _ := json.Marshal(r.ExtraArgs)
 	// A new bot goes to the end of the list.
-	res, err := db.Exec(`INSERT INTO bots (host, name, dir, workspace, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, position, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM bots), ?, ?)`,
+	res, err := db.Exec(`INSERT INTO bots (host, name, dir, workspace, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, position, created_at, updated_at, notify)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM bots), ?, ?, ?)`,
 		r.Host, r.Name, r.Dir, r.Workspace, r.Model, r.Effort, r.PermissionMode, string(mcp), boolInt(r.StrictMCP),
-		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Stopped), r.LastSessionID, r.CreatedAt, r.UpdatedAt)
+		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Stopped), r.LastSessionID, r.CreatedAt, r.UpdatedAt, boolInt(r.Notify))
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return fmt.Errorf("a bot named %q already exists", r.Name)
@@ -645,9 +656,9 @@ func updateBot(r *botRecord) error {
 	mcp, _ := json.Marshal(r.MCP)
 	extra, _ := json.Marshal(r.ExtraArgs)
 	_, err := db.Exec(`UPDATE bots SET dir = ?, workspace = ?, model = ?, effort = ?, permission_mode = ?, mcp = ?, strict_mcp = ?,
-		extra_args = ?, avatar = ?, keep_running = ?, updated_at = ? WHERE name = ?`,
+		extra_args = ?, avatar = ?, keep_running = ?, notify = ?, updated_at = ? WHERE name = ?`,
 		r.Dir, r.Workspace, r.Model, r.Effort, r.PermissionMode, string(mcp), boolInt(r.StrictMCP),
-		string(extra), r.Avatar, boolInt(r.KeepRunning), r.UpdatedAt, r.Name)
+		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Notify), r.UpdatedAt, r.Name)
 	return err
 }
 

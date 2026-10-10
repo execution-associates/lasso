@@ -399,7 +399,7 @@ func TestBotsAPI(t *testing.T) {
 
 	// CLAUDE.md is the human's: a save never overwrites it.
 	os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("mine"), 0o644)
-	if w := do("PUT", "/api/bots/news", `{"name":"renamed","dir":"`+dir+`","model":"sonnet"}`); w.Code != 200 {
+	if w := do("PUT", "/api/bots/news", `{"name":"renamed","dir":"`+dir+`","model":"sonnet","mcp":[]}`); w.Code != 200 {
 		t.Fatalf("update: %d %s", w.Code, w.Body)
 	}
 	got, _ := getBot("news")
@@ -730,5 +730,43 @@ func TestBotLassoMCPInjected(t *testing.T) {
 	}
 	if _, ok := botLassoMCP(&botRecord{Host: "citadel"}); ok {
 		t.Error("offered to a remote bot")
+	}
+}
+
+func TestBotAvatar(t *testing.T) {
+	b := useBotTestEnv(t)
+	dir := t.TempDir()
+	rec := &botRecord{Name: "pic", Dir: dir, Notify: true}
+	rec.normalize()
+	insertBot(rec)
+	png := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89")
+	if err := storeBotAvatar(b, rec, []byte("<svg xmlns='http://www.w3.org/2000/svg'><script>x</script></svg>")); err == nil {
+		t.Fatal("an SVG was accepted")
+	}
+	f := filepath.Join(t.TempDir(), "me.png")
+	os.WriteFile(f, png, 0o644)
+	if _, out, err := setBotAvatarTool(context.Background(), nil, setBotAvatarIn{Name: "pic", Path: f}); err != nil || !out.OK {
+		t.Fatalf("set_bot_avatar: %v", err)
+	}
+	got, _ := getBot("pic")
+	if !strings.HasPrefix(got.AvatarImage, "avatar.png?v=") {
+		t.Fatalf("avatar_image = %q", got.AvatarImage)
+	}
+	w := httptest.NewRecorder()
+	serveBots(w, httptest.NewRequest("GET", "/api/bots/pic/avatar", nil))
+	if w.Code != 200 || w.Header().Get("Content-Type") != "image/png" || w.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("GET avatar: %d %v", w.Code, w.Header())
+	}
+	// A settings save keeps the picture.
+	w = httptest.NewRecorder()
+	serveBots(w, httptest.NewRequest("PUT", "/api/bots/pic", strings.NewReader(`{"model":"opus","avatar_image":""}`)))
+	if got, _ := getBot("pic"); w.Code != 200 || got.AvatarImage == "" || !got.Notify {
+		t.Fatalf("save dropped the picture or notify: %d %+v", w.Code, got)
+	}
+	if _, _, err := setBotAvatarTool(context.Background(), nil, setBotAvatarIn{Name: "pic", Clear: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".lasso", "avatar.png")); err == nil {
+		t.Error("clear left the file")
 	}
 }
