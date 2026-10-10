@@ -58,6 +58,7 @@ lasso plugin enable hello
   "views": [
     { "id": "board", "label": "Board", "icon": "layers", "entry": "ui/board.html" }
   ],
+  "agents": [ { "name": "jessica" }, { "name": "clem", "host": "citadel" } ],
   "mcp": {
     "image": "python:3.12-slim",
     "vm_image": "images:ubuntu/24.04/cloud",
@@ -81,6 +82,7 @@ lasso plugin enable hello
 | `tabs[].entry` | A file inside the plugin directory, served by lasso. Relative, with no `..` and no hidden segments. |
 | `tabs[].url` | An `http(s)` URL, framed as-is. A tab has exactly one of `entry` or `url`. |
 | `views` | Up to 8 main window views, with the same fields and rules as `tabs`. A view's global id is also `plugin:<name>:<id>`; a view and a tab may share an id. See [Views](#views). |
+| `agents` | Up to 8 herdr agents, by name (`herdr agent rename` sets it), whose chat this plugin's pages may read and type into. `host` is `local` or an ssh alias lasso drives, default `local`. See [Agent chat](#agent-chat). |
 | `mcp.image` | Required with `mcp`. The OCI image the container is built from. A plain reference is a Docker Hub image (`python:3.12-slim` is `docker:python:3.12-slim`); an isb prefix (`docker:`, `ghcr:`, `quay:`, `oci:`, or `images:` for a system image) is used as written. The image must have `sh` and `sleep` (or `tail`): see [The sandbox](#the-sandbox). |
 | `mcp.vm_image` | Optional. The VM image to boot when the operator runs the plugin in a VM, e.g. `images:debian/13/cloud`. An OCI image cannot boot as a VM. Without it, lasso uses `images:ubuntu/24.04/cloud`, which has `python3` but no node or bun: a node or bun plugin that should run in a VM needs a `vm_image` with its runtime. |
 | `mcp.command` | Required with `mcp`. The argv of a stdio MCP server. It runs as uid 1000 with the plugin directory as its working directory, mounted read-only at `/plugin`. |
@@ -99,7 +101,7 @@ An invalid manifest never loads anything. The plugin is listed as `invalid` with
 
 A manifest is written by whoever wrote the directory, so nothing in it can grant itself anything. You grant it, in Settings → General → Plugins or with `lasso plugin`.
 
-- **A new plugin is disabled.** Enabling it (Settings shows the exact permissions in a dialog first) approves the permissions shown: its tabs' and views' entries and URLs, the image and the VM image, the command, the network allowlist, the env variable names, each secret with the hosts it may go to, its theme ids, and its fonts' ids, families and categories. lasso stores a fingerprint of that set in its own database, never in the plugin directory.
+- **A new plugin is disabled.** Enabling it (Settings shows the exact permissions in a dialog first) approves the permissions shown: its tabs' and views' entries and URLs, the agents it may chat with, the image and the VM image, the command, the network allowlist, the env variable names, each secret with the hosts it may go to, its theme ids, and its fonts' ids, families and categories. lasso stores a fingerprint of that set in its own database, never in the plugin directory.
 - **If a later edit changes any of those**, the plugin reads as `needs_approval`. Its tabs, its views and its MCP server stop loading until you approve the new set. Changes to the version, the description, a tab's label or icon, a theme's label or palette, a font's license, or the font files themselves do not need re-approval. lasso rescans the directory every 10 seconds, and on every Settings visit, so an edit is noticed without a reload.
 - **Isolation** is a container (the default) or a VM. A VM has its own kernel, so a kernel exploit inside it does not reach your machine, at the cost of a much slower start than a container's few seconds. It is a flag in lasso's database that only you can set (`lasso plugin vm <name> on|off`, or Settings' Container / VM switch). A manifest can name a `vm_image` but cannot ask for a VM, and flipping the switch restarts the server.
 - **Trusted** runs the MCP server directly on your machine, as your user, outside the sandbox. It is a flag in lasso's database that only you can set (`lasso plugin trust <name>`, or the Settings toggle). A manifest field cannot set it. Trusted wins over the VM switch. Even a trusted server gets a minimal environment (PATH, HOME, locale, XDG directories) plus its own `env` and secrets. It never gets lasso's `UI_AUTH`, `MCP_OAUTH` or `LASSO_MCP_TOKEN`.
@@ -201,10 +203,41 @@ The parent answers only the frame the message came from, and routes each request
 | `file.open` | `{ path, line?, host? }` | Opens the file in the Files viewer, the same way an agent's `open_file` does. Unsaved edits are protected. `host` defaults to `cwd_host`. |
 | `tool.call` | `{ tool, arguments }` | Calls one of **this plugin's own** MCP tools and returns its `CallToolResult`. `tool` may be un-prefixed (`greet`) or prefixed (`hello__greet`). Another plugin's tool is refused. |
 | `toast` | `{ message }` | A short toast, prefixed with the plugin's name. |
+| `chat.read` | `{ agent, host?, before? }` | A granted agent's conversation, as rows. See [Agent chat](#agent-chat). |
+| `chat.send` | `{ agent, host?, text }` | Types a message into that agent and submits it. `{ outcome: "confirmed" \| "refused" \| "uncertain", detail? }`. |
+| `chat.answer` | `{ agent, host?, expect, labels, answers }` | Answers the question the agent is stopped on. `{ outcome: "sent" \| "refused", detail? }`. |
+| `chat.stop` | `{ agent, host? }` | Interrupts the agent's turn (one Escape). `{ outcome, detail? }`; refused when it is not working. |
 
 Any other method answers `error: "unknown method"`.
 
+Load your scripts as classic scripts (`<script src>`, `defer` if you like), not `type="module"`. A module script is fetched in CORS mode, and your page's origin is opaque, so the browser refuses a module even from lasso's own server. A bundler should emit an IIFE.
+
 The `theme` push goes out on load and again whenever lasso's appearance changes (palette, light or dark, typography, chat text), only when what it carries actually moved.
+
+### Agent chat
+
+`agents` in the manifest lets your pages put a frontend on named agents: read their conversation the way lasso's own Chat view does, type into them, answer their questions and stop them. `examples/plugins/openbot` is a whole chat app built on it.
+
+```json
+"agents": [ { "name": "jessica" } ]
+```
+
+- **It is a grant, and a big one.** An approved plugin can read the agent's whole transcript (everything it read and wrote, which for an assistant includes your mail and messages) and type into it as you. The approval dialog says so, per agent and host. It is in the fingerprint, so adding or changing an agent is a re-approval.
+- **Agents are named, never addressed by pane.** lasso resolves the name to the agent's live pane on that host for every call (herdr's `agent.get`, and the answer's own name must match), so a page cannot point its grant at another pane, and an agent relaunched into a new pane keeps working with no re-approval.
+- **Reading is allowed while the page is mounted; acting is not.** `chat.send`, `chat.answer` and `chat.stop` are refused unless your page is on screen, the same rule as `file.open`: a page nobody is looking at must not act as you.
+- **It is lasso's chat underneath.** The same transcript reader, the same guards: a send is refused when the agent's composer holds a draft, an answer when the question has left its screen, and an `uncertain` send must never be retried by itself (it may have landed).
+
+`chat.read` returns `{ pane_id, agent, host, title, model, path, start_offset, items, tokens, running, more, note }`. `items` are rows:
+
+| `kind` | |
+|---|---|
+| `user` | What the human typed (`text`). |
+| `agent` | The agent's prose (`text`), with `thinking: true` for its reasoning. |
+| `tool` | A call and its result, `tool: { call_id, name, title, family, group, subject, command, state, result_line, output, diff, error, duration_ms, ask? }`. `ask` is a question the agent is waiting on (Claude's AskUserQuestion): `{ questions: [{ header?, question, options: [{ label, description? }], multi?, recommended?, selected? }] }`. |
+| `marker` | `marker: "interrupted" \| "error"`. |
+| `incoming` | A message a Claude Code channel delivered (mail, chat, a scheduler), `source` naming the channel server and `text` its `<channel …>` envelope. lasso's own Chat view leaves these out. |
+
+Page back with `before: start_offset` while `more` is true. `path` changing means the agent started a different session. Answer an ask with the question's text as `expect`, its option labels as `labels`, and per question `{ selected: [option indexes], multi, options: <option count> }`.
 
 ### Matching lasso's look: the SDK
 
@@ -389,6 +422,10 @@ These are for the Settings pane and the CLI. They are behind `UI_AUTH` like the 
 | `POST /api/plugins/<name>/isolation` | `{vm: bool}`. A flip restarts the server; stored, but without effect, while trusted. |
 | `POST /api/plugins/<name>/restart` | |
 | `POST /api/plugins/<name>/call` | `{tool, arguments}`. The tool must be this plugin's own. Returns the `CallToolResult`. |
+| `GET /api/plugins/<name>/chat?agent=&host=&before=` | A granted agent's chat (`chat.read`). 403 for an agent the enabled plugin was not granted, 404 for a plugin that is not enabled or an agent that is not running. |
+| `POST /api/plugins/<name>/chat/send` | `{agent, host?, text}` (`chat.send`). |
+| `POST /api/plugins/<name>/chat/answer` | `{agent, host?, expect, labels, answers}` (`chat.answer`). |
+| `POST /api/plugins/<name>/chat/stop` | `{agent, host?}` (`chat.stop`). |
 | `POST /api/plugins/install/preview` | `{source, ref?}` → `{token, name, version, description, source, ref, commit, fingerprint, permissions, themes, fonts, warnings}`. Clones into staging; installs nothing. |
 | `POST /api/plugins/install/confirm` | `{token, fingerprint, enable}` → the listing. 409 if `fingerprint` is not the staged manifest's; 404 for an unknown or expired token. |
 | `POST /api/plugins/install/cancel` | `{token}` → `{ok: true}`. Discards an install **or update** preview. |
