@@ -56,6 +56,7 @@ func summarizeBot(v botView) botSummary {
 }
 
 func registerBotTools(s *mcp.Server) {
+	registerBotJobTools(s)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_bots",
 		Description: "List lasso's bots: long-lived Claude Code sessions, each with its own folder, MCP servers and channels, that lasso launches in herdr and brings back after a restart. Each entry has its live state (stopped/starting/idle/working/blocked) and the newest line of its conversation. Only bots on hosts your credential reaches are listed. Talk to a running bot with send_agent, its name as `to`.",

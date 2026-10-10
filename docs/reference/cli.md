@@ -32,6 +32,7 @@ lasso serve -h    # every server flag
 | `lasso mcp-client <cmd>` | | Manage per-host MCP credentials. |
 | `lasso mcp-group <cmd>` | | Manage host groups. |
 | `lasso plugin <cmd>` | `plugins` | Manage plugins. |
+| `lasso channel --bot <name>` | | A bot's jobs channel. Claude runs it from the bot's `mcp.json`; you don't. |
 
 ## Running the server
 
@@ -192,6 +193,10 @@ A relative path is resolved against this shell's working directory before the ca
 Closes the agent this command runs in: it POSTs `$HERDR_PANE_ID` to the local lasso's `/api/agent/close`, which performs the same soft close as the UI and the `close_agent` tool (stop the agent process, then close its pane). Takes no arguments. Fails if `$HERDR_PANE_ID` is unset.
 
 It always talks to `http://$LASSO_LISTEN` (default `127.0.0.1:8090`) on the same machine, sending `UI_AUTH` as basic auth when set. It does not read `LASSO_URL` or `LASSO_MCP_TOKEN`.
+
+### `lasso channel`
+
+The stdio MCP server that delivers a bot's [jobs](../web-ui/bots.md#jobs) into its session as a Claude Code channel. lasso writes it into every local bot's `.lasso/mcp.json` with `LASSO_URL` and `LASSO_CHANNEL_TOKEN` in its environment, and claude starts it. Run by hand without both variables, it prints its usage and exits 2.
 
 ## Credentials and groups
 
