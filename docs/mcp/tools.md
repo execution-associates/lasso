@@ -366,6 +366,7 @@ Opens a **new** tab and puts it on the human's screen: every visible lasso tab s
 | `url` | string | | A full `http(s)` URL. A bare `host[:port]` gets `https://` (`http://` for `localhost` and `127.x`). `about:blank` opens an empty tab. |
 | `browser` | string | optional | Browser to open it in. Omit for the default. |
 | `show` | boolean | optional | Put the tab on the human's screen. Defaults to true; false opens it quietly. |
+| `surface` | string | optional | Which view shows it: `agent` (default), the live Chromium, or `iframe`, the page embedded the way a terminal link opens, loaded by the human's own browser (their cookies and their `localhost`). `live` and `embed` are accepted too; anything else is refused. An `http://` page on an https lasso cannot be embedded, so it stays on the live view. |
 | `pane_id` | string | optional | Your `$HERDR_PANE_ID`, used only to tell the human which agent opened it. |
 
 Returns `tab_id`, `browser`, `url`, `title`, `delivered`, `ws_endpoint` and `detail`. `delivered: 0` means no lasso tab is open and the human did not see it (the tab is still open in the browser). To drive the page afterwards, use the `browser_*` tools with the same `browser` (find the tab with `browser_list_pages` by its URL). A browser stops after lasso's idle timeout with nothing connected, and its tabs close with it.
@@ -378,6 +379,7 @@ Puts an **existing** tab on the human's screen.
 | --- | --- | --- | --- |
 | `tab_id` | string | | The tab to show (from `list_browser_tabs` or `open_browser_tab`). |
 | `browser` | string | optional | The tab's browser. Omit for the default. |
+| `surface` | string | optional | `agent` (default) or `iframe`, as on `open_browser_tab`. |
 | `pane_id` | string | optional | Your `$HERDR_PANE_ID`, to tell the human who is showing it. |
 
 Returns the same shape as `open_browser_tab`. `delivered: 0` means nobody saw it.

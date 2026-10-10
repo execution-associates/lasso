@@ -42,6 +42,12 @@ export function setLiveBrowserAvailable(v: boolean) {
 // does not, which beats a sidebar that opens only to show an error.
 export function sidebarLinkMode(url: string): BrowserMode | null {
   if (!uiStateNow().terminal_links_in_sidebar) return null
+  return embedMode(url)
+}
+
+// embedMode is that routing for any http(s) page meant for an Iframe, a
+// terminal link's or an agent's (`surface: "iframe"`).
+export function embedMode(url: string): BrowserMode | null {
   if (!/^https?:\/\//i.test(url)) return null
   if (location.protocol !== "https:" || /^https:\/\//i.test(url)) return "embed"
   return liveAvailable ? "live" : null
