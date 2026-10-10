@@ -1,8 +1,24 @@
 import type { CSSProperties } from "react"
 import { toast } from "sonner"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Orb } from "@/components/ui/orb"
 import { api, type BotView, botAvatarURL } from "@/lib/api"
-import { botAvatarText, botHue, invalidateBots, stateLabel } from "@/lib/bots"
+import {
+  botAvatarText,
+  botHue,
+  botRunning,
+  invalidateBots,
+  stateLabel,
+} from "@/lib/bots"
 import { cn } from "@/lib/utils"
 
 // What a bot looks like and the two lifecycle calls, shared by the Bots view's
@@ -126,4 +142,63 @@ export async function stopBot(name: string) {
   } finally {
     void invalidateBots(name)
   }
+}
+
+// The one delete confirmation, from the settings footer and the list's
+// right-click menu alike. A running bot can be deleted: lasso stops it first.
+export function DeleteBotDialog({
+  bot,
+  dirPath,
+  open,
+  onOpenChange,
+  onDeleted,
+}: {
+  bot: BotView | null
+  // The folder with ~ expanded, when the caller has it.
+  dirPath?: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onDeleted?: () => void
+}) {
+  const remove = async () => {
+    if (!bot) return
+    try {
+      await api.bots.delete(bot.name)
+      toast.success(
+        `${bot.name} deleted; its folder is still on ${bot.host === "local" ? "this machine" : bot.host}`
+      )
+      onDeleted?.()
+    } catch (e) {
+      toast.error(`could not delete ${bot.name}: ${(e as Error).message}`)
+    } finally {
+      void invalidateBots(bot.name)
+    }
+  }
+  return (
+    <AlertDialog open={open && !!bot} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete {bot?.name}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {bot && botRunning(bot) && (
+              <>It is running: deleting stops it and closes its pane. </>
+            )}
+            lasso forgets this bot. Its folder ({dirPath ?? bot?.dir}) stays on{" "}
+            {bot?.host === "local" ? "this machine" : bot?.host}, with its
+            CLAUDE.md, skills and environment, and its conversations stay in
+            Claude Code's history.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Keep it</AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            onClick={() => void remove()}
+          >
+            Delete bot
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
 }

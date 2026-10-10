@@ -16,6 +16,7 @@ import { toast } from "sonner"
 import {
   BotAvatar,
   BotStateMark,
+  DeleteBotDialog,
   startBot,
   stopBot,
 } from "@/components/BotParts"
@@ -1910,18 +1911,6 @@ export function BotSettings({
     }
   }
 
-  const remove = async () => {
-    if (!name) return
-    try {
-      await api.bots.delete(name)
-      void invalidateBots(name)
-      toast.success(`${name} deleted; its folder is still on ${bot?.host}`)
-      onDeleted?.()
-    } catch (e) {
-      toast.error(`could not delete ${name}: ${(e as Error).message}`)
-    }
-  }
-
   const title = creating ? "New bot" : `${name} settings`
   const createReady = creating && !!draft && BOT_NAME_RE.test(draft.name)
   // The row's own fields are saved by the footer; the folder's tabs save
@@ -1991,8 +1980,6 @@ export function BotSettings({
               variant="ghost"
               size="sm"
               className="text-muted-foreground hover:text-destructive"
-              disabled={running}
-              title={running ? "Stop the bot before deleting it" : undefined}
               onClick={() => setConfirmDelete(true)}
             >
               <Trash2 />
@@ -2048,29 +2035,13 @@ export function BotSettings({
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete {name}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              lasso forgets this bot. Its folder (
-              {detail.data?.dir_path ?? bot?.dir}) stays on{" "}
-              {bot?.host === "local" ? "this machine" : bot?.host}, with its
-              CLAUDE.md, skills and environment, and its conversations stay in
-              Claude Code's history.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep it</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => void remove()}
-            >
-              Delete bot
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteBotDialog
+        bot={bot ?? null}
+        dirPath={detail.data?.dir_path}
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        onDeleted={onDeleted}
+      />
     </div>
   )
 }
