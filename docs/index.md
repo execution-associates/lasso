@@ -20,7 +20,7 @@ You run it on the machine where your agents live. It needs herdr and ttyd there,
 ## What you get
 
 - **Your real terminal, anywhere.** The main column is your actual herdr session over `ttyd`: same keys, same theme, same panes. lasso adds around it and never sits in front of it. See [The terminal](./web-ui/terminal.md).
-- **A phone that is a first-class client.** A home-screen app, a radial dial for the keys a touch keyboard doesn't have (Esc, Ctrl-C, Tab, arrows), a chat view that renders the agent as a conversation you can answer with dictation and autocorrect, and photo and file upload straight to the agent's host. See [Using lasso on a phone](./getting-started/phone.md).
+- **A phone that is a first-class client.** A home-screen app, a dial for the keys a touch keyboard doesn't have (Esc, Ctrl-C, Tab, arrows), a chat view that renders the agent as a conversation you can answer with dictation and autocorrect, and photo and file upload straight to the agent's host. See [Using lasso on a phone](./getting-started/phone.md).
 - **A push when an agent is stuck.** lasso watches every reachable host and sends a Web Push to your locked phone when an agent blocks on a tool approval, a plan gate or a question, and when an agent pings you on purpose with `lasso notify`. See [Notifications](./concepts/notifications.md).
 - **A sidebar that follows the focused pane.** A file browser and editor with a live git diff, rooted on the machine that pane is working on, even when the pane is an SSH window onto another box. See [The sidebar](./web-ui/sidebar.md).
 - **A browser you and your agents share.** A real Chromium streamed into the sidebar: you watch, and click in, the same pages an agent is driving. See [The shared browser](./concepts/shared-browser.md).

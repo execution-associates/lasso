@@ -22,8 +22,8 @@ export interface TourStep {
   // opens a modal would put that modal under the tour's scrim.
   tryIt?: boolean
   // Width gate. The footer (and every anchor in it) is md+ only, and a phone
-  // carries the same commands on the input dial inside the terminal's iframe,
-  // which the tour cannot reach into.
+  // reaches the same commands through the input dial inside the terminal's
+  // iframe, which the tour cannot reach into.
   only?: "desktop" | "mobile"
 }
 
@@ -151,8 +151,9 @@ export const TOUR_STEPS: TourStep[] = [
     only: "mobile",
     body: (
       <>
-        On a small screen the terminal gets the whole display. The round dial
-        beside the keyboard carries New, Chat, the host menu and the sidebar.
+        On a small screen the terminal gets the whole display. The round button
+        beside the keyboard switches views and carries New, Search, the host
+        menu and the sidebar; the ⌘ above it has the keys a phone lacks.
         Add lasso to your home screen to get notifications from your agents.
       </>
     ),

@@ -47,21 +47,14 @@ The **Scratch** sidebar tab is a related tool: a notepad whose contents you can 
 
 ## The input dial (phones and narrow windows)
 
-A touch screen has no `Esc`, no `Ctrl`, no arrow keys and no right button, and below 768 px there is no footer either. The **input dial**, a round button in the terminal's bottom-right corner, covers both gaps.
+A touch screen has no `Esc`, no `Ctrl`, no arrow keys and no right button, and below 768 px there is no footer either. The **input dial**, two round buttons in the terminal's bottom-right corner, covers both gaps.
 
 ![lasso on a phone with the radial input dial open over the terminal](../assets/screenshots/mobile-dial.png)
 
 It appears whenever the device has a coarse (touch) pointer or the window is narrower than 768 px; either is enough, and lasso re-checks both as you rotate, fold or resize. It works with a mouse as well as a finger.
 
-Hold the dial and slide to a target, then let go; or tap it to open the ring and tap a target. Each target carries a label. The root ring holds:
-
-| Target | What it does |
-| --- | --- |
-| **New** | Opens the [New dialog](./new-agent.md) |
-| **Lasso** | Opens a second ring: **Search** (herdr's pane search, the same as `⌘K`) and **Host** (the host menu) |
-| **Common keys** | Opens a second ring of keys: **Escape**, **Control C**, **Tab**, **Shift Tab**, **Enter**, **Up arrow**, **Down arrow** |
-
-A smaller button above the dial is always one tap away: **Chat**, the view picker (Terminal, [Chat](#chat-view), [Bots](./bots.md), any plugin views, and **Sidebar**, which opens the right sidebar).
+- **The big button (a grid) opens the view picker**: Terminal, [Chat](#chat-view), [Bots](./bots.md) and any plugin views, then **New** (the [New dialog](./new-agent.md)), **Search** (what `⌘K` does in the view on screen: herdr's pane search in the terminal), **Host** (the host menu) and **Sidebar** (the right sidebar).
+- **The smaller button above it (⌘) opens the common keys**: **Escape**, **Control C**, **Tab**, **Shift Tab**, **Enter**, **Up arrow** and **Down arrow**, on a ring around the big button. Tap it, then tap keys; the ring stays open until you tap ⌘ again or tap anywhere else. Or press ⌘ and slide onto a key, and let go there.
 
 The keys are sent as real key presses, so they work in whatever keyboard mode the app in the pane has turned on. The dial lives inside the terminal's own frame, which is what keeps the iOS on-screen keyboard open while you use it.
 

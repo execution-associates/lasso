@@ -16,6 +16,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Plus,
+  Search,
   Server,
   Settings,
   SquareTerminal,
@@ -477,11 +478,18 @@ function Shell() {
   // are off there.
   const noLeftSidebar = leftView !== "terminal" && leftView !== "chat"
   // The view picker below md, where the footer and its menu are gone. Opened
-  // by the dial's Chat button, by the Views button a plugin view carries, and
-  // by the one in the Bots list's header (both cover the dial). Controlled,
-  // with its own anchor in the parent document, for the reason HostSwitcher
-  // gives.
+  // by the input dial's root over the terminal, and by the Views button every
+  // view that covers the dial carries instead: a plugin view's in the dial's
+  // corner, the chat's and Bots' in their headers. Controlled, with its own
+  // anchor in the parent document, for the reason HostSwitcher gives. Where it
+  // opens from decides where that anchor sits.
   const [mobileViewsOpen, setMobileViewsOpen] = React.useState(false)
+  const viewsFrom =
+    leftView === "chat" || leftView === "bots"
+      ? "header"
+      : isPluginView(leftView)
+        ? "corner"
+        : "dial"
 
   // The active host (SSE-driven), mirrored into a ref so the (referentially
   // stable) popstate handler always sees the current one. herdr's focused pane
@@ -765,40 +773,39 @@ function Shell() {
   // that same click toggles closed rather than reopening the menu.
   const hostOpenAtPointerDown = React.useRef<boolean | null>(null)
   const openHostMenu = React.useCallback(() => setHostMenuOpen(true), [])
+  // ⌘K, and the phone picker's Search: herdr's own pane search in the
+  // terminal; from a reading view the question is "which conversation next",
+  // across the fleet — herdr's search only knows one machine's panes and
+  // answers by moving a terminal nobody is looking at. The grid already has
+  // that search in its own nav, filtering the cards in place, so there it just
+  // puts the cursor in it rather than opening a second one.
+  const openSearch = React.useCallback(() => {
+    if (leftView === "terminal") openHerdrGoto()
+    else if (leftView === "agents") {
+      const f = document.querySelector<HTMLInputElement>(
+        "input[data-agents-filter]"
+      )
+      f?.focus()
+      f?.select()
+    } else setSwitcherOpen(true)
+  }, [leftView])
   const toggleHostMenu = React.useCallback(() => {
     const wasOpen = hostOpenAtPointerDown.current
     hostOpenAtPointerDown.current = null
     setHostMenuOpen((current) => !(wasOpen ?? current))
   }, [])
 
+  // The input dial's root, wherever the footer that carries the view menu is
+  // hidden: every width below md, phone or a desktop window dragged narrow.
   React.useEffect(() => {
     const onMobileCommand = (event: Event) => {
       const command = (event as CustomEvent<MobileCommand>).detail
-      if (command === "new") {
-        openNew()
-      } else if (command === "sidebar") {
-        toggleSidebar()
-      } else if (command === "host") {
-        openHostMenu()
-      } else if (command === "chat") {
-        // The way into the chat wherever the footer that carries this control
-        // is hidden, which is every width below md — phone or a desktop window
-        // dragged narrow. The command comes from the dedicated button the dial
-        // holds above its root, not from an arc target (lib/mobile-input-dial).
-        // There is more than one place to go from here (Chat, Bots, any
-        // plugin's views), so the button opens the picker.
-        setMobileViewsOpen(true)
-      } else if (command === "search") {
-        // Same destination as ⌘K: herdr's own search. The dial supplies the
-        // chord a software keyboard can't type, and openHerdrGoto hands the
-        // keyboard to xterm so the query can be typed straight into it.
-        openHerdrGoto()
-      }
+      if (command === "views") setMobileViewsOpen(true)
     }
     window.addEventListener(MOBILE_COMMAND_EVENT, onMobileCommand)
     return () =>
       window.removeEventListener(MOBILE_COMMAND_EVENT, onMobileCommand)
-  }, [toggleSidebar, openNew, openHostMenu])
+  }, [])
 
   // ⌘K → herdr's own pane search, ⌘O/⌘⇧O → a Git/Scratch agent and ⌘I → a
   // terminal in the New dialog, ⌘;/⌘J/⌘E/⌘./⌘B → the left column's views and sidebar, ⌘\ and ⌘⇧F/S/B →
@@ -843,19 +850,7 @@ function Shell() {
         toggleSidebar()
       } else if (k === "k") {
         e.preventDefault()
-        // From a reading view the question is "which conversation next",
-        // across the fleet — herdr's search only knows one machine's panes and
-        // answers by moving a terminal nobody is looking at. The grid already
-        // has that search in its own nav, filtering the cards in place, so
-        // there ⌘K just puts the cursor in it rather than opening a second one.
-        if (leftView === "terminal") openHerdrGoto()
-        else if (leftView === "agents") {
-          const f = document.querySelector<HTMLInputElement>(
-            "input[data-agents-filter]"
-          )
-          f?.focus()
-          f?.select()
-        } else setSwitcherOpen(true)
+        openSearch()
       } else if (k === "o" || k === "i") {
         e.preventDefault()
         setNewTab(k === "o" ? "agent" : "terminal")
@@ -904,8 +899,8 @@ function Shell() {
     toggleAgentsView,
     toggleBotsView,
     toggleLeftSidebar,
-    leftView,
     noLeftSidebar,
+    openSearch,
   ])
 
   // Apply the synced sidebar layout continuously — including changes arriving
@@ -960,8 +955,13 @@ function Shell() {
 
   // The view menu's items, shared by the footer's menu and the phone picker.
   // `narrow` drops Grid, which is desktop-only (its cards need the width), and
-  // the shortcuts a touch screen cannot type, and adds the sidebar: inside a
-  // plugin view nothing else on a phone reaches it.
+  // the shortcuts a touch screen cannot type, and adds what the footer carries
+  // at md+ and nothing else on a phone does: New, Search (⌘K's answer for the
+  // view on screen), the host menu and the sidebar. They were the input dial's
+  // own ring; the dial's root is this picker now, so they live here. Each one
+  // opens a layer of its own, so it waits for the picker to finish closing
+  // (setTimeout) rather than open while the picker's dismissal still owns the
+  // pointer and the focus.
   const viewMenuItems = (narrow: boolean) => (
     <>
       {MAIN_VIEWS.filter((v) => !(narrow && v.id === "agents")).map(
@@ -1001,6 +1001,18 @@ function Shell() {
       {narrow && (
         <>
           <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => window.setTimeout(openNew)}>
+            <Plus />
+            New
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => window.setTimeout(openSearch)}>
+            <Search />
+            Search
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => window.setTimeout(openHostMenu)}>
+            <Server />
+            Host
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={openSidebar}>
             <PanelRightOpen />
             Sidebar
@@ -1114,6 +1126,7 @@ function Shell() {
                     className="min-w-0 flex-1"
                     onShowTerminal={() => setLeftView("terminal")}
                     onShowSidebar={openSidebar}
+                    onOpenViews={() => setMobileViewsOpen(true)}
                     onNew={openNewFromChat}
                   />
                 </div>
@@ -1158,16 +1171,28 @@ function Shell() {
                     />
                   </div>
                 ))}
-              {/* The phone's view picker (md:hidden). Inside a plugin view its
-                  trigger is a visible button in the dial's corner, since the
-                  view covers the dial; anywhere else it is an invisible anchor
-                  the dial's Chat button opens it from — in Bots, under the
-                  list header's own picker button, top-left, so the menu does
-                  not open over the composer. */}
+              {/* The phone's view picker. Inside a plugin view its trigger is a
+                  visible button in the dial's corner (below md only: the
+                  footer's menu is there at md+), since the view covers the
+                  dial; anywhere else it is an invisible anchor opened from
+                  elsewhere — the dial's root over the terminal, the header's
+                  picker button in the chat and in Bots. Those two anchor
+                  top-right, under the header's button, so the menu does not
+                  open over the composer. From the dial it opens to the LEFT
+                  of the root, never over it or the keys button: a menu under
+                  the finger is a menu item picked by the tap that opened it.
+                  The anchor itself is NOT md:hidden:
+                  a touch screen gets the dial at any width (a phone on its
+                  side, a tablet), and a root that opened a hidden menu would
+                  do nothing at all. */}
               <div
                 className={cn(
-                  "absolute z-30 md:hidden",
-                  leftView === "bots" ? "top-10 right-3" : "right-3 bottom-3"
+                  "absolute z-30",
+                  viewsFrom === "header"
+                    ? "top-10 right-3"
+                    : viewsFrom === "corner"
+                      ? "right-3 bottom-3"
+                      : "right-[84px] bottom-[18px]"
                 )}
               >
                 <DropdownMenu
@@ -1179,7 +1204,7 @@ function Shell() {
                       <Button
                         variant="secondary"
                         size="icon"
-                        className="size-11 rounded-full shadow-md"
+                        className="size-11 rounded-full shadow-md md:hidden"
                         title="Switch view"
                         aria-label={`View: ${currentView.label}`}
                       >
@@ -1194,7 +1219,13 @@ function Shell() {
                     />
                   )}
                   <DropdownMenuContent
-                    side={leftView === "bots" ? "bottom" : "top"}
+                    side={
+                      viewsFrom === "header"
+                        ? "bottom"
+                        : viewsFrom === "corner"
+                          ? "top"
+                          : "left"
+                    }
                     align="end"
                     className="min-w-48"
                   >
@@ -1213,7 +1244,7 @@ function Shell() {
           <ResizableHandle
             withHandle
             onKeyDown={markSidebarIntent}
-            className={cn(collapsed && "hidden", "max-md:hidden")}
+            className={cn(collapsed && "hidden", "sidebar-handle")}
           />
 
           <ResizablePanel
@@ -1237,13 +1268,11 @@ function Shell() {
               // sidebar-panel: the atmosphere's translucency opt-out at phone
               // widths, where this panel covers the terminal (see index.css).
               "sidebar-panel fx-ground relative flex h-full min-h-0 flex-col border-border border-l bg-card",
-              // On phones there isn't room to split the screen, so an open sidebar
-              // takes it over entirely: lift it out of the flex flow and overlay the
-              // left panel full-screen. Drops back to an in-flow resizable panel at
-              // md+. Gated on !collapsed so a collapsed sidebar stays hidden (0-width)
-              // rather than overlaying everything.
-              !collapsed &&
-                "max-md:absolute max-md:inset-0 max-md:z-30 max-md:w-full max-md:border-l-0"
+              // On a phone (index.css: below md, or a phone on its side) there
+              // isn't room to split the screen, so an open sidebar takes it over
+              // entirely. Gated on !collapsed so a collapsed sidebar stays hidden
+              // (0-width) rather than overlaying everything.
+              !collapsed && "sidebar-open"
             )}
           >
             <Tabs
@@ -1488,7 +1517,7 @@ function Shell() {
               button names where you ARE; the menu says where you can go, with
               each view's shortcut. ⌘J and ⌘E still toggle chat and grid
               against the terminal without opening it. Below md this row is
-              gone and the input dial's Chat button is the way in. */}
+              gone and the input dial's root is the way in. */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
