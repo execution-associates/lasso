@@ -175,8 +175,9 @@ function Tile({
 }) {
   return (
     <div
+      data-current={current || undefined}
       className={cn(
-        "flex min-w-0 rounded-lg border border-border transition-colors hover:bg-accent",
+        "fx-tile fx-tile-lift flex min-w-0 rounded-lg border border-border transition-colors hover:bg-accent",
         // A tile has a border to carry the "this is the one" step, where a row in
         // the docked column only has a background.
         current && "border-primary/50 bg-accent"

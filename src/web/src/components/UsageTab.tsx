@@ -157,7 +157,7 @@ function ProviderCard({
   const stale = Boolean(provider.err && provider.limits.length > 0)
   const Chevron = open ? ChevronDown : ChevronRight
   return (
-    <section className="rounded-lg border border-border">
+    <section className="fx-tile overflow-hidden rounded-lg border border-border">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
