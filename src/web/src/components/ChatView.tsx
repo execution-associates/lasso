@@ -1325,6 +1325,9 @@ function Composer({
         <textarea
           ref={ref}
           {...NO_AUTOCORRECT}
+          // Where a pick of this view from the view menu puts the keyboard
+          // (App's focusLeftViewSurface).
+          data-view-input
           // Three rows, not one: a prompt is a paragraph often enough that a
           // single-line box makes people write blind, and this one grows from
           // here as the draft fills (see the measure effect above).
