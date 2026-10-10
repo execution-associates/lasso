@@ -7,7 +7,7 @@ nav_title: Bots
 
 A **bot** is a Claude Code session that lasso launches in a herdr pane and keeps running. Each bot has its own folder with its instructions (`CLAUDE.md`), skills and environment, plus its own model, MCP servers and channels. An assistant that answers your mail is a bot, and so is a watcher that runs on a schedule. The **Bots** view lists them like a messaging app: the bots down the left, and the selected one's conversation on the right.
 
-Open it from the footer's view menu (it names the view you are in) on a desktop, or from the view picker on a phone (see [On a phone](#on-a-phone)). Like Chat and the Grid, Bots covers the terminal without unmounting it. Leaving the view and coming back finds it on the same page, with the conversation's scroll and draft where you left them.
+Open it with `⌘.` (press it again to go back to the terminal), from the footer's view menu (it names the view you are in) on a desktop, or from the view picker on a phone (see [On a phone](#on-a-phone)). It can also be [its own app](#the-bots-app) on your phone or desktop. Like Chat and the Grid, Bots covers the terminal without unmounting it. Leaving the view and coming back finds it on the same page, with the conversation's scroll and draft where you left them.
 
 The address bar follows the view, so these links work and Back moves between them:
 
@@ -32,7 +32,11 @@ Each row shows the bot's avatar, its name, its newest message (prefixed **You:**
 
 A filled dot at the end of the row means the bot has said something since you last had its conversation open **in this browser**. Unread is kept per browser, so your phone and your desktop each keep their own.
 
-Drag a bot by the grip at its left edge to reorder the list; the order is saved for everyone. New bots go to the end. The **+** in the header creates a bot, and **Manage bots** at the bottom opens the table.
+Drag a bot by the grip at its left edge to reorder the list; the order is saved for everyone. New bots go to the end. The **+** in the header creates a bot, the bell beside it turns [notifications](#notifications) on or off for this device, and **Manage bots** at the bottom opens the table.
+
+### When the view is narrow
+
+The list folds away when the Bots view itself is narrower than 760 px. That happens on a phone, in a narrow window, or beside a wide right sidebar. The list then becomes its own screen, and every other page gets a **‹ Bots** button that goes back to it. In a conversation, the bot's name in the header becomes a switcher: it opens a menu of every bot with its state, plus **All bots**, **Manage bots** and **New bot**.
 
 ## Talking to a bot
 
@@ -57,7 +61,7 @@ The gear in the conversation's header opens `/bots/<name>/settings`. **General**
 | Field | What it does |
 | --- | --- |
 | **Name** | Set when the bot is created, then fixed: lowercase letters, digits and dashes, up to 40. It names the herdr agent, the default folder and the address. |
-| **Avatar** | An emoji or up to 8 characters. Empty shows the name's first letter on a colour taken from the name. |
+| **Avatar** | An emoji or up to 8 characters. Empty shows the name's first letter on a colour taken from the name. Once the bot exists, **Use a picture** sets an image instead (see [Pictures](#pictures)). |
 | **Host** | Set when the bot is created: the machine it runs on and where its folder lives. |
 | **Workspace** | The herdr workspace its pane opens in. Default **Bots**. |
 | **Folder** | Its working directory. Default `~/bots/<name>`. |
@@ -66,6 +70,11 @@ The gear in the conversation's header opens `/bots/<name>/settings`. **General**
 | **Permission mode** | What it may do without asking (`acceptEdits`, `auto`, `plan`, `dontAsk`, `manual`, `bypassPermissions`, or Claude Code's default). |
 | **Extra CLI args** | Added to its `claude` command, one argument per line. |
 | **Keep running** | Relaunch it when its session ends or herdr restarts, resuming the same conversation. |
+| **Notify me when it answers** | Send a notification each time it finishes a reply. On by default. See [Notifications](#notifications). |
+
+#### Pictures
+
+**Use a picture** uploads a PNG, JPEG, WebP or GIF of up to 2 MB (a square one looks best). It shows in the list, the conversation and the bot's notifications. **Replace picture** and **Remove picture** change it. The picture is saved as soon as you pick it, not with the form. lasso keeps it in the bot's folder as `.lasso/avatar.<ext>`. Without a picture the text or emoji avatar shows, and SVG images are not accepted.
 
 ### Connections
 
@@ -107,6 +116,43 @@ Start, stop and restart the bot (**Restart fresh** begins a new session), and **
 
 **Delete bot…** in the footer is available once the bot is stopped. lasso forgets the bot, but its folder stays on the host with its `CLAUDE.md`, skills and environment.
 
+## Asking a bot to change itself
+
+A bot can change its own settings when you ask it to in its conversation: "switch to Opus", "add the GitHub MCP server", "set `API_URL` to …", "use this picture". Every bot on lasso's own machine gets lasso's MCP server, named `lasso`, and its tools read and change that bot's settings:
+
+- the **General** settings: model, effort, permission mode, extra args, keep running, avatar and workspace
+- its MCP servers and channels
+- its environment variables, plain or secret
+- its picture, from an image file it downloaded or generated
+
+It edits its `CLAUDE.md` and `.claude/skills` directly, as files in its folder. Most changes take effect after a restart, and the bot restarts itself to apply them. Some things stay with you:
+
+- **Signing in** to an OAuth server. The bot can add the server, but you sign in from **Connections**.
+- **Creating and deleting** bots.
+- **Bots on other hosts and gated servers.** A bot on another host doesn't get the `lasso` server, and neither does any bot while lasso's `/mcp` requires OAuth (`MCP_OAUTH`). Add the server by hand under **Connections** in that case. A server you named `lasso` yourself is kept as is.
+
+It is safer to type a secret into **Environment** yourself than to paste it into a conversation.
+
+## Notifications
+
+lasso can notify you each time a bot finishes a reply. The notification is titled with the bot's name, shows the start of its message and its picture, and opens that bot's conversation. A newer answer from the same bot replaces the older notification rather than stacking.
+
+- **Turn it on for each device.** The bell in the list's header turns notifications on or off for the device you are on. It does the same as **Settings → General → Notifications**, and it is the only switch in the [Bots app](#the-bots-app), which counts as a device of its own.
+- **Turn it off for a bot.** Untick **Notify me when it answers** in that bot's **General** settings.
+- **No duplicates for what you're reading.** No notification appears while that bot's conversation is focused and on screen, except on iPhone and iPad, which always show one.
+
+Every device with notifications on gets every notification, including [blocked agents](../concepts/notifications.md) from the rest of lasso.
+
+## The Bots app
+
+The Bots view can be installed as an app of its own, called **Bots**. It opens straight to your bots, with no terminal, footer or other views, and its notifications arrive under its own icon.
+
+1. Open lasso at `/bots` (or any page of the Bots view) over HTTPS.
+2. Install it: in Safari, **Share → Add to Home Screen**; in Chrome, **Install**.
+3. Open **Bots** from its icon and press the bell to turn on notifications. On an iPhone or iPad this has to happen inside the installed app.
+
+Opening a bot's terminal from the app leaves it for lasso itself. Adding `?app=bots` to a `/bots` address in an ordinary tab shows the same Bots-only page.
+
 ## Creating a bot
 
 The **+** in the list's header, or **New bot** on the management page, opens the creator. It has the **General** and **Connections** tabs. The bot is created stopped and lands on its settings, so you can write its instructions, add skills and set its environment before you start it.
@@ -117,6 +163,6 @@ The **+** in the list's header, or **New bot** on the management page, opens the
 
 ## On a phone
 
-Below 768 px the view is one column at a time: the list, then the bot you pick, its settings or the management page, each with **‹ Bots** to go back.
+On a phone the view is one column at a time, as in [When the view is narrow](#when-the-view-is-narrow): the list, then the bot you pick, its settings or the management page, each with **‹ Bots** to go back.
 
 Bots covers the input dial, so the list's header has its own **Switch view** button, which opens the same view picker as the dial's **Chat** button.
