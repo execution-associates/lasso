@@ -1699,7 +1699,7 @@ export function ChatView({
   // output has to re-pin too.
   React.useLayoutEffect(() => {
     const el = scrollRef.current
-    if (!el || rows.length === 0) return
+    if (!el || (rows.length === 0 && queued.length === 0)) return
     const restore = restoreHeight.current
     if (restore != null) {
       el.scrollTop += el.scrollHeight - restore
@@ -1712,7 +1712,9 @@ export function ChatView({
       // header must not flash an indicator for a frame it is at the bottom for.
       setAtBottom(true)
     }
-  }, [rows])
+    // `queued` too: a sent message shows as an echo below the rows before the
+    // transcript has it, and that echo is what the sender wants to see.
+  }, [rows, queued])
 
   // The transcript's viewport shrinks when the composer grows into a longer
   // draft, and when a phone's keyboard opens over it. A reader who is at the
@@ -1804,6 +1806,12 @@ export function ChatView({
 
   const submit = React.useCallback(
     async (message: string): Promise<SubmitResult> => {
+      // Sending is a return to the conversation's end: follow it again even
+      // if the reader had scrolled up, so the message and its answer show.
+      stick.current = true
+      setAtBottom(true)
+      const el = scrollRef.current
+      if (el) el.scrollTop = el.scrollHeight
       // Stop holds only what was already waiting: with nothing held, a new
       // message goes out as usual.
       if (heldHere.length === 0) setHoldPaused(false)
