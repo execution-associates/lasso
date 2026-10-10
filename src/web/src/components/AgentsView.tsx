@@ -438,8 +438,10 @@ export function AgentsView({
               onChange={(e) => setFilter(e.target.value)}
               placeholder="Name, repo, transcript…"
               aria-label="Filter agents"
-              // ⌘K's target in this view (App.tsx).
+              // ⌘K's target in this view, and where picking the view from
+              // the view menu puts the keyboard (App.tsx).
               data-agents-filter
+              data-view-input
               className="h-8 w-full rounded-md border border-input bg-background pr-7 pl-8 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary"
             />
             {filter && (
