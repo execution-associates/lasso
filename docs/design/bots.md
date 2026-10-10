@@ -5,7 +5,8 @@ A bot is a long-lived Claude Code session that lasso defines, launches in herdr 
 Code:
 
 - `bots.go`: the row, validation and the generated files.
-- `botenv.go`: mise env and secrets.
+- `botenv.go`: env and secrets (fnox, through mise).
+- `botkey.go`: lasso's own age identity.
 - `claudesessions.go`: Claude Code's session registry.
 - `botruntime.go`: launch, stop, status and the loop.
 - `botsapi.go`: `/api/bots`.
@@ -23,11 +24,13 @@ The frontend is `BotsView.tsx`, `BotSettings.tsx`, `BotsManage.tsx` and `BotPart
 |---|---|---|
 | `CLAUDE.md` | the human | instructions. Created as a stub once and never overwritten by a save |
 | `.claude/skills/` | the human | project skills, copied in from `~/.claude/skills` or a path |
-| `mise.toml` | the mise CLI | env vars, plain and age-encrypted |
-| `.mise/tasks/bot` | lasso | the launch script, regenerated from the row on every save |
+| `fnox.toml` | the fnox CLI | env vars, each held by a provider. Written once by lasso, then only through `fnox` |
+| `.mise/config.toml` | lasso | `min_version`, experimental mode and `[secrets.fnox]`, rewritten on every save |
+| `.mise/tasks/bot` | lasso | the launch script, regenerated from the row on every save and on every env change |
+| `mise.toml` | the human | optional (tools, say). Lasso never writes or trusts it |
 | `.lasso/mcp.json` | lasso | the MCP servers, regenerated on every save |
 
-The whole launch is `mise run bot` in the folder. mise loads the env, decrypting secrets in memory, and then the task execs claude with these flags:
+The whole launch is `mise run bot` in the folder. mise asks fnox for the variables the task lists (`#MISE secrets=[…]`) and hands them to that task alone, and the task execs claude with these flags:
 
 - `--mcp-config .lasso/mcp.json`
 - `--dangerously-load-development-channels server:<x>`, one per channel
@@ -45,14 +48,13 @@ The whole launch is `mise run bot` in the folder. mise loads the env, decrypting
 
   Each answer matches the dialog's own wording before sending a key, so a blind keystroke can never answer a permission prompt.
 - **One grant per channel.** `--channels` is accepted, but it delivers nothing for `server:` entries and doesn't split on commas. A missing grant still subscribes and acks, and then hears nothing.
-- **`--mcp-config`, not a project `.mcp.json`.** A project file asks a human to approve it on every fresh start. Secrets for a server are written as `${VAR}`, which Claude Code expands from the env mise loaded, so `mcp.json` never holds one.
-- **Env goes only through the mise CLI.** Lasso never parses or writes the TOML:
-  - plain values: `mise set --file`
-  - secrets: `mise set --age-encrypt --stdin KEY`, value on stdin, never argv
-  - listing: `mise set`, filtered to rows whose source is this folder's file, so a secret reads `[redacted]` and its value never reaches a client
-  - setup: `mise settings set --local experimental true`, because age values need it, then `mise trust`
-
-  The host's age identity is `~/.config/mise/age.txt`. Lasso creates it only when a human clicks, and never replaces one, since that would orphan every secret already encrypted to it.
+- **`--mcp-config`, not a project `.mcp.json`.** A project file asks a human to approve it on every fresh start. Secrets for a server are written as `${VAR}`, which Claude Code expands from the env mise handed the task, so `mcp.json` never holds one.
+- **Env is fnox's, resolved by mise.** mise (≥ 2026.10.4) asks fnox (≥ 1.39) for the keys a task lists, and hands them to that task only. The shell, `mise env` and other tasks never see them. `botCheckTools` refuses an older host and names the upgrade command.
+  - **Lasso writes `fnox.toml` once,** with two providers: `lasso` (age, `key_file` = lasso's key, the default) and `plain`. After that it touches the file only through the fnox CLI: `fnox set KEY [--provider plain]` with the value on stdin, never argv, and `fnox remove KEY`. That leaves a human free to add a provider (1Password, a vault, a keychain) and make it the default, and lasso keeps working.
+  - **Listing** is `fnox list --full --sources`, a fixed-width table sliced by its header. Only this folder's rows are kept, since fnox also lists the global config's, and only a `plain` provider's key is shown, because for that provider it is the value. A secret's value never reaches a client.
+  - **The task carries `#MISE interactive=true`.** A task that receives secrets otherwise gets its output redacted line by line and no stdin, and claude needs the TTY. **Every env change regenerates the task's `secrets` list,** or a new variable never reaches the bot. A running bot sees the change on its next start.
+  - **Lasso's age identity** is `<lassoDir>/age.txt` (0600) on each host, generated natively (X25519 and bech32, as age-keygen writes it, so no age binary is needed) the first time a bot there gets a fnox.toml. It is one per install, never baked into the binary, where it would be public. It is never replaced, since that would orphan every secret encrypted to it.
+  - **Lasso trusts only its own `.mise/config.toml`** (`mise trust`). A bot folder's own `mise.toml` is the human's to trust.
 - **Resume is reported by lasso, not by a hook.** On each tick the loop reports the bot's session to herdr with `pane.report_agent_session`:
   - fields: source `lasso`, agent `claude` (herdr's detected agent, never the bot name), a rising `seq` (nanoseconds), and the argv above
   - herdr refuses the report until it has detected claude in the pane, and refuses a seq-less report once it holds one from this source; a refusal is retried on the next tick
