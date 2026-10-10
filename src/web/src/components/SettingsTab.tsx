@@ -277,7 +277,7 @@ function SettingsGroup({
     <Collapsible
       open={open}
       onOpenChange={setOpen}
-      className="border-border/60 border-t first:border-t-0"
+      className="fx-tile fx-tile-group border-border/60 border-t first:border-t-0"
     >
       <CollapsibleTrigger className="-mx-1 flex min-h-9 w-[calc(100%+0.5rem)] items-center gap-2 rounded-md px-1 py-2 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50">
         <ChevronRight
@@ -458,7 +458,7 @@ export function SettingsTab({ active }: { active: boolean }) {
           </SettingsGroup>
           {/* Not a group: one action, nothing to configure, and it should be
               findable without opening anything. */}
-          <div className="flex items-center gap-3 border-border/60 border-t pt-3">
+          <div className="fx-tile fx-tile-card flex items-center gap-3 border-border/60 border-t pt-3">
             <div className="min-w-0 flex-1">
               <div className="font-medium text-[13px] text-foreground">
                 Getting started

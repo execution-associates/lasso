@@ -13,8 +13,8 @@ import {
 import { Orb } from "@/components/ui/orb"
 import { api, type BotView, botAvatarURL } from "@/lib/api"
 import {
-  botAvatarText,
   botHue,
+  botInitial,
   botRunning,
   invalidateBots,
   stateLabel,
@@ -29,7 +29,7 @@ export function BotAvatar({
   size = 36,
   className,
 }: {
-  bot: Pick<BotView, "avatar" | "name"> & { avatar_image?: string }
+  bot: Pick<BotView, "name"> & { avatar_image?: string }
   size?: number
   className?: string
 }) {
@@ -47,28 +47,24 @@ export function BotAvatar({
         style={{ width: size, height: size }}
       />
     )
-  const own = !!bot.avatar?.trim()
   return (
     <span
       aria-hidden
       className={cn(
-        "flex shrink-0 select-none items-center justify-center overflow-hidden rounded-full font-semibold leading-none",
-        own ? "bg-muted text-foreground" : "fx-avatar text-white",
+        "fx-avatar flex shrink-0 select-none items-center justify-center overflow-hidden rounded-full font-semibold text-white leading-none",
         className
       )}
       style={
         {
           width: size,
           height: size,
-          fontSize: Math.round(size * (own ? 0.5 : 0.42)),
-          background: own
-            ? undefined
-            : `oklch(0.58 0.12 ${botHue(bot.name)}deg)`,
+          fontSize: Math.round(size * 0.42),
+          background: `oklch(0.58 0.12 ${botHue(bot.name)}deg)`,
           "--av-h": botHue(bot.name),
         } as CSSProperties
       }
     >
-      {botAvatarText(bot)}
+      {botInitial(bot.name)}
     </span>
   )
 }
