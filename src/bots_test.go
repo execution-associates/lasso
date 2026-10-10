@@ -32,6 +32,7 @@ func TestBotNormalize(t *testing.T) {
 		"http bad url":     {Name: "a", MCP: []botMCPServer{{Name: "x", Type: "http", URL: "ftp://x"}}},
 		"duplicate server": {Name: "a", MCP: []botMCPServer{{Name: "x", Command: "c"}, {Name: "x", Command: "c"}}},
 		"newline in arg":   {Name: "a", ExtraArgs: []string{"--x\nrm"}},
+		"reserved name":    {Name: "manage"},
 	} {
 		if err := bad.normalize(); err == nil {
 			t.Errorf("%s: normalize accepted %+v", name, bad)
@@ -367,6 +368,52 @@ func TestBotsAPI(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); err != nil {
 		t.Error("delete removed the folder")
+	}
+}
+
+func TestPreviewText(t *testing.T) {
+	if got := previewText("## **→ Done.** Ran `ls`\n\nnext"); got != "→ Done. Ran ls next" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestReorderBots(t *testing.T) {
+	useBotTestEnv(t)
+	for _, n := range []string{"a", "b", "c"} {
+		r := &botRecord{Name: n}
+		if err := r.normalize(); err != nil {
+			t.Fatal(err)
+		}
+		if err := insertBot(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	order := func() string {
+		list, _ := listBots()
+		var names []string
+		for _, r := range list {
+			names = append(names, r.Name)
+		}
+		return strings.Join(names, ",")
+	}
+	if got := order(); got != "a,b,c" {
+		t.Fatalf("creation order = %s", got)
+	}
+	// A partial list (a bot created meanwhile) keeps the unnamed ones after.
+	req := httptest.NewRequest("PUT", "/api/bots/order", strings.NewReader(`{"names":["c","a"]}`))
+	w := httptest.NewRecorder()
+	serveBots(w, req)
+	if w.Code != 200 {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	if got := order(); got != "c,a,b" {
+		t.Errorf("after reorder = %s", got)
+	}
+	r := &botRecord{Name: "d"}
+	r.normalize()
+	insertBot(r)
+	if got := order(); got != "c,a,b,d" {
+		t.Errorf("a new bot is not last: %s", got)
 	}
 }
 

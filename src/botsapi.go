@@ -4,6 +4,7 @@ package main
 //
 //	GET    /api/bots                          every bot with its live state
 //	POST   /api/bots                          create {bot fields…, start?}
+//	PUT    /api/bots/order                    {names}: the list's order, as dragged
 //	GET    /api/bots/skill-library?host=      skills a bot can copy in (~/.claude/skills)
 //	GET    /api/bots/<name>                   one bot, plus its launch script
 //	PUT    /api/bots/<name>                   save {bot fields…, restart?}
@@ -45,6 +46,25 @@ func serveBots(w http.ResponseWriter, r *http.Request) {
 		default:
 			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
 		}
+		return
+	}
+	if rest == "order" {
+		if r.Method != http.MethodPut {
+			http.Error(w, "PUT", http.StatusMethodNotAllowed)
+			return
+		}
+		var in struct {
+			Names []string `json:"names"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&in); err != nil || len(in.Names) > 500 {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
+		if err := reorderBots(in.Names); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
 		return
 	}
 	if rest == "skill-library" {

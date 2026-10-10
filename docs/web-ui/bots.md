@@ -32,7 +32,7 @@ Each row shows the bot's avatar, its name, its newest message (prefixed **You:**
 
 A filled dot at the end of the row means the bot has said something since you last had its conversation open **in this browser**. Unread is kept per browser, so your phone and your desktop each keep their own.
 
-The search box filters by name, host, workspace and the newest message. `⌘K` puts the cursor in it. The **+** in the header creates a bot, and **Manage bots** at the bottom opens the table.
+Drag a bot by the grip at its left edge to reorder the list; the order is saved for everyone. New bots go to the end. The **+** in the header creates a bot, and **Manage bots** at the bottom opens the table.
 
 ## Talking to a bot
 

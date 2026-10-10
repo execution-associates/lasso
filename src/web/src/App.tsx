@@ -798,11 +798,9 @@ function Shell() {
         // has that search in its own nav, filtering the cards in place, so
         // there ⌘K just puts the cursor in it rather than opening a second one.
         if (leftView === "terminal") openHerdrGoto()
-        else if (leftView === "agents" || leftView === "bots") {
+        else if (leftView === "agents") {
           const f = document.querySelector<HTMLInputElement>(
-            leftView === "bots"
-              ? "input[data-bots-filter]"
-              : "input[data-agents-filter]"
+            "input[data-agents-filter]"
           )
           f?.focus()
           f?.select()

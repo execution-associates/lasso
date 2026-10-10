@@ -164,6 +164,7 @@ func openDB() error {
 		`ALTER TABLE agents ADD COLUMN closed_at TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE oauth_clients ADD COLUMN host TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE oauth_clients ADD COLUMN mcp_scope TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE bots ADD COLUMN position INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err := h.Exec(alter); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 			h.Close()
