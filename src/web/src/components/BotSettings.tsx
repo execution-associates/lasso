@@ -475,7 +475,7 @@ function AvatarPicture({
         onClick={() => input.current?.click()}
         title={label}
         aria-label={label}
-        className="group relative block rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60"
+        className="group relative block cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-default disabled:opacity-60"
       >
         <BotAvatar bot={shown} size={36} />
         <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/45 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
@@ -494,7 +494,7 @@ function AvatarPicture({
               "could not remove the picture"
             )
           }
-          className="absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground"
+          className="absolute -top-1 -right-1 flex size-4 cursor-pointer items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground"
         >
           <X className="size-2.5" />
         </button>
