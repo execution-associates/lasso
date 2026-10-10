@@ -223,12 +223,13 @@ func listBrowserTabsTool(ctx context.Context, req *mcp.CallToolRequest, in listB
 	return nil, out, nil
 }
 
-const openBrowserTabDescription = "Open a NEW tab in lasso's shared browser and put it on the human's screen: every visible lasso tab switches its Browser tab to that profile and tab (opening the sidebar if needed), the way open_file shows a file. Use it when the human asks you to open a page for them, or in a particular profile (\"open this in my work profile\"). Starts the profile's browser if it is stopped. The page loads from the profile's browser — LASSO's machine for a profile lasso launches — so `localhost` means lasso's machine there. To then drive the page, use the /browser-mcp tools (`mcp_endpoint`) with `profile` set to this profile (find the tab with list_pages by its URL), or `ws_endpoint`. Check `delivered`: 0 means no lasso tab is open and the human did NOT see it (the tab is still open in the browser). A profile's browser stops after lasso's idle timeout with nothing connected to it, and its tabs close with it: keep a /browser-mcp or CDP session open while you still need the page. Pass your $HERDR_PANE_ID as pane_id so the human is told which agent opened it."
+const openBrowserTabDescription = "Open a NEW tab in lasso's shared browser and put it on the human's screen: every visible lasso tab switches its Browser tab to that profile and tab (opening the sidebar if needed), the way open_file shows a file. Use it when the human asks you to open a page for them, or in a particular profile (\"open this in my work profile\"). Starts the profile's browser if it is stopped. The page loads from the profile's browser — LASSO's machine for a profile lasso launches — so `localhost` means lasso's machine there. To then drive the page, use the /browser-mcp tools (`mcp_endpoint`) with `profile` set to this profile (find the tab with list_pages by its URL), or `ws_endpoint`. Check `delivered`: 0 means no lasso tab is open and the human did NOT see it (the tab is still open in the browser). A profile's browser stops after lasso's idle timeout with nothing connected to it, and its tabs close with it: keep a /browser-mcp or CDP session open while you still need the page. `surface` picks the view: \"agent\" (default) the live Chromium, \"iframe\" the page embedded the way a terminal link opens, loaded by the human's own browser (their cookies and their `localhost`, not the profile's), for a page they will read or click themselves. Pass your $HERDR_PANE_ID as pane_id so the human is told which agent opened it."
 
 type openBrowserTabIn struct {
 	URL     string `json:"url" jsonschema:"The page to open: a full http(s) URL. A bare host[:port] gets https:// (http:// for localhost/127.0.0.1). about:blank opens an empty tab."`
 	Profile string `json:"profile,omitempty" jsonschema:"Browser profile (id or display name) to open it in. Omit for the default profile."`
 	Show    *bool  `json:"show,omitempty" jsonschema:"Put the tab on the human's screen (default true). false opens it quietly, for a page you will work in without switching their view."`
+	Surface string `json:"surface,omitempty" jsonschema:"How the human's Browser tab shows it: \"agent\" (default) the live Chromium view, \"iframe\" the page embedded in an iframe. \"live\" and \"embed\" are accepted too. An http:// page on an https lasso cannot be embedded, so it shows in the live view."`
 	PaneID  string `json:"pane_id,omitempty" jsonschema:"Your own herdr pane id ($HERDR_PANE_ID), used only to tell the human which agent opened the tab."`
 }
 
@@ -248,6 +249,22 @@ type browserOpenEvent struct {
 	TabID   string `json:"tab_id"`
 	URL     string `json:"url"`
 	From    string `json:"from"`
+	// Mode is the view the human's client switches to (live|embed). Empty is
+	// live, which is what a UI that predates the field does anyway.
+	Mode string `json:"mode,omitempty"`
+}
+
+// browserSurfaceMode maps a tool's `surface` to the browser_mode vocabulary
+// the UI speaks: the UI's labels (agent, iframe) or the stored names (live,
+// embed), omitted meaning agent.
+func browserSurfaceMode(surface string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(surface)) {
+	case "", "agent", browserModeLive:
+		return browserModeLive, nil
+	case "iframe", browserModeEmbed:
+		return browserModeEmbed, nil
+	}
+	return "", fmt.Errorf("surface %q: must be \"agent\" or \"iframe\" (or \"live\"/\"embed\")", surface)
 }
 
 // browserOpenBroadcast hands the event to every connected tab and reports how
@@ -324,6 +341,10 @@ func openBrowserTabTool(ctx context.Context, req *mcp.CallToolRequest, in openBr
 	if err != nil {
 		return nil, browserTabOut{}, err
 	}
+	mode, err := browserSurfaceMode(in.Surface)
+	if err != nil {
+		return nil, browserTabOut{}, err
+	}
 	id, err := resolveProfile(in.Profile)
 	if err != nil {
 		return nil, browserTabOut{}, err
@@ -374,7 +395,7 @@ func openBrowserTabTool(ctx context.Context, req *mcp.CallToolRequest, in openBr
 		return nil, out, nil
 	}
 	from, detail := callerName(ctx, req, in.PaneID)
-	out.Delivered = browserOpenBroadcast(browserOpenEvent{Profile: id, TabID: t.ID, URL: u, From: from})
+	out.Delivered = browserOpenBroadcast(browserOpenEvent{Profile: id, TabID: t.ID, URL: u, From: from, Mode: mode})
 	if out.Delivered == 0 {
 		out.Detail = "no lasso tab is open, so nobody saw it (the tab is open in the browser)"
 	} else {
@@ -417,16 +438,21 @@ func findTab(profileArg, tabID string) (string, *browserProc, browserPage, error
 	return "", nil, browserPage{}, fmt.Errorf("no tab %q in profile %q (list_browser_tabs shows the open ones)", tabID, id)
 }
 
-const showBrowserTabDescription = "Put an EXISTING shared-browser tab on the human's screen: every visible lasso tab switches its Browser tab to that profile and tab. Use it to point them at a page you have been working in. `delivered` 0 means no lasso tab is open, so the human did NOT see it."
+const showBrowserTabDescription = "Put an EXISTING shared-browser tab on the human's screen: every visible lasso tab switches its Browser tab to that profile and tab. Use it to point them at a page you have been working in. `surface` picks the view as on open_browser_tab: \"agent\" (default) or \"iframe\". `delivered` 0 means no lasso tab is open, so the human did NOT see it."
 
 type showBrowserTabIn struct {
 	TabID   string `json:"tab_id" jsonschema:"The tab to show (from list_browser_tabs or open_browser_tab)."`
 	Profile string `json:"profile,omitempty" jsonschema:"The tab's profile (id or display name). Omit for the default profile."`
+	Surface string `json:"surface,omitempty" jsonschema:"How the human's Browser tab shows it: \"agent\" (default) the live Chromium view, \"iframe\" the page embedded in an iframe. \"live\" and \"embed\" are accepted too. An http:// page on an https lasso cannot be embedded, so it shows in the live view."`
 	PaneID  string `json:"pane_id,omitempty" jsonschema:"Your own herdr pane id ($HERDR_PANE_ID), to tell the human who is showing it."`
 }
 
 func showBrowserTabTool(ctx context.Context, req *mcp.CallToolRequest, in showBrowserTabIn) (*mcp.CallToolResult, browserTabOut, error) {
 	if err := requireLocalBrowser(req); err != nil {
+		return nil, browserTabOut{}, err
+	}
+	mode, err := browserSurfaceMode(in.Surface)
+	if err != nil {
 		return nil, browserTabOut{}, err
 	}
 	id, _, pg, err := findTab(in.Profile, in.TabID)
@@ -435,7 +461,7 @@ func showBrowserTabTool(ctx context.Context, req *mcp.CallToolRequest, in showBr
 	}
 	from, detail := callerName(ctx, req, in.PaneID)
 	out := browserTabOut{TabID: pg.ID, Profile: id, URL: pg.URL, Title: pg.Title}
-	out.Delivered = browserOpenBroadcast(browserOpenEvent{Profile: id, TabID: pg.ID, URL: pg.URL, From: from})
+	out.Delivered = browserOpenBroadcast(browserOpenEvent{Profile: id, TabID: pg.ID, URL: pg.URL, From: from, Mode: mode})
 	if out.Delivered == 0 {
 		out.Detail = "no lasso tab is open, so nobody saw it"
 	} else {
