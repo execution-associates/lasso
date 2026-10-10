@@ -61,7 +61,7 @@ The gear in the conversation's header opens `/bots/<name>/settings`. **General**
 | Field | What it does |
 | --- | --- |
 | **Name** | Set when the bot is created, then fixed: lowercase letters, digits and dashes, up to 40. It names the herdr agent, the default folder and the address. |
-| **Avatar** | An emoji or up to 8 characters. Empty shows the name's first letter on a colour taken from the name. Once the bot exists, **Use a picture** sets an image instead (see [Pictures](#pictures)). |
+| **Avatar** | An emoji or up to 8 characters. Empty shows the name's first letter on a colour taken from the name. Once the bot exists, clicking the avatar sets an image instead (see [Pictures](#pictures)). |
 | **Host** | Set when the bot is created: the machine it runs on and where its folder lives. |
 | **Workspace** | The herdr workspace its pane opens in. Default **Bots**. |
 | **Folder** | Its working directory. Default `~/bots/<name>`. |
@@ -74,7 +74,7 @@ The gear in the conversation's header opens `/bots/<name>/settings`. **General**
 
 #### Pictures
 
-**Use a picture** uploads a PNG, JPEG, WebP or GIF of up to 2 MB (a square one looks best). It shows in the list, the conversation and the bot's notifications. **Replace picture** and **Remove picture** change it. The picture is saved as soon as you pick it, not with the form. lasso keeps it in the bot's folder as `.lasso/avatar.<ext>`. Without a picture the text or emoji avatar shows, and SVG images are not accepted.
+Click the avatar next to the Avatar field to upload a PNG, JPEG, WebP or GIF of up to 2 MB (a square one looks best). It shows in the list, the conversation and the bot's notifications. Click it again to replace the picture, or the small × on its corner to remove it. The picture is saved as soon as you pick it, not with the form. lasso keeps it in the bot's folder as `.lasso/avatar.<ext>`. Without a picture the text or emoji avatar shows, and SVG images are not accepted.
 
 ### Connections
 
@@ -98,7 +98,7 @@ Keep secrets out of this page. Write `${VAR}` in a server's environment or heade
 
 ### Jobs
 
-Scheduled prompts and webhooks that lasso delivers into the bot's session, shown as a grid of cards (three columns when there is room, one on a narrow view). Each card shows the job's name, its schedule in plain words with the time zone ("Every day at 6 AM, noon and 6 PM · PT"), when it runs next and when it last ran (✓ delivered, ✗ dropped: hover for why), and the start of its message. Badges mark a **webhook**, a **paused** job, and **queued ×N** when it fired while the bot was busy or not listening. Enabled jobs come first, by next run, then jobs with no schedule, then paused ones. **Run now** fires a job at once (a paused one too). **Copy URL** copies a webhook's address. The **⋯** menu pauses, resumes, duplicates or deletes. Changes take effect immediately, with no save of the bot and no restart.
+Scheduled prompts and webhooks that lasso delivers into the bot's session, shown as a grid of square cards (as many to a row as fit). Each card shows the job's name, its schedule in plain words with the time zone ("Every day at 6 AM, noon and 6 PM · PT"), when it runs next and when it last ran (✓ delivered, ✗ dropped: hover for why), and the start of its message. Badges mark a **webhook**, a **paused** job, and **queued ×N** when it fired while the bot was busy or not listening. Enabled jobs come first, by next run, then jobs with no schedule, then paused ones. **Run now** fires a job at once (a paused one too). **Copy URL** copies a webhook's address. The **⋯** menu pauses, resumes, duplicates or deletes. Changes take effect immediately, with no save of the bot and no restart.
 
 Click a card, or **New job**, to edit it:
 
