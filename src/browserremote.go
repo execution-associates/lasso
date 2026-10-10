@@ -17,7 +17,7 @@ import (
 // agnostic about it: how that browser is run, kept alive and secured is up to
 // whoever runs it. All lasso needs is the standard remote-debugging endpoint
 // (/json/version, /json/list, /json/new, the /devtools/ websockets), and
-// everything above that — /cdp/p/<id>, /browser-mcp, the Browser tab — is the
+// everything above that — /cdp/p/<id>, the browser_* tools, the Browser tab — is the
 // same code a launched browser goes through.
 
 // browserDefaultCDPURLSetting holds the default profile's cdp_url. The other
@@ -126,7 +126,7 @@ func dialRemoteBrowser(raw string) (*browserProc, error) {
 // launch, only a browser to (re)find. A browser that has restarted since the
 // last look (a new /devtools/browser/<id>) or stopped answering ends this
 // profile's sessions the way a local browser's exit does, through onStop, so
-// /browser-mcp children reconnect to whatever is there now. A browser with an
+// browser tools' children reconnect to whatever is there now. A browser with an
 // id-less /devtools/browser path cannot be seen restarting, only stopping.
 func (m *browserManager) ensureRemote(ctx context.Context, raw string) (*browserProc, error) {
 	m.mu.Lock()
@@ -140,7 +140,7 @@ func (m *browserManager) ensureRemote(ctx context.Context, raw string) (*browser
 	}
 	defer m.release()
 	if m.retired.Load() {
-		return nil, fmt.Errorf("the browser profile %q was deleted", m.profileID())
+		return nil, fmt.Errorf("the browser %q was deleted", m.profileID())
 	}
 	p, err := dialRemoteBrowser(raw)
 	m.mu.Lock()
