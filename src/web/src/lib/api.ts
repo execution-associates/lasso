@@ -835,6 +835,8 @@ export interface BotFields {
   extra_args: string[]
   avatar: string
   keep_running: boolean
+  // Push a notification when the bot finishes a turn with a new message.
+  notify: boolean
 }
 
 export interface BotView extends BotFields {
@@ -855,6 +857,9 @@ export interface BotView extends BotFields {
   last_kind?: "agent" | "user" | "incoming"
   last_at?: string
   error?: string
+  // Its picture (.lasso/avatar.<ext> plus a ?v= revision), or "": see
+  // botAvatarURL. Set through avatarSet, never by a save.
+  avatar_image: string
 }
 
 export interface BotDetail {
@@ -865,6 +870,18 @@ export interface BotDetail {
   launch: string
   // Absolute path of the bot's CLAUDE.md on its host.
   claude_md: string
+}
+
+// A bot's picture URL, or "" for the initials avatar. avatar_image carries
+// the revision, so the URL changes with the picture.
+export function botAvatarURL(b: {
+  name: string
+  avatar_image?: string
+}): string {
+  const rev = b.avatar_image?.split("?")[1]
+  return b.avatar_image && rev
+    ? `/api/bots/${encodeURIComponent(b.name)}/avatar?${rev}`
+    : ""
 }
 
 export interface BotEnvVar {
@@ -1855,6 +1872,17 @@ export const api = {
       sendJSON<{ ok: boolean; dir: string }>("DELETE", botURL(name)),
     start: (name: string, fresh = false) =>
       postJSON<{ bot: BotView }>(botURL(name, "/start"), { fresh }),
+    // The picture: the image file itself as the body (PNG, JPEG, WebP, GIF).
+    avatarSet: async (name: string, file: Blob) => {
+      const r = await hostFetch(botURL(name, "/avatar"), {
+        method: "PUT",
+        body: file,
+      })
+      if (!r.ok) throw await httpError(r)
+      return (await r.json()) as { ok: boolean }
+    },
+    avatarClear: (name: string) =>
+      sendJSON<{ ok: boolean }>("DELETE", botURL(name, "/avatar")),
     stop: (name: string) =>
       postJSON<{ bot: BotView }>(botURL(name, "/stop"), {}),
     restart: (name: string, fresh = false) =>

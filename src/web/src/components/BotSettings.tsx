@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  Image as ImageIcon,
   KeyRound,
   Play,
   Plus,
@@ -112,6 +113,7 @@ type Draft = {
   effort: string
   permission_mode: string
   keep_running: boolean
+  notify: boolean
   extra_args: string
   strict_mcp: boolean
   mcp: DraftServer[]
@@ -152,6 +154,7 @@ function draftOf(b?: BotView): Draft {
     effort: b?.effort ?? "",
     permission_mode: b?.permission_mode ?? "",
     keep_running: b?.keep_running ?? true,
+    notify: b?.notify ?? true,
     extra_args: (b?.extra_args ?? []).join("\n"),
     strict_mcp: b?.strict_mcp ?? false,
     mcp: (b?.mcp ?? []).map((s) => ({
@@ -180,6 +183,7 @@ function fieldsOf(d: Draft): BotFields {
     effort: d.effort,
     permission_mode: d.permission_mode,
     keep_running: d.keep_running,
+    notify: d.notify,
     avatar: d.avatar.trim(),
     extra_args: lines(d.extra_args),
     strict_mcp: d.strict_mcp,
@@ -385,14 +389,78 @@ function KVEditor({
 // ---------------------------------------------------------------------------
 // General
 
+// AvatarPicture sets or removes a saved bot's picture. It saves on pick, not
+// with the form: the picture is a file in the bot's folder, not a setting.
+function AvatarPicture({ bot }: { bot: BotView }) {
+  const input = React.useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = React.useState(false)
+  const run = async (fn: () => Promise<unknown>, fail: string) => {
+    setBusy(true)
+    try {
+      await fn()
+      await invalidateBots(bot.name)
+    } catch (e) {
+      toast.error(`${fail}: ${(e as Error).message}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <input
+        ref={input}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        className="hidden"
+        aria-label="Choose a picture"
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          e.target.value = ""
+          if (f)
+            void run(
+              () => api.bots.avatarSet(bot.name, f),
+              "could not set the picture"
+            )
+        }}
+      />
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={busy}
+        onClick={() => input.current?.click()}
+      >
+        <ImageIcon />
+        {bot.avatar_image ? "Replace picture" : "Use a picture"}
+      </Button>
+      {bot.avatar_image && (
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={busy}
+          onClick={() =>
+            void run(
+              () => api.bots.avatarClear(bot.name),
+              "could not remove the picture"
+            )
+          }
+        >
+          Remove picture
+        </Button>
+      )}
+    </div>
+  )
+}
+
 function GeneralTab({
   draft,
   set,
   creating,
+  bot,
 }: {
   draft: Draft
   set: (patch: Partial<Draft>) => void
   creating: boolean
+  bot?: BotView
 }) {
   // The model suggestions and effort levels are Claude Code's, from the host's
   // own harness table (what the New dialog offers for claude).
@@ -438,21 +506,28 @@ function GeneralTab({
         <Field
           label="Avatar"
           htmlFor="bot-avatar"
-          hint="An emoji or up to 8 characters. Empty uses the first letter."
+          hint="A picture, or an emoji or up to 8 characters. Empty uses the first letter."
         >
-          <div className="flex items-center gap-2">
-            <BotAvatar
-              bot={{ name: draft.name || "?", avatar: draft.avatar }}
-              size={32}
-            />
-            <input
-              {...NO_AUTOCORRECT}
-              id="bot-avatar"
-              value={draft.avatar}
-              onChange={(e) => set({ avatar: e.target.value })}
-              placeholder="🤖"
-              className={cn(fieldClass, "min-w-0 flex-1")}
-            />
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <BotAvatar
+                bot={{
+                  name: draft.name || "?",
+                  avatar: draft.avatar,
+                  avatar_image: bot?.avatar_image,
+                }}
+                size={32}
+              />
+              <input
+                {...NO_AUTOCORRECT}
+                id="bot-avatar"
+                value={draft.avatar}
+                onChange={(e) => set({ avatar: e.target.value })}
+                placeholder="🤖"
+                className={cn(fieldClass, "min-w-0 flex-1")}
+              />
+            </div>
+            {bot && <AvatarPicture bot={bot} />}
           </div>
         </Field>
         {creating && (
@@ -559,6 +634,18 @@ function GeneralTab({
         <span className="block text-[11.5px] text-muted-foreground">
           Bring it back when its session ends or herdr restarts, resuming the
           same conversation.
+        </span>
+      </Check>
+      <Check
+        id="bot-notify"
+        checked={draft.notify}
+        onChange={(notify) => set({ notify })}
+      >
+        Notify me when it answers
+        <span className="block text-[11.5px] text-muted-foreground">
+          A notification on your devices each time it finishes a reply, unless
+          you are looking at its chat. Turn on notifications on each device
+          first (Bots list, the bell).
         </span>
       </Check>
     </div>
@@ -1812,7 +1899,7 @@ export function BotSettings({
           ) : !draft ? (
             <Orb state="working" px={20} />
           ) : tab === "general" ? (
-            <GeneralTab draft={draft} set={set} creating={creating} />
+            <GeneralTab draft={draft} set={set} creating={creating} bot={bot} />
           ) : tab === "connections" ? (
             <ConnectionsTab draft={draft} set={set} bot={bot} />
           ) : !bot || !detail.data ? null : tab === "skills" ? (

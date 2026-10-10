@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react"
 import { toast } from "sonner"
 import { Orb } from "@/components/ui/orb"
-import { api, type BotView } from "@/lib/api"
+import { api, type BotView, botAvatarURL } from "@/lib/api"
 import { botAvatarText, botHue, invalidateBots, stateLabel } from "@/lib/bots"
 import { cn } from "@/lib/utils"
 
@@ -13,10 +13,24 @@ export function BotAvatar({
   size = 36,
   className,
 }: {
-  bot: Pick<BotView, "avatar" | "name">
+  bot: Pick<BotView, "avatar" | "name"> & { avatar_image?: string }
   size?: number
   className?: string
 }) {
+  const picture = botAvatarURL(bot)
+  if (picture)
+    return (
+      <img
+        src={picture}
+        alt=""
+        aria-hidden
+        draggable={false}
+        width={size}
+        height={size}
+        className={cn("shrink-0 rounded-full object-cover", className)}
+        style={{ width: size, height: size }}
+      />
+    )
   const own = !!bot.avatar?.trim()
   return (
     <span
