@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -666,5 +667,68 @@ func TestBotOAuthKeysStayOutOfTheTask(t *testing.T) {
 	recordTools(t, out)
 	if got := botEnvKeys(&localBackend{}, dir); len(got) != 1 || got[0] != "API_KEY" {
 		t.Errorf("task keys = %v", got)
+	}
+}
+
+func TestBotSelfConfigTools(t *testing.T) {
+	useBotTestEnv(t)
+	dir := t.TempDir()
+	rec := &botRecord{Name: "selfy", Dir: dir, Model: "haiku"}
+	if err := rec.normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if err := insertBot(rec); err != nil {
+		t.Fatal(err)
+	}
+	opus, strict := "opus", true
+	servers := []botMCPServer{{Name: "mail", Command: "bun", Channel: true}}
+	_, out, err := updateBotTool(context.Background(), nil, updateBotIn{Name: "selfy", Model: &opus, StrictMCP: &strict, MCP: &servers})
+	if err != nil || !out.OK {
+		t.Fatalf("update_bot: %v %+v", err, out)
+	}
+	got, _ := getBot("selfy")
+	if got.Model != "opus" || !got.StrictMCP || len(got.MCP) != 1 || !got.MCP[0].Channel || got.Dir != rec.Dir {
+		t.Fatalf("after update_bot: %+v", got)
+	}
+	task, _ := os.ReadFile(botTaskPath(dir))
+	if !bytes.Contains(task, []byte("'opus'")) || !bytes.Contains(task, []byte("server:mail")) {
+		t.Errorf("task not regenerated:\n%s", task)
+	}
+	// Omitted fields stay as they were; a bad value is refused whole.
+	bad := "ludicrous"
+	if _, _, err := updateBotTool(context.Background(), nil, updateBotIn{Name: "selfy", Effort: &bad}); err == nil {
+		t.Error("a bad effort was accepted")
+	}
+	if got, _ := getBot("selfy"); got.Model != "opus" {
+		t.Errorf("a refused update changed the bot: %+v", got)
+	}
+	if _, _, err := setBotEnvTool(context.Background(), nil, botEnvIn{Name: "selfy", Key: "LASSO_OAUTH_X_ACCESS", Value: "x", Secret: true}); err == nil {
+		t.Error("set_bot_env wrote lasso's own OAuth key")
+	}
+	if _, _, err := getBotTool(context.Background(), nil, botNameIn{Name: "nobody"}); err == nil {
+		t.Error("get_bot answered a missing bot")
+	}
+}
+
+func TestBotLassoMCPInjected(t *testing.T) {
+	r := &botRecord{Name: "x", Host: "local"}
+	var got struct {
+		MCPServers map[string]map[string]any `json:"mcpServers"`
+	}
+	json.Unmarshal(botMCPJSON(r, "/d", nil), &got)
+	if u, _ := got.MCPServers["lasso"]["url"].(string); !strings.HasSuffix(u, "/mcp") || !strings.HasPrefix(u, "http://") {
+		t.Errorf("lasso server = %v", got.MCPServers["lasso"])
+	}
+	r.MCP = []botMCPServer{{Name: "lasso", Type: "http", URL: "https://mine.example/mcp"}}
+	json.Unmarshal(botMCPJSON(r, "/d", nil), &got)
+	if got.MCPServers["lasso"]["url"] != "https://mine.example/mcp" {
+		t.Error("the human's own lasso server was replaced")
+	}
+	t.Setenv("MCP_OAUTH", "id:secret")
+	if _, ok := botLassoMCP(&botRecord{Host: "local"}); ok {
+		t.Error("offered under MCP_OAUTH")
+	}
+	if _, ok := botLassoMCP(&botRecord{Host: "citadel"}); ok {
+		t.Error("offered to a remote bot")
 	}
 }

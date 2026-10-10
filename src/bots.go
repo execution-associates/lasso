@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -279,8 +280,34 @@ func botMCPJSON(r *botRecord, dir string, signedIn map[string]bool) []byte {
 		}
 		servers[s.Name] = e
 	}
+	// Lasso itself, so the bot can read and change its own settings (get_bot,
+	// update_bot, set_bot_env…) when its human asks. A server the human named
+	// "lasso" wins.
+	if url, ok := botLassoMCP(r); ok {
+		if _, taken := servers["lasso"]; !taken {
+			servers["lasso"] = map[string]any{"type": "http", "url": url}
+		}
+	}
 	out, _ := json.MarshalIndent(map[string]any{"mcpServers": servers}, "", "  ")
 	return append(out, '\n')
+}
+
+// botLassoMCP is the /mcp URL a bot reaches this lasso at: its own listen
+// address, for a bot on lasso's own machine. Not offered to a bot on another
+// host (loopback there is somewhere else), nor while MCP_OAUTH gates /mcp (a
+// bot has no credential to present; the human connects one by hand).
+func botLassoMCP(r *botRecord) (string, bool) {
+	if r.Host != "local" || os.Getenv("MCP_OAUTH") != "" {
+		return "", false
+	}
+	host, port, err := net.SplitHostPort(*listenAddr)
+	if err != nil || port == "" {
+		return "", false
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port) + "/mcp", true
 }
 
 // botClaudeArgv is claude's argv for the bot, without the trailing "$@".
@@ -334,8 +361,9 @@ func botSystemPrompt(r *botRecord, dir string) string {
 - CLAUDE.md in that folder is your standing instructions. Project skills go in .claude/skills/ there.
 - lasso generates .lasso/mcp.json, .mise/config.toml and .mise/tasks/ from its Bots settings and overwrites them on every save: change those through lasso, not by editing the files.
 - Your environment and secrets come from fnox.toml through mise, and only reach you at launch.
+- You can configure yourself when your human asks. Lasso's MCP tools (server "lasso") take your name, %q: get_bot reads your settings, update_bot changes your model, effort, permission mode, MCP servers (including which are channels), extra args, keep-running and avatar, and set_bot_env / unset_bot_env manage your variables (secret ones encrypted). Edit CLAUDE.md and the files in .claude/skills/ directly. A server that needs OAuth must be signed in by your human in lasso's Bots view. Settings, MCP servers and variables take effect after you restart.
 - You CAN restart yourself, and it is safe: run `+"`mise run restart`"+` in %s with your shell tool. That is the supported way, made for exactly this; it is not killing a process or closing a pane by hand. It ends this session a few seconds after your turn finishes and starts it again in the same pane, on this same conversation. Do it whenever your human asks you to restart, and when you need a new skill, MCP server, setting or variable to take effect; say you are restarting before you run it.`,
-		r.Name, dir, dir)
+		r.Name, dir, r.Name, dir)
 }
 
 // botRestartScript renders .mise/tasks/restart: the bot restarting itself,
