@@ -876,6 +876,8 @@ export interface BotDetail {
   // The folder's mise tasks that can launch it (`bot` and the human's own),
   // or null when mise could not list them.
   tasks: string[] | null
+  // The MCP server lasso adds for the bot's own settings tools, or "".
+  lasso_mcp: string
 }
 
 // A bot's picture URL, or "" for the initials avatar. avatar_image carries
