@@ -263,7 +263,7 @@ func TestBotChannelEndpoint(t *testing.T) {
 		t.Fatal("token changed")
 	}
 	j, _ := createBotJob(rec, botJobInput{Name: ptr("a"), Message: ptr("do it")})
-	_, _, _ = runBotJob(j)
+	_, _ = runBotJob(j)
 	srv := httptest.NewServer(http.HandlerFunc(serveBotChannel))
 	defer srv.Close()
 	get := func(token string) (*http.Response, error) {

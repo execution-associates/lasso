@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test"
 
-import { blankBuilder, fromCron, humanize, toCron } from "@/lib/cron"
+import {
+  blankBuilder,
+  fromCron,
+  humanize,
+  onceText,
+  toCron,
+  zoneLocalInput,
+} from "@/lib/cron"
 
 describe("humanize", () => {
   test("reads the common shapes as sentences", () => {
@@ -67,5 +74,17 @@ describe("builder", () => {
     })
     expect(fromCron("0 9 * * 1-5").repeat).toBe("weekdays")
     expect(fromCron("*/7 * * * *").repeat).toBe("custom")
+  })
+})
+
+describe("one-time runs", () => {
+  test("show and edit on the job's clock", () => {
+    const iso = "2026-11-20T16:00:00Z"
+    expect(zoneLocalInput(iso, "UTC")).toBe("2026-11-20T16:00")
+    expect(zoneLocalInput(iso, "America/Los_Angeles")).toBe("2026-11-20T08:00")
+    expect(onceText(iso, "America/Los_Angeles")).toBe(
+      "Once, Nov 20, 2026, 8:00 AM"
+    )
+    expect(zoneLocalInput("nope", "UTC")).toBe("")
   })
 })

@@ -379,6 +379,48 @@ export function timeZones(): string[] {
   return ["UTC", localTimeZone()]
 }
 
+// zoneLocalInput is an instant as a datetime-local value on tz's clock
+// ("2026-11-20T08:00"), which is how a one-time run is edited and sent: the
+// server reads it in the job's zone.
+export function zoneLocalInput(iso: string, tz: string): string {
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return ""
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz || "UTC",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date(t))
+    const get = (k: string) => parts.find((p) => p.type === k)?.value ?? ""
+    return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`
+  } catch {
+    return ""
+  }
+}
+
+// onceText says a one-time run on tz's clock: "Once, Nov 20, 2026, 8:00 AM".
+export function onceText(iso: string, tz: string): string {
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return "Once"
+  try {
+    const when = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz || "UTC",
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(t))
+    return `Once, ${when}`
+  } catch {
+    return "Once"
+  }
+}
+
 // --- when ------------------------------------------------------------------------
 
 // whenText says when an instant is, relative to now: "in 1h 42m", "4h ago",
