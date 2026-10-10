@@ -32,6 +32,7 @@ import {
 import { LOOPBACK, normalize } from "@/lib/browser-url"
 import { qk } from "@/lib/query"
 import {
+  embedMode,
   onSidebarBrowserOpen,
   setLiveBrowserAvailable,
 } from "@/lib/sidebar-browser"
@@ -486,8 +487,9 @@ export function BrowserTab({ active }: { active: boolean }) {
 
   React.useEffect(() => setLiveBrowserAvailable(!unavailable), [unavailable])
 
-  // An agent showing the human a page switches this client to Agent mode, and
-  // a terminal link to the mode it asked for (Iframe, normally), without
+  // An agent showing the human a page switches this client to the mode it
+  // asked for (Agent unless it passed `surface: "iframe"`), and a terminal
+  // link to the mode it asked for (Iframe, normally), without
   // touching the shared preference: it is one page on one screen, not a
   // decision about how every browser shows the tab. Any click on the mode
   // switch hands the choice back.
@@ -526,11 +528,21 @@ export function BrowserTab({ active }: { active: boolean }) {
       ? "/cdp"
       : `/cdp/p/${encodeURIComponent(profile)}`)
 
+  const [openRequest, setOpenRequest] = React.useState<OpenRequest | null>(null)
+  const openSeq = React.useRef(0)
+
   const [show, setShow] = React.useState<BrowserShowRequest | null>(null)
   React.useEffect(
     () =>
       onBrowserShowRequest((req) => {
-        setOverride("live")
+        // An Iframe loads the URL itself; one it cannot show (mixed content,
+        // about:blank) stays on the Agent view, where the tab already is.
+        if (req.mode === "embed" && embedMode(req.url) === "embed") {
+          setOverride("embed")
+          setOpenRequest({ url: req.url, seq: ++openSeq.current })
+        } else {
+          setOverride("live")
+        }
         pickProfile(req.profile)
         setShow(req)
         const st = queryClient.getQueryData<BrowserStatus>(qk.browser)
@@ -551,14 +563,14 @@ export function BrowserTab({ active }: { active: boolean }) {
       ? `Agent browser unavailable: ${reason}. Install Chrome or Chromium, or point LASSO_BROWSER at one, to enable it.`
       : ""
 
-  const [openRequest, setOpenRequest] = React.useState<OpenRequest | null>(null)
-  React.useEffect(() => {
-    let seq = 0
-    return onSidebarBrowserOpen(({ url, mode }) => {
-      setOverride(mode)
-      setOpenRequest({ url, seq: ++seq })
-    })
-  }, [])
+  React.useEffect(
+    () =>
+      onSidebarBrowserOpen(({ url, mode }) => {
+        setOverride(mode)
+        setOpenRequest({ url, seq: ++openSeq.current })
+      }),
+    []
+  )
   const onOpened = React.useCallback(() => setOpenRequest(null), [])
 
   const modeSwitch = (
