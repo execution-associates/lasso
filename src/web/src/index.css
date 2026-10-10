@@ -335,8 +335,9 @@
    * the status bar, and the ramp with it. -webkit-touch-callout scopes this to
    * iOS WebKit, since Android's installed apps have no such blur. */
   @supports (-webkit-touch-callout: none) {
-    @media (display-mode: standalone) and (pointer: coarse) and
-      (orientation: portrait) {
+    @media (display-mode: standalone) and (pointer: coarse) and (
+        orientation: portrait
+      ) {
       :root {
         --edge-ramp: 2.5rem;
       }
@@ -530,13 +531,32 @@
   background-size: cover;
 }
 
-/* Same opt-out, for the same reason, one level up: at phone widths the sidebar
- * OVERLAYS the terminal full-screen instead of sitting beside it, so at --card's
- * 55% the terminal's text read straight through Settings' prose. A surface that
- * covers something has to be opaque. Desktop keeps the translucency — there the
- * sidebar floats on the backdrop with nothing but wallpaper behind it. Matches
- * Tailwind's `md` breakpoint, which is what switches the panel to an overlay. */
-@media (max-width: 767px) {
+/* On a phone, either way up, an open sidebar takes the whole screen instead of
+ * splitting it: lifted out of the panel group's flow and laid over the left
+ * column. "A phone" is below md, or a touch screen too short to be anything but
+ * a phone on its side (844x390 and the like are past md, and split there the
+ * screen is two slivers neither of which can be read); a tablet is taller than
+ * 500px both ways, so it keeps the desktop split. Plain CSS rather than a
+ * Tailwind variant, and unlayered, so it beats the panel's own `relative` and
+ * `border-l` utilities. App.tsx adds .sidebar-open only while the panel is
+ * expanded, so a collapsed one stays 0 wide rather than covering everything.
+ *
+ * The background is the atmosphere's translucency opt-out, one level up from
+ * the backdrop's: at --card's 55% the terminal's text read straight through
+ * Settings' prose. A surface that covers something has to be opaque. Desktop
+ * keeps the translucency — there the sidebar floats on the backdrop with
+ * nothing but wallpaper behind it. */
+@media (max-width: 767px), (pointer: coarse) and (max-height: 500px) {
+  .sidebar-panel.sidebar-open {
+    position: absolute;
+    inset: 0;
+    z-index: 30;
+    width: 100%;
+    border-left-width: 0;
+  }
+  .sidebar-handle {
+    display: none;
+  }
   :root[data-atmosphere] .sidebar-panel {
     background-color: var(--h-panel);
   }

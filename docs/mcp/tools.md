@@ -425,7 +425,6 @@ Changes a bot's settings. Only the fields you pass change.
 | `launch_task` | string | optional | The mise task in the bot's folder that launches it: a mode, such as another provider, that sets its environment and ends with `exec mise run bot -- "$@"`. `""` or `bot` for the generated one. Refused unless the folder defines it. |
 | `keep_running` | boolean | optional | Relaunch the bot when it stops unexpectedly. |
 | `notify` | boolean | optional | Push a notification to the human's devices each time the bot finishes a reply. |
-| `avatar` | string | optional | Up to 8 characters (an emoji or initials). |
 | `workspace` | string | optional | The herdr workspace it opens in, from its next start. |
 
 lasso rewrites the bot's launch script and MCP config. Returns `ok` and `restart_needed`, true when the bot is running and reads the change only at launch. A bot restarting itself runs `mise run restart` in its folder. Its `CLAUDE.md` and skills are files in its folder, edited directly rather than through this tool.

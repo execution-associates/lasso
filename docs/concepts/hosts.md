@@ -43,7 +43,7 @@ These display groups are unrelated to **MCP host groups** (`lasso mcp-group`), w
 
 ## A host belongs to a browser tab
 
-Picking a host in the menu (the server icon in the desktop footer, or **Lasso → Host** on the phone's input dial) moves **that browser tab** to the machine: its terminal, its pane list, its file sidebar. Other tabs stay where they are, so two tabs can sit on two machines at once.
+Picking a host in the menu (the server icon in the desktop footer, or **Host** in the phone's view picker, the input dial's big button) moves **that browser tab** to the machine: its terminal, its pane list, its file sidebar. Other tabs stay where they are, so two tabs can sit on two machines at once.
 
 - A new tab starts on the **default host**, `local`.
 - The choice survives a reload of that tab, and you can deep-link a tab to a host with `?host=<alias>` in the URL.
