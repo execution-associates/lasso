@@ -9,9 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode/utf8"
 )
@@ -37,6 +39,7 @@ type botRuntime struct {
 	misses   map[string]int
 	reported map[string]string // name -> pane+session last reported to herdr
 	lines    map[string]botLastLine
+	runLock  *os.File // held while this lasso runs the loop (botsOwnLoop)
 }
 
 type botLastLine struct {
@@ -308,7 +311,37 @@ func startBotLoop(ctx context.Context) {
 // botRelaunch is how botTick brings a keep-running bot back. A seam for tests.
 var botRelaunch = func(b Backend, r *botRecord) error { return startBot(b, r, false) }
 
+// botsOwnLoop reports whether this lasso runs the bot loop, taking the lock
+// when it is free. Two lassos sharing a lasso.db (titan's dev and production
+// both read ~/.lasso) would otherwise both relaunch the same bot and race each
+// other's resume reports. The kernel drops the flock when its holder exits, so
+// the survivor takes over on its next tick. Interactive Start/Stop work from
+// either lasso; only the unattended half is single-runner.
+func botsOwnLoop() bool {
+	bots.mu.Lock()
+	defer bots.mu.Unlock()
+	if bots.runLock != nil {
+		return true
+	}
+	path := filepath.Join(lassoDir(), "bots.runner.lock")
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return false
+	}
+	if syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
+		f.Close()
+		return false
+	}
+	_ = f.Truncate(0)
+	_, _ = f.WriteAt([]byte(fmt.Sprintf("pid %d, %s\n", os.Getpid(), listenNote())), 0)
+	bots.runLock = f
+	return true
+}
+
 func botTick() {
+	if !botsOwnLoop() {
+		return
+	}
 	list, err := listBots()
 	if err != nil || len(list) == 0 {
 		return
