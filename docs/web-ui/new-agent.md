@@ -5,7 +5,7 @@ order: 33
 nav_title: New agent
 ---
 
-The **New** dialog starts a coding agent in a fresh herdr pane, or opens a plain terminal, on any host lasso can reach. Open it with the footer's **New** button, `⌘O` (agent form) or `⌘I` (terminal form), or the input dial's **New** target on a phone.
+The **New** dialog starts a coding agent in a fresh herdr pane, or opens a plain terminal, on any host lasso can reach. Open it with the footer's **New** button, `⌘O` (Git agent), `⌘⇧O` (Scratch agent) or `⌘I` (terminal form), or the input dial's **New** target on a phone.
 
 It has two tabs, **Agent** and **Terminal**. From the chat view or the Grid only the agent form is offered, titled **New agent**, since those views have no terminal to show a new shell in. `⌘↩` (or `Ctrl↩`) submits either form from any field.
 
@@ -64,7 +64,7 @@ The **Advanced** button reveals more fields. Whether it is open is remembered.
 
 ### Remembered between openings
 
-The dialog remembers, per host and in this browser, what you last selected: Git or Scratch, the repository, the agent, and that agent's model, effort, extra args, plan mode and advisor settings, plus the branch prefix and whether Advanced is open. Model, effort and the other harness-specific values are only restored for the same harness. The prompt and attachments are never kept.
+The dialog remembers, per host and in this browser, what you last selected: Git or Scratch (unless it was opened with `⌘O` or `⌘⇧O`, which pick one), the repository, the agent, and that agent's model, effort, extra args, plan mode and advisor settings, plus the branch prefix and whether Advanced is open. Model, effort and the other harness-specific values are only restored for the same harness. The prompt and attachments are never kept.
 
 ### What happens when you create
 
