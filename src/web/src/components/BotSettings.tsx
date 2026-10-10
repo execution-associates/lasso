@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { JobsTab } from "@/components/BotJobs"
 import {
   BotAvatar,
   BotStateMark,
@@ -75,6 +76,7 @@ import { cn } from "@/lib/utils"
 type Tab =
   | "general"
   | "connections"
+  | "jobs"
   | "skills"
   | "instructions"
   | "environment"
@@ -83,6 +85,7 @@ type Tab =
 const TABS: { id: Tab; label: string; existing?: boolean }[] = [
   { id: "general", label: "General" },
   { id: "connections", label: "Connections" },
+  { id: "jobs", label: "Jobs", existing: true },
   { id: "skills", label: "Skills", existing: true },
   { id: "instructions", label: "Instructions", existing: true },
   { id: "environment", label: "Environment", existing: true },
@@ -924,6 +927,7 @@ function ConnectionsTab({
   set,
   bot,
   lassoMCP,
+  lassoChannel,
 }: {
   draft: Draft
   set: (patch: Partial<Draft>) => void
@@ -931,6 +935,8 @@ function ConnectionsTab({
   bot?: BotView
   // The server lasso adds for the bot's own settings tools, or "".
   lassoMCP?: string
+  // Whether lasso adds its channel, which delivers the bot's jobs.
+  lassoChannel?: boolean
 }) {
   const oauthKey = ["bot-oauth", bot?.name ?? ""]
   const oauth = useQuery({
@@ -960,14 +966,15 @@ function ConnectionsTab({
   const channels = draft.mcp.filter((s) => s.channel)
   const lassoCard = !!lassoMCP
   const counts = {
-    all: draft.mcp.length + (lassoCard ? 1 : 0),
-    channels: channels.length,
+    all: draft.mcp.length + (lassoCard ? 1 : 0) + (lassoChannel ? 1 : 0),
+    channels: channels.length + (lassoChannel ? 1 : 0),
     tools: draft.mcp.length - channels.length + (lassoCard ? 1 : 0),
   }
   const shown = draft.mcp.filter((s) =>
     filter === "all" ? true : filter === "channels" ? s.channel : !s.channel
   )
   const showLasso = lassoCard && filter !== "channels"
+  const showChannel = !!lassoChannel && filter !== "tools"
   const add = () => {
     const s = blankServer(filter === "channels")
     set({ mcp: [...draft.mcp, s] })
@@ -1027,7 +1034,7 @@ function ConnectionsTab({
           Add connection
         </Button>
       </div>
-      {shown.length === 0 && !showLasso ? (
+      {shown.length === 0 && !showLasso && !showChannel ? (
         <p className="rounded-lg border border-border border-dashed px-3 py-6 text-center text-[12.5px] text-muted-foreground">
           {filter === "channels"
             ? "No channels yet. A channel is an MCP server that delivers messages to the bot."
@@ -1047,6 +1054,7 @@ function ConnectionsTab({
             />
           ))}
           {showLasso && <LassoCard url={lassoMCP ?? ""} />}
+          {showChannel && <LassoChannelCard />}
         </div>
       )}
       <Check
@@ -1198,6 +1206,28 @@ function LassoCard({ url }: { url: string }) {
       <span className="text-[11.5px] text-muted-foreground leading-snug">
         Its own settings tools: get_bot, update_bot, set_bot_env, set_bot_avatar
         and more.
+      </span>
+    </div>
+  )
+}
+
+// lasso's channel for the bot, read-only like LassoCard: it delivers the
+// Jobs tab's scheduled prompts and webhooks.
+function LassoChannelCard() {
+  return (
+    <div className="flex min-w-0 flex-col gap-1 rounded-lg border border-border border-dashed p-3">
+      <span className="flex min-w-0 items-center gap-1.5">
+        <Radio className="size-3.5 shrink-0 text-primary" />
+        <span className="min-w-0 truncate font-medium font-mono text-[12.5px] text-foreground">
+          lasso-channel
+        </span>
+        <span className="ml-auto shrink-0 text-[10.5px] text-muted-foreground">
+          added by lasso
+        </span>
+      </span>
+      <span className="text-[11.5px] text-muted-foreground leading-snug">
+        Delivers this bot's jobs: scheduled prompts and webhooks, set up in the
+        Jobs tab.
       </span>
     </div>
   )
@@ -2224,7 +2254,13 @@ export function BotSettings({
       </div>
       <TabStrip tabs={tabs} value={tab} onChange={setTab} />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 py-4">
+        <div
+          className={cn(
+            "mx-auto flex w-full flex-1 flex-col px-4 py-4",
+            // The job cards are a grid that earns a third column.
+            tab === "jobs" ? "max-w-5xl" : "max-w-3xl"
+          )}
+        >
           {detail.error ? (
             <p className="text-[12.5px] text-destructive">
               could not load {name}: {(detail.error as Error).message}
@@ -2239,8 +2275,11 @@ export function BotSettings({
               set={set}
               bot={bot}
               lassoMCP={detail.data?.lasso_mcp}
+              lassoChannel={!!detail.data?.lasso_channel}
             />
-          ) : !bot || !detail.data ? null : tab === "skills" ? (
+          ) : !bot || !detail.data ? null : tab === "jobs" ? (
+            <JobsTab bot={bot} />
+          ) : tab === "skills" ? (
             <SkillsTab bot={bot} />
           ) : tab === "instructions" ? (
             <InstructionsTab bot={bot} path={detail.data.claude_md} />

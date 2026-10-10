@@ -448,6 +448,17 @@ Sets a bot's picture, shown in the Bots view and on its notifications, from an i
 | `path` | string | optional | An absolute or `~/` path to a PNG, JPEG, WebP or GIF of at most 2 MB. The type is read from the file's content. |
 | `clear` | boolean | optional | Remove the picture, back to the text avatar. |
 
+### `list_bot_jobs`, `create_bot_job`, `update_bot_job`, `delete_bot_job`, `run_bot_job`
+
+A bot's jobs: messages lasso delivers into its session through its `lasso-channel`, on a schedule, from a webhook, or when run by hand. Each takes the bot's `name`, and all but `list_bot_jobs` take `job`. Changes apply at once, with no restart.
+
+- `list_bot_jobs` returns `jobs` (each with `message`, `cron`, `timezone`, `enabled`, `webhook`, `webhook_path`, `webhook_key`, `next_at`, `last` and `queued`) and `channel` (`available`, `connected`). A webhook's URL is lasso's own origin + `webhook_path` + `?key=` + `webhook_key`.
+- `create_bot_job` takes `message`, `cron` (5-field cron, several joined with `;`; empty for none), `timezone` (IANA, default UTC), `webhook` and `paused`.
+- `update_bot_job` changes only what it is passed: `rename`, `message`, `cron`, `timezone`, `webhook`, `enabled`.
+- `run_bot_job` fires the job now (a paused one too) and returns `event_id` and `status`: `pending`, or `dropped` when the bot is stopped.
+
+Jobs are only for bots on lasso's own machine.
+
 ### `start_bot`, `stop_bot`, `restart_bot`
 
 Each takes `name`. `start_bot` and `restart_bot` resume the bot's last conversation unless `fresh` is true. `stop_bot` closes its pane and keeps it stopped (keep-running leaves it alone) until it is started again; the conversation stays on disk. Each returns `bot`, the bot's `list_bots` entry after the change.

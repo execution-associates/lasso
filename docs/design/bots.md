@@ -12,8 +12,12 @@ Code:
 - `botsapi.go`: `/api/bots`.
 - `botavatar.go`: the bot's picture.
 - `mcp_bots.go`: `list_bots`, `get_bot`, `update_bot`, `set_bot_env`, `unset_bot_env`, `set_bot_avatar`, `start_bot`, `stop_bot` and `restart_bot`.
+- `botjobs.go`: jobs (schedules and webhooks), their queue, the scheduler, `/hooks/bots/…` and `/bot-channel/…`.
+- `botchannel.go`: `lasso channel`, the stdio channel server claude runs.
+- `cron.go`: the 5-field cron parser and next-fire calculation.
+- `mcp_botjobs.go`: `list_bot_jobs`, `create_bot_job`, `update_bot_job`, `delete_bot_job` and `run_bot_job`.
 
-The frontend is `BotsView.tsx`, `BotSettings.tsx`, `BotsManage.tsx` and `BotParts.tsx`, with `lib/bots.ts` (the list poll, unread) and the `/bots/…` routes in `lib/url.ts`. The Bots app is `public/manifest-bots.json`, the manifest swap in `main.tsx` and `BotsApp` in `App.tsx`. Notifications ride the shared Web Push path (`notifications.md`), with `sw.js` honouring the payload's `url` and `icon`.
+The frontend is `BotsView.tsx`, `BotSettings.tsx`, `BotJobs.tsx` (with `lib/cron.ts`), `BotsManage.tsx` and `BotParts.tsx`, with `lib/bots.ts` (the list poll, unread) and the `/bots/…` routes in `lib/url.ts`. The Bots app is `public/manifest-bots.json`, the manifest swap in `main.tsx` and `BotsApp` in `App.tsx`. Notifications ride the shared Web Push path (`notifications.md`), with `sw.js` honouring the payload's `url` and `icon`.
 
 ## What a bot is
 
@@ -29,7 +33,7 @@ The frontend is `BotsView.tsx`, `BotSettings.tsx`, `BotsManage.tsx` and `BotPart
 | `.mise/config.toml` | lasso | `min_version`, experimental mode and `[secrets.fnox]`, rewritten on every save |
 | `.mise/tasks/bot` | lasso | the launch script, regenerated from the row on every save and on every env change |
 | `mise.toml` | the human | optional (tools, say). Lasso never writes or trusts it |
-| `.lasso/mcp.json` | lasso | the MCP servers, plus lasso's own as `lasso` (below), regenerated on every save |
+| `.lasso/mcp.json` | lasso | the MCP servers, plus lasso's own as `lasso` and `lasso-channel` (below), regenerated on every save. Mode 0600: it holds the channel token |
 | `.lasso/avatar.<ext>` | lasso | the picture, written by `storeBotAvatar` only |
 
 The whole launch is `mise run bot` in the folder. mise asks fnox for the variables the task lists (`#MISE secrets=[…]`) and hands them to that task alone, and the task execs claude with these flags:
@@ -99,3 +103,19 @@ The whole launch is `mise run bot` in the folder. mise asks fnox for the variabl
   - **Skip:** the service worker drops one whose chat is focused and visible in some window, except on iOS, where a push that shows nothing costs the origin its permission.
 - **The Bots app is a second manifest for the same origin.** Under `/bots`, `main.tsx` points the manifest link at `/manifest-bots.json` (id and scope `/bots`, start URL `/bots?app=bots`, name "Lasso Bots") and the iOS title at "Bots" before render. It is done client-side so it works under Vite as well as from the embedded bundle, and is in place before a browser reads it at install time. App mode is decided once at boot: a `/bots` path in a standalone window, or `?app=bots`, renders `BotsApp`, the Bots view alone with no Shell, footer or terminal. An installed app is its own device to the browser, with its own permission and push subscription, so the list header carries a bell (`NotifyBell`) that runs `enablePush`/`disablePush` from the click.
 - **The compact layout follows the view's own width.** `BotsView` measures itself with a `ResizeObserver` and folds the list away below 760 px. A wide right sidebar or a narrow window then gets the phone layout as well, which a viewport query would miss. Folded, the list is its own page, the other pages carry **‹ Bots**, and the chat's title becomes `BotSwitcher`: every bot with its state, then All bots, Manage bots and New bot.
+
+## Jobs
+
+A job is a message lasso delivers into a bot's session on a schedule, from a webhook, or when run by hand. Jobs replace a per-bot everloop: they live in `lasso.db`, so a bot needs no timers or spool of its own, and changes need no restart.
+
+- **The channel is lasso's own binary, spawned by claude.** Claude Code channels are stdio MCP servers that the session starts itself, so neither `/mcp` nor any HTTP route can be one. `botMCPJSON` adds `lasso-channel` (`lasso channel --bot <name>`, this binary's resolved path) with `LASSO_URL` (lasso's loopback address) and `LASSO_CHANNEL_TOKEN` in its env, and the launch line grants it like any channel. The process declares `experimental["claude/channel"]`, offers no tools, long-polls `GET /bot-channel/<bot>/next` (25s), writes each event as `notifications/claude/channel` and acks it. Its MCP is hand-rolled JSON-RPC, since the SDK has no way to declare the capability or send that method.
+- **The token is per bot,** made on first need (`bots.channel_token`) and kept, so a running channel survives a lasso restart. `/bot-channel/` is exempt from UI_AUTH and checks only that token, so the channel works under `MCP_OAUTH` too, unlike the `lasso` server. `.lasso/mcp.json` is written 0600 because it holds it.
+- **Local bots only.** The channel reaches lasso over loopback, the same reason `lasso` is only added for `local`. A job for another host's bot is refused (`botChannelOffered`), and a server of the bot's own named `lasso-channel` wins.
+- **Delivery is claim, notify, ack: at least once.** `bot_events` is both the queue and the history. A claim that is never acked is handed out again after 60s. The event carries `job`, `trigger` (`schedule`, `run` or `webhook`), `event_id`, `count` and `fired_at` as tag attributes, so a redelivery is recognisable.
+- **Firings merge.** A schedule or Run now whose job already has an undelivered (not yet claimed) schedule/run event bumps its `count` instead of queuing another, so a busy or disconnected bot gets one event, not a backlog. Webhooks never merge (each body differs). At most 50 undelivered events per bot (the oldest go), and anything not picked up within a day is dropped.
+- **A stopped bot's firings are dropped and logged,** never queued, so starting a bot after a week does not replay a week of sweeps. A webhook to a paused job is accepted and logged as dropped.
+- **The scheduler is the bot loop's** (`botJobsTick` from `botTick`), so only the lasso holding `bots.runner.lock` fires schedules. `next_at` is stored per job. A fire missed while lasso was down fires once on the next tick, and the schedule carries on from now. Webhooks and Run now queue from whichever lasso answers, and the channel's long-poll looks at the db every 2s as well as waking on its own lasso's events.
+- **The runner rewrites each local bot's task and mcp.json once when it takes the loop** (`botSyncChannelFiles`), so a bot saved before jobs existed, or one whose mcp.json names a lasso binary an update replaced, gets the current channel on its next start without a save.
+- **Schedules are 5-field cron in an IANA zone,** several expressions joined with `;` so the builder can say "7:47 AM and 9:15 AM". Vixie rules: both day fields restricted means either matches. A time a spring-forward gap skips does not fire that day, and one a fall-back repeats fires once. `time/tzdata` is embedded. The Jobs tab never shows cron unless the human picks Custom: `lib/cron.ts` writes it from the builder and reads it back as a sentence. The server's `jobs/preview` is the authority on validity and next fires.
+- **A webhook's key is its only credential.** `POST /hooks/bots/<bot>/<job>` is exempt from UI_AUTH; the key comes as `?key=` or a bearer token, compared in constant time. A wrong key, a missing job and a job without a webhook all answer 404. The body (≤64 KB, UTF-8) is appended to the message under a line saying it came from the caller, and the channel's instructions tell the bot to treat it as data, never instructions.
+

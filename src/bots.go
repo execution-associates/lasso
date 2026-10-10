@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -110,6 +109,9 @@ type botRecord struct {
 	LastSessionID string `json:"last_session_id"`
 	CreatedAt     string `json:"created_at"`
 	UpdatedAt     string `json:"updated_at"`
+	// channelToken is the credential lasso's channel presents for this bot
+	// (botjobs.go). Never in JSON; botMaterialize loads it before rendering.
+	channelToken string
 }
 
 // botDefaultWorkspace is the herdr workspace a bot's tab goes into when its
@@ -276,6 +278,18 @@ func (r *botRecord) channels() []string {
 	return out
 }
 
+// channelGrants is every channel the launch grants: the bot's own, then
+// lasso's (jobs and webhooks) when it is in the bot's mcp.json.
+func (r *botRecord) channelGrants() []string {
+	out := r.channels()
+	if r.channelToken != "" {
+		if ok, _ := botChannelOffered(r); ok {
+			out = append(out, botChannelName)
+		}
+	}
+	return out
+}
+
 // --- the generated files ----------------------------------------------------
 
 func botTaskPath(dir string) string    { return filepath.Join(dir, ".mise", "tasks", "bot") }
@@ -320,6 +334,19 @@ func botMCPJSON(r *botRecord, dir string, signedIn map[string]bool) []byte {
 			servers["lasso"] = map[string]any{"type": "http", "url": url}
 		}
 	}
+	// Lasso's channel, which delivers the bot's jobs and webhooks
+	// (botjobs.go). It runs this lasso binary and reaches back over loopback
+	// on the bot's own token, so it is offered under MCP_OAUTH too.
+	if base, ok := botLassoBase(); ok && r.channelToken != "" {
+		if offered, _ := botChannelOffered(r); offered {
+			servers[botChannelName] = map[string]any{
+				"type":    "stdio",
+				"command": botLassoExe(),
+				"args":    []string{"channel", "--bot", r.Name},
+				"env":     map[string]string{"LASSO_URL": base, "LASSO_CHANNEL_TOKEN": r.channelToken},
+			}
+		}
+	}
 	out, _ := json.MarshalIndent(map[string]any{"mcpServers": servers}, "", "  ")
 	return append(out, '\n')
 }
@@ -332,14 +359,11 @@ func botLassoMCP(r *botRecord) (string, bool) {
 	if r.Host != "local" || os.Getenv("MCP_OAUTH") != "" {
 		return "", false
 	}
-	host, port, err := net.SplitHostPort(*listenAddr)
-	if err != nil || port == "" {
+	base, ok := botLassoBase()
+	if !ok {
 		return "", false
 	}
-	if host == "" || host == "0.0.0.0" || host == "::" {
-		host = "127.0.0.1"
-	}
-	return "http://" + net.JoinHostPort(host, port) + "/mcp", true
+	return base + "/mcp", true
 }
 
 // botClaudeArgv is claude's argv for the bot, without the trailing "$@".
@@ -351,7 +375,7 @@ func botClaudeArgv(r *botRecord, dir string) []string {
 	}
 	// One grant per channel. `--channels` is accepted but delivers nothing for
 	// server: entries and does not split on commas, so it is no substitute.
-	for _, ch := range r.channels() {
+	for _, ch := range r.channelGrants() {
 		argv = append(argv, "--dangerously-load-development-channels", "server:"+ch)
 	}
 	if r.Model != "" {
@@ -460,7 +484,7 @@ if [ -n "${HERDR_PANE_ID:-}" ] && command -v herdr >/dev/null 2>&1; then
     done
   ) &
 `)
-	if len(r.channels()) > 0 {
+	if len(r.channelGrants()) > 0 {
 		b.WriteString(`  # --dangerously-load-development-channels stops on a menu every launch, and
   # nothing pre-accepts it. Answer it only once its own wording is on screen.
   (
@@ -558,12 +582,8 @@ func botMaterialize(b Backend, r *botRecord) error {
 	if err := botWriteTask(b, r, dir); err != nil {
 		return err
 	}
-	signedIn := map[string]bool{}
-	for name, row := range listBotOAuth(r.Name) {
-		signedIn[name] = row.Status != ""
-	}
-	if err := b.WriteFile(botMCPPath(dir), botMCPJSON(r, dir, signedIn), 0o644); err != nil {
-		return fmt.Errorf("write mcp.json: %w", err)
+	if err := botWriteMCP(b, r, dir); err != nil {
+		return err
 	}
 	md := filepath.Join(dir, "CLAUDE.md")
 	if _, err := b.Stat(md); err != nil {
@@ -575,10 +595,43 @@ func botMaterialize(b Backend, r *botRecord) error {
 	return nil
 }
 
+// botLoadChannelToken puts the bot's channel token on the record (making one
+// the first time), so the files rendered from it carry lasso's channel.
+func botLoadChannelToken(r *botRecord) {
+	if offered, _ := botChannelOffered(r); !offered {
+		return
+	}
+	if tok, err := ensureBotChannelToken(r.Name); err == nil {
+		r.channelToken = tok
+	}
+}
+
+// botWriteMCP regenerates .lasso/mcp.json when it changed. It holds the
+// channel token, so it is the owner's alone.
+func botWriteMCP(b Backend, r *botRecord, dir string) error {
+	botLoadChannelToken(r)
+	signedIn := map[string]bool{}
+	for name, row := range listBotOAuth(r.Name) {
+		signedIn[name] = row.Status != ""
+	}
+	body := botMCPJSON(r, dir, signedIn)
+	if cur, err := b.ReadFile(botMCPPath(dir)); err == nil && string(cur) == string(body) {
+		return nil
+	}
+	if err := b.WriteFile(botMCPPath(dir), body, 0o600); err != nil {
+		return fmt.Errorf("write mcp.json: %w", err)
+	}
+	if _, ok := b.(*localBackend); ok {
+		_ = os.Chmod(botMCPPath(dir), 0o600)
+	}
+	return nil
+}
+
 // botWriteTask regenerates .mise/tasks/bot, granting the variables fnox.toml
 // defines now. Every env change calls it, or a new variable never reaches
 // the bot.
 func botWriteTask(b Backend, r *botRecord, dir string) error {
+	botLoadChannelToken(r)
 	for path, body := range map[string]string{
 		botTaskPath(dir):    botTaskScript(r, dir, botEnvKeys(b, dir)),
 		botRestartPath(dir): botRestartScript(dir),
@@ -717,6 +770,7 @@ func reorderBots(names []string) error {
 
 func deleteBot(name string) error {
 	_, _ = db.Exec(`DELETE FROM bot_mcp_oauth WHERE bot = ?`, name)
+	deleteBotJobsOf(name)
 	_, err := db.Exec(`DELETE FROM bots WHERE name = ?`, name)
 	return err
 }

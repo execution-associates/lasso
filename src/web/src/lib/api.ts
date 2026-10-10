@@ -878,6 +878,62 @@ export interface BotDetail {
   tasks: string[] | null
   // The MCP server lasso adds for the bot's own settings tools, or "".
   lasso_mcp: string
+  // Whether lasso adds its channel (jobs and webhooks) to the bot.
+  lasso_channel?: boolean
+}
+
+// A delivery of a bot job: queued, in flight, delivered or dropped.
+export interface BotJobEvent {
+  id: number
+  job: string
+  kind: "schedule" | "webhook" | "run"
+  // How many firings it covers (merged while the bot was busy).
+  count: number
+  status: "pending" | "claimed" | "delivered" | "dropped"
+  reason?: string
+  // The webhook caller's address.
+  source?: string
+  created_at: string
+  fired_at: string
+  done_at?: string
+}
+
+// A scheduled prompt and/or webhook lasso delivers into a bot's session.
+export interface BotJob {
+  id: number
+  bot: string
+  name: string
+  message: string
+  // 5-field cron, several joined with ";"; "" for no schedule.
+  cron: string
+  timezone: string
+  enabled: boolean
+  webhook: boolean
+  webhook_key?: string
+  // /hooks/bots/<bot>/<job>, on lasso's own origin.
+  webhook_path?: string
+  next_at: string
+  last?: BotJobEvent
+  // Firings waiting for the bot.
+  queued: number
+  created_at: string
+  updated_at: string
+}
+
+export interface BotJobFields {
+  name?: string
+  message?: string
+  cron?: string
+  timezone?: string
+  enabled?: boolean
+  webhook?: boolean
+}
+
+export interface BotChannelState {
+  available: boolean
+  reason?: string
+  connected: boolean
+  seen_at?: string
 }
 
 // A bot's picture URL, or "" for the initials avatar. avatar_image carries
@@ -1943,6 +1999,43 @@ export const api = {
       sendJSON<{ skills: BotSkill[] }>(
         "DELETE",
         botURL(name, `/skills?name=${encodeURIComponent(skill)}`)
+      ),
+    jobs: (name: string) =>
+      getJSON<{ jobs: BotJob[]; channel: BotChannelState; now: string }>(
+        botURL(name, "/jobs")
+      ),
+    jobCreate: (name: string, body: BotJobFields) =>
+      postJSON<{ job: BotJob }>(botURL(name, "/jobs"), body),
+    jobUpdate: (name: string, job: string, body: BotJobFields) =>
+      sendJSON<{ job: BotJob }>(
+        "PUT",
+        botURL(name, `/jobs/${encodeURIComponent(job)}`),
+        body
+      ),
+    jobDelete: (name: string, job: string) =>
+      sendJSON<{ ok: boolean }>(
+        "DELETE",
+        botURL(name, `/jobs/${encodeURIComponent(job)}`)
+      ),
+    jobRun: (name: string, job: string) =>
+      postJSON<{ event_id: number; status: string }>(
+        botURL(name, `/jobs/${encodeURIComponent(job)}/run`),
+        {}
+      ),
+    jobRotate: (name: string, job: string) =>
+      postJSON<{ job: BotJob }>(
+        botURL(name, `/jobs/${encodeURIComponent(job)}/rotate`),
+        {}
+      ),
+    jobEvents: (name: string, job: string) =>
+      getJSON<{ events: BotJobEvent[] }>(
+        botURL(name, `/jobs/${encodeURIComponent(job)}/events`)
+      ),
+    // Validates a schedule and lists its next fires (ISO), or says why not.
+    jobPreview: (name: string, cron: string, timezone: string) =>
+      postJSON<{ next?: string[]; error?: string }>(
+        botURL(name, "/jobs/preview"),
+        { cron, timezone }
       ),
     // The host's own ~/.claude/skills, to pick from.
     skillLibrary: (host: string) =>
