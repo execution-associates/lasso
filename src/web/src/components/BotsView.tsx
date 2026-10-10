@@ -11,6 +11,7 @@ import {
   Plus,
   RotateCcw,
   Settings,
+  SquareTerminal,
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
@@ -317,6 +318,23 @@ function SettingsButton({ onClick }: { onClick: () => void }) {
   )
 }
 
+// The bot's pane in the terminal, from its chat header. md+ only: below md the
+// view picker beside it is the way between views, as everywhere the input
+// dial is covered.
+function TerminalButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title="Open in terminal"
+      aria-label="Open in terminal"
+      className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground max-md:hidden"
+    >
+      <SquareTerminal className="size-4" />
+    </button>
+  )
+}
+
 // The phone's way back to the list, at the left of every page's header.
 // BotSwitcher is the chat header's title when the view is too narrow for the
 // list beside it: the bot's name, opening every bot to switch to, plus the
@@ -572,7 +590,8 @@ export function BotsView({
   // On screen. The view stays mounted while hidden (so a conversation keeps
   // its scroll and draft), and every poll in it stops then.
   active: boolean
-  // Switch the left column to the terminal (Settings → Open terminal).
+  // Switch the left column to the terminal (a bot's Open in terminal, from
+  // its chat header or its settings).
   onShowTerminal: () => void
   // The phone's view picker (App's), since this view covers the input dial
   // that otherwise opens it. Absent in the Bots app, which has no other view.
@@ -710,6 +729,7 @@ export function BotsView({
               <SettingsButton
                 onClick={() => go({ page: "settings", name: current.name })}
               />
+              <TerminalButton onClick={() => void openTerminal(current)} />
               <ViewsButton onOpen={onOpenViews} />
             </>
           }

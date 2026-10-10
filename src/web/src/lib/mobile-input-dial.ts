@@ -1,14 +1,17 @@
-import { emitMobileCommand, type MobileCommand } from "@/lib/mobile-command"
+import { emitMobileCommand } from "@/lib/mobile-command"
 import { sendKeyToTerminal, type VirtualKey } from "@/lib/terminal"
 
-// The floating input controls injected inside each same-origin terminal
-// iframe: the app's chrome for every device and width the md+ footer does not
-// cover. Keeping the dial beside xterm's textarea is intentional: preventDefault
-// on a same-document pointer gesture preserves the iOS software keyboard, while
-// a control in the parent document would dismiss it and could not reopen it.
-// That is why it lives here even at a width a mouse reached by dragging a
-// window narrow — one control, one implementation, rather than a second copy in
-// the parent document for the pointer that does not need the keyboard trick.
+// The floating controls injected inside each same-origin terminal iframe: the
+// app's chrome for every device and width the md+ footer does not cover. The
+// root opens the view picker (where New, Search, Host and the sidebar live
+// too), and the smaller button above it opens a ring of the keys a touch
+// keyboard lacks. Keeping them beside xterm's textarea is intentional:
+// preventDefault on a same-document pointer gesture preserves the iOS software
+// keyboard, while a control in the parent document would dismiss it and could
+// not reopen it. That is why they live here even at a width a mouse reached by
+// dragging a window narrow — one control, one implementation, rather than a
+// second copy in the parent document for the pointer that does not need the
+// keyboard trick.
 
 // Exported so terminal.ts can tell a tap on the dial from a tap on the terminal.
 export const DIAL_ID = "__lasso_mobile_input_dial"
@@ -17,115 +20,46 @@ const TRACKING_CLASS = "__lasso_mobile_input_dial_tracking"
 const HOLD_MS = 140
 const ROOT_SIZE = 58
 const ITEM_SIZE = 54
-// The dedicated destination button above-right of the root, the view picker.
-// Deliberately smaller than ROOT_SIZE — a destination, not the control you are
-// operating, and it may not read as a second dial — but not smaller than the
-// 44px a thumb needs.
+// The keys button above-right of the root. Deliberately smaller than ROOT_SIZE,
+// so the two do not read as twin controls, but not smaller than the 44px a
+// thumb needs.
 const SAT_SIZE = 44
 // How far the dial's own box floats above the safe-area inset: the root's own
-// 18px, in the thumb's home corner. The picker button hangs ABOVE the root, so
+// 18px, in the thumb's home corner. The keys button hangs ABOVE the root, so
 // nothing paints below this line and TERMINAL_BOTTOM_GAP still clears it.
 const DIAL_BOTTOM = 18
-const BACK_RADIUS = 44
 const TERMINAL_BOTTOM_GAP = 24
+// The keys button's centre relative to the root's, from .dial-keys' placement
+// below: left at 100% - 30px, bottom at 100% - 3px. The ring's lines start
+// here, so the keys read as opened from the button that opened them.
+const KEYS_DX = ROOT_SIZE - 30 + SAT_SIZE / 2 - ROOT_SIZE / 2
+const KEYS_DY = 3 - SAT_SIZE / 2 - ROOT_SIZE / 2
 // The width at which the footer — the only other route to New, both sidebars,
-// the host menu, the shortcuts sheet and chat — is gone. Tailwind's `md`, so
-// the same 767px the sidebar's full-screen overlay uses in index.css: below it
-// the app has no chrome of its own and the dial is it, whatever the pointer.
+// the host menu, the shortcuts sheet and chat — is gone. Tailwind's `md`: below
+// it the app has no chrome of its own and the dial is it, whatever the pointer.
 const NARROW_QUERY = "(max-width: 767px)"
-
-type DialLevel = "root" | "keys" | "app"
-type TargetKind = "branch" | "command" | "key"
 
 type DialTarget = {
   id: string
   label: string
   glyph: string
-  kind: TargetKind
+  key: VirtualKey
+  // Offset of the target's centre from the ROOT's centre: the keys sit in the
+  // arc around the thumb's corner, and only their lines start at the keys
+  // button.
   x: number
   y: number
-  key?: VirtualKey
-  width?: number
-  branch?: DialLevel
-  command?: MobileCommand
 }
 
-// Three targets on one arc from ~30° off vertical to straight left, evenly
-// spaced at r=220 — the arc is re-spaced rather than crowded at one end, so the
-// points sit 29° apart (the endpoint keeps the 1.5° pull-in that keeps a label
-// pill inside the frame). Adding one more would overlap: the labels are drawn,
-// so the geometry is read as much as it is remembered. The TOP of the arc is
-// left free on purpose: that space belongs to the dedicated chat button above
-// the root (.dial-chat), which is a destination rather than one of the
-// terminal's input controls, and belongs one tap away rather than on an arc
-// where a target is a hold-and-slide from its neighbour. The sidebar is one
-// of the picker's entries rather than a button of its own.
-const ROOT_TARGETS: readonly DialTarget[] = [
-  {
-    id: "new",
-    label: "New",
-    glyph: "+",
-    kind: "command",
-    command: "new",
-    x: -112,
-    y: -190,
-    width: 78,
-  },
-  {
-    id: "app",
-    label: "Lasso",
-    glyph: "◆",
-    kind: "branch",
-    branch: "app",
-    x: -190,
-    y: -112,
-    width: 96,
-  },
-  {
-    id: "common-keys",
-    label: "Common keys",
-    glyph: "⌘",
-    kind: "branch",
-    branch: "keys",
-    x: -219,
-    y: -6,
-    width: 116,
-  },
-]
-
-// Two, since Sidebar left for its own button below the root. They take the root
-// arc's own two lower points rather than keeping their old ad-hoc radii, so both
-// levels are read off one r=220 arc at one 29° spacing and the level change moves
-// a target along the arc instead of onto a different curve.
-const APP_TARGETS: readonly DialTarget[] = [
-  {
-    id: "search",
-    label: "Search",
-    glyph: "⌕",
-    kind: "command",
-    command: "search",
-    x: -190,
-    y: -112,
-    width: 96,
-  },
-  {
-    id: "host",
-    label: "Host",
-    glyph: "@",
-    kind: "command",
-    command: "host",
-    x: -112,
-    y: -190,
-    width: 80,
-  },
-]
-
+// The keys a touch keyboard lacks, on one ring around the root, opened by the
+// button above it. A tap there and a tap on a key, or a press there and a
+// slide onto one; the ring stays open after a key so a run of arrows is a run
+// of taps.
 const KEY_TARGETS: readonly DialTarget[] = [
   {
     id: "escape",
     label: "Escape",
     glyph: "esc",
-    kind: "key",
     key: "Escape",
     x: -216,
     y: -42,
@@ -134,7 +68,6 @@ const KEY_TARGETS: readonly DialTarget[] = [
     id: "ctrl-c",
     label: "Control C",
     glyph: "^C",
-    kind: "key",
     key: "CtrlC",
     x: -156,
     y: -42,
@@ -143,7 +76,6 @@ const KEY_TARGETS: readonly DialTarget[] = [
     id: "tab",
     label: "Tab",
     glyph: "tab",
-    kind: "key",
     key: "Tab",
     x: -194,
     y: -103,
@@ -152,7 +84,6 @@ const KEY_TARGETS: readonly DialTarget[] = [
     id: "shift-tab",
     label: "Shift Tab",
     glyph: "⇧⇥",
-    kind: "key",
     key: "ShiftTab",
     x: -156,
     y: -156,
@@ -161,7 +92,6 @@ const KEY_TARGETS: readonly DialTarget[] = [
     id: "enter",
     label: "Enter",
     glyph: "↵",
-    kind: "key",
     key: "Enter",
     x: 20,
     y: -219,
@@ -170,7 +100,6 @@ const KEY_TARGETS: readonly DialTarget[] = [
     id: "up",
     label: "Up arrow",
     glyph: "↑",
-    kind: "key",
     key: "ArrowUp",
     x: -103,
     y: -194,
@@ -179,7 +108,6 @@ const KEY_TARGETS: readonly DialTarget[] = [
     id: "down",
     label: "Down arrow",
     glyph: "↓",
-    kind: "key",
     key: "ArrowDown",
     x: -42,
     y: -216,
@@ -203,8 +131,8 @@ const THEME_VARS = [
 // hiding the two lines of output underneath it, so the CLOSED root is a ~15%
 // wash of the raised surface behind a lifted border — the glyph and the ring
 // carry it — and every state that is actually being used steps up to a solid
-// tint: hover, the accent fill for an armed/expanded root, and --h-panel for
-// the ring of items. Brightness stays the hierarchy, and the monochrome
+// tint: hover, the accent fill for the keys button while its ring is open, and
+// --h-panel for the ring of items. Brightness stays the hierarchy, and the monochrome
 // --h-accent (white on dark, black on light) inverts correctly in both
 // palettes, which a hand-mixed tint does not.
 function dialCSS(): string {
@@ -262,22 +190,12 @@ ${sel} .dial-root-glyph {
   color: inherit;
   pointer-events: none;
 }
-/* Ordered after :hover deliberately — equal specificity, so an expanded root
-   under the cursor must still read as armed rather than merely hovered. */
-${sel} .dial-root[aria-expanded="true"] {
-  border-color: var(--h-accent, #fff);
-  background: var(--h-accent, #fff);
-  color: var(--h-bg, #000);
-}
 ${sel} .dial-root:active {
+  background: color-mix(in srgb, var(--h-panel, #111) 82%, transparent);
   transform: scale(.94);
 }
-/* Pressing a CLOSED dial dips its surface; an open one must keep the accent fill
-   (equal specificity otherwise lets this rule win and drop the armed state). */
-${sel} .dial-root[aria-expanded="false"]:active {
-  background: color-mix(in srgb, var(--h-panel, #111) 82%, transparent);
-}
 ${sel} .dial-root:focus-visible,
+${sel} .dial-keys:focus-visible,
 ${sel} .dial-item:focus-visible {
   outline: 2px solid var(--h-accent, #fff);
   outline-offset: 3px;
@@ -287,19 +205,20 @@ ${sel} .dial-menu {
   inset: 0;
   pointer-events: none;
 }
-/* The destination above the root, the view picker, rather than a target on the
-   arc, where it would be one hold-and-slide from the wrong neighbour. It sits to
-   the RIGHT of the root rather than stacked on its axis: the circles must NOT
-   overlap, which needs their centres 51px apart (58/2 + 44/2), while the smaller
-   one still has to break the root's top line, which needs |dy| < 51. So the
-   separation is bought with dx, and the screen edge caps dx: this spends 11px of
-   it past the root's box, leaving 4px to the edge against the root's own 18px
-   inset. Hence ~66° off horizontal and a 3px overlap of the box, rims ~1.4px
-   clear. It wears the closed root's recipe (a ~15% wash behind the lifted edge),
-   so it is the same chrome at a smaller size. */
-${sel} .dial-chat {
+/* The keys button, above the root rather than a target on a ring, so the ring
+   it opens is one tap away. It sits to the RIGHT of the root rather than
+   stacked on its axis: the circles must NOT overlap, which needs their centres
+   51px apart (58/2 + 44/2), while the smaller one still has to break the root's
+   top line, which needs |dy| < 51. So the separation is bought with dx, and the
+   screen edge caps dx: this spends 11px of it past the root's box, leaving 4px
+   to the edge against the root's own 18px inset. Hence ~66° off horizontal and
+   a 3px overlap of the box, rims ~1.4px clear. It wears the closed root's
+   recipe (a ~15% wash behind the lifted edge), so it is the same chrome at a
+   smaller size, and the accent fill while its ring is open. */
+${sel} .dial-keys {
   position: absolute;
   left: calc(100% - 30px);
+  bottom: calc(100% - 3px);
   z-index: 3;
   display: grid;
   place-items: center;
@@ -313,26 +232,32 @@ ${sel} .dial-chat {
   font: 700 18px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   pointer-events: auto;
   touch-action: none;
+  cursor: grab;
   transition: transform 120ms ease, background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
-${sel} .dial-chat {
-  bottom: calc(100% - 3px);
-}
-${sel} .dial-chat:hover {
+${sel} .dial-keys:hover {
   background: color-mix(in srgb, var(--h-hover, #1a1a1a) 72%, transparent);
 }
-${sel} .dial-chat:active {
-  background: color-mix(in srgb, var(--h-panel, #111) 82%, transparent);
-  transform: scale(.94);
+/* Ordered after :hover deliberately — equal specificity, so an open ring under
+   the cursor must still read as armed rather than merely hovered. */
+${sel} .dial-keys[aria-expanded="true"] {
+  border-color: var(--h-accent, #fff);
+  background: var(--h-accent, #fff);
+  color: var(--h-bg, #000);
 }
-${sel} .dial-chat:focus-visible {
-  outline: 2px solid var(--h-accent, #fff);
-  outline-offset: 3px;
+${sel} .dial-keys:active {
+  transform: scale(.94);
+  cursor: grabbing;
+}
+/* Pressing a CLOSED button dips its surface; an open one keeps the accent fill
+   (equal specificity otherwise lets this rule win and drop the armed state). */
+${sel} .dial-keys[aria-expanded="false"]:active {
+  background: color-mix(in srgb, var(--h-panel, #111) 82%, transparent);
 }
 ${sel} .dial-line {
   position: absolute;
-  left: ${ROOT_SIZE / 2}px;
-  top: ${ROOT_SIZE / 2}px;
+  left: ${ROOT_SIZE / 2 + KEYS_DX}px;
+  top: ${ROOT_SIZE / 2 + KEYS_DY}px;
   z-index: 0;
   height: 0;
   border-top: 1px dashed var(--h-muted, #8a8a8a);
@@ -392,24 +317,6 @@ ${sel} .dial-item[data-active="true"]::after {
   opacity: 1;
   visibility: visible;
 }
-${sel} .dial-branch {
-  justify-content: center;
-  padding: 0 12px;
-  font-size: 14px;
-}
-${sel} .dial-branch .dial-glyph {
-  color: var(--h-accent, #fff);
-  font-size: 18px;
-}
-${sel} .dial-branch[data-active="true"] .dial-glyph {
-  color: inherit;
-}
-${sel} .dial-root {
-  cursor: grab;
-}
-${sel} .dial-root:active {
-  cursor: grabbing;
-}
 html.${TRACKING_CLASS},
 html.${TRACKING_CLASS} body {
   overscroll-behavior: none !important;
@@ -430,6 +337,7 @@ html.${TRACKING_CLASS} .xterm-screen {
 }
 @media (prefers-reduced-motion: reduce) {
   ${sel} .dial-root,
+  ${sel} .dial-keys,
   ${sel} .dial-item { transition: none; }
 }
 `
@@ -610,90 +518,54 @@ function buildTerminalInputDial(win: Window, id: string): () => void {
   const menu = doc.createElement("div")
   menu.className = "dial-menu"
 
+  // The root is the view picker (App's mobileViewsOpen): Terminal, Chat, Bots,
+  // a plugin's views, and New, Search, Host and Sidebar, which used to be its
+  // own ring. One tap, always in the same place. preventDefault on the
+  // pointerdown is what keeps the software keyboard up; the picker opens on
+  // the CLICK, the last event of a tap. Opening it any earlier (on pointerup)
+  // put the menu on screen before the tap's trailing click, which then landed
+  // on whatever item was under the finger in the PARENT document.
   const root = doc.createElement("button")
   root.type = "button"
   root.className = "dial-root"
-  // Level changes replace the glyph with "‹" without changing the root button.
   const rootGlyph = doc.createElement("span")
   rootGlyph.className = "dial-root-glyph"
-  rootGlyph.textContent = "⌘"
+  rootGlyph.append(gridGlyph(doc, 24))
   root.appendChild(rootGlyph)
-  root.title = "Hold and slide for input controls"
-  root.setAttribute("aria-label", "Open input controls")
-  root.setAttribute("aria-expanded", "false")
+  root.title = "Switch view"
+  root.setAttribute("aria-label", "Switch view")
+  on(root, "pointerdown", (event: Event) => {
+    event.preventDefault()
+    event.stopImmediatePropagation()
+  })
+  on(root, "click", (event: Event) => {
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    close()
+    emitMobileCommand("views")
+  })
 
-  // The two destinations. Neither is a dial target: they are places to go rather
-  // than input controls, and the arc asks for a hold-and-slide that a plain "go
-  // there" should not — one tap, always in the same place, whatever level the
-  // dial is on. preventDefault on the gesture is what keeps the software keyboard
-  // up (the same reason the root and the items do it), and the command goes out
-  // on the UP — a finger that slid off is a cancel, which matters because a touch
-  // pointer is implicitly captured and its up lands here even when it ended
-  // somewhere else.
-  const satellite = (
-    className: string,
-    glyph: string,
-    title: string,
-    label: string,
-    command: MobileCommand
-  ) => {
-    const button = doc.createElement("button")
-    button.type = "button"
-    button.className = className
-    button.textContent = glyph
-    button.title = title
-    button.setAttribute("aria-label", label)
-    let down: { x: number; y: number } | null = null
-    on(button, "pointerdown", (event: Event) => {
-      event.preventDefault()
-      const p = event as PointerEvent
-      down = { x: p.clientX, y: p.clientY }
-    })
-    on(button, "pointerup", (event: Event) => {
-      event.preventDefault()
-      const p = event as PointerEvent
-      const from = down
-      down = null
-      if (from && Math.hypot(p.clientX - from.x, p.clientY - from.y) > 12)
-        return
-      emitMobileCommand(command)
-    })
-    on(button, "pointercancel", () => {
-      down = null
-    })
-    return button
-  }
+  // The keys button: a tap opens the ring and a second tap closes it; a press
+  // and a slide picks a key in one gesture, released on it.
+  const keys = doc.createElement("button")
+  keys.type = "button"
+  keys.className = "dial-keys"
+  keys.textContent = "⌘"
+  keys.title = "Common keys"
+  keys.setAttribute("aria-label", "Common keys")
+  keys.setAttribute("aria-expanded", "false")
 
-  // The glyph the arc's own Chat target carried, so the control reads the same
-  // as the one it replaces.
-  const chatButton = satellite(
-    "dial-chat",
-    "☰",
-    "Chat",
-    "Read this session as chat",
-    "chat"
-  )
-
-  dial.append(menu, root, chatButton)
+  dial.append(menu, root, keys)
   doc.body.appendChild(dial)
   win.requestAnimationFrame(() => win.dispatchEvent(new Event("resize")))
   let open = false
-  let level: DialLevel = "root"
   let activeID: string | null = null
   let pointerID: number | null = null
   let holdTimer: number | undefined
   let moved = false
   let startedOpen = false
-  let startedLevel: DialLevel = "root"
   let startX = 0
   let startY = 0
-
-  const targets = (): readonly DialTarget[] =>
-    level === "keys"
-      ? KEY_TARGETS
-      : level === "app"
-        ? APP_TARGETS
-        : ROOT_TARGETS
 
   let inputLocked = false
   let lockedOptions: Record<string, unknown> | null = null
@@ -747,34 +619,23 @@ function buildTerminalInputDial(win: Window, id: string): () => void {
 
   const close = () => {
     open = false
-    level = "root"
     activeID = null
     menu.replaceChildren()
-    rootGlyph.textContent = "⌘"
-    root.title = "Hold and slide for input controls"
-    root.setAttribute("aria-label", "Open input controls")
-    root.setAttribute("aria-expanded", "false")
+    keys.setAttribute("aria-expanded", "false")
   }
 
   const activate = (target: DialTarget) => {
-    if (target.kind === "branch") {
-      show(target.branch ?? "root")
-      return
-    }
-    if (target.kind === "command" && target.command) {
-      close()
-      emitMobileCommand(target.command)
-      return
-    }
-    if (target.key) sendKeyToTerminal(id, target.key)
+    sendKeyToTerminal(id, target.key)
     setActive(null)
   }
 
   const makeItem = (target: DialTarget) => {
     const center = targetCenter(target)
     const line = doc.createElement("span")
-    const distance = Math.hypot(target.x, target.y)
-    const angle = (Math.atan2(target.y, target.x) * 180) / Math.PI
+    const dx = target.x - KEYS_DX
+    const dy = target.y - KEYS_DY
+    const distance = Math.hypot(dx, dy)
+    const angle = (Math.atan2(dy, dx) * 180) / Math.PI
     line.className = "dial-line"
     line.style.width = `${distance}px`
     line.style.transform = `rotate(${angle}deg)`
@@ -782,26 +643,15 @@ function buildTerminalInputDial(win: Window, id: string): () => void {
 
     const button = doc.createElement("button")
     button.type = "button"
-    button.className = `dial-item${target.width ? " dial-branch" : ""}`
+    button.className = "dial-item"
     button.dataset.target = target.id
     button.dataset.active = "false"
     button.dataset.tooltip = target.label
     button.title = target.label
     button.setAttribute("aria-label", target.label)
-    button.style.width = `${target.width ?? ITEM_SIZE}px`
-    button.style.left = `${center.x - (target.width ?? ITEM_SIZE) / 2}px`
+    button.style.left = `${center.x - ITEM_SIZE / 2}px`
     button.style.top = `${center.y - ITEM_SIZE / 2}px`
-
-    if (target.width) {
-      const glyph = doc.createElement("span")
-      glyph.className = "dial-glyph"
-      glyph.textContent = target.glyph
-      const label = doc.createElement("span")
-      label.textContent = target.label
-      button.append(glyph, label)
-    } else {
-      button.textContent = target.glyph
-    }
+    button.textContent = target.glyph
 
     menu.appendChild(button)
 
@@ -843,26 +693,17 @@ function buildTerminalInputDial(win: Window, id: string): () => void {
     win.requestAnimationFrame(() => button.classList.add("is-visible"))
   }
 
-  function show(nextLevel: DialLevel) {
+  function show() {
+    if (open) return
     open = true
-    level = nextLevel
     activeID = null
     menu.replaceChildren()
-    // The root glyph flips to "‹" for a branch, which is the whole affordance:
-    // a crumb chip naming the branch sat where the ring's own items are and
-    // covered them, to say what the ring below it already says.
-    const inBranch = level !== "root"
-    rootGlyph.textContent = inBranch ? "‹" : "⌘"
-    root.title = inBranch ? "Back to input controls" : "Close input controls"
-    root.setAttribute(
-      "aria-label",
-      inBranch ? "Back to input controls" : "Close input controls"
-    )
-    root.setAttribute("aria-expanded", "true")
-
-    for (const target of targets()) makeItem(target)
+    keys.setAttribute("aria-expanded", "true")
+    for (const target of KEY_TARGETS) makeItem(target)
   }
 
+  // Hit-tested against the ROOT's centre, which the ring is laid out around,
+  // not the keys button the gesture started on.
   const nearestTarget = (
     clientX: number,
     clientY: number
@@ -872,13 +713,12 @@ function buildTerminalInputDial(win: Window, id: string): () => void {
     const rootY = rect.top + rect.height / 2
     let nearest: DialTarget | null = null
     let nearestDistance = Number.POSITIVE_INFINITY
-    for (const target of targets()) {
+    for (const target of KEY_TARGETS) {
       const distance = Math.hypot(
         clientX - (rootX + target.x),
         clientY - (rootY + target.y)
       )
-      const hitRadius = Math.max(34, (target.width ?? ITEM_SIZE) / 2)
-      if (distance <= hitRadius && distance < nearestDistance) {
+      if (distance <= 34 && distance < nearestDistance) {
         nearest = target
         nearestDistance = distance
       }
@@ -894,72 +734,53 @@ function buildTerminalInputDial(win: Window, id: string): () => void {
     unlockTerminalInput()
   }
 
-  root.addEventListener("pointerdown", (event) => {
+  keys.addEventListener("pointerdown", (event) => {
     if (!event.isPrimary) return
     event.preventDefault()
     event.stopImmediatePropagation()
     pointerID = event.pointerId
-    root.setPointerCapture?.(event.pointerId)
+    keys.setPointerCapture?.(event.pointerId)
     lockTerminalInput()
     startedOpen = open
-    startedLevel = level
     moved = false
     startX = event.clientX
     startY = event.clientY
-    if (!open) holdTimer = win.setTimeout(() => show("root"), HOLD_MS)
+    if (!open) holdTimer = win.setTimeout(show, HOLD_MS)
   })
 
-  root.addEventListener("pointermove", (event) => {
+  keys.addEventListener("pointermove", (event) => {
     if (pointerID !== event.pointerId) return
     event.preventDefault()
     event.stopImmediatePropagation()
     if (Math.hypot(event.clientX - startX, event.clientY - startY) > 7) {
       moved = true
-      if (!open) show("root")
+      show()
     }
     if (!open) return
-
-    const rect = root.getBoundingClientRect()
-    const rootDistance = Math.hypot(
-      event.clientX - (rect.left + rect.width / 2),
-      event.clientY - (rect.top + rect.height / 2)
-    )
-    if (level !== "root" && moved && rootDistance <= BACK_RADIUS) {
-      show("root")
-      return
-    }
-
-    const target = nearestTarget(event.clientX, event.clientY)
-    if (level === "root" && target?.kind === "branch") {
-      show(target.branch ?? "root")
-      return
-    }
-    setActive(target?.id ?? null)
+    setActive(nearestTarget(event.clientX, event.clientY)?.id ?? null)
   })
 
-  root.addEventListener("pointerup", (event) => {
+  keys.addEventListener("pointerup", (event) => {
     if (pointerID !== event.pointerId) return
     event.preventDefault()
     event.stopImmediatePropagation()
     const target = activeID
-      ? (targets().find((candidate) => candidate.id === activeID) ?? null)
+      ? (KEY_TARGETS.find((candidate) => candidate.id === activeID) ?? null)
       : null
 
     clearGesture()
-    if (target) {
-      activate(target)
-    } else if (!moved) {
-      if (!startedOpen) show("root")
-      else if (startedLevel !== "root") show("root")
-      else close()
+    if (target) activate(target)
+    else if (!moved) {
+      if (startedOpen) close()
+      else show()
     }
   })
 
-  root.addEventListener("pointercancel", () => {
+  keys.addEventListener("pointercancel", () => {
     clearGesture()
     if (!startedOpen) close()
   })
-  root.addEventListener("lostpointercapture", () => {
+  keys.addEventListener("lostpointercapture", () => {
     if (pointerID !== null) clearGesture()
   })
 
@@ -1042,8 +863,8 @@ function buildTerminalInputDial(win: Window, id: string): () => void {
 
   // Registered after the swallow so it sees the dismissing pointerdown first
   // (the loop above ignores that one, nothing being swallowed yet) and can arm
-  // on it. Any dial level counts, root included: whether an item happens to be
-  // armed changes nothing about where the tap would otherwise land.
+  // on it. Whether an item happens to be armed changes nothing about where the
+  // tap would otherwise land.
   on(
     win,
     "pointerdown",
@@ -1079,4 +900,41 @@ function buildTerminalInputDial(win: Window, id: string): () => void {
     // the height it just got back.
     win.requestAnimationFrame(() => win.dispatchEvent(new Event("resize")))
   }
+}
+
+// lucide's LayoutGrid as an inline SVG in the given document (the iframe's, so
+// the parent's icon components cannot render it), in its text colour.
+function gridGlyph(doc: Document, size: number): SVGSVGElement {
+  const ns = "http://www.w3.org/2000/svg"
+  const svg = doc.createElementNS(ns, "svg")
+  for (const [k, v] of Object.entries({
+    width: String(size),
+    height: String(size),
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    "stroke-width": "2",
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round",
+    "aria-hidden": "true",
+  }))
+    svg.setAttribute(k, v)
+  for (const [x, y] of [
+    [3, 3],
+    [14, 3],
+    [14, 14],
+    [3, 14],
+  ]) {
+    const rect = doc.createElementNS(ns, "rect")
+    for (const [k, v] of Object.entries({
+      width: "7",
+      height: "7",
+      x: String(x),
+      y: String(y),
+      rx: "1",
+    }))
+      rect.setAttribute(k, v)
+    svg.append(rect)
+  }
+  return svg
 }

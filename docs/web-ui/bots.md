@@ -204,4 +204,4 @@ The **+** in the list's header, or **New bot** on the management page, opens the
 
 On a phone the view is one column at a time, as in [When the view is narrow](#when-the-view-is-narrow): the list, then the bot you pick, its settings or the management page, each with **‹ Bots** to go back.
 
-Bots covers the input dial, so the list's header and each bot's own header have a **Switch view** button, which opens the same view picker as the dial's **Chat** button.
+Bots covers the input dial, so the list's header and each bot's own header have a **Switch view** button, which opens the same view picker as the dial's big button.
