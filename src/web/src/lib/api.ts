@@ -1035,6 +1035,21 @@ export interface PluginPermissions {
   // Themes and fonts it contributes. Absent on an older server.
   themes?: string[] | null
   fonts?: PluginFontPermission[] | null
+  // Agents its pages may read the chat of and type into (the bridge's chat.*
+  // methods). Absent on an older server.
+  agents?: PluginAgentPermission[] | null
+}
+
+export interface PluginAgentPermission {
+  name: string
+  host: string
+}
+
+// What a plugin chat call asks for: one granted agent, by herdr name, on a
+// host (default local). The server resolves the pane; a page never names one.
+export interface PluginChatTarget {
+  agent: string
+  host?: string
 }
 
 export type PluginFontCategory = "sans" | "serif" | "display" | "mono"
@@ -1426,6 +1441,39 @@ export const api = {
     postJSON<PluginCallResult>(
       `/api/plugins/${encodeURIComponent(name)}/call`,
       { tool, arguments: args }
+    ),
+  // A plugin page's agent grant (the bridge's chat.* methods). The plugin is
+  // the bridge's own; the server checks the approved grant covers the agent
+  // and resolves its pane by name, then reads and types exactly as the chat
+  // view does.
+  pluginChat: (name: string, t: PluginChatTarget, before?: number) => {
+    const q = new URLSearchParams({ agent: t.agent })
+    if (t.host) q.set("host", t.host)
+    if (before) q.set("before", String(before))
+    return getJSON<ChatPayload>(
+      `/api/plugins/${encodeURIComponent(name)}/chat?${q}`
+    )
+  },
+  pluginChatSend: (name: string, t: PluginChatTarget, text: string) =>
+    postJSON<ChatSendResult>(
+      `/api/plugins/${encodeURIComponent(name)}/chat/send`,
+      { ...t, text }
+    ),
+  pluginChatAnswer: (
+    name: string,
+    t: PluginChatTarget,
+    expect: string,
+    labels: string[],
+    answers: { selected: number[]; multi: boolean; options: number }[]
+  ) =>
+    postJSON<ChatAnswerResult>(
+      `/api/plugins/${encodeURIComponent(name)}/chat/answer`,
+      { ...t, expect, labels, answers }
+    ),
+  pluginChatStop: (name: string, t: PluginChatTarget) =>
+    postJSON<{ outcome: "sent" | "refused" | "uncertain"; detail?: string }>(
+      `/api/plugins/${encodeURIComponent(name)}/chat/stop`,
+      t
     ),
   // Install from GitHub: preview clones into staging and answers what the
   // manifest asks for; confirm sends that preview's fingerprint back (409 if
