@@ -65,6 +65,7 @@ import {
   type PluginPermissions,
   type PluginPreview,
   type PluginState,
+  type PluginTabPermission,
   type SidebarTabPref,
   type ThemeCatalogEntry,
   type ThemePayload,
@@ -3298,6 +3299,47 @@ const MCP_STATUS_TONE: Record<
   unavailable: "warn",
 }
 
+// The pages a plugin frames, tabs or main-window views alike: each one's own
+// file, or the outside address it frames.
+function PluginPageList({
+  title,
+  pages,
+  itemClass,
+  codeClass,
+}: {
+  title: string
+  pages: PluginTabPermission[]
+  itemClass: string
+  codeClass: string
+}) {
+  return (
+    <div>
+      <p className={labelClass}>{title}</p>
+      {pages.length === 0 ? (
+        <p className="text-[13px] text-muted-foreground">none</p>
+      ) : (
+        <ul className="list-disc pl-5">
+          {pages.map((t) => (
+            <li key={t.id} className={itemClass}>
+              {t.label ?? t.id}:{" "}
+              {t.url ? (
+                <>
+                  frames <code className={codeClass}>{t.url}</code>
+                </>
+              ) : (
+                <>
+                  serves <code className={codeClass}>{t.entry}</code> from the
+                  plugin's directory
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 // PluginPermissionList spells out exactly what enabling approves — the same
 // fields the server fingerprints, so what the human reads here is what a
 // later manifest edit would have to be re-approved against.
@@ -3308,6 +3350,7 @@ function PluginPermissionList({
 }) {
   // Go encodes an empty list as null, so every list is defaulted on the way in.
   const tabs = permissions.tabs ?? []
+  const views = permissions.views ?? []
   const mcp = permissions.mcp
   const command = mcp?.command ?? []
   const network = mcp?.network ?? []
@@ -3337,30 +3380,22 @@ function PluginPermissionList({
           </p>
         </div>
       )}
-      <div>
-        <p className={labelClass}>Sidebar tabs</p>
-        {tabs.length === 0 ? (
-          <p className="text-[13px] text-muted-foreground">none</p>
-        ) : (
-          <ul className="list-disc pl-5">
-            {tabs.map((t) => (
-              <li key={t.id} className={item}>
-                {t.label ?? t.id}:{" "}
-                {t.url ? (
-                  <>
-                    frames <code className={code}>{t.url}</code>
-                  </>
-                ) : (
-                  <>
-                    serves <code className={code}>{t.entry}</code> from the
-                    plugin's directory
-                  </>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      <PluginPageList
+        title="Sidebar tabs"
+        pages={tabs}
+        itemClass={item}
+        codeClass={code}
+      />
+      {/* Only when there are any: "none" for a kind most plugins never use
+          would be noise in every dialog. */}
+      {views.length > 0 && (
+        <PluginPageList
+          title="Main window views"
+          pages={views}
+          itemClass={item}
+          codeClass={code}
+        />
+      )}
       {mcp && (
         <>
           <div>
@@ -3876,6 +3911,11 @@ function PluginRow({
       {p.state === "enabled" && (p.tabs?.length ?? 0) > 0 && (
         <p className="text-[11px] text-muted-foreground">
           Tabs: {(p.tabs ?? []).map((t) => t.label).join(", ")}
+        </p>
+      )}
+      {p.state === "enabled" && (p.views?.length ?? 0) > 0 && (
+        <p className="text-[11px] text-muted-foreground">
+          Views: {(p.views ?? []).map((t) => t.label).join(", ")}
         </p>
       )}
       {(p.themes?.length ?? 0) > 0 && (

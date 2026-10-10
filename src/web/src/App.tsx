@@ -1,9 +1,12 @@
 import {
   Bot,
+  Check,
+  ChevronUp,
   Files,
   Gauge,
   Globe,
   Keyboard,
+  LayoutGrid,
   type LucideIcon,
   MessageSquare,
   NotebookPen,
@@ -40,6 +43,15 @@ import { UsageFooter } from "@/components/UsageFooter"
 import { UsageTab } from "@/components/UsageTab"
 import { Button } from "@/components/ui/button"
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
@@ -54,7 +66,12 @@ import { syncViewportHeight } from "@/lib/mobile-viewport"
 import { onStartOnboarding } from "@/lib/onboarding"
 import { onRevealFiles } from "@/lib/open-file"
 import { restoreHost } from "@/lib/pane-focus"
-import { pluginIcon, pluginTabsOf, usePlugins } from "@/lib/plugins"
+import {
+  pluginIcon,
+  pluginTabsOf,
+  pluginViewsOf,
+  usePlugins,
+} from "@/lib/plugins"
 import {
   markSidebarIntent,
   noteSidebarResize,
@@ -77,6 +94,7 @@ import {
 import { patchUIState, uiStateNow, useUIState } from "@/lib/ui-state"
 import {
   getQueryParam,
+  isPluginView,
   type LeftView,
   leftViewFromPath,
   setQueryParams,
@@ -89,10 +107,21 @@ import { cn } from "@/lib/utils"
 // instead, AgentsTab/AgentSidebar) or a plugin tab's `plugin:<name>:<tab>`.
 // Which of them the strip shows, and in what order, is ui_state.sidebar_tabs.
 type RightView = string
-// The left column's faces: the terminal, the focused session read as a
-// conversation (ChatView), and the fleet as parallel conversations (AgentsView).
-// Not a RightView — the sidebar and the left column answer different questions,
-// and both chats are about panes, not files.
+// The left column's faces — the main window: the terminal, the focused session
+// read as a conversation (ChatView), the fleet as parallel conversations
+// (AgentsView), and any enabled plugin's views (`plugin:<name>:<id>`). Not a
+// RightView — the sidebar and the left column answer different questions.
+// The footer's view menu picks between them (MAIN_VIEWS, then the plugins').
+const MAIN_VIEWS: {
+  id: LeftView
+  label: string
+  icon: LucideIcon
+  shortcut?: string
+}[] = [
+  { id: "terminal", label: "Terminal", icon: SquareTerminal },
+  { id: "chat", label: "Chat", icon: MessageSquare, shortcut: "⌘J" },
+  { id: "agents", label: "Grid", icon: Users, shortcut: "⌘E" },
+]
 
 // Shared tab-strip styling: a full-width underline strip, matching the original
 // vanilla UI rather than shadcn's default pill TabsList.
@@ -202,26 +231,6 @@ function Pane({
   )
 }
 
-// A toggle's label that flips between words without resizing the button: every
-// label sits in the same grid cell, so the cell is as wide as the widest, and
-// only the shown one is visible. Measuring by layout rather than a fixed width
-// keeps it right under any font the typography settings pick.
-function SwapLabel({ show, children }: { show: number; children: string[] }) {
-  return (
-    <span className="grid">
-      {children.map((label, i) => (
-        <span
-          key={label}
-          aria-hidden={i !== show}
-          className={cn("[grid-area:1/1]", i !== show && "invisible")}
-        >
-          {label}
-        </span>
-      ))}
-    </span>
-  )
-}
-
 export function App() {
   return (
     <AppProvider>
@@ -295,6 +304,16 @@ function Shell() {
     // type through the dial, which focuses itself when it is used.
     if (!window.matchMedia("(pointer: coarse)").matches) focusHerdrTerminal()
   }, [leftView])
+  // The view menu's pick. Every view but the terminal is a reading surface
+  // laid over it, so entering one blurs xterm for the reason toggleLeftView
+  // gives; landing on the terminal hands the keyboard back where there is a
+  // hardware one.
+  const selectLeftView = React.useCallback((next: LeftView) => {
+    setLeftView(next)
+    if (next !== "terminal") blurHerdrTerminal()
+    else if (!window.matchMedia("(pointer: coarse)").matches)
+      focusHerdrTerminal()
+  }, [])
   // The grid holds a composer per card, so entering it blurs the terminal for
   // the same reason the single chat does; leaving for the terminal refocuses.
   const toggleAgentsView = React.useCallback(() => {
@@ -368,6 +387,51 @@ function Shell() {
       prev.has(rightView) ? prev : new Set(prev).add(rightView)
     )
   }, [rightView])
+
+  // Plugin views for the main window, by the same rule as the panes: mounted
+  // the first time they are shown, then kept (invisible) so leaving for the
+  // terminal and back does not reload the page. A long-running app is the
+  // point of a view; reloading it on every glance at the terminal would lose
+  // whatever it was showing.
+  const pluginViews = React.useMemo(
+    () => pluginViewsOf(plugins.data),
+    [plugins.data]
+  )
+  const [visitedViews, setVisitedViews] = React.useState<Set<string>>(
+    () => new Set()
+  )
+  React.useEffect(() => {
+    if (!isPluginView(leftView)) return
+    setVisitedViews((prev) =>
+      prev.has(leftView) ? prev : new Set(prev).add(leftView)
+    )
+  }, [leftView])
+  // A plugin view that is not there — a stale link, its plugin disabled or
+  // awaiting re-approval — falls back to the terminal. Judged only once the
+  // listing has answered, for the reason the sidebar's fallback below gives.
+  React.useEffect(() => {
+    if (!isPluginView(leftView) || plugins.isPending) return
+    if (pluginViews.some((v) => v.view.global_id === leftView)) return
+    setLeftView("terminal")
+  }, [leftView, pluginViews, plugins.isPending])
+  const currentView = isPluginView(leftView)
+    ? (() => {
+        const v = pluginViews.find((p) => p.view.global_id === leftView)
+        return {
+          label: v?.view.label ?? "View",
+          icon: pluginIcon(v?.view.icon),
+        }
+      })()
+    : (MAIN_VIEWS.find((v) => v.id === leftView) ?? MAIN_VIEWS[0])
+  // Only the terminal and the chat have a left-hand list to toggle (herdr's
+  // sidebar, lasso's agents). The grid and a plugin's view cover the terminal
+  // and dock nothing, so the toggle and ⌘B are off there.
+  const noLeftSidebar = leftView !== "terminal" && leftView !== "chat"
+  // The view picker below md, where the footer and its menu are gone. Opened
+  // by the dial's Chat button once a plugin adds a view, and by the Views
+  // button a plugin view carries (it covers the dial). Controlled, with its
+  // own anchor in the parent document, for the reason HostSwitcher gives.
+  const [mobileViewsOpen, setMobileViewsOpen] = React.useState(false)
 
   // The active host (SSE-driven), mirrored into a ref so the (referentially
   // stable) popstate handler always sees the current one. herdr's focused pane
@@ -666,7 +730,10 @@ function Shell() {
         // is hidden, which is every width below md — phone or a desktop window
         // dragged narrow. The command comes from the dedicated button the dial
         // holds above its root, not from an arc target (lib/mobile-input-dial).
-        toggleLeftView()
+        // Once a plugin adds a view there is more than one place to go, so the
+        // same button opens the picker; without one it stays a single tap.
+        if (pluginViews.length > 0) setMobileViewsOpen(true)
+        else toggleLeftView()
       } else if (command === "search") {
         // Same destination as ⌘K: herdr's own search. The dial supplies the
         // chord a software keyboard can't type, and openHerdrGoto hands the
@@ -677,7 +744,7 @@ function Shell() {
     window.addEventListener(MOBILE_COMMAND_EVENT, onMobileCommand)
     return () =>
       window.removeEventListener(MOBILE_COMMAND_EVENT, onMobileCommand)
-  }, [toggleSidebar, openNew, openHostMenu, toggleLeftView])
+  }, [toggleSidebar, openNew, openHostMenu, toggleLeftView, pluginViews])
 
   // ⌘K → herdr's own pane search, ⌘O/⌘I → the agent/terminal tabs in the New
   // dialog, ⌘J/⌘E/⌘B → the left column's views and sidebar, ⌘\ and ⌘⇧F/S/B →
@@ -748,9 +815,10 @@ function Shell() {
         toggleAgentsView()
       } else if (k === "b") {
         e.preventDefault()
-        // Same rule as the footer button, which is disabled in the grid: there
-        // is no docked column there, and herdr's sidebar is behind the overlay.
-        if (leftView !== "agents") toggleLeftSidebar()
+        // Same rule as the footer button, which is disabled in the grid and a
+        // plugin's view: there is no docked column there, and herdr's sidebar
+        // is behind the overlay.
+        if (!noLeftSidebar) toggleLeftSidebar()
       }
     }
     document.addEventListener("keydown", onKey)
@@ -762,6 +830,7 @@ function Shell() {
     toggleAgentsView,
     toggleLeftSidebar,
     leftView,
+    noLeftSidebar,
   ])
 
   // Apply the synced sidebar layout continuously — including changes arriving
@@ -812,6 +881,58 @@ function Shell() {
       }, 400)
     },
     []
+  )
+
+  // The view menu's items, shared by the footer's menu and the phone picker.
+  // `narrow` drops Grid, which is desktop-only (its cards need the width), and
+  // the shortcuts a touch screen cannot type, and adds the sidebar: inside a
+  // plugin view nothing else on a phone reaches it.
+  const viewMenuItems = (narrow: boolean) => (
+    <>
+      {MAIN_VIEWS.filter((v) => !(narrow && v.id === "agents")).map(
+        ({ id, label, icon: Icon, shortcut }) => (
+          <DropdownMenuItem key={id} onSelect={() => selectLeftView(id)}>
+            <Icon />
+            {label}
+            {leftView === id && <Check className="ml-1" />}
+            {shortcut && !narrow && (
+              <DropdownMenuShortcut>{shortcut}</DropdownMenuShortcut>
+            )}
+          </DropdownMenuItem>
+        )
+      )}
+      {pluginViews.length > 0 && (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="text-[11px] text-muted-foreground">
+            Plugins
+          </DropdownMenuLabel>
+          {pluginViews.map(({ plugin, view }) => {
+            const Icon = pluginIcon(view.icon)
+            return (
+              <DropdownMenuItem
+                key={view.global_id}
+                title={`${plugin.name}: ${view.label}`}
+                onSelect={() => selectLeftView(view.global_id as LeftView)}
+              >
+                <Icon />
+                <span className="truncate">{view.label}</span>
+                {leftView === view.global_id && <Check className="ml-1" />}
+              </DropdownMenuItem>
+            )
+          })}
+        </>
+      )}
+      {narrow && (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={openSidebar}>
+            <PanelRightOpen />
+            Sidebar
+          </DropdownMenuItem>
+        </>
+      )}
+    </>
   )
 
   // The built-in tabs' triggers, by id; the strip picks and orders them.
@@ -922,6 +1043,66 @@ function Shell() {
                   />
                 </div>
               )}
+              {/* A plugin's views overlay the terminal like the chat, and for
+                  the same reason: the shared pty keeps its size underneath.
+                  Kept mounted once visited; visibility, not display, so a
+                  hidden one keeps its scroll and never steals a pointer. */}
+              {pluginViews
+                .filter(({ view }) => visitedViews.has(view.global_id))
+                .map(({ plugin, view }) => (
+                  <div
+                    key={`${view.global_id}\u0000${view.src}`}
+                    className={cn(
+                      "chat-overlay absolute inset-0 z-20 flex bg-background",
+                      leftView !== view.global_id && "invisible"
+                    )}
+                    aria-hidden={leftView !== view.global_id}
+                  >
+                    <PluginTab
+                      plugin={plugin.name}
+                      tab={view}
+                      placement="main"
+                      active={leftView === view.global_id}
+                    />
+                  </div>
+                ))}
+              {/* The phone's view picker (md:hidden). Inside a plugin view its
+                  trigger is a visible button in the dial's corner, since the
+                  view covers the dial; anywhere else it is an invisible anchor
+                  the dial's Chat button opens it from. */}
+              <div className="absolute right-3 bottom-3 z-30 md:hidden">
+                <DropdownMenu
+                  open={mobileViewsOpen}
+                  onOpenChange={setMobileViewsOpen}
+                >
+                  {isPluginView(leftView) ? (
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="secondary"
+                        size="icon"
+                        className="size-11 rounded-full shadow-md"
+                        title="Switch view"
+                        aria-label={`View: ${currentView.label}`}
+                      >
+                        <LayoutGrid />
+                      </Button>
+                    </DropdownMenuTrigger>
+                  ) : (
+                    <DropdownMenuTrigger
+                      tabIndex={-1}
+                      aria-hidden
+                      className="pointer-events-none size-px overflow-hidden p-0 opacity-0"
+                    />
+                  )}
+                  <DropdownMenuContent
+                    side="top"
+                    align="end"
+                    className="min-w-48"
+                  >
+                    {viewMenuItems(true)}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
           </ResizablePanel>
 
@@ -1133,8 +1314,8 @@ function Shell() {
             variant="ghost"
             size="icon-sm"
             title={
-              leftView === "agents"
-                ? "No sidebar in the agents grid"
+              noLeftSidebar
+                ? `No sidebar in ${currentView.label}`
                 : leftView === "chat"
                   ? chatSidebar
                     ? "Hide agents (⌘B)"
@@ -1142,8 +1323,8 @@ function Shell() {
                   : "Toggle herdr sidebar (⌘B)"
             }
             aria-label={
-              leftView === "agents"
-                ? "No sidebar in the agents grid"
+              noLeftSidebar
+                ? `No sidebar in ${currentView.label}`
                 : leftView === "chat"
                   ? chatSidebar
                     ? "Hide agents"
@@ -1151,9 +1332,10 @@ function Shell() {
                   : "Toggle herdr sidebar"
             }
             aria-pressed={leftView === "chat" ? chatSidebar : undefined}
-            // The grid has no docked column and covers the terminal, so a chord
-            // into herdr's sidebar would move something nobody can see. Off.
-            disabled={leftView === "agents"}
+            // The grid and plugin views have no docked column and cover the
+            // terminal, so a chord into herdr's sidebar would move something
+            // nobody can see. Off.
+            disabled={noLeftSidebar}
             onClick={toggleLeftSidebar}
           >
             {leftView === "chat" ? (
@@ -1200,48 +1382,33 @@ function Shell() {
         </div>
         <UsageFooter />
         <div className="ml-auto flex flex-none items-center gap-1">
-          {/* The parallel view: every agent as its own transcript card, grouped
-              by machine, for interfacing with several at once. Sits left of Chat
-              because it is the wider sibling — grid first, single second — and
-              the footer is md+ only, which is exactly the tablet-and-larger
-              surface this is for. */}
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-pressed={leftView === "agents"}
-            data-tour="agents"
-            title={
-              leftView === "agents"
-                ? "Back to the terminal (⌘E)"
-                : "All agents in parallel (⌘E)"
-            }
-            onClick={toggleAgentsView}
-          >
-            {leftView === "agents" ? <SquareTerminal /> : <Users />}
-            <SwapLabel show={leftView === "agents" ? 0 : 1}>
-              {["Terminal", "Grid"]}
-            </SwapLabel>
-          </Button>
-          {/* The label names where it goes, not where you are: one glance says
-              what the click does. Below md this row is gone and the way in is
-              the input dial's Chat button instead. */}
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-pressed={leftView === "chat"}
-            data-tour="chat"
-            title={
-              leftView === "chat"
-                ? "Back to the terminal (⌘J)"
-                : "Read this session as chat (⌘J)"
-            }
-            onClick={toggleLeftView}
-          >
-            {leftView === "chat" ? <SquareTerminal /> : <MessageSquare />}
-            <SwapLabel show={leftView === "chat" ? 0 : 1}>
-              {["Terminal", "Chat"]}
-            </SwapLabel>
-          </Button>
+          {/* What fills the main window, as a menu rather than a button per
+              view: the built-in three (terminal, the focused session as chat,
+              every agent as a grid) and then every enabled plugin's views. The
+              button names where you ARE; the menu says where you can go, with
+              each view's shortcut. ⌘J and ⌘E still toggle chat and grid
+              against the terminal without opening it. Below md this row is
+              gone and the input dial's Chat button is the way in. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                data-tour="views"
+                title="Switch view"
+                aria-label={`View: ${currentView.label}`}
+              >
+                <currentView.icon />
+                <span className="max-w-[12rem] truncate">
+                  {currentView.label}
+                </span>
+                <ChevronUp className="opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="end" className="min-w-48">
+              {viewMenuItems(false)}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             variant="ghost"
             size="sm"

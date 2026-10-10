@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -114,6 +116,11 @@ func TestPluginManifestValidation(t *testing.T) {
 		{"secret case dupe", "hello", map[string]any{"name": "hello", "mcp": map[string]any{"image": "alpine", "command": []string{"x"}, "secrets": []any{map[string]any{"name": "TOK", "hosts": []string{"a.b"}}, map[string]any{"name": "tok", "hosts": []string{"a.b"}}}}}, "duplicate secret"},
 		{"vm image ok", "hello", map[string]any{"name": "hello", "mcp": map[string]any{"image": "alpine", "vm_image": "images:debian/13/cloud", "command": []string{"x"}}}, ""},
 		{"bad vm image", "hello", map[string]any{"name": "hello", "mcp": map[string]any{"image": "alpine", "vm_image": "-x y", "command": []string{"x"}}}, "mcp.vm_image"},
+		{"views only", "hello", map[string]any{"name": "hello", "views": []any{map[string]any{"id": "board", "label": "Board", "icon": "layers", "entry": "ui/board.html"}}}, ""},
+		{"view and tab share an id", "hello", map[string]any{"name": "hello", "tabs": []any{tab}, "views": []any{tab}}, ""},
+		{"dup view", "hello", map[string]any{"name": "hello", "views": []any{tab, tab}}, "views[1]: duplicate id"},
+		{"view traversal", "hello", map[string]any{"name": "hello", "views": []any{map[string]any{"id": "a", "label": "A", "entry": "../x.html"}}}, "views[0]"},
+		{"view javascript url", "hello", map[string]any{"name": "hello", "views": []any{map[string]any{"id": "a", "label": "A", "url": "javascript:alert(1)"}}}, "http(s)"},
 		{"secret env clash", "hello", map[string]any{"name": "hello", "mcp": map[string]any{"image": "alpine", "command": []string{"x"}, "env": map[string]string{"TOK": "x"}, "secrets": []any{map[string]any{"name": "TOK", "hosts": []string{"a.b"}}}}}, "also in mcp.env"},
 	}
 	for _, c := range cases {
@@ -196,6 +203,12 @@ func TestPluginFingerprint(t *testing.T) {
 		},
 		"mcp removed": func(m *pluginManifest) { m.MCP = nil },
 		"vm image":    func(m *pluginManifest) { m.MCP.VMImage = "images:debian/13/cloud" },
+		"new view": func(m *pluginManifest) {
+			m.Views = append(m.Views, pluginTabSpec{ID: "board", Label: "Board", Entry: "ui/board.html"})
+		},
+		// The same page in the main window is a different grant than in the
+		// sidebar: it is a bigger surface over the screen.
+		"tab moved to a view": func(m *pluginManifest) { m.Views, m.Tabs = m.Tabs[:1], m.Tabs[1:] },
 	}
 	for n, f := range differ {
 		m := base()
@@ -959,4 +972,19 @@ func TestPluginRunnerLockOneLassoPerDirectory(t *testing.T) {
 	a.stopAll() // releases the lock
 	b.rescan()
 	waitPlugin(t, "alpha running in b after a let go", func() bool { return mcpStatusOf(b, "alpha").Status == pluginMCPRunning })
+}
+
+// A manifest with no views fingerprints exactly as it did before views existed,
+// so no plugin approved earlier drops back to needs_approval on upgrade.
+func TestPluginFingerprintStableWithoutViews(t *testing.T) {
+	m := &pluginManifest{
+		Name: "hello",
+		Tabs: []pluginTabSpec{{ID: "main", Label: "Hello", Entry: "ui/index.html"}},
+	}
+	// The canonical form as it was: tabs only, no views key at all.
+	old := []byte(`{"tabs":[{"entry":"ui/index.html"}]}`)
+	sum := sha256.Sum256(append([]byte("lasso-plugin-perms/1\n"), old...))
+	if got, want := m.fingerprint(), hex.EncodeToString(sum[:]); got != want {
+		t.Errorf("fingerprint = %s, want the pre-views %s", got, want)
+	}
 }
