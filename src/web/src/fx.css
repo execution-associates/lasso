@@ -168,6 +168,8 @@
  * it. Only box-shadow and background-image, so the row's own hover/selected
  * background-color (Tailwind, layered) still shows through. */
 :root[data-fx] .fx-tile {
+  /* The tile's own edge (the 1px ring below) replaces a flat border. */
+  border-color: transparent;
   background-image: linear-gradient(
     180deg,
     color-mix(in oklab, var(--card) 70%, transparent),
@@ -183,7 +185,10 @@
     box-shadow 0.15s ease,
     transform 0.15s ease;
 }
-:root[data-fx] .fx-tile:hover {
+/* Only a tile that is itself the click target lifts: a button (a bot row) or a
+ * closed settings group, which is all header. An open group holds controls,
+ * and a panel that moved while the pointer was on a slider would be wrong. */
+:root[data-fx] :is(button.fx-tile, .fx-tile[data-state="closed"]):hover {
   transform: translateY(-1px);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / calc(0.14 + 0.24 * var(--fx-k))),
@@ -192,7 +197,7 @@
     0 2px 4px color-mix(in oklab, var(--fx-ink) 22%, transparent),
     0 10px 20px -12px color-mix(in oklab, var(--fx-ink) 65%, transparent);
 }
-:root[data-fx] .fx-tile:active {
+:root[data-fx] :is(button.fx-tile, .fx-tile[data-state="closed"]):active {
   transform: none;
 }
 /* The selected row keeps its palette wash (the .fx-row rule above) on top of
@@ -209,6 +214,23 @@
       color-mix(in oklab, var(--card) 70%, transparent),
       color-mix(in oklab, var(--card) 30%, transparent)
     );
+}
+/* Settings groups (and the card after them) as tiles: the flat chrome's rule
+ * between groups gives way to a gap, since the tiles' own edges now separate
+ * them. */
+:root[data-fx] :is(.fx-tile-group, .fx-tile-card) {
+  border-top-width: 0;
+  border-radius: var(--radius-lg);
+  padding-inline: 0.625rem;
+}
+:root[data-fx] .fx-tile-group[data-state="open"] {
+  padding-bottom: 0.5rem;
+}
+:root[data-fx] .fx-tile-card {
+  padding-block: 0.625rem;
+}
+:root[data-fx] .fx-tile-group + :is(.fx-tile-group, .fx-tile-card) {
+  margin-top: 0.5rem;
 }
 @media (prefers-reduced-motion: reduce) {
   :root[data-fx] .fx-tile,

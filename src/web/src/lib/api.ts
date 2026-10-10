@@ -833,7 +833,6 @@ export interface BotFields {
   mcp: BotMCPServer[]
   strict_mcp: boolean
   extra_args: string[]
-  avatar: string
   keep_running: boolean
   // Push a notification when the bot finishes a turn with a new message.
   notify: boolean
