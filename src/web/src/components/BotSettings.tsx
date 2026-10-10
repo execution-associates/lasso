@@ -39,6 +39,7 @@ import {
   type BotFields,
   type BotMCPServer,
   type BotOAuthStatus,
+  type BotSkill,
   type BotView,
   type HostInfo,
 } from "@/lib/api"
@@ -588,6 +589,10 @@ function OAuthPanel({
   )
   const [pasted, setPasted] = React.useState("")
   const [busy, setBusy] = React.useState(false)
+  // A sign-in or sign-out changes the server's headersHelper in the bot's
+  // mcp.json, which claude reads only when it starts: a running bot needs a
+  // restart to see it. (Later token refreshes do not.)
+  const [changed, setChanged] = React.useState(false)
 
   // The callback page tells its opener it finished.
   React.useEffect(() => {
@@ -596,6 +601,7 @@ function OAuthPanel({
       if (e.origin !== window.location.origin) return
       if (e.data && typeof e.data.lassoBotOAuth === "boolean") {
         setWaiting(null)
+        if (e.data.lassoBotOAuth) setChanged(true)
         onChanged()
       }
     }
@@ -612,6 +618,7 @@ function OAuthPanel({
   React.useEffect(() => {
     if (waiting && connectedAt !== startedAt.current && connectedAt !== -1) {
       setWaiting(null)
+      setChanged(true)
     }
   }, [waiting, connectedAt])
 
@@ -639,6 +646,7 @@ function OAuthPanel({
     try {
       await api.bots.oauthFinish(pasted.trim())
       setWaiting(null)
+      setChanged(true)
       onChanged()
       toast.success(`${server} is connected`)
     } catch (e) {
@@ -652,6 +660,7 @@ function OAuthPanel({
     setBusy(true)
     try {
       await api.bots.oauthSignOut(bot.name, server)
+      setChanged(true)
       onChanged()
     } catch (e) {
       toast.error(`could not sign out: ${(e as Error).message}`)
@@ -700,6 +709,13 @@ function OAuthPanel({
           </Button>
         )}
       </div>
+      {changed && !waiting && !!bot.pane_id && (
+        <p className="border-border border-t pt-2 text-foreground">
+          {bot.name} is still running with its old connection settings, so this
+          takes effect after a restart: use Restart on the Launch tab. Token
+          refreshes later on need no restart.
+        </p>
+      )}
       {waiting && (
         <div className="flex flex-col gap-1.5 border-border border-t pt-2">
           <p className="text-muted-foreground">
@@ -1012,25 +1028,82 @@ function ConnectionsTab({
 // ---------------------------------------------------------------------------
 // Skills
 
+function SkillRow({
+  skill,
+  children,
+}: {
+  skill: BotSkill
+  children?: React.ReactNode
+}) {
+  return (
+    <div className="flex items-start gap-2 rounded-lg border border-border bg-card px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <div className="font-medium font-mono text-[12.5px] text-foreground">
+          {skill.name}
+        </div>
+        {skill.description && (
+          <div className="line-clamp-2 text-[12px] text-muted-foreground">
+            {skill.description}
+          </div>
+        )}
+      </div>
+      {children}
+    </div>
+  )
+}
+
 function SkillsTab({ bot }: { bot: BotView }) {
   const queryClient = useQueryClient()
   const key = ["bot-skills", bot.name]
   const skills = useQuery({
     queryKey: key,
     queryFn: () => api.bots.skills(bot.name),
+    // The bot installs a skill on its own time (installSkill), so the list
+    // keeps looking while this tab is open.
+    refetchInterval: 5000,
   })
-  const library = useQuery({
+  // The host's user-level skills: Claude Code loads ~/.claude/skills in every
+  // session, so the bot has them without anything being copied.
+  const userSkills = useQuery({
     queryKey: ["bot-skill-library", bot.host],
     queryFn: () => api.bots.skillLibrary(bot.host),
   })
-  const [pick, setPick] = React.useState("")
-  const [path, setPath] = React.useState("")
+  const [source, setSource] = React.useState("")
   const [busy, setBusy] = React.useState(false)
   const [removing, setRemoving] = React.useState<string | null>(null)
-  const have = new Set((skills.data?.skills ?? []).map((s) => s.name))
-  const available = (library.data?.skills ?? []).filter(
-    (s) => !have.has(s.name)
-  )
+  const machine = bot.host === "local" ? "this machine" : bot.host
+  const running = !!bot.pane_id
+
+  // Whatever was pasted (a URL, a repo, a path, a skill's text, or just a
+  // description of one) goes to the bot itself as a request to install it into
+  // its own .claude/skills: the bot can fetch, clone or write a skill, which
+  // lasso cannot do for an arbitrary source. Typed into its pane like any chat
+  // message, so it reads as its human's request.
+  const installSkill = async () => {
+    if (!bot.pane_id) return
+    setBusy(true)
+    try {
+      const res = await api.chatSend(
+        bot.host,
+        bot.pane_id,
+        `Install a skill for this project only, from what I've pasted below. Put it in .claude/skills/<skill-name>/ under your current folder (its SKILL.md plus any files it needs), not in ~/.claude/skills. If it's a URL, repository or path, fetch or copy it from there; if it's a description, write the skill. Tell me the skill's name when it's installed.\n\n${source.trim()}`
+      )
+      if (res.outcome === "confirmed") {
+        setSource("")
+        toast.success(`Sent to ${bot.name}; it's installing the skill now`)
+      } else {
+        toast.error(
+          res.outcome === "uncertain"
+            ? `Not sure ${bot.name} got it: ${res.detail || "check its chat"}`
+            : res.detail || `${bot.name} did not take the request`
+        )
+      }
+    } catch (e) {
+      toast.error(`could not send it: ${(e as Error).message}`)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const run = async (fn: () => Promise<unknown>, fail: string) => {
     setBusy(true)
@@ -1047,14 +1120,65 @@ function SkillsTab({ bot }: { bot: BotView }) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <p className="text-[12.5px] text-muted-foreground">
-        Project skills in{" "}
-        <code className="font-mono text-[11.5px]">.claude/skills</code> of the
-        bot's folder. Adding one copies it in, so later edits to the original do
-        not reach the bot.
-      </p>
-      <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-6">
+      <section className="flex flex-col gap-2">
+        <h3 className="font-medium text-[13px] text-foreground">
+          Always available
+          {userSkills.data && userSkills.data.skills.length > 0 && (
+            <span className="ml-1.5 font-normal text-muted-foreground">
+              {userSkills.data.skills.length}
+            </span>
+          )}
+        </h3>
+        <p className="text-[12.5px] text-muted-foreground">
+          Your user-level skills in{" "}
+          <code className="font-mono text-[11.5px]">~/.claude/skills</code> on{" "}
+          {machine}. Claude Code loads them in every session, this bot included,
+          so there is nothing to add. Edit them there and every bot picks the
+          change up on its next start.
+        </p>
+        {userSkills.isPending && <Orb state="working" px={16} />}
+        {userSkills.error && (
+          <p className="text-[12px] text-destructive">
+            {(userSkills.error as Error).message}
+          </p>
+        )}
+        {userSkills.data?.skills.length === 0 && (
+          <p className="text-[12.5px] text-muted-foreground">
+            None on {machine}.
+          </p>
+        )}
+        {/* A scroll area of one-line rows: a long ~/.claude/skills would
+            otherwise push this bot's own skills off the page. */}
+        {userSkills.data && userSkills.data.skills.length > 0 && (
+          <div className="max-h-72 overflow-y-auto rounded-lg border border-border bg-card">
+            {userSkills.data.skills.map((s) => (
+              <div
+                key={s.path}
+                title={s.description || undefined}
+                className="flex min-w-0 items-baseline gap-2 border-border/60 border-b px-3 py-1.5 last:border-b-0"
+              >
+                <span className="shrink-0 font-mono text-[12px] text-foreground">
+                  {s.name}
+                </span>
+                <span className="min-w-0 truncate text-[11.5px] text-muted-foreground">
+                  {s.description}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h3 className="font-medium text-[13px] text-foreground">
+          This bot only
+        </h3>
+        <p className="text-[12.5px] text-muted-foreground">
+          Project skills in{" "}
+          <code className="font-mono text-[11.5px]">.claude/skills</code> of the
+          bot's folder, which no other session sees.
+        </p>
         {skills.isPending && <Orb state="working" px={16} />}
         {skills.error && (
           <p className="text-[12px] text-destructive">
@@ -1062,126 +1186,79 @@ function SkillsTab({ bot }: { bot: BotView }) {
           </p>
         )}
         {skills.data?.skills.length === 0 && (
-          <p className="text-[12.5px] text-muted-foreground">No skills yet.</p>
+          <p className="text-[12.5px] text-muted-foreground">None yet.</p>
         )}
-        {skills.data?.skills.map((s) => (
-          <div
-            key={s.name}
-            className="flex items-start gap-2 rounded-lg border border-border bg-card px-3 py-2"
-          >
-            <div className="min-w-0 flex-1">
-              <div className="font-medium font-mono text-[12.5px] text-foreground">
-                {s.name}
-              </div>
-              {s.description && (
-                <div className="line-clamp-2 text-[12px] text-muted-foreground">
-                  {s.description}
-                </div>
-              )}
-            </div>
-            {removing === s.name ? (
-              <span className="flex shrink-0 items-center gap-1">
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() =>
-                    void run(
-                      () => api.bots.skillRemove(bot.name, s.name),
-                      `could not remove ${s.name}`
-                    ).then(() => setRemoving(null))
-                  }
-                >
-                  Remove
-                </Button>
+        <div className="flex flex-col gap-1.5">
+          {skills.data?.skills.map((s) => (
+            <SkillRow key={s.name} skill={s}>
+              {removing === s.name ? (
+                <span className="flex shrink-0 items-center gap-1">
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() =>
+                      void run(
+                        () => api.bots.skillRemove(bot.name, s.name),
+                        `could not remove ${s.name}`
+                      ).then(() => setRemoving(null))
+                    }
+                  >
+                    Remove
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setRemoving(null)}
+                  >
+                    Keep
+                  </Button>
+                </span>
+              ) : (
                 <Button
                   variant="ghost"
-                  size="sm"
-                  onClick={() => setRemoving(null)}
+                  size="icon-sm"
+                  title={`Remove ${s.name}`}
+                  aria-label={`Remove ${s.name}`}
+                  onClick={() => setRemoving(s.name)}
                 >
-                  Keep
+                  <Trash2 />
                 </Button>
-              </span>
-            ) : (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                title={`Remove ${s.name}`}
-                aria-label={`Remove ${s.name}`}
-                onClick={() => setRemoving(s.name)}
-              >
-                <Trash2 />
-              </Button>
-            )}
+              )}
+            </SkillRow>
+          ))}
+        </div>
+        <Field
+          label="Add a skill"
+          htmlFor="bot-skill-source"
+          hint={
+            running
+              ? `Paste anything: a URL, a GitHub repo, a path on ${machine}, a SKILL.md, or a description of what the skill should do. ${bot.name} installs it itself; follow along in its chat.`
+              : `${bot.name} installs skills itself, so start it first.`
+          }
+        >
+          <div className="flex flex-col gap-1.5">
+            <textarea
+              {...NO_AUTOCORRECT}
+              id="bot-skill-source"
+              rows={3}
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+              placeholder="https://github.com/owner/repo/tree/main/skills/triage"
+              className={cn(fieldClass, "resize-y font-mono")}
+            />
+            <Button
+              variant="outline"
+              className="self-start"
+              disabled={!running || !source.trim() || busy}
+              onClick={() => void installSkill()}
+            >
+              <Plus />
+              Ask {bot.name} to install it
+            </Button>
           </div>
-        ))}
-      </div>
-      <Field
-        label={`From ${bot.host === "local" ? "this machine's" : `${bot.host}'s`} ~/.claude/skills`}
-        htmlFor="bot-skill-pick"
-      >
-        <div className="flex gap-1.5">
-          <select
-            id="bot-skill-pick"
-            className={cn(fieldClass, "min-w-0 flex-1")}
-            value={pick}
-            onChange={(e) => setPick(e.target.value)}
-          >
-            <option value="">
-              {library.isPending
-                ? "loading…"
-                : available.length === 0
-                  ? "nothing more to add"
-                  : "choose a skill"}
-            </option>
-            {available.map((s) => (
-              <option key={s.path} value={s.path}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-          <Button
-            variant="outline"
-            disabled={!pick || busy}
-            onClick={() =>
-              void run(
-                () => api.bots.skillAdd(bot.name, pick),
-                "could not add the skill"
-              ).then((ok) => ok && setPick(""))
-            }
-          >
-            Add
-          </Button>
-        </div>
-      </Field>
-      <Field
-        label="Or from a path"
-        htmlFor="bot-skill-path"
-        hint="A skill directory (holding SKILL.md) on the bot's host."
-      >
-        <div className="flex gap-1.5">
-          <input
-            {...NO_AUTOCORRECT}
-            id="bot-skill-path"
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-            placeholder="~/skills/triage"
-            className={cn(fieldClass, "min-w-0 flex-1 font-mono")}
-          />
-          <Button
-            variant="outline"
-            disabled={!path.trim() || busy}
-            onClick={() =>
-              void run(
-                () => api.bots.skillAdd(bot.name, path.trim()),
-                "could not add the skill"
-              ).then((ok) => ok && setPath(""))
-            }
-          >
-            Add
-          </Button>
-        </div>
-      </Field>
+        </Field>
+      </section>
     </div>
   )
 }

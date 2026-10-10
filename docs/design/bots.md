@@ -36,6 +36,7 @@ The whole launch is `mise run bot` in the folder. mise asks fnox for the variabl
 - `--dangerously-load-development-channels server:<x>`, one per channel
 - `--model`, `--effort`, `--permission-mode` and `--name <bot>`
 - the bot's extra args
+- `--append-system-prompt`: lasso's note on how the bot runs (below)
 - `"$@"` last, so `-- --resume <id>` wins
 
 ## Invariants
@@ -75,4 +76,9 @@ The whole launch is `mise run bot` in the folder. mise asks fnox for the variabl
   - **Secrets:** the access token, refresh token and client secret go to the bot's fnox under `LASSO_OAUTH_<SERVER>_*`. `bot_mcp_oauth` in `lasso.db` holds only what is not secret: client id, endpoints, expiry and status.
   - **How claude gets the token:** the server's `headersHelper` runs `fnox get` on the access token. Claude Code runs it on every connection and again after a 401, and the bot loop refreshes tokens within 5 minutes of expiry. The `LASSO_OAUTH_` keys are kept out of the task's `secrets` grant, so the refresh token never reaches claude's environment, and the Environment tab hides them.
   - **Token check:** a token with a quote, backslash, space or non-ASCII character is refused, because the helper prints it inside JSON.
+- **Every bot is told how it runs.** lasso always passes `--append-system-prompt` with a short note. It covers who the bot is, that it runs via `mise run bot` in a herdr pane and comes back after restarts, which files lasso regenerates, where its env comes from, and how to restart itself. A human's own `--append-system-prompt` in the extra args is joined onto it, since claude takes only one. The note says outright that restarting is safe and supported: without that, a bot under a user CLAUDE.md that forbids killing processes declined to do it.
+- **A bot restarts itself without a helper process.** Claude Code reaps everything a tool call starts, `setsid` included, so nothing spawned from inside the bot can outlive it to relaunch it. So:
+  - **The task waits instead of exec'ing.** `.mise/tasks/bot` runs claude and waits for it.
+  - **`mise run restart`** (`.mise/tasks/restart`) touches `.lasso/restart` and types `/exit`, which queues behind the current turn.
+  - **On exit with the marker present,** the task re-runs `mise run bot -- --continue`: the whole task, so new env, MCP servers and settings take effect. A plain exit ends the task as before.
 - **Creating and editing stay human-only.** The MCP tools can list, start, stop and restart a bot. Its MCP servers, env, secrets and CLAUDE.md decide what it can reach, so those are edited only in the Bots view, as plugin approval is.
