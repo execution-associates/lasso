@@ -170,6 +170,18 @@ func openDB() error {
 		`ALTER TABLE bots ADD COLUMN launch_task TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE bots ADD COLUMN channel_token TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE bots ADD COLUMN channel_seen_at TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE bot_jobs ADD COLUMN command TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE bot_jobs ADD COLUMN timeout INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE bot_jobs ADD COLUMN once_at TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE bot_jobs ADD COLUMN fail_streak INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE bot_jobs ADD COLUMN fail_reported INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE bot_jobs ADD COLUMN last_run_at TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE bot_jobs ADD COLUMN last_run_result TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE bot_jobs ADD COLUMN last_run_exit INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE bot_jobs ADD COLUMN last_run_ms INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE bot_jobs ADD COLUMN last_run_note TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE bot_events ADD COLUMN runs TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE bot_events ADD COLUMN run_status TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := h.Exec(alter); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 			h.Close()
