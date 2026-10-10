@@ -330,6 +330,11 @@ func runServer() {
 	mux.HandleFunc("/api/chat/stop", serveChatStop)
 	mux.HandleFunc("/api/bots", serveBots)
 	mux.HandleFunc("/api/bots/", serveBots)
+	// A bot job's webhook and lasso's bot channel (botjobs.go). Exempt from
+	// UI_AUTH below: each carries its own credential (the job's key, the
+	// bot's channel token).
+	mux.HandleFunc("/hooks/bots/", serveBotHook)
+	mux.HandleFunc("/bot-channel/", serveBotChannel)
 	mux.HandleFunc("/api/all-panes", serveAllPanes)
 	mux.HandleFunc("/api/ui-state", serveUIState)
 	mux.HandleFunc("/api/clients", serveClients)
@@ -455,6 +460,8 @@ func runServer() {
 		"/mcp",
 		"/cdp",
 		"/herdr-mcp",
+		"/hooks/bots",
+		"/bot-channel",
 		"/.well-known/oauth-protected-resource",
 		"/.well-known/oauth-authorization-server",
 		"/oauth/register",

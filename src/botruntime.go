@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -357,9 +358,13 @@ func botTick() {
 	if !botsOwnLoop() {
 		return
 	}
+	botJobsTick(time.Now())
 	list, err := listBots()
 	if err != nil || len(list) == 0 {
 		return
+	}
+	if !botChannelSynced.Swap(true) {
+		botSyncChannelFiles(list)
 	}
 	sessions := map[string][]claudeSessionEntry{}
 	for _, r := range list {
@@ -402,6 +407,35 @@ func botTick() {
 			if err := botRelaunch(b, r); err != nil && !errors.Is(err, errBotRunning) {
 				log.Printf("bots:     relaunch %s: %v", r.Name, err)
 			}
+		}
+	}
+}
+
+// botChannelSynced: the runner rewrites each local bot's launch task and
+// mcp.json once when it takes the loop, so a bot saved before lasso had a
+// channel, or one whose mcp.json names a lasso binary an update replaced,
+// gets the current one on its next start without a save.
+var botChannelSynced atomic.Bool
+
+func botSyncChannelFiles(list []*botRecord) {
+	for _, r := range list {
+		if r.Host != "local" {
+			continue
+		}
+		b, err := botBackend(r.Host)
+		if err != nil {
+			continue
+		}
+		dir := expandTildeOn(b, r.Dir)
+		if _, err := b.Stat(botMCPPath(dir)); err != nil {
+			continue
+		}
+		if err := botWriteTask(b, r, dir); err != nil {
+			log.Printf("bots:     %s: %v", r.Name, err)
+			continue
+		}
+		if err := botWriteMCP(b, r, dir); err != nil {
+			log.Printf("bots:     %s: %v", r.Name, err)
 		}
 	}
 }

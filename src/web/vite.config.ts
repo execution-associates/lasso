@@ -30,6 +30,9 @@ export default defineConfig({
       // answers with lasso's own index.html, whose module scripts a sandboxed
       // frame cannot load, so every plugin tab and view renders blank in dev.
       "/plugins": { target: backend, changeOrigin: true },
+      // A bot job's webhook URL is built from the page's origin, so in dev
+      // it points here.
+      "/hooks": { target: backend, changeOrigin: true },
       "/terminal": { target: backend, changeOrigin: true, ws: true },
       "/shell": { target: backend, changeOrigin: true, ws: true },
       // The shared browser's CDP endpoint. changeOrigin stays OFF: /cdp refuses
