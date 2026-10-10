@@ -35,7 +35,7 @@ import { blurHerdrTerminal, focusHerdrTerminal } from "@/lib/terminal"
 import { patchUIState, uiStateNow } from "@/lib/ui-state"
 import { cn } from "@/lib/utils"
 
-type AgentType = "git" | "scratch"
+export type AgentType = "git" | "scratch"
 
 // A create whose response is lost mid-flight (lasso restarting under
 // `lasso update`, a dropped tunnel) surfaces as a 502/503/504 or a fetch
@@ -151,7 +151,10 @@ const PROMPT_PLACEHOLDERS = [
 // property of the screen you are typing on, not a preference to push to every
 // device mid-edit. The prompt, attachments and pasted images are NOT kept —
 // reopening onto someone else's half-written instruction is the surprise this
-// is trying to avoid.
+// is trying to avoid. The harness's params (model, effort, extra args, plan
+// mode, advisor) survive a close but not a create: a submit clears them
+// (`clearDraftParams`) while the harness itself stays picked, so one agent's
+// one-off flags never ride along on the next.
 type CreatorDraft = {
   type: AgentType
   repo: string
@@ -214,6 +217,22 @@ function saveDraft(host: string, draft: CreatorDraft) {
   } catch {
     // Private mode / blocked site data: the creator just stops remembering.
   }
+}
+
+// Drop the harness params from a host's draft after a create. Written straight
+// to storage because the dialog has already closed by then, and the save effect
+// only runs while it is open.
+function clearDraftParams(host: string) {
+  const draft = readDraft(host)
+  if (!draft.agent) return
+  saveDraft(host, {
+    ...(draft as CreatorDraft),
+    model: "",
+    effort: "",
+    extraArgs: "",
+    planMode: false,
+    advisor: false,
+  })
 }
 
 // Record the host a create actually ran on, so the next open lands there. Only
@@ -279,6 +298,7 @@ export function NewDialog({
   agentsOnly = false,
   terminalHidden = agentsOnly,
   onTerminalCreated,
+  typeRequest = null,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -299,6 +319,10 @@ export function NewDialog({
   // reading view can switch to the terminal (the chat cannot show a shell) and
   // the close then hands the keyboard to the view the new shell is on.
   onTerminalCreated?: () => void
+  // ⌘O asks for Git and ⌘⇧O for Scratch; null (the footer's New) keeps the
+  // remembered type. A fresh object per keypress, so pressing the same chord
+  // again while the dialog is open still flips a type changed by hand.
+  typeRequest?: { type: AgentType } | null
 }) {
   const [showAdvanced, setShowAdvanced] = React.useState(false)
   const [terminalCreating, setTerminalCreating] = React.useState(false)
@@ -418,6 +442,14 @@ export function NewDialog({
 
   // Form state.
   const [type, setType] = React.useState<AgentType>("git")
+  // The request still waiting for the seed below, which lands only once the
+  // repos load and would otherwise put the remembered type back over it. Taken
+  // once, so a later re-seed (another host picked) keeps a type changed by hand.
+  const pendingTypeRequest = React.useRef(typeRequest)
+  React.useEffect(() => {
+    pendingTypeRequest.current = typeRequest
+    if (open && typeRequest) setType(typeRequest.type)
+  }, [open, typeRequest])
   const [prompt, setPrompt] = React.useState("")
   const [repo, setRepo] = React.useState("")
   const [baseBranch, setBaseBranch] = React.useState("")
@@ -554,7 +586,9 @@ export function NewDialog({
     if (seededForHost.current === selectedHost) return
     seededForHost.current = selectedHost
     const draft = readDraft(selectedHost)
-    setType(draft.type || config.last_agent_type || "git")
+    const requested = pendingTypeRequest.current?.type
+    pendingTypeRequest.current = null
+    setType(requested || draft.type || config.last_agent_type || "git")
     setPrefix(draft.prefix ?? config.branch_prefix ?? "")
     const seededAgent =
       (draft.agent && harnesses.some((h) => h.id === draft.agent)
@@ -748,11 +782,11 @@ export function NewDialog({
     [pastedImages]
   )
 
-  // Clears only what belongs to the create that just happened. The remembered
-  // params (type, repo, harness, model, effort, args, plan mode, advisor,
-  // prefix) are deliberately left alone — the draft governs them, and the next
-  // open re-seeds from it.
+  // Clears what belongs to the create that just happened: the prompt and its
+  // files here, the harness params in the draft. Type, repo, harness and prefix
+  // stay remembered, and the next open re-seeds from the draft.
   const reset = () => {
+    clearDraftParams(selectedHost)
     setPrompt("")
     setPastingImage(false)
     setBranchName("")
@@ -1044,9 +1078,15 @@ export function NewDialog({
                 >
                   <TabsTrigger ref={gitTypeTabRef} value="git">
                     Git
+                    <kbd className="font-mono text-[10px] text-muted-foreground">
+                      ⌘O
+                    </kbd>
                   </TabsTrigger>
                   <TabsTrigger ref={scratchTypeTabRef} value="scratch">
                     Scratch
+                    <kbd className="font-mono text-[10px] text-muted-foreground">
+                      ⌘⇧O
+                    </kbd>
                   </TabsTrigger>
                 </TabsList>
               </Tabs>
