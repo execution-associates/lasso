@@ -67,11 +67,15 @@ func TestBotTaskScript(t *testing.T) {
 	r := testBot()
 	s := botTaskScript(r, "/home/u/bots/news-bot", []string{"GMAIL_TOKEN", "PLAIN"})
 	for _, want := range []string{
-		"exec claude '--mcp-config' '/home/u/bots/news-bot/.lasso/mcp.json'",
+		"\nclaude '--mcp-config' '/home/u/bots/news-bot/.lasso/mcp.json'",
 		"'--strict-mcp-config'",
 		"'--dangerously-load-development-channels' 'server:gmail-channel'",
 		"'--model' 'opus' '--effort' 'high' '--permission-mode' 'bypassPermissions' '--name' 'news-bot'",
-		`'it'\''s $HOME' "$@"`,
+		// The human's own --append-system-prompt joins lasso's, which comes
+		// first, as one flag.
+		`'--append-system-prompt' 'You are the bot "news-bot"`,
+		"`mise run restart`",
+		"\n\nit'\\''s $HOME' \"$@\"",
 		"I am using this for local development",
 		"❯ Yes, I trust this folder",
 		`herdr agent rename "$HERDR_PANE_ID" "$NAME"`,
@@ -83,6 +87,9 @@ func TestBotTaskScript(t *testing.T) {
 	}
 	if strings.Contains(s, "server:docs") {
 		t.Error("a non-channel server got a channel grant")
+	}
+	if strings.Count(s, "--append-system-prompt") != 1 {
+		t.Error("more than one --append-system-prompt")
 	}
 	// The script must at least parse.
 	f := filepath.Join(t.TempDir(), "bot")
@@ -96,6 +103,34 @@ func TestBotTaskScript(t *testing.T) {
 	r.MCP[0].Channel = false
 	if s := botTaskScript(r, "/d", nil); strings.Contains(s, "local development") || strings.Contains(s, "#MISE secrets") {
 		t.Error("a bot with no channels or env got a dev-channel answer or a secrets grant")
+	}
+}
+
+func TestBotRestartScript(t *testing.T) {
+	dir := "/home/u/bots/it's here"
+	s := botRestartScript(dir)
+	for _, want := range []string{"touch '/home/u/bots/it'\\''s here/.lasso/restart'", `"/exit"`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("restart script lacks %q:\n%s", want, s)
+		}
+	}
+	f := filepath.Join(t.TempDir(), "restart")
+	os.WriteFile(f, []byte(s), 0o755)
+	if out, err := exec.Command("sh", "-n", f).CombinedOutput(); err != nil {
+		t.Fatalf("sh -n: %v %s", err, out)
+	}
+	// Outside herdr it refuses rather than typing into nothing.
+	cmd := exec.Command("sh", f)
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
+	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "not running in a herdr pane") {
+		t.Errorf("outside herdr: %v %s", err, out)
+	}
+	// The bot task relaunches itself when it finds the marker.
+	task := botTaskScript(testBot(), dir, nil)
+	for _, want := range []string{"marker='/home/u/bots/it'\\''s here/.lasso/restart'", `if [ -f "$marker" ]`, "exec mise run bot -- --continue", "exit $status"} {
+		if !strings.Contains(task, want) {
+			t.Errorf("task lacks %q", want)
+		}
 	}
 }
 
@@ -385,6 +420,20 @@ func TestBotsAPI(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); err != nil {
 		t.Error("delete removed the folder")
+	}
+}
+
+func TestSkillDescription(t *testing.T) {
+	for md, want := range map[string]string{
+		"---\nname: a\ndescription: Plain one.\n---\nbody":                           "Plain one.",
+		"---\nname: a\ndescription: \"Quoted.\"\n---\n":                              "Quoted.",
+		"---\nname: a\ndescription: >\n  Folded over\n  two lines.\nother: x\n---\n": "Folded over two lines.",
+		"---\ndescription: |-\n  Literal.\n---\n":                                    "Literal.",
+		"no frontmatter": "",
+	} {
+		if got := skillDescription(md); got != want {
+			t.Errorf("%q: got %q, want %q", md, got, want)
+		}
 	}
 }
 

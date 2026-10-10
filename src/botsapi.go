@@ -345,18 +345,34 @@ func listSkillDir(b Backend, root string) []botSkill {
 	return out
 }
 
-// skillDescription is the frontmatter's description line, if there is one.
+// skillDescription is the frontmatter's description, if there is one: on its
+// own line, or a YAML block scalar (description: > / |) on the indented lines
+// after it.
 func skillDescription(md string) string {
 	if !strings.HasPrefix(md, "---") {
 		return ""
 	}
-	for _, line := range strings.Split(md, "\n")[1:] {
+	lines := strings.Split(md, "\n")[1:]
+	for i, line := range lines {
 		if strings.TrimSpace(line) == "---" {
 			break
 		}
-		if v, ok := strings.CutPrefix(line, "description:"); ok {
-			return previewText(strings.Trim(strings.TrimSpace(v), `"'`))
+		v, ok := strings.CutPrefix(line, "description:")
+		if !ok {
+			continue
 		}
+		v = strings.TrimSpace(v)
+		if v != "" && strings.Trim(v, ">|-+") != "" {
+			return previewText(strings.Trim(v, `"'`))
+		}
+		var body []string
+		for _, next := range lines[i+1:] {
+			if strings.TrimSpace(next) == "---" || (next != "" && next[0] != ' ' && next[0] != '\t') {
+				break
+			}
+			body = append(body, strings.TrimSpace(next))
+		}
+		return previewText(strings.Join(body, " "))
 	}
 	return ""
 }

@@ -80,11 +80,14 @@ Keep secrets out of this page. Write `${VAR}` in a server's environment or heade
 - **What happens:** the server's login page opens in a new tab. Once you approve, it sends you back to lasso, which finishes the sign-in by itself. lasso discovers the server's sign-in settings and registers itself as a client automatically.
 - **When the redirect won't load:** some servers will only send you back to `localhost`. When lasso runs on a VPS, that page fails to load. Copy the address from that tab's address bar (it holds `?code=…&state=…`), paste it into the box under the server, and press **Finish**.
 - **Where the tokens go:** lasso keeps the tokens in the bot's `fnox.toml`, encrypted like any other secret, and refreshes them before they expire. Claude reads the current one each time it connects. Each bot signs in separately, so two bots can use different accounts on the same service.
+- **A running bot needs a restart:** the first sign-in, and a sign-out, change how the bot connects, and a running bot only reads that when it starts. The panel says so; restart it from **Launch**. Later token refreshes need no restart.
 - **Servers that don't register clients automatically:** open **Server without automatic client registration** and enter the client ID, the redirect URI it was registered with, and the scope.
 
 ### Skills
 
-The bot's project skills, in `.claude/skills` in its folder. Add one from the host's own `~/.claude/skills`, or from any skill directory on the host by path. Adding copies the skill in, so later edits to the original do not reach the bot. Removing asks for a second click.
+**Always available** lists your user-level skills, from `~/.claude/skills` on the bot's host, in a scrolling list. Claude Code loads them in every session, so every bot has them without adding anything.
+
+**This bot only** is the bot's project skills, in `.claude/skills` in its folder, which no other session sees. To add one, paste anything into **Add a skill**: a URL, a GitHub repo, a path, a `SKILL.md`, or a description of what the skill should do. Then press **Ask <bot> to install it**. The request goes to the running bot as a chat message, and the bot fetches or writes the skill into its own `.claude/skills`; you can follow along in its chat. The list updates once the skill is there. Removing a skill asks for a second click.
 
 ### Instructions
 
@@ -98,7 +101,7 @@ A host with no age key yet cannot store secrets. The page says so and offers **C
 
 ### Launch
 
-Start, stop and restart the bot (**Restart fresh** begins a new session), and **Open terminal** to switch to its pane in the terminal. Below them is the launch script lasso generates from the settings. The bot runs as `mise run bot` in its folder, and lasso rewrites the script on every save, so edit the settings rather than the file.
+Start, stop and restart the bot (**Restart fresh** begins a new session), and **Open terminal** to switch to its pane in the terminal. The bot can also restart itself: ask it to, and it runs `mise run restart`, which relaunches it in the same pane on the same conversation once its turn ends. Below them is the launch script lasso generates from the settings. The bot runs as `mise run bot` in its folder, and lasso rewrites the script on every save, so edit the settings rather than the file.
 
 ### Deleting a bot
 
