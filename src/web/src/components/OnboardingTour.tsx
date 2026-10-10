@@ -73,30 +73,18 @@ export const TOUR_STEPS: TourStep[] = [
     ),
   },
   {
-    id: "chat",
-    title: "Read it as a conversation",
-    target: "chat",
+    id: "views",
+    title: "Other ways to look at it",
+    target: "views",
     tryIt: true,
     only: "desktop",
     body: (
       <>
-        Chat shows the focused agent&apos;s session as messages instead of
-        terminal output, with a composer to reply. Try it now: click Chat, then
-        click it again to come back. <Kbd>⌘J</Kbd> toggles it too.
-      </>
-    ),
-  },
-  {
-    id: "agents",
-    title: "Every agent at once",
-    target: "agents",
-    tryIt: true,
-    only: "desktop",
-    body: (
-      <>
-        Grid lays out every agent as its own card, grouped by machine, so you
-        can keep an eye on several and answer whichever is waiting on you.{" "}
-        <Kbd>⌘E</Kbd>
+        The view menu switches what fills this window. Chat shows the focused
+        agent&apos;s session as messages, with a composer to reply (
+        <Kbd>⌘J</Kbd>). Grid lays out every agent as its own card, grouped by
+        machine (<Kbd>⌘E</Kbd>). Plugins can add views of their own. Try it now:
+        open the menu and pick one, then come back to Terminal.
       </>
     ),
   },

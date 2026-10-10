@@ -25,7 +25,7 @@ import (
 // plugin routes are UI routes.
 
 func printPluginUsage(w io.Writer) {
-	fmt.Fprint(w, `lasso plugin — manage lasso plugins (sidebar tabs, MCP tools, themes, fonts)
+	fmt.Fprint(w, `lasso plugin — manage lasso plugins (sidebar tabs, views, MCP tools, themes, fonts)
 
 usage:
   lasso plugin list [-json]         list plugins, their state and MCP status
@@ -292,6 +292,13 @@ func printPluginPerms(w io.Writer, p pluginPerms) {
 			where = t.URL
 		}
 		fmt.Fprintf(w, "  tab %-12s %s\n", t.ID, where)
+	}
+	for _, t := range p.Views {
+		where := t.Entry
+		if t.URL != "" {
+			where = t.URL
+		}
+		fmt.Fprintf(w, "  view %-11s %s\n", t.ID, where)
 	}
 	if len(p.Themes) > 0 {
 		fmt.Fprintf(w, "  themes        %s\n", strings.Join(p.Themes, ", "))

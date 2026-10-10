@@ -1,6 +1,6 @@
 ---
 title: Plugins
-description: Add sidebar tabs, MCP tools, themes and fonts to lasso, and the trust model that keeps a plugin from doing more than you approved.
+description: Add sidebar tabs, main window views, MCP tools, themes and fonts to lasso, and the trust model that keeps a plugin from doing more than you approved.
 order: 50
 nav_title: Using plugins
 ---
@@ -8,6 +8,7 @@ nav_title: Using plugins
 A plugin is a directory with a `plugin.json` manifest. It can add any mix of four things:
 
 - **Sidebar tabs**: a web page of its own, in the sidebar strip next to Files and Browser.
+- **Main window views**: a web page that fills the main window, picked from the footer's view menu beside Terminal, Chat and Grid.
 - **MCP tools**: tools on lasso's `/mcp` server, named `<plugin>__<tool>`, so every agent connected to lasso can call them, and so can `lasso mcp`.
 - **Themes**: Omarchy-format palettes that join the theme picker like any other theme.
 - **Fonts**: font files that become choices in Settings → Themes → Typography.
@@ -31,7 +32,7 @@ lasso mcp hello__greet --name you
 
 A manifest is written by whoever wrote the plugin, so nothing in it can grant itself anything. Three rules follow from that.
 
-**Nothing runs until you enable it.** A new plugin is disabled. Enabling it shows you its permissions and approves exactly those: its tabs' pages and URLs, the container image (and VM image, if it names one) and command of its MCP server, the network hosts that server may reach, the names of its environment variables, which secret may be sent to which host, and its theme and font ids. lasso stores a fingerprint of that set in its own database. If a later edit to the manifest changes any of it, the plugin reads **needs approval** and its tabs and MCP server stop loading until you approve the new set. Edits that are not permissions (the version, the description, a label or icon, a palette) take effect without asking. lasso rescans the plugins directory every 10 seconds, so edits are noticed without a reload.
+**Nothing runs until you enable it.** A new plugin is disabled. Enabling it shows you its permissions and approves exactly those: its tabs' and views' pages and URLs, the container image (and VM image, if it names one) and command of its MCP server, the network hosts that server may reach, the names of its environment variables, which secret may be sent to which host, and its theme and font ids. lasso stores a fingerprint of that set in its own database. If a later edit to the manifest changes any of it, the plugin reads **needs approval** and its tabs and MCP server stop loading until you approve the new set. Edits that are not permissions (the version, the description, a label or icon, a palette) take effect without asking. lasso rescans the plugins directory every 10 seconds, so edits are noticed without a reload.
 
 **Its MCP server runs in a sandbox.** By default lasso runs a plugin's server in an [isb](https://github.com/execution-associates/isb) sandbox: an unprivileged container, with the plugin directory mounted read-only, one writable data directory, nothing else from your machine, and no network except the host names it listed (isb's egress proxy enforces the list). Secrets never enter the guest: the guest holds a placeholder, and isb puts the real value on the wire only toward that secret's approved hosts. Two switches are yours alone, and no manifest field can set either:
 

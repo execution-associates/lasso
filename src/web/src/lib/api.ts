@@ -1018,6 +1018,9 @@ export interface PluginSecretPermission {
 // so a manifest that changes any of it reads as needs_approval again.
 export interface PluginPermissions {
   tabs: PluginTabPermission[] | null
+  // Pages for the main window (the footer's view menu). Absent on an older
+  // server.
+  views?: PluginTabPermission[] | null
   mcp?: {
     image: string
     // The VM image it boots when the operator runs it in a VM. Absent = lasso's
@@ -1161,6 +1164,9 @@ export interface Plugin {
   fingerprint?: string
   permissions: PluginPermissions
   tabs: PluginTabInfo[] | null
+  // Main-window views, same shape as tabs (global_id "plugin:<name>:<id>",
+  // the left view's id). Only while enabled. Absent on an older server.
+  views?: PluginTabInfo[] | null
   // Appearance contributions. Absent on an older server.
   themes?: PluginThemeInfo[] | null
   fonts?: PluginFontInfo[] | null

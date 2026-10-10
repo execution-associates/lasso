@@ -97,6 +97,20 @@ export function pluginTabsOf(data: PluginsPayload | undefined): {
   return out
 }
 
+// pluginViewsOf is pluginTabsOf for the main window's views: what the footer's
+// view menu offers beside Terminal, Chat and Grid.
+export function pluginViewsOf(data: PluginsPayload | undefined): {
+  plugin: Plugin
+  view: PluginTabInfo
+}[] {
+  const out: { plugin: Plugin; view: PluginTabInfo }[] = []
+  for (const plugin of data?.plugins ?? []) {
+    if (plugin.state !== "enabled") continue
+    for (const view of plugin.views ?? []) out.push({ plugin, view })
+  }
+  return out
+}
+
 // pluginSourceOf reads where a plugin came from. A plugin with no install
 // record — hand-placed, or listed by a server older than install/link — is
 // "local", which is also what disables Update/Uninstall/Unlink for it.
@@ -207,10 +221,15 @@ export interface PluginPaneContext {
   pane_id: string | null
 }
 
+// Where a plugin page is framed: a sidebar tab, or a view filling the main
+// window. Told to the page in its context so one page can serve both.
+export type PluginPlacement = "sidebar" | "main"
+
 interface BridgeOptions {
   frame: HTMLIFrameElement
   plugin: string
   tab: string
+  placement: PluginPlacement
   // Read at call time, so an answer is about the pane focused NOW.
   context: () => PluginPaneContext
   // Whether this tab is what the human is looking at. file.open rearranges the
@@ -302,6 +321,7 @@ export function attachPluginBridge(opts: BridgeOptions): PluginBridge {
       agent: agentAt(c.host, c.pane_id),
       plugin,
       tab,
+      placement: opts.placement,
     }
   }
 

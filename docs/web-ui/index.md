@@ -13,12 +13,12 @@ lasso's interface is one page with two columns and a footer. The left column is 
 
 The left column is herdr itself, served by `ttyd`. Anything you type goes to herdr's focused pane, and other browsers on the same lasso see the same session. There is no header bar over it: lasso adds controls around the terminal, never on top of it. See [The terminal](./terminal.md).
 
-The same column has two reading views that cover the terminal without unmounting it:
+The footer's view menu (it names the view you are in) switches what fills this column. Besides the terminal it offers two reading views that cover the terminal without unmounting it:
 
-- **Chat** renders the focused agent's session as a conversation with a composer to reply. Toggle it with the footer's **Chat** button or `⌘J`.
-- **Grid** lays out every agent lasso can reach as a grid of cards, one transcript per card, grouped by machine. Toggle it with the footer's **Grid** button or `⌘E`.
+- **Chat** renders the focused agent's session as a conversation with a composer to reply. `⌘J` toggles it.
+- **Grid** lays out every agent lasso can reach as a grid of cards, one transcript per card, grouped by machine. `⌘E` toggles it.
 
-Both are described in [The terminal](./terminal.md#chat-view).
+Both are described in [The terminal](./terminal.md#chat-view). Below them the menu lists any views your [plugins](../plugins/index.md) add. On a phone the input dial's **Chat** button opens the same picker once a plugin adds a view.
 
 ## The sidebar
 
@@ -66,9 +66,9 @@ Adding lasso to your home screen, HTTPS, and enabling notifications are covered 
 
 ## The first-run tour
 
-The first time anyone opens a lasso, a short tour walks through the interface. It spotlights each control in turn and lets you try the ones that change a view in place (Chat, Agents, the sidebar tabs). Use `←` and `→` to move and `Esc` to skip.
+The first time anyone opens a lasso, a short tour walks through the interface. It spotlights each control in turn and lets you try the ones that change a view in place (the view menu, the sidebar tabs). Use `←` and `→` to move and `Esc` to skip.
 
-On a desktop it covers the terminal, **New**, **Chat**, **Grid**, the host menu, the sidebar and the shortcut reference. On a phone it covers the terminal and the input dial, since the footer controls do not exist there.
+On a desktop it covers the terminal, **New**, the view menu, the host menu, the sidebar and the shortcut reference. On a phone it covers the terminal and the input dial, since the footer controls do not exist there.
 
 Finishing or skipping the tour is recorded on the server, so it does not reappear in other browsers. Replay it from **Settings → General → Take the tour**.
 

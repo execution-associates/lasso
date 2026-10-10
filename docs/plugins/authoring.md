@@ -1,13 +1,14 @@
 ---
 title: Writing a plugin
-description: The plugin manifest, sidebar tabs and their message bridge, MCP servers in isb sandboxes, themes, fonts and chat styles.
+description: The plugin manifest, sidebar tabs, main window views and their message bridge, MCP servers in isb sandboxes, themes, fonts and chat styles.
 order: 51
 nav_title: Writing plugins
 ---
 
-A plugin adds to lasso in any of four ways:
+A plugin adds to lasso in any of these ways:
 
 - **Sidebar tabs**: a web page of its own in lasso's right-hand sidebar, next to Files, Browser and Settings.
+- **Main window views**: a web page that fills the main window, picked from the footer's view menu beside Terminal, Chat and Grid (see [Views](#views)).
 - **MCP tools**: tools that show up on lasso's `/mcp` server as `<plugin>__<tool>`, so every agent connected to lasso can call them. `lasso mcp` lists them too.
 - **Themes**: Omarchy-format palettes that become ordinary lasso themes (see [Themes](#themes)).
 - **Fonts**: font files that become choices in Settings' Typography section (see [Fonts](#fonts)).
@@ -54,6 +55,9 @@ lasso plugin enable hello
     { "id": "main", "label": "Hello", "icon": "sparkles", "entry": "ui/index.html" },
     { "id": "docs", "label": "Docs", "icon": "book", "url": "https://example.com" }
   ],
+  "views": [
+    { "id": "board", "label": "Board", "icon": "layers", "entry": "ui/board.html" }
+  ],
   "mcp": {
     "image": "python:3.12-slim",
     "vm_image": "images:ubuntu/24.04/cloud",
@@ -76,6 +80,7 @@ lasso plugin enable hello
 | `tabs[].icon` | A name from lasso's curated set: `activity bell book book-open bot box calendar chart clock cloud code cpu dashboard database file-text flask folder gauge git-branch globe hammer heart image layers link list mail map message music notebook package puzzle rocket search server shield sparkles star terminal wrench zap` (see `PLUGIN_ICONS` in [`src/web/src/lib/plugins.ts`](https://github.com/execution-associates/lasso/blob/main/src/web/src/lib/plugins.ts)). An unknown name falls back to a puzzle piece and is never an error. |
 | `tabs[].entry` | A file inside the plugin directory, served by lasso. Relative, with no `..` and no hidden segments. |
 | `tabs[].url` | An `http(s)` URL, framed as-is. A tab has exactly one of `entry` or `url`. |
+| `views` | Up to 8 main window views, with the same fields and rules as `tabs`. A view's global id is also `plugin:<name>:<id>`; a view and a tab may share an id. See [Views](#views). |
 | `mcp.image` | Required with `mcp`. The OCI image the container is built from. A plain reference is a Docker Hub image (`python:3.12-slim` is `docker:python:3.12-slim`); an isb prefix (`docker:`, `ghcr:`, `quay:`, `oci:`, or `images:` for a system image) is used as written. The image must have `sh` and `sleep` (or `tail`): see [The sandbox](#the-sandbox). |
 | `mcp.vm_image` | Optional. The VM image to boot when the operator runs the plugin in a VM, e.g. `images:debian/13/cloud`. An OCI image cannot boot as a VM. Without it, lasso uses `images:ubuntu/24.04/cloud`, which has `python3` but no node or bun: a node or bun plugin that should run in a VM needs a `vm_image` with its runtime. |
 | `mcp.command` | Required with `mcp`. The argv of a stdio MCP server. It runs as uid 1000 with the plugin directory as its working directory, mounted read-only at `/plugin`. |
@@ -94,8 +99,8 @@ An invalid manifest never loads anything. The plugin is listed as `invalid` with
 
 A manifest is written by whoever wrote the directory, so nothing in it can grant itself anything. You grant it, in Settings → General → Plugins or with `lasso plugin`.
 
-- **A new plugin is disabled.** Enabling it (Settings shows the exact permissions in a dialog first) approves the permissions shown: its tabs' entries and URLs, the image and the VM image, the command, the network allowlist, the env variable names, each secret with the hosts it may go to, its theme ids, and its fonts' ids, families and categories. lasso stores a fingerprint of that set in its own database, never in the plugin directory.
-- **If a later edit changes any of those**, the plugin reads as `needs_approval`. Its tabs and its MCP server stop loading until you approve the new set. Changes to the version, the description, a tab's label or icon, a theme's label or palette, a font's license, or the font files themselves do not need re-approval. lasso rescans the directory every 10 seconds, and on every Settings visit, so an edit is noticed without a reload.
+- **A new plugin is disabled.** Enabling it (Settings shows the exact permissions in a dialog first) approves the permissions shown: its tabs' and views' entries and URLs, the image and the VM image, the command, the network allowlist, the env variable names, each secret with the hosts it may go to, its theme ids, and its fonts' ids, families and categories. lasso stores a fingerprint of that set in its own database, never in the plugin directory.
+- **If a later edit changes any of those**, the plugin reads as `needs_approval`. Its tabs, its views and its MCP server stop loading until you approve the new set. Changes to the version, the description, a tab's label or icon, a theme's label or palette, a font's license, or the font files themselves do not need re-approval. lasso rescans the directory every 10 seconds, and on every Settings visit, so an edit is noticed without a reload.
 - **Isolation** is a container (the default) or a VM. A VM has its own kernel, so a kernel exploit inside it does not reach your machine, at the cost of a much slower start than a container's few seconds. It is a flag in lasso's database that only you can set (`lasso plugin vm <name> on|off`, or Settings' Container / VM switch). A manifest can name a `vm_image` but cannot ask for a VM, and flipping the switch restarts the server.
 - **Trusted** runs the MCP server directly on your machine, as your user, outside the sandbox. It is a flag in lasso's database that only you can set (`lasso plugin trust <name>`, or the Settings toggle). A manifest field cannot set it. Trusted wins over the VM switch. Even a trusted server gets a minimal environment (PATH, HOME, locale, XDG directories) plus its own `env` and secrets. It never gets lasso's `UI_AUTH`, `MCP_OAUTH` or `LASSO_MCP_TOKEN`.
 
@@ -154,6 +159,24 @@ A tab with a `url` is framed as-is, under the same iframe `sandbox`, and the sit
 
 A plugin tab mounts the first time it is selected and stays mounted after, like the built-in tabs, so switching away and back does not reload your page.
 
+## Views
+
+```json
+"views": [
+  { "id": "board", "label": "Board", "icon": "layers", "entry": "ui/board.html" }
+]
+```
+
+A view is a page for the **main window**, the column herdr's terminal lives in. The footer's view menu lists Terminal, Chat and Grid, then every enabled plugin's views; picking one lays your page over the terminal. This is the place for an app that is about the agents rather than beside them: a board of what a fleet of long-running agents is doing, a canvas they draw on, a dashboard of a job they run.
+
+- **Same page, same rules as a tab.** A view is served and sandboxed exactly like a tab, gets the same [bridge](#the-bridge) (a `url` view gets none), and its `context` carries `placement: "main"` where a tab's says `"sidebar"`, so one page can serve both and lay itself out for each.
+- **The terminal keeps running underneath.** A view covers the terminal without unmounting it, like Chat and Grid, so herdr's panes keep their size for every other client.
+- **It stays loaded.** A view mounts the first time it is shown and stays mounted while you switch to the terminal and back, so a long-running page keeps its state.
+- **It has an address.** A view lives at `/view/<plugin>/<id>`, one browser history entry per switch, so a link or Back lands on it. If the plugin is disabled or awaiting approval, that address falls back to the terminal.
+- **It is a permission.** A view's `entry` or `url` is in the fingerprint like a tab's, and moving a page from `tabs` to `views` needs re-approval: the main window is a bigger surface than a sidebar tab.
+
+On a phone (below 768 px, where there is no footer) the input dial's **Chat** button opens the same picker once any plugin adds a view, and a view carries a small **Views** button in the dial's corner, since it covers the dial. Keep that bottom-right corner free of anything a reader must tap.
+
 ### The bridge
 
 A page reaches lasso by posting messages to its parent. The protocol is `lasso-plugin/1`:
@@ -172,7 +195,7 @@ The parent answers only the frame the message came from, and routes each request
 
 | method | params | result |
 |---|---|---|
-| `context.get` | | `{ host, cwd, cwd_host, pane_id, agent, plugin, tab }`, the focused pane |
+| `context.get` | | `{ host, cwd, cwd_host, pane_id, agent, plugin, tab, placement }`, the focused pane. `tab` is the tab's or view's id, `placement` is `"sidebar"` or `"main"`. |
 | `theme.get` | | `{ dark, colors: { background, foreground, ... } }` |
 | `file.open` | `{ path, line?, host? }` | Opens the file in the Files viewer, the same way an agent's `open_file` does. Unsaved edits are protected. `host` defaults to `cwd_host`. |
 | `tool.call` | `{ tool, arguments }` | Calls one of **this plugin's own** MCP tools and returns its `CallToolResult`. `tool` may be un-prefixed (`greet`) or prefixed (`hello__greet`). Another plugin's tool is refused. |
