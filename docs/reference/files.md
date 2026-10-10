@@ -22,8 +22,8 @@ lasso keeps its own state in one directory and one SQLite database. Beyond that 
 | `plugins/<name>/` | Installed and hand-placed plugins, each with a `plugin.json`. `plugins/.staging/` holds GitHub installs being previewed. `plugins/.runner.lock` is held by the one lasso that runs this directory's plugin MCP servers, and names its pid and listen address. |
 | `plugin-data/<name>/` | Each plugin's one writable directory (mode 0700). Survives uninstall unless you purge it. |
 | `omarchy/themes/<name>/` | Omarchy themes installed from a git URL in Settings. |
-| `browser-profile/` | The default shared-browser profile (mode 0700): cookies, logins, and a `lasso-browser.pid`. Two lasso instances cannot share it. |
-| `browser-profiles/<id>/` | One directory per additional browser profile. |
+| `browser-profile/` | The default browser's Chromium data directory (mode 0700): cookies, logins, and a `lasso-browser.pid`. Two lasso instances cannot share it. |
+| `browser-profiles/<id>/` | The data directory of each other browser, by id. |
 | `settings.json` | `theme.resolved` (`light` or `dark`), written by theme sync for tools that want a light/dark cue. Other keys are left alone. |
 | `lasso.pid`, `lasso.log` | The `lasso start` daemon's PID and output. Always in `~/.lasso`, even when `LASSO_DIR` is set. |
 
@@ -51,7 +51,7 @@ Notable `settings` keys:
 | `repos_root`, `branch_prefix`, `default_agent`, `scratch_setup` | New dialog defaults. |
 | `push_vapid_private` | The VAPID private key identifying this server to push services, generated once. If it changes, every registered device stops receiving notifications. |
 | `plugins`, `plugin_sources` | Plugin approvals (permission fingerprints), trust and VM flags; where each plugin was installed from. |
-| `browser_profiles`, `browser_default_profile_name`, `browser_default_cdp_url` | Shared-browser profiles, and the default profile's name and remote address. |
+| `browser_profiles`, `browser_default_profile_name`, `browser_default_cdp_url` | The browsers other than the default (id, name, `cdp_url`), and the default browser's name and remote address. Stored under these keys whatever the UI calls them. |
 | `sync_agent_themes`, `theme_sync_off`, `theme_hub`, `theme_written:<host>` | Fleet theme sync: the agent-theme toggle, hosts opted out, and what lasso last wrote where. |
 | `omarchy_installed` | Omarchy themes installed from a URL. |
 | `auto_title_agents`, `terminal_workspace` | The auto-title toggle; the New terminal form's default workspace. |

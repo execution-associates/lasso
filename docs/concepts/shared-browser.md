@@ -1,17 +1,17 @@
 ---
 title: The shared browser
-description: A real Chromium on lasso's machine that you watch in the Browser tab while agents drive it, with profiles, remote browsers and resource caps.
+description: A real Chromium on lasso's machine that you watch in the Browser tab while agents drive it, with several browsers, remote browsers and resource caps.
 order: 23
 ---
 
-The shared browser is a headless Chromium that lasso runs on **its own machine**. You see it in the sidebar's Browser tab, streamed live, and can click, scroll and type in it. Your agents drive the very same browser over the Chrome DevTools Protocol (CDP) or through the `lasso-browser` MCP server. An agent testing a login flow opens its page there, and you watch it happen, and can take over, from your desk or your phone.
+The shared browser is a headless Chromium that lasso runs on **its own machine**. You see it in the sidebar's Browser tab, streamed live, and can click, scroll and type in it. Your agents drive the very same browser through the `browser_*` tools on lasso's MCP server, or over the Chrome DevTools Protocol (CDP). An agent testing a login flow opens its page there, and you watch it happen, and can take over, from your desk or your phone.
 
 ![the Browser tab showing a running dev server](../assets/screenshots/browser.png)
 
 ## What you and agents each see
 
-- **Agents** reach it at `/browser-mcp` (chrome-devtools-mcp's tools, one MCP URL for every profile) or raw CDP at `/cdp`, for Playwright or any CDP client; a plain `GET /cdp/profiles` lists every profile and its CDP address. Details are in [The browser MCP](../mcp/browser-mcp.md).
-- **You** see it in the Browser tab's **Agent** mode, which shows a tab strip of the current profile's pages and follows the newest one. When an agent opens a page you land on it; open one yourself and the agents can see it too.
+- **Agents** drive it with the `browser_*` tools on lasso's own MCP server at `/mcp` (chrome-devtools-mcp's tools: `browser_new_page`, `browser_click`, `browser_take_screenshot`, …), or with raw CDP at `/cdp`, for Playwright or any CDP client; a plain `GET /cdp/browsers` lists every browser and its CDP address. Details are in [The browser tools](../mcp/browser.md).
+- **You** see it in the Browser tab's **Agent** mode, which shows a tab strip of the current browser's pages and follows the newest one. When an agent opens a page you land on it; open one yourself and the agents can see it too.
 - **`localhost` means lasso's machine.** A bare port typed into Agent mode (`5173`) opens `http://localhost:5173` on lasso's machine, whatever host your browser tab is on. There is one shared browser per lasso, not one per host.
 
 The Browser tab has a second mode, **Iframe**, which is a plain iframe in your own browser with nothing in between and none of the sharing. Which mode the tab opens in is stored on the server, so every device agrees. Links you click in a terminal open in the Browser tab too, in Iframe mode unless the page can only be shown in Agent mode. [Sidebar](../web-ui/sidebar.md) covers both modes, the toolbar and the terminal-link behavior.
@@ -43,36 +43,36 @@ Headless Chromium on a machine without a GPU renders in software and will take s
 
 The defaults are a quota of `200%` CPU (two cores) and a `2G` memory high-water mark, and Chromium renders at device scale factor `2` so the Browser tab is sharp on a HiDPI screen. `-browser-cpu`, `-browser-mem`, `-browser-scale`, `-browser-idle`, `-browser` and `LASSO_BROWSER_ARGS` change them; [Configuration](../reference/configuration.md#shared-browser) lists each with its environment variable.
 
-The caps apply **per profile**: each running profile is its own Chromium under its own scope.
+The caps apply **per browser**: each running browser is its own Chromium under its own scope.
 
-## Profiles
+## Several browsers
 
-A **profile** is a separate shared browser with its own cookies, logins, storage and optional proxy. Each profile is its own Chromium process, started on first use and idle-stopped on its own, so an unused profile costs nothing.
+A lasso can run several shared browsers, each with its own cookies, logins and storage. Each is its own Chromium process, started on first use and idle-stopped on its own, so an unused browser costs nothing.
 
-- The **default** profile always exists and can't be deleted (it can be renamed). Its data lives in `~/.lasso/browser-profile`.
-- Other profiles live in `~/.lasso/browser-profiles/<id>`. An id is 1 to 32 lowercase letters, digits or dashes; names are unique, ignoring case. A lasso can have up to 32 profiles.
-- **Deleting a profile deletes its directory**, and every login in it.
+- The **default** browser always exists and can't be deleted (it can be renamed). Its data lives in `~/.lasso/browser-profile`.
+- Other browsers keep their data in `~/.lasso/browser-profiles/<id>`. An id is 1 to 32 lowercase letters, digits or dashes; names are unique, ignoring case. A lasso can have up to 32 browsers.
+- **Deleting a browser deletes its directory**, and every login in it.
 
-You pick and manage profiles from the bar along the bottom of the Browser tab in Agent mode. Agents manage them with the `list_browser_profiles`, `create_browser_profile`, `update_browser_profile` and `delete_browser_profile` MCP tools, and choose which profile a browser tool runs in by passing `profile` (an id or display name) to it. One `/browser-mcp` URL drives every profile, including ones created later.
+You pick and manage browsers from the bar along the bottom of the Browser tab in Agent mode. Agents manage them with the `list_browsers`, `create_browser`, `update_browser` and `delete_browser` MCP tools, and choose which browser a `browser_*` tool runs in by passing `browser` (an id or display name) to it. Omitted, it runs in the default browser. A browser created later works at once, with no reconnect.
 
 Cookies and logins persist across restarts. Open tabs do not: an idle stop closes them.
 
 ## Remote browsers
 
-A profile with a `cdp_url` is a browser lasso dials rather than launches: a Chromium already running on another machine, in a container or behind a tunnel, or a hosted CDP service such as [Kitesurf](https://kitesurf.dev), reached at its DevTools HTTP base (`http://host:port` or `https://host`). Set it with `create_browser_profile` or `update_browser_profile`. lasso never starts or stops a remote browser.
+A browser with a `cdp_url` is one lasso dials rather than launches: a Chromium already running on another machine, in a container or behind a tunnel, or a hosted CDP service such as [Kitesurf](https://kitesurf.dev), reached at its DevTools HTTP base (`http://host:port` or `https://host`). Set it with `create_browser` or `update_browser`. lasso never starts or stops a remote browser.
 
-lasso passes no proxy settings to any browser. To send a profile's traffic through a proxy, configure it in the browser itself (for a launched Chromium, `LASSO_BROWSER_ARGS`).
+lasso passes no proxy settings to any browser. To send a browser's traffic through a proxy, configure it in the browser itself (for a launched Chromium, `LASSO_BROWSER_ARGS`).
 
 ## Running two lassos
 
-Two lasso instances can't share one browser profile. If a second lasso (a dev build next to your main one, say) finds the profile in use by a live lasso, it refuses to launch rather than taking the browser away from the first. Give the second instance its own `LASSO_DIR`.
+Two lasso instances can't share one browser's data directory. If a second lasso (a dev build next to your main one, say) finds it in use by a live lasso, it refuses to launch rather than taking the browser away from the first. Give the second instance its own `LASSO_DIR`.
 
 ## Security
 
-Whoever can reach `/cdp` or `/browser-mcp` has full control of that browser: they can read every page, type into it and navigate it, **including every site its profile is logged into**. Only log a profile into an account you're happy for every agent that can reach lasso to act as you on.
+Whoever can reach `/cdp` or call the `browser_*` tools has full control of that browser: they can read every page, type into it and navigate it, **including every site it is logged into**. Only log a browser into an account you're happy for every agent that can reach lasso to act as you on.
 
-- `/cdp` and `/browser-mcp` are open by default (fine on loopback, a private tailnet or behind Cloudflare Access). With `UI_AUTH` set they need its basic credentials, which makes them stricter than `/mcp`, which `UI_AUTH` does not gate. With `MCP_OAUTH` set they take what `/mcp` takes (a lasso bearer token or the `UI_AUTH` credentials), and a per-host token must include lasso's own machine in its scope.
-- Whatever the auth setting, lasso refuses a `/cdp` or `/browser-mcp` request that a **different website** sends from your browser, so a page you visit can't drive a lasso running on your own machine.
+- `/cdp` and the `browser_*` tools are open by default (fine on loopback, a private tailnet or behind Cloudflare Access). With `UI_AUTH` set they need its basic credentials, which makes them stricter than the rest of `/mcp`, which `UI_AUTH` does not gate: a `browser_*` call without them is refused as a tool error. With `MCP_OAUTH` set they take what `/mcp` takes (a lasso bearer token or the `UI_AUTH` credentials), and a per-host token must include lasso's own machine in its scope.
+- Whatever the auth setting, lasso refuses a `/cdp` request or a `browser_*` call that a **different website** sends from your browser, so a page you visit can't drive a lasso running on your own machine.
 - Chromium and lasso's chrome-devtools-mcp processes get an environment without lasso's credentials (`UI_AUTH`, `MCP_OAUTH`, `LASSO_MCP_TOKEN`).
 
-See [Security](../security.md) for the full model and [The browser MCP](../mcp/browser-mcp.md) for how an agent authenticates.
+See [Security](../security.md) for the full model and [The browser tools](../mcp/browser.md) for how an agent authenticates.
