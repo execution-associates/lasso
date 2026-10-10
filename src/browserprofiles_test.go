@@ -433,9 +433,42 @@ func TestBrowserProfileMCPTools(t *testing.T) {
 	if put == nil || put.URL.Path != "/json/new" || put.URL.RawQuery != "https:%2F%2Fexample.com" {
 		t.Errorf("upstream open = %+v", put)
 	}
-	if len(events) != 1 || events[0].Profile != "work" || events[0].TabID != "NEW1" || events[0].From != "an agent" {
+	if len(events) != 1 || events[0].Profile != "work" || events[0].TabID != "NEW1" || events[0].From != "an agent" || events[0].Mode != "live" {
 		t.Errorf("events = %+v", events)
 	}
+
+	// surface: the UI's names and the stored ones both reach the payload as
+	// the stored vocabulary; anything else is refused before a tab opens.
+	if msg := callTool(t, sess, "open_browser_tab", map[string]any{"url": "https://b.test", "profile": "work", "surface": "iframe"}, &tab); msg != "" {
+		t.Fatal(msg)
+	}
+	if len(events) != 2 || events[1].Mode != "embed" {
+		t.Errorf("surface iframe events = %+v", events)
+	}
+	if msg := callTool(t, sess, "open_browser_tab", map[string]any{"url": "https://b.test", "profile": "work", "surface": "Live"}, &tab); msg != "" {
+		t.Fatal(msg)
+	}
+	if len(events) != 3 || events[2].Mode != "live" {
+		t.Errorf("surface live events = %+v", events)
+	}
+	puts := func() (n int) {
+		fc.mu.Lock()
+		defer fc.mu.Unlock()
+		for _, r := range fc.seen {
+			if r.Method == http.MethodPut {
+				n++
+			}
+		}
+		return n
+	}
+	before := puts()
+	if msg := callTool(t, sess, "open_browser_tab", map[string]any{"url": "https://b.test", "profile": "work", "surface": "popup"}, &tab); !strings.Contains(msg, `"agent" or "iframe"`) {
+		t.Errorf("bad surface: %q", msg)
+	}
+	if len(events) != 3 || puts() != before {
+		t.Errorf("bad surface still opened or broadcast: %+v", events)
+	}
+	events = events[:1]
 
 	var quiet browserTabOut
 	if msg := callTool(t, sess, "open_browser_tab", map[string]any{"url": "https://a.test", "browser": "work", "show": false}, &quiet); msg != "" {
@@ -456,8 +489,17 @@ func TestBrowserProfileMCPTools(t *testing.T) {
 	if msg := callTool(t, sess, "show_browser_tab", map[string]any{"tab_id": "P1", "browser": "work"}, &tab); msg != "" {
 		t.Fatal(msg)
 	}
-	if len(events) != 2 || events[1].TabID != "P1" {
+	if len(events) != 2 || events[1].TabID != "P1" || events[1].Mode != "live" {
 		t.Errorf("show events = %+v", events)
+	}
+	if msg := callTool(t, sess, "show_browser_tab", map[string]any{"tab_id": "P1", "browser": "work", "surface": "embed"}, &tab); msg != "" {
+		t.Fatal(msg)
+	}
+	if len(events) != 3 || events[2].Mode != "embed" {
+		t.Errorf("show surface events = %+v", events)
+	}
+	if msg := callTool(t, sess, "show_browser_tab", map[string]any{"tab_id": "P1", "browser": "work", "surface": "nope"}, &tab); !strings.Contains(msg, "surface") || len(events) != 3 {
+		t.Errorf("show with a bad surface: %q %+v", msg, events)
 	}
 	if msg := callTool(t, sess, "show_browser_tab", map[string]any{"tab_id": "NOPE", "browser": "work"}, &tab); !strings.Contains(msg, "no tab") {
 		t.Errorf("show of a missing tab: %q", msg)

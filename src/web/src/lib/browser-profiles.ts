@@ -1,4 +1,8 @@
-import type { BrowserProfileStatus, BrowserStatus } from "@/lib/api"
+import type {
+  BrowserMode,
+  BrowserProfileStatus,
+  BrowserStatus,
+} from "@/lib/api"
 import { lsGet, lsSet } from "@/lib/app-store"
 import { qk, queryClient } from "@/lib/query"
 
@@ -47,12 +51,14 @@ export function profilesOf(
 // every connected lasso tab; App reveals the Browser tab and BrowserTab
 // switches profile and selects the page. Same pub/sub shape as
 // lib/open-file.ts, with a per-tab sequence so showing the same page twice
-// still re-selects it.
+// still re-selects it. `mode` is the view the agent asked for (its
+// `surface`); a server that predates the field sends none, which is Agent.
 export interface BrowserShowRequest {
   profile: string
   tabId: string
   url: string
   from: string
+  mode: BrowserMode
   seq: number
 }
 
@@ -73,7 +79,13 @@ let seq = 0
 // surprise the human later.
 export function handleBrowserOpenEvent(raw: string) {
   if (document.visibilityState !== "visible") return
-  let ev: { profile?: unknown; tab_id?: unknown; url?: unknown; from?: unknown }
+  let ev: {
+    profile?: unknown
+    tab_id?: unknown
+    url?: unknown
+    from?: unknown
+    mode?: unknown
+  }
   try {
     ev = JSON.parse(raw)
   } catch {
@@ -87,6 +99,7 @@ export function handleBrowserOpenEvent(raw: string) {
     tabId: typeof ev?.tab_id === "string" ? ev.tab_id : "",
     url: typeof ev?.url === "string" ? ev.url : "",
     from: typeof ev?.from === "string" && ev.from ? ev.from : "an agent",
+    mode: ev?.mode === "embed" ? "embed" : "live",
     seq: ++seq,
   }
   for (const fn of listeners) fn(req)
