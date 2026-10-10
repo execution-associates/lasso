@@ -67,8 +67,8 @@ export const TOUR_STEPS: TourStep[] = [
     body: (
       <>
         New starts a coding agent in a fresh pane, or a plain terminal, on any
-        host. <Kbd>⌘O</Kbd> opens it on the agent form, <Kbd>⌘I</Kbd> on the
-        terminal form.
+        host. <Kbd>⌘O</Kbd> opens it on a Git agent, <Kbd>⌘⇧O</Kbd> on a Scratch
+        agent, <Kbd>⌘I</Kbd> on the terminal form.
       </>
     ),
   },
