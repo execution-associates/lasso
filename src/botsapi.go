@@ -6,6 +6,11 @@ package main
 //	POST   /api/bots                          create {bot fields…, start?}
 //	PUT    /api/bots/order                    {names}: the list's order, as dragged
 //	GET    /api/bots/skill-library?host=      skills a bot can copy in (~/.claude/skills)
+//	GET    /api/bots/oauth/callback           an OAuth redirect lands here (botoauth.go)
+//	POST   /api/bots/oauth/finish             {url}: the address a localhost redirect left the browser on
+//	GET    /api/bots/<name>/oauth             each signed-in server's status
+//	POST   /api/bots/<name>/oauth             {server, origin}: begin a sign-in → {authorize_url, state, localhost}
+//	DELETE /api/bots/<name>/oauth?server=     sign out
 //	GET    /api/bots/<name>                   one bot, plus its launch script
 //	PUT    /api/bots/<name>                   save {bot fields…, restart?}
 //	DELETE /api/bots/<name>                   forget a stopped bot (its folder stays)
@@ -23,8 +28,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -67,6 +74,10 @@ func serveBots(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"ok": true})
 		return
 	}
+	if rest == "oauth/callback" || rest == "oauth/finish" {
+		serveBotOAuthReturn(w, r, rest == "oauth/callback")
+		return
+	}
 	if rest == "skill-library" {
 		serveBotSkillLibrary(w, r)
 		return
@@ -94,6 +105,8 @@ func serveBots(w http.ResponseWriter, r *http.Request) {
 		serveBotEnv(w, r, b, rec)
 	case "skills":
 		serveBotSkills(w, r, b, rec)
+	case "oauth":
+		serveBotOAuth(w, r, b, rec)
 	default:
 		http.NotFound(w, r)
 	}
@@ -249,7 +262,14 @@ func serveBotEnv(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
-		writeJSON(w, map[string]any{"vars": vars, "fnox_file": botFnoxFile(dir)})
+		// lasso's own OAuth credentials are the Connections tab's business.
+		shown := vars[:0]
+		for _, v := range vars {
+			if !strings.HasPrefix(v.Key, botOAuthKeyPrefix) {
+				shown = append(shown, v)
+			}
+		}
+		writeJSON(w, map[string]any{"vars": shown, "fnox_file": botFnoxFile(dir)})
 	case http.MethodPut:
 		var in struct {
 			Key    string `json:"key"`
@@ -455,4 +475,85 @@ func copyTree(b Backend, src, dst string, budget *copyBudget) error {
 		}
 	}
 	return nil
+}
+
+// --- OAuth ---------------------------------------------------------------------
+
+func serveBotOAuth(w http.ResponseWriter, r *http.Request, b Backend, rec *botRecord) {
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, map[string]any{"servers": listBotOAuth(rec.Name)})
+	case http.MethodPost:
+		var in struct {
+			Server string `json:"server"`
+			Origin string `json:"origin"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&in); err != nil {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
+		start, err := startBotOAuth(rec, in.Server, in.Origin)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		writeJSON(w, start)
+	case http.MethodDelete:
+		if err := signOutBotOAuth(b, rec, r.URL.Query().Get("server")); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "restart_needed": botRunning(b, rec)})
+	default:
+		http.Error(w, "GET, POST or DELETE", http.StatusMethodNotAllowed)
+	}
+}
+
+// serveBotOAuthReturn completes a sign-in: the authorization server's
+// redirect (callback, a page in the browser tab it opened) or a pasted
+// address (finish, JSON for the settings page).
+func serveBotOAuthReturn(w http.ResponseWriter, r *http.Request, callback bool) {
+	var q url.Values
+	if callback {
+		q = r.URL.Query()
+	} else {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST", http.StatusMethodNotAllowed)
+			return
+		}
+		var in struct {
+			URL string `json:"url"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&in); err != nil {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
+		u, err := url.Parse(strings.TrimSpace(in.URL))
+		if err != nil || u.RawQuery == "" {
+			http.Error(w, "paste the whole address from the browser's address bar, with its ?code=…&state=…", http.StatusBadRequest)
+			return
+		}
+		q = u.Query()
+	}
+	p, err := finishBotOAuth(q)
+	if !callback {
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "bot": p.bot, "server": p.server})
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	title, body := "Signed in", "You can close this tab and go back to lasso."
+	if err != nil {
+		title, body = "Sign-in failed", err.Error()
+	} else {
+		body = p.server + " is connected for " + p.bot + ". " + body
+	}
+	fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>%s</title>
+<body style="font:15px system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 16px;color:#222;background:#fafafa">
+<h1 style="font-size:20px">%s</h1><p>%s</p>
+<script>try{window.opener&&window.opener.postMessage({lassoBotOAuth:%t},location.origin)}catch(e){}</script>`,
+		html.EscapeString(title), html.EscapeString(title), html.EscapeString(body), err == nil)
 }

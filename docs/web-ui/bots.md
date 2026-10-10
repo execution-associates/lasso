@@ -75,6 +75,13 @@ The MCP servers the bot gets. Each has a name and a type: **stdio** (a command, 
 
 Keep secrets out of this page. Write `${VAR}` in a server's environment or headers, and set `VAR` under **Environment**, where it can be stored encrypted.
 
+**Signing in with OAuth.** For an http or sse server that asks you to log in, tick **Sign in with OAuth**, save, then press **Sign in**.
+
+- **What happens:** the server's login page opens in a new tab. Once you approve, it sends you back to lasso, which finishes the sign-in by itself. lasso discovers the server's sign-in settings and registers itself as a client automatically.
+- **When the redirect won't load:** some servers will only send you back to `localhost`. When lasso runs on a VPS, that page fails to load. Copy the address from that tab's address bar (it holds `?code=…&state=…`), paste it into the box under the server, and press **Finish**.
+- **Where the tokens go:** lasso keeps the tokens in the bot's `fnox.toml`, encrypted like any other secret, and refreshes them before they expire. Claude reads the current one each time it connects. Each bot signs in separately, so two bots can use different accounts on the same service.
+- **Servers that don't register clients automatically:** open **Server without automatic client registration** and enter the client ID, the redirect URI it was registered with, and the scope.
+
 ### Skills
 
 The bot's project skills, in `.claude/skills` in its folder. Add one from the host's own `~/.claude/skills`, or from any skill directory on the host by path. Adding copies the skill in, so later edits to the original do not reach the bot. Removing asks for a second click.

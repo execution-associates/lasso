@@ -251,7 +251,9 @@ func parseFnoxList(out, file string) []botEnvVar {
 	return vars
 }
 
-// botEnvKeys is the variable names the task must ask mise for.
+// botEnvKeys is the variable names the task must ask mise for: every one but
+// lasso's own OAuth credentials, which reach claude only through a server's
+// headersHelper (the refresh token and client secret never do).
 func botEnvKeys(b Backend, dir string) []string {
 	vars, err := botEnvList(b, dir)
 	if err != nil {
@@ -259,7 +261,9 @@ func botEnvKeys(b Backend, dir string) []string {
 	}
 	keys := make([]string, 0, len(vars))
 	for _, v := range vars {
-		keys = append(keys, v.Key)
+		if !strings.HasPrefix(v.Key, botOAuthKeyPrefix) {
+			keys = append(keys, v.Key)
+		}
 	}
 	return keys
 }

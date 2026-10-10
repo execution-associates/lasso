@@ -360,6 +360,7 @@ func botTick() {
 		if err != nil {
 			continue
 		}
+		botOAuthTick(b, r)
 		p, ok := findBotPane(b, r)
 		if ok {
 			bots.mu.Lock()
