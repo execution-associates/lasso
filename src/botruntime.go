@@ -384,16 +384,25 @@ func botReportSession(b Backend, r *botRecord, p pane, sessions []claudeSessionE
 		log.Printf("bots:     %s: %v", r.Name, err)
 		return
 	}
+	// seq must rise across every report from this source, lasso restarts
+	// included: herdr refuses a report without one once it holds an earlier
+	// one, which would strand the second session after a /clear.
 	_, err := b.HerdrCall("pane.report_agent_session", map[string]any{
 		"pane_id":          p.PaneID,
 		"source":           "lasso",
 		"agent":            "claude",
+		"seq":              time.Now().UnixNano(),
 		"agent_session_id": sid,
 		"resume_argv":      argv,
 	})
 	if err != nil {
+		// resume_not_accepted until herdr has detected claude: retried next tick.
+		if !strings.Contains(err.Error(), "resume_not_accepted") {
+			log.Printf("bots:     %s: report session to herdr: %v", r.Name, err)
+		}
 		return
 	}
+	log.Printf("bots:     %s: herdr will resume session %s in %s", r.Name, sid, p.PaneID)
 	bots.mu.Lock()
 	bots.reported[r.Name] = key
 	delete(bots.starting, r.Name)
