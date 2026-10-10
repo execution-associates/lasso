@@ -55,7 +55,7 @@ With `MCP_OAUTH` set, a request to `/mcp` passes with **either**:
 
 Anything else gets **401** with a `WWW-Authenticate: Bearer` challenge pointing at `/.well-known/oauth-protected-resource`, which is how an OAuth-capable MCP client discovers where to sign in. An MCP session is pinned to the client id its token resolved to: a later request on that session with a different client's token is refused.
 
-`/browser-mcp` and `/cdp` accept the same credentials, with one addition: a per-host token must include lasso's own machine in its reach. See [The browser MCP server](./browser-mcp.md#authentication).
+The `browser_*` tools and `/cdp` accept the same credentials, with one addition: a per-host token must include lasso's own machine in its reach. See [Browser tools](./browser.md#authentication).
 
 ## Grants
 

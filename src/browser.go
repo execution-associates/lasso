@@ -486,7 +486,7 @@ type browserManager struct {
 	inflight atomic.Int64
 
 	// onStop runs whenever a browser process goes away — a stop, an idle stop,
-	// a crash — with the reason. The /browser-mcp bridge
+	// a crash — with the reason. The browser tools' bridge (browsermcp.go)
 	// hangs off it: every session's child holds a CDP connection to the process
 	// that just ended. It may run with sem held, so it must not block on it.
 	onStop func(why string)
@@ -584,7 +584,7 @@ func (m *browserManager) ensure(ctx context.Context) (*browserProc, error) {
 // startLocked launches Chromium. The caller holds sem.
 func (m *browserManager) startLocked() (*browserProc, error) {
 	if m.retired.Load() {
-		return nil, fmt.Errorf("the browser profile %q was deleted", m.profileID())
+		return nil, fmt.Errorf("the browser %q was deleted", m.profileID())
 	}
 	if raw := m.remoteURL(); raw != "" {
 		// A cdp_url stored while this launch waited on sem: there is nothing
@@ -888,7 +888,7 @@ func (m *browserManager) reclaimProfile() error {
 	if len(lines) > 1 {
 		if owner, err := strconv.Atoi(lines[1]); err == nil && owner != os.Getpid() && owner > 1 &&
 			pidAlive(owner) && strings.Contains(pidCmdline(owner), "lasso") {
-			return fmt.Errorf("the browser profile %s is in use by another lasso (pid %d); give a second instance its own LASSO_DIR", m.profileDir(), owner)
+			return fmt.Errorf("the browser data directory %s is in use by another lasso (pid %d); give a second instance its own LASSO_DIR", m.profileDir(), owner)
 		}
 	}
 	log.Printf("browser: stopping a stale Chromium (pid %d) left holding %s", pid, m.profileDir())
@@ -1068,20 +1068,20 @@ type browserStatus struct {
 	MemHigh  string        `json:"mem_high"`
 	Pages    []browserPage `json:"pages"`
 	WSPath   string        `json:"ws_path"`
-	// The /browser-mcp bridge (browsermcp.go): whether it can serve a session
+	// The browser_* tools on /mcp (browsermcp.go): whether they can run
 	// (chrome-devtools-mcp found and not switched off), which binary, why not,
-	// and how many sessions — one child each — are live right now.
-	MCPAvailable bool   `json:"mcp_available"`
-	MCPBinary    string `json:"mcp_binary"`
-	MCPReason    string `json:"mcp_reason"`
-	MCPSessions  int    `json:"mcp_sessions"`
-	// Profiles is every browser profile, the default first (browserprofiles.go).
-	// The fields above describe the default profile, as they always have.
+	// and how many MCP sessions are using a browser through them right now.
+	ToolsAvailable bool   `json:"tools_available"`
+	ToolsBinary    string `json:"tools_binary"`
+	ToolsReason    string `json:"tools_reason"`
+	ToolsSessions  int    `json:"tools_sessions"`
+	// Profiles is every browser, the default first (browserprofiles.go). The
+	// fields above describe the default browser.
 	Profiles []browserProfileStatus `json:"profiles"`
 }
 
-// browserProfileStatus is one profile's browser, as /api/browser and the
-// profile MCP tools report it.
+// browserProfileStatus is one browser, as /api/browser and the browser MCP
+// tools report it.
 type browserProfileStatus struct {
 	ID        string        `json:"id"`
 	Name      string        `json:"name"`
@@ -1092,8 +1092,7 @@ type browserProfileStatus struct {
 	Capped    bool          `json:"capped"`
 	Reason    string        `json:"reason"` // the last launch's failure, while stopped
 	Pages     []browserPage `json:"pages"`
-	WSPath    string        `json:"ws_path"`  // /cdp, or /cdp/p/<id>
-	MCPPath   string        `json:"mcp_path"` // /browser-mcp for every profile (its tools take profile)
+	WSPath    string        `json:"ws_path"` // /cdp, or /cdp/p/<id>
 }
 
 // profileStatus is this manager's slice of the status. It lists the pages of a
@@ -1102,7 +1101,7 @@ func (m *browserManager) profileStatus() browserProfileStatus {
 	id := m.profileID()
 	st := browserProfileStatus{
 		ID: id, Default: id == defaultBrowserProfile, Pages: []browserPage{},
-		WSPath: cdpPathFor(id), MCPPath: browserMCPPathFor(id),
+		WSPath: cdpPathFor(id),
 	}
 	m.mu.Lock()
 	p, lastErr := m.proc, m.lastErr
@@ -1122,8 +1121,8 @@ func (m *browserManager) profileStatus() browserProfileStatus {
 
 func (m *browserManager) status() browserStatus {
 	st := browserStatus{Pages: []browserPage{}, WSPath: "/cdp", Profiles: []browserProfileStatus{}}
-	st.MCPBinary, st.MCPReason, st.MCPAvailable = browserMCP.resolve()
-	st.MCPSessions = browserMCP.sessions()
+	st.ToolsBinary, st.ToolsReason, st.ToolsAvailable = browserMCP.resolve()
+	st.ToolsSessions = browserMCP.sessions()
 	if m == nil {
 		st.Reason = "the shared browser is not configured"
 		return st

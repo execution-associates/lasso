@@ -87,7 +87,7 @@ lasso serve -listen 127.0.0.1:8090 \
 
 | flag | env | effect |
 | --- | --- | --- |
-| `-require-access-header` | `LASSO_REQUIRE_ACCESS_HEADER=1` | Every request without a non-empty `Cf-Access-Authenticated-User-Email` header gets **403**. This covers every route: the UI, `/api/*`, the file endpoints, `/terminal/` and `/shell/` and their websockets, `/mcp`, `/cdp`, `/browser-mcp`, and the OAuth endpoints. It runs before `UI_AUTH` and the MCP OAuth check. |
+| `-require-access-header` | `LASSO_REQUIRE_ACCESS_HEADER=1` | Every request without a non-empty `Cf-Access-Authenticated-User-Email` header gets **403**. This covers every route: the UI, `/api/*`, the file endpoints, `/terminal/` and `/shell/` and their websockets, `/mcp`, `/cdp`, and the OAuth endpoints. It runs before `UI_AUTH` and the MCP OAuth check. |
 | `-access-allowed-emails` | `LASSO_ACCESS_ALLOWED_EMAILS` | Comma-separated allowlist, compared case-insensitively. Empty means any identity Access vouched for. |
 | `-disable-self-update` | `LASSO_DISABLE_SELF_UPDATE=1` | Turns off the in-app update action (`POST /api/self-update` answers 403 and the button is hidden), so an agent working through the UI cannot rebuild and restart its own front door. |
 

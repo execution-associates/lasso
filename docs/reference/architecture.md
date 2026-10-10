@@ -10,7 +10,7 @@ lasso is one Go binary. It embeds its React frontend, keeps its state in a SQLit
 
 ## The pieces
 
-**The web server.** One listener serves the embedded single-page app, the `/api/*` routes behind it, and the agent-facing endpoints: the MCP server at `/mcp`, herdr's socket API as MCP tools at `/herdr-mcp`, chrome-devtools-mcp at `/browser-mcp`, and raw CDP at `/cdp`. Live state (the focused pane, the layout, theme and settings revisions) reaches the browser over server-sent events at `/api/events`. See [HTTP routes](./http-routes.md).
+**The web server.** One listener serves the embedded single-page app, the `/api/*` routes behind it, and the agent-facing endpoints: the MCP server at `/mcp`, herdr's socket API as MCP tools at `/herdr-mcp`, and raw CDP at `/cdp`. chrome-devtools-mcp's tools are on `/mcp` too, as `browser_*`. Live state (the focused pane, the layout, theme and settings revisions) reaches the browser over server-sent events at `/api/events`. See [HTTP routes](./http-routes.md).
 
 **Terminals through ttyd.** The terminal column is a real terminal: lasso spawns [ttyd](https://github.com/tsl0922/ttyd) running `herdr` (or `herdr --remote <host>` for a remote host) and reverse-proxies it, WebSocket included, at `/terminal/<host>/`. The Terminal tab is a second ttyd running a plain shell (or `ssh <host>`) at `/shell/<host>/`. Each ttyd listens on its own unix socket named by lasso's PID and the host, so several lasso instances never collide, and a host keeps its terminals warm: switching back to a host re-points the proxy at a ttyd that is already running instead of spawning a new one. Terminals for hosts nobody is looking at are retired after a while.
 
@@ -20,11 +20,11 @@ lasso is one Go binary. It embeds its React frontend, keeps its state in a SQLit
 
 **Per-tab hosts.** Which host a view drives is a property of the browser tab, not of the server: each tab sends its host with every request (`X-Lasso-Host` or `?host=`). Two tabs can sit on two machines at once, and an agent's MCP calls default to the caller's own host. See [Hosts](../concepts/hosts.md).
 
-**State in `lasso.db`.** Agent records, New Agent defaults, the shared UI state, OAuth clients and tokens, push devices and the VAPID key, plugin approvals and browser profiles all live in one SQLite file in `~/.lasso`. Each remote host keeps its own creator settings in its own `~/.lasso/lasso.db`, written with that host's `sqlite3`. See [Files and directories](./files.md).
+**State in `lasso.db`.** Agent records, New Agent defaults, the shared UI state, OAuth clients and tokens, push devices and the VAPID key, plugin approvals and the list of browsers all live in one SQLite file in `~/.lasso`. Each remote host keeps its own creator settings in its own `~/.lasso/lasso.db`, written with that host's `sqlite3`. See [Files and directories](./files.md).
 
 **Web Push to the phone.** lasso signs Web Push messages with its VAPID key and sends them through the browser vendor's push service (Apple's, for an iPhone), which delivers them to the service worker on the device even with no tab open. See [Notifications](../concepts/notifications.md).
 
-**The shared browser.** A headless Chromium on lasso's machine, started on first use and stopped when idle, optionally capped in a systemd user scope. The Browser tab streams it, and agents drive it through `/cdp` or through `/browser-mcp`, where lasso runs one chrome-devtools-mcp process per MCP session per profile that session uses. Each profile is its own Chromium. See [Shared browser](../concepts/shared-browser.md).
+**The shared browser.** A headless Chromium on lasso's machine, started on first use and stopped when idle, optionally capped in a systemd user scope. The Browser tab streams it, and agents drive it through `/cdp` or through `/mcp`'s `browser_*` tools, for which lasso runs one chrome-devtools-mcp process per MCP session per browser that session uses. Each browser is its own Chromium. See [Shared browser](../concepts/shared-browser.md).
 
 **Plugins.** A plugin's tab pages are served from `/plugins/<name>/` as an opaque, sandboxed origin; its MCP server runs in an [isb](https://github.com/execution-associates/isb) sandbox, a container by default or a VM if you choose (or, if you trust it, on the host), and its tools are mirrored onto `/mcp`. See [Plugins](../plugins/index.md).
 

@@ -9,7 +9,7 @@ If your devices are already on a [Tailscale](https://tailscale.com) tailnet, you
 
 There are two ways to do it. Binding to the tailscale address is one flag, but gives you plain HTTP. `tailscale serve` takes one more command and gives you HTTPS, which you need for push notifications.
 
-Either way, **every device on the tailnet can reach lasso**, with no login in front of the terminal, `/mcp`, `/cdp` or `/browser-mcp`. That is fine on a tailnet of your own devices. If the tailnet includes other people or machines you don't fully trust, add [`UI_AUTH`](#adding-a-login) or use [Cloudflare Access](./cloudflare.md) instead.
+Either way, **every device on the tailnet can reach lasso**, with no login in front of the terminal, `/mcp` or `/cdp`. That is fine on a tailnet of your own devices. If the tailnet includes other people or machines you don't fully trust, add [`UI_AUTH`](#adding-a-login) or use [Cloudflare Access](./cloudflare.md) instead.
 
 ## Binding to your tailscale address
 
@@ -64,4 +64,4 @@ UI_AUTH='you:a-long-random-password' lasso serve -listen "$(tailscale ip -4):809
 
 (With `UI_AUTH` set, `-insecure-no-auth` is not needed.) In a systemd unit, put it in an `EnvironmentFile`; see [systemd](./systemd.md#secrets-go-in-an-environment-file).
 
-`UI_AUTH` covers the UI, the API, the terminals, `/cdp` and `/browser-mcp`. It does **not** cover `/mcp`, which stays open so agent CLIs keep working without credentials. To gate `/mcp` too, set `MCP_OAUTH`; see [MCP OAuth](../mcp/oauth.md). Agent CLIs then authenticate with a bearer token or the same `UI_AUTH` credentials.
+`UI_AUTH` covers the UI, the API, the terminals, `/cdp` and `/mcp`'s `browser_*` tools. It does **not** cover the rest of `/mcp`, which stays open so agent CLIs keep working without credentials. To gate `/mcp` too, set `MCP_OAUTH`; see [MCP OAuth](../mcp/oauth.md). Agent CLIs then authenticate with a bearer token or the same `UI_AUTH` credentials.
