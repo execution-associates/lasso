@@ -298,8 +298,13 @@ export interface ChatDiffLine {
 }
 
 export interface ChatItem {
-  kind: "user" | "agent" | "tool" | "marker"
+  // "incoming" is a message a Claude Code channel delivered (mail, a text, a
+  // scheduled loop), returned only when the reader asks for them (api.chat's
+  // `incoming`): its text is the `<channel …>` envelope.
+  kind: "user" | "agent" | "tool" | "marker" | "incoming"
   id: string
+  // The channel server an incoming row came from ("gmail-channel").
+  source?: string
   at?: string
   text?: string
   // Agent prose the model wrote to itself; folded behind a disclosure.
@@ -368,6 +373,14 @@ export interface ChatSendResult {
   detail?: string
 }
 
+// What became of a Stop pressed in the chat: one Escape typed into the pane.
+// `refused` means nothing was typed (the agent was not working); `uncertain`
+// that the key went out and the pane did not show it settling.
+export interface ChatStopResult {
+  outcome: "sent" | "refused" | "uncertain"
+  detail?: string
+}
+
 // What became of an ask answered from the chat. `refused` means nothing was
 // typed — the dialog had already moved on, or the pane could not be read — and
 // `detail` says which. There is no `uncertain` here: the keystrokes go out as
@@ -403,6 +416,7 @@ export type AppearanceMode = "herdr" | "system" | "light" | "dark"
 // "embed" is the plain iframe. A lasso with no Chromium shows embed whatever
 // this says — the choice is kept for when one is installed.
 export type BrowserMode = "live" | "embed"
+export type Texture = "subtle" | "full" | "off"
 
 // Persisted, global UI preferences (SQLite-backed): sidebar layout, the Files
 // tab's click behavior, footer preferences, the appearance mode and its
@@ -464,6 +478,9 @@ export interface UIState {
   // Read-only here: write it through the agent_pins ops (setAgentPinned).
   // Optional because an older server never sends it.
   pinned_agents?: string[]
+  // How much character the palette chrome carries (lib/character.ts). Never
+  // send "": the server answers 400, as it does for browser_mode.
+  texture: Texture
   // What the Browser tab shows (see BrowserMode). Never send "" — the server
   // answers 400 and drops the whole patch, as it does for appearance_mode.
   browser_mode: BrowserMode
@@ -770,6 +787,148 @@ function jsonErrorMessage(r: Response, body: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Bots (botsapi.go): long-lived Claude Code sessions lasso launches and keeps
+// running, each with its own folder, model, MCP servers and env.
+// ---------------------------------------------------------------------------
+
+export interface BotMCPServer {
+  name: string
+  type: "stdio" | "http" | "sse"
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  url?: string
+  headers?: Record<string, string>
+  // Also a Claude Code channel: messages it delivers reach the bot unprompted.
+  channel?: boolean
+  // http/sse only: lasso signs the bot in with OAuth and hands claude the
+  // token. The rest are for servers without dynamic client registration.
+  oauth?: boolean
+  oauth_client_id?: string
+  oauth_redirect?: string
+  oauth_scope?: string
+}
+
+// One server's sign-in, as lasso holds it (tokens stay on the bot's host).
+export interface BotOAuthStatus {
+  server: string
+  issuer: string
+  client_id: string
+  scope: string
+  // Unix seconds; 0 when the server gave no expiry.
+  expires_at: number
+  status: "connected" | "error" | ""
+  error?: string
+}
+
+export type BotState = "stopped" | "starting" | "idle" | "working" | "blocked"
+
+// The editable half of a bot: what POST creates and PUT saves.
+export interface BotFields {
+  dir: string
+  workspace: string
+  model: string
+  effort: string
+  permission_mode: string
+  mcp: BotMCPServer[]
+  strict_mcp: boolean
+  extra_args: string[]
+  avatar: string
+  keep_running: boolean
+  // Push a notification when the bot finishes a turn with a new message.
+  notify: boolean
+  // The mise task that launches it, "" for the generated `bot`. Left out of
+  // a save, the stored one stays: the Launch tab sets it on its own.
+  launch_task?: string
+}
+
+export interface BotView extends BotFields {
+  id: number
+  host: string
+  name: string
+  stopped: boolean
+  last_session_id: string
+  created_at: string
+  updated_at: string
+  state: BotState
+  pane_id?: string
+  session_id?: string
+  // What a blocked bot is waiting on, as herdr reports it.
+  waiting_for?: string
+  // The newest row of its conversation, for the list's preview line.
+  last_text?: string
+  last_kind?: "agent" | "user" | "incoming"
+  last_at?: string
+  error?: string
+  // Its picture (.lasso/avatar.<ext> plus a ?v= revision), or "": see
+  // botAvatarURL. Set through avatarSet, never by a save.
+  avatar_image: string
+}
+
+export interface BotDetail {
+  bot: BotView
+  // The folder with ~ expanded on the bot's host.
+  dir_path: string
+  // The generated launch script (.mise/tasks/bot), read-only.
+  launch: string
+  // Absolute path of the bot's CLAUDE.md on its host.
+  claude_md: string
+  // The folder's mise tasks that can launch it (`bot` and the human's own),
+  // or null when mise could not list them.
+  tasks: string[] | null
+}
+
+// A bot's picture URL, or "" for the initials avatar. avatar_image carries
+// the revision, so the URL changes with the picture.
+export function botAvatarURL(b: {
+  name: string
+  avatar_image?: string
+}): string {
+  const rev = b.avatar_image?.split("?")[1]
+  return b.avatar_image && rev
+    ? `/api/bots/${encodeURIComponent(b.name)}/avatar?${rev}`
+    : ""
+}
+
+export interface BotEnvVar {
+  key: string
+  // Plain values only; a secret's value never leaves the host.
+  value?: string
+  secret: boolean
+  // The fnox provider holding it: "plain", "lasso" (lasso's age key), or
+  // whatever the bot's fnox.toml names.
+  provider?: string
+}
+
+export interface BotSkill {
+  name: string
+  description?: string
+  path: string
+}
+
+function botURL(name: string, rest = ""): string {
+  return `/api/bots/${encodeURIComponent(name)}${rest}`
+}
+
+async function sendJSON<T>(
+  method: "PUT" | "DELETE",
+  url: string,
+  body?: unknown
+): Promise<T> {
+  const r = await hostFetch(url, {
+    method,
+    ...(body === undefined
+      ? {}
+      : {
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+  })
+  if (!r.ok) throw await httpError(r)
+  return (await r.json()) as T
+}
+
+// ---------------------------------------------------------------------------
 // Agent creation ("New Agent")
 // ---------------------------------------------------------------------------
 
@@ -941,24 +1100,24 @@ export interface BrowserStatus {
   mem_high: string
   pages: BrowserPage[] | null
   ws_path: string
-  // /browser-mcp: chrome-devtools-mcp bridged to agents over HTTP, one URL
-  // for every profile, one child per session per profile it has used.
-  // `mcp_available` is false when it is not installed on lasso's machine or
-  // LASSO_BROWSER_MCP=off, with `mcp_reason` saying which (and how to install
-  // it); `mcp_sessions` counts sessions actually using the browser.
-  mcp_available?: boolean
-  mcp_binary?: string
-  mcp_reason?: string
-  mcp_sessions?: number
-  // Every profile, default first. Absent from an older server, which has only
+  // The browser_* tools on lasso's /mcp: chrome-devtools-mcp bridged to
+  // agents, one child per MCP session per browser it has used.
+  // `tools_available` is false when it is not installed on lasso's machine or
+  // LASSO_BROWSER_MCP=off, with `tools_reason` saying which (and how to
+  // install it); `tools_sessions` counts sessions actually using a browser.
+  tools_available?: boolean
+  tools_binary?: string
+  tools_reason?: string
+  tools_sessions?: number
+  // Every browser, default first. Absent from an older server, which has only
   // the one browser the top-level fields describe.
   profiles?: BrowserProfileStatus[]
 }
 
-// One browser profile: its own Chromium, its own persistent user-data dir
-// (cookies, logins). `ws_path` / `mcp_path` are
-// lasso-origin paths: "/cdp" for the default profile and "/cdp/p/<id>"
-// otherwise; "/browser-mcp" for every profile (its tools take `profile`).
+// One browser: its own Chromium (or a remote one lasso dials), with its own
+// persistent cookies and logins. The server stores a browser as a "profile",
+// hence the names. `ws_path` is a lasso-origin path: "/cdp" for the default
+// browser and "/cdp/p/<id>" otherwise.
 export interface BrowserProfileStatus {
   id: string
   name: string
@@ -969,7 +1128,6 @@ export interface BrowserProfileStatus {
   reason: string
   pages: BrowserPage[] | null
   ws_path: string
-  mcp_path: string
 }
 
 export type BrowserAction = "start" | "stop" | "restart"
@@ -1018,6 +1176,9 @@ export interface PluginSecretPermission {
 // so a manifest that changes any of it reads as needs_approval again.
 export interface PluginPermissions {
   tabs: PluginTabPermission[] | null
+  // Pages for the main window (the footer's view menu). Absent on an older
+  // server.
+  views?: PluginTabPermission[] | null
   mcp?: {
     image: string
     // The VM image it boots when the operator runs it in a VM. Absent = lasso's
@@ -1032,6 +1193,21 @@ export interface PluginPermissions {
   // Themes and fonts it contributes. Absent on an older server.
   themes?: string[] | null
   fonts?: PluginFontPermission[] | null
+  // Agents its pages may read the chat of and type into (the bridge's chat.*
+  // methods). Absent on an older server.
+  agents?: PluginAgentPermission[] | null
+}
+
+export interface PluginAgentPermission {
+  name: string
+  host: string
+}
+
+// What a plugin chat call asks for: one granted agent, by herdr name, on a
+// host (default local). The server resolves the pane; a page never names one.
+export interface PluginChatTarget {
+  agent: string
+  host?: string
 }
 
 export type PluginFontCategory = "sans" | "serif" | "display" | "mono"
@@ -1161,6 +1337,9 @@ export interface Plugin {
   fingerprint?: string
   permissions: PluginPermissions
   tabs: PluginTabInfo[] | null
+  // Main-window views, same shape as tabs (global_id "plugin:<name>:<id>",
+  // the left view's id). Only while enabled. Absent on an older server.
+  views?: PluginTabInfo[] | null
   // Appearance contributions. Absent on an older server.
   themes?: PluginThemeInfo[] | null
   fonts?: PluginFontInfo[] | null
@@ -1421,6 +1600,39 @@ export const api = {
       `/api/plugins/${encodeURIComponent(name)}/call`,
       { tool, arguments: args }
     ),
+  // A plugin page's agent grant (the bridge's chat.* methods). The plugin is
+  // the bridge's own; the server checks the approved grant covers the agent
+  // and resolves its pane by name, then reads and types exactly as the chat
+  // view does.
+  pluginChat: (name: string, t: PluginChatTarget, before?: number) => {
+    const q = new URLSearchParams({ agent: t.agent })
+    if (t.host) q.set("host", t.host)
+    if (before) q.set("before", String(before))
+    return getJSON<ChatPayload>(
+      `/api/plugins/${encodeURIComponent(name)}/chat?${q}`
+    )
+  },
+  pluginChatSend: (name: string, t: PluginChatTarget, text: string) =>
+    postJSON<ChatSendResult>(
+      `/api/plugins/${encodeURIComponent(name)}/chat/send`,
+      { ...t, text }
+    ),
+  pluginChatAnswer: (
+    name: string,
+    t: PluginChatTarget,
+    expect: string,
+    labels: string[],
+    answers: { selected: number[]; multi: boolean; options: number }[]
+  ) =>
+    postJSON<ChatAnswerResult>(
+      `/api/plugins/${encodeURIComponent(name)}/chat/answer`,
+      { ...t, expect, labels, answers }
+    ),
+  pluginChatStop: (name: string, t: PluginChatTarget) =>
+    postJSON<{ outcome: "sent" | "refused" | "uncertain"; detail?: string }>(
+      `/api/plugins/${encodeURIComponent(name)}/chat/stop`,
+      t
+    ),
   // Install from GitHub: preview clones into staging and answers what the
   // manifest asks for; confirm sends that preview's fingerprint back (409 if
   // the staged manifest is not the one shown) and returns the listing.
@@ -1574,9 +1786,14 @@ export const api = {
   // terminal. Server-side (chatview.go), because the transcript is a file on
   // the pane's host and the host is the tab's. Read-only: input still goes to
   // the real TUI, so a tool approval is answered where the agent asked for it.
-  chat: (pane?: string, before?: number, host?: string) => {
+  //
+  // `incoming` also returns what Claude Code channels delivered (mail, texts,
+  // scheduled loops) as kind "incoming" rows: the Bots view reads a bot's
+  // conversation with them, the terminal's own chat leaves them out.
+  chat: (pane?: string, before?: number, host?: string, incoming?: boolean) => {
     const q = new URLSearchParams()
     if (pane) q.set("pane", pane)
+    if (incoming) q.set("incoming", "1")
     // `before` asks for the window ENDING at that transcript offset — the page
     // above the one on screen. Absent means the tail, which is what a view
     // opens on.
@@ -1629,6 +1846,109 @@ export const api = {
       labels,
       answers,
     }),
+  // Interrupt the agent in one ADDRESSED pane (one Escape, refused unless it is
+  // working), host and pane explicit for chatSend's reason.
+  chatStop: (host: string, pane: string) =>
+    postJSON<ChatStopResult>(withHost("/api/chat/stop", host), {
+      pane_id: pane,
+    }),
+
+  // Bots. Server-level like plugins: the list is lasso's own, each bot names
+  // the host it runs on, and every call about one bot is addressed by name.
+  bots: {
+    list: () => getJSON<{ bots: BotView[] }>("/api/bots"),
+    // The list's order, as dragged. Bots it does not name go after.
+    reorder: (names: string[]) =>
+      sendJSON<{ ok: boolean }>("PUT", "/api/bots/order", { names }),
+    get: (name: string) => getJSON<BotDetail>(botURL(name)),
+    // A 200 can still carry `error`: the row was created but its folder could
+    // not be written (or it would not start), which Settings is where to fix.
+    create: (
+      body: Partial<BotFields> & {
+        name: string
+        host?: string
+        start?: boolean
+      }
+    ) => postJSON<{ bot: BotView; error?: string }>("/api/bots", body),
+    update: (name: string, body: BotFields & { restart?: boolean }) =>
+      sendJSON<{ bot: BotView }>("PUT", botURL(name), body),
+    // Forgets the bot; its folder stays on the host.
+    delete: (name: string) =>
+      sendJSON<{ ok: boolean; dir: string }>("DELETE", botURL(name)),
+    start: (name: string, fresh = false) =>
+      postJSON<{ bot: BotView }>(botURL(name, "/start"), { fresh }),
+    // The picture: the image file itself as the body (PNG, JPEG, WebP, GIF).
+    avatarSet: async (name: string, file: Blob) => {
+      const r = await hostFetch(botURL(name, "/avatar"), {
+        method: "PUT",
+        body: file,
+      })
+      if (!r.ok) throw await httpError(r)
+      return (await r.json()) as { ok: boolean }
+    },
+    avatarClear: (name: string) =>
+      sendJSON<{ ok: boolean }>("DELETE", botURL(name, "/avatar")),
+    stop: (name: string) =>
+      postJSON<{ bot: BotView }>(botURL(name, "/stop"), {}),
+    restart: (name: string, fresh = false) =>
+      postJSON<{ bot: BotView }>(botURL(name, "/restart"), { fresh }),
+    env: (name: string) =>
+      getJSON<{ vars: BotEnvVar[]; fnox_file: string }>(botURL(name, "/env")),
+    envSet: (name: string, key: string, value: string, secret: boolean) =>
+      sendJSON<{ ok: boolean; restart_needed?: boolean }>(
+        "PUT",
+        botURL(name, "/env"),
+        {
+          key,
+          value,
+          secret,
+        }
+      ),
+    envUnset: (name: string, key: string) =>
+      sendJSON<{ ok: boolean; restart_needed?: boolean }>(
+        "DELETE",
+        botURL(name, `/env?key=${encodeURIComponent(key)}`)
+      ),
+    oauth: (name: string) =>
+      getJSON<{ servers: Record<string, BotOAuthStatus> }>(
+        botURL(name, "/oauth")
+      ),
+    // Begins a sign-in; the authorization server sends the browser back to
+    // lasso at `origin`, or — `localhost` — to an address the human pastes.
+    oauthStart: (name: string, server: string) =>
+      postJSON<{
+        authorize_url: string
+        state: string
+        redirect_uri: string
+        localhost: boolean
+      }>(botURL(name, "/oauth"), { server, origin: window.location.origin }),
+    oauthFinish: (url: string) =>
+      postJSON<{ ok: boolean; bot: string; server: string }>(
+        "/api/bots/oauth/finish",
+        { url }
+      ),
+    oauthSignOut: (name: string, server: string) =>
+      sendJSON<{ ok: boolean; restart_needed?: boolean }>(
+        "DELETE",
+        botURL(name, `/oauth?server=${encodeURIComponent(server)}`)
+      ),
+    skills: (name: string) =>
+      getJSON<{ skills: BotSkill[] }>(botURL(name, "/skills")),
+    // `from` is a skill directory on the bot's host (absolute or ~/…).
+    skillAdd: (name: string, from: string) =>
+      postJSON<{ skills: BotSkill[] }>(botURL(name, "/skills"), { from }),
+    skillRemove: (name: string, skill: string) =>
+      sendJSON<{ skills: BotSkill[] }>(
+        "DELETE",
+        botURL(name, `/skills?name=${encodeURIComponent(skill)}`)
+      ),
+    // The host's own ~/.claude/skills, to pick from.
+    skillLibrary: (host: string) =>
+      getJSON<{ skills: BotSkill[] }>(
+        `/api/bots/skill-library?host=${encodeURIComponent(host)}`
+      ),
+  },
+
   // Persisted UI preferences (sidebar layout, Files tab, and usage footer).
   uiState: () => getJSON<UIState>("/api/ui-state"),
   // Patch semantics: send only the changed fields; the server merges into the

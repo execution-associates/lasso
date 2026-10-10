@@ -326,13 +326,13 @@ func TestOmpConnectFlow(t *testing.T) {
 	if r := connectApply(e, ompConnect, "lasso", "http://h/mcp", h); r.status != "updated" {
 		t.Fatalf("update: %q", r.status)
 	}
-	if r := connectApply(e, ompConnect, "lasso-browser", "http://h/browser-mcp", h); r.status != "added" {
+	if r := connectApply(e, ompConnect, "lasso-herdr", "http://h/herdr-mcp", h); r.status != "added" {
 		t.Fatalf("add: %q", r.status)
 	}
 	got := readFile(t, path)
 	// Key order kept, the human's own keys on the entry kept, other servers
 	// and top-level keys untouched.
-	order := []string{`"$schema"`, `"zeta"`, `"lasso"`, `"timeout": 5`, `"alpha"`, `"lasso-browser"`, `"disabledServers"`}
+	order := []string{`"$schema"`, `"zeta"`, `"lasso"`, `"timeout": 5`, `"alpha"`, `"lasso-herdr"`, `"disabledServers"`}
 	last := -1
 	for _, k := range order {
 		i := strings.Index(got, k)
@@ -357,7 +357,7 @@ func TestOmpConnectFlow(t *testing.T) {
 	}
 
 	// -remove takes out exactly lasso's two entries.
-	for _, n := range []string{"lasso", "lasso-browser"} {
+	for _, n := range []string{"lasso", "lasso-herdr"} {
 		if r := connectRemove(e, ompConnect, n); r.status != "removed" {
 			t.Errorf("remove %s: %q", n, r.status)
 		}
@@ -398,7 +398,7 @@ func TestOpencodeConnectFlow(t *testing.T) {
     "lasso": {"type": "remote", "url": "http://h/mcp", "headers": {"Authorization": "Bearer t"},},
   },
 }`)
-	writeFixture(t, plain, `{"theme":"x","mcp":{"lasso-browser":{"type":"remote","url":"http://h/browser-mcp"},"keep":{"type":"local"}}}`)
+	writeFixture(t, plain, `{"theme":"x","mcp":{"lasso-herdr":{"type":"remote","url":"http://h/herdr-mcp"},"keep":{"type":"local"}}}`)
 	h := []connectHeader{{"Authorization", "Bearer t"}}
 
 	// Readable through its comments: already registered.
@@ -407,20 +407,20 @@ func TestOpencodeConnectFlow(t *testing.T) {
 	}
 	// A different header set: re-added through opencode's own command, which
 	// replaces the entry.
-	r := connectApply(e, opencodeConnect, "lasso-browser", "http://h/browser-mcp", h)
+	r := connectApply(e, opencodeConnect, "lasso-herdr", "http://h/herdr-mcp", h)
 	if r.status != "updated" || len(fr.calls) != 1 {
 		t.Fatalf("%q %v", r.status, fr.calls)
 	}
-	if got := strings.Join(fr.calls[0], " "); got != "opencode mcp add lasso-browser --url http://h/browser-mcp --header Authorization=Bearer t" {
+	if got := strings.Join(fr.calls[0], " "); got != "opencode mcp add lasso-herdr --url http://h/herdr-mcp --header Authorization=Bearer t" {
 		t.Errorf("add: %s", got)
 	}
 
 	// Removal edits the file (there is no `opencode mcp remove`), and refuses
 	// to rewrite one with comments in it rather than drop them.
-	if r := connectRemove(e, opencodeConnect, "lasso-browser"); r.status != "removed" {
+	if r := connectRemove(e, opencodeConnect, "lasso-herdr"); r.status != "removed" {
 		t.Errorf("remove json: %q", r.status)
 	}
-	if got := readFile(t, plain); strings.Contains(got, "lasso-browser") || !strings.Contains(got, `"keep"`) || !strings.Contains(got, `"theme"`) {
+	if got := readFile(t, plain); strings.Contains(got, "lasso-herdr") || !strings.Contains(got, `"keep"`) || !strings.Contains(got, `"theme"`) {
 		t.Errorf("after remove:\n%s", got)
 	}
 	if r := connectRemove(e, opencodeConnect, "lasso"); !r.failed() || !strings.Contains(r.status, "comments") {

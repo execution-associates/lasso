@@ -61,7 +61,7 @@ Hold the dial and slide to a target, then let go; or tap it to open the ring and
 | **Lasso** | Opens a second ring: **Search** (herdr's pane search, the same as `⌘K`) and **Host** (the host menu) |
 | **Common keys** | Opens a second ring of keys: **Escape**, **Control C**, **Tab**, **Shift Tab**, **Enter**, **Up arrow**, **Down arrow** |
 
-Two smaller buttons sit beside the dial and are always one tap away: **Chat** above it (switch to the [chat view](#chat-view)) and **Sidebar** below it (open the right sidebar).
+Two smaller buttons sit beside the dial and are always one tap away: **Chat** above it (the view picker: Terminal, [Chat](#chat-view), [Bots](./bots.md), any plugin views, and the sidebar) and **Sidebar** below it (open the right sidebar).
 
 The keys are sent as real key presses, so they work in whatever keyboard mode the app in the pane has turned on. The dial lives inside the terminal's own frame, which is what keeps the iOS on-screen keyboard open while you use it.
 
@@ -72,7 +72,7 @@ The keys are sent as real key presses, so they work in whatever keyboard mode th
 
 ## Chat view
 
-Chat renders herdr's focused agent as a conversation instead of terminal output, so a session is readable on a phone and answerable without a terminal. Open it with the footer's **Chat** button or `⌘J` on a desktop, and with the dial's **Chat** button on a phone.
+Chat renders herdr's focused agent as a conversation instead of terminal output, so a session is readable on a phone and answerable without a terminal. Open it from the footer's view menu or with `⌘J` on a desktop, and from the view picker behind the dial's **Chat** button on a phone.
 
 Chat is an overlay: the terminal stays mounted and sized underneath, so opening it never reflows herdr for other browsers. It follows herdr's focus, so switching panes in the terminal (or picking another agent) switches the conversation.
 
@@ -91,6 +91,8 @@ A pane running anything else, or a plain shell, shows a note instead of a conver
 - `⌘↩` sends; a bare `↩` (or `⇧↩`) breaks the line. On a phone, use the send button.
 - The paperclip button attaches a file: it is uploaded to the agent's host and its path goes with the message.
 - If lasso cannot tell whether a message landed, it keeps your draft rather than clearing it or sending it twice.
+- While the agent works, the send button of an empty composer becomes **Stop**, which interrupts the turn (one `Esc` in its pane).
+- A message sent while the agent works waits under **Up next** above the composer and goes out once the agent is idle, one at a time. Remove one with its ✕. **Stop** puts waiting messages on hold until you press **Send queued messages**. They are held in this browser tab only.
 
 **The header** shows the agent's name (the workspace label lasso's auto-titler wrote, else the session's own title). Click it to rename the agent. The header also has a pin (pins the agent to the top of the agent list and the Grid) and a button to close the agent's pane, which asks for confirmation first. On a phone the header carries **Show the terminal** and **Open the sidebar** buttons, since there is no footer.
 
@@ -100,7 +102,7 @@ A pane running anything else, or a plain shell, shows a note instead of a conver
 
 ## Grid
 
-The Grid shows every agent lasso can reach as its own card at once, so you can watch several and answer whichever is waiting on you. Open it with the footer's **Grid** button or `⌘E` (desktop widths only).
+The Grid shows every agent lasso can reach as its own card at once, so you can watch several and answer whichever is waiting on you. Open it from the footer's view menu or with `⌘E` (desktop widths only).
 
 - Each card shows the tail of that agent's transcript (the same source as Chat) and has its own composer, addressed to that agent's own host and pane. `↩` sends, `⇧↩` breaks the line. Pasted or picked files are uploaded to the agent's host.
 - **Priority** sorts by attention: blocked, then working, then idle, then done, with the most recently active agent first within each status, so cards move as statuses change. **Recent** ignores status and puts the agent whose transcript changed most recently first, so the conversations that are moving lead the grid. The sort is saved on the server, so your phone and your desktop show the same order.

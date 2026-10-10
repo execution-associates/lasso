@@ -482,6 +482,8 @@ type webPushPayload struct {
 	Body  string `json:"body"`
 	Tag   string `json:"tag,omitempty"`
 	Host  string `json:"host,omitempty"`
+	URL   string `json:"url,omitempty"`
+	Icon  string `json:"icon,omitempty"`
 }
 
 // webPushChannel is the notifTransport (notify.go) for Web Push.
@@ -502,6 +504,8 @@ func (webPushChannel) deliver(ctx context.Context, n notification) error {
 		Body:  n.Body,
 		Tag:   n.Tag,
 		Host:  n.Host,
+		URL:   n.URL,
+		Icon:  n.Icon,
 	})
 	if err != nil {
 		return err

@@ -52,8 +52,8 @@ ttyd must be installed and on `PATH` for the default `-spawn-ttyd=true`.
 | `-browser-cpu` | `LASSO_BROWSER_CPU` | `200%` | `CPUQuota` of the systemd user scope Chromium runs in (Linux). `off` or empty lifts it. |
 | `-browser-mem` | `LASSO_BROWSER_MEM` | `2G` | `MemoryHigh` of that scope (Linux). `off` or empty lifts it. With both limits off, no scope is used. |
 | `-browser-scale` | `LASSO_BROWSER_SCALE` | `2` | Device scale factor Chromium renders at, a number in (0, 4]. `1` is Chromium's default; higher is sharper on a HiDPI screen and costs raster CPU and larger agent screenshots. |
-| `-browser-mcp` | `LASSO_BROWSER_MCP` | `chrome-devtools-mcp` on `PATH` | The chrome-devtools-mcp binary behind `/browser-mcp`: a path or a `PATH` name. `off` disables the endpoint. There is no `npx` fallback. |
-| `-browser-mcp-max` | `LASSO_BROWSER_MCP_MAX` | `0` | Cap on live chrome-devtools-mcp processes, counted across every session and profile. `0` means no limit. |
+| `-browser-mcp` | `LASSO_BROWSER_MCP` | `chrome-devtools-mcp` on `PATH` | The chrome-devtools-mcp binary behind `/mcp`'s `browser_*` tools: a path or a `PATH` name. `off` leaves `/mcp` without browser tools. There is no `npx` fallback. |
+| `-browser-mcp-max` | `LASSO_BROWSER_MCP_MAX` | `0` | Cap on live chrome-devtools-mcp processes, counted across every MCP session and browser. `0` means no limit. |
 
 The CPU and memory caps apply only when `systemd-run` and a user systemd manager (`XDG_RUNTIME_DIR`) are available; otherwise Chromium runs uncapped. Setting one of these variables to an empty string is the same as `off`. See [Shared browser](../concepts/shared-browser.md).
 
@@ -64,9 +64,9 @@ The CPU and memory caps apply only when `systemd-run` and a user systemd manager
 | variable | effect |
 | --- | --- |
 | `UI_AUTH` | `user:pass`. Turns on HTTP basic auth for the UI and every route except those listed in [HTTP routes](./http-routes.md#auth-gates). Also lets a non-loopback bind start. |
-| `MCP_OAUTH` | `client_id:client_secret`. Turns lasso into an OAuth 2.1 authorization server for its own `/mcp`, and gates `/mcp`, `/cdp` and `/browser-mcp` on a bearer token (or the `UI_AUTH` credentials). Unset, `/mcp` is open and every OAuth route answers 404. See [MCP OAuth](../mcp/oauth.md). |
+| `MCP_OAUTH` | `client_id:client_secret`. Turns lasso into an OAuth 2.1 authorization server for its own `/mcp`, and gates `/mcp` (its `browser_*` tools included) and `/cdp` on a bearer token (or the `UI_AUTH` credentials). Unset, `/mcp` is open and every OAuth route answers 404. See [MCP OAuth](../mcp/oauth.md). |
 | `MCP_OAUTH_REDIRECT_URIS` | Comma-separated allowlist of redirect URIs for the pre-registered `MCP_OAUTH` client. Unset, that client accepts any `https` or loopback callback (the consent screen shows the target). |
-| `LASSO_DIR` | lasso's state directory. Default `~/.lasso`. Moves `lasso.db`, plugins, plugin data, installed themes, the browser profiles, and the worktree, scratch, upload and prompt directories. It does not move `lasso start`'s PID and log files, which stay in `~/.lasso`. When set, lasso uses this same path on remote hosts too, instead of each host's `~/.lasso`. |
+| `LASSO_DIR` | lasso's state directory. Default `~/.lasso`. Moves `lasso.db`, plugins, plugin data, installed themes, the shared browsers' data directories, and the worktree, scratch, upload and prompt directories. It does not move `lasso start`'s PID and log files, which stay in `~/.lasso`. When set, lasso uses this same path on remote hosts too, instead of each host's `~/.lasso`. |
 | `LASSO_PUSH_CONTACT` | The contact the VAPID JWT names to push services, e.g. `mailto:you@example.com`. Default: the origin the device subscribed from. |
 | `LASSO_ISB` | The isb CLI for sandboxed plugins (1.0 or later): a path or a `PATH` name. When set, nothing else is tried. Default: the first new-enough of `isb` on `PATH` and the newest mise install of isb. `off` disables sandboxed plugins (trusted ones still run). |
 | `ISB_SERVE_SOCKET` | Where lasso looks for `isb serve`'s unix socket to check it is running before starting a plugin sandbox. Default `$XDG_RUNTIME_DIR/isb/serve.sock`. |

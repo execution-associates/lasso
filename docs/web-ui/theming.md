@@ -153,3 +153,7 @@ A theme change is pushed to every reachable host in parallel, not only the one t
 - **Sync agent themes (Claude Code, OpenCode, Oh My Pi)** turns the agent CLI files on or off everywhere. On by default.
 - **Sync now** pushes the current theme to every reachable host immediately.
 - **Sync theme to hosts** lists this machine and every host, each with a checkbox. An unchecked host keeps its own theme: lasso writes neither its herdr `config.toml` nor any agent theme file there. Checking it again pushes the current theme to it right away if it is reachable.
+
+## Texture
+
+Settings → Themes → **Texture** sets how much character the chrome carries while it follows a palette. **Subtle** is the default; **Full** strengthens it; **Off** gives flat panels. It covers rounded, softly shadowed panels, a sheen on cards and buttons, light on the active tab and the selected bot, and a fine grain with two dithered pools of light in the palette's own colors on the sidebar, footer and bots list. The terminal and conversations never carry grain. Like the backdrop, the choice applies to every browser on this lasso. Under the "Nothing (flat)" appearance there is no texture at all.

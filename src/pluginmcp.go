@@ -19,8 +19,8 @@ import (
 // A plugin's MCP server, mirrored onto lasso's /mcp.
 //
 // Each enabled plugin with an mcp section gets ONE long-lived child — not one
-// per session like /browser-mcp's, because a plugin's tools are lasso's tools
-// now: they sit on the shared server beside create_agent, every session sees
+// per session like the browser tools' chrome-devtools-mcp, because a plugin's
+// tools are stateless as far as lasso knows: they sit on the shared server beside create_agent, every session sees
 // the same list, and the SDK announces additions and removals with
 // tools/list_changed. lasso connects an MCP client to the child, lists its
 // tools, and registers each as `<plugin>__<tool>` with a handler that forwards

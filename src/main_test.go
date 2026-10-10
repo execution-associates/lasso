@@ -16,7 +16,7 @@ import (
 // ghostty) and reloaded the live herdr, flipping every terminal's colours
 // mid-run. Pointing the defaults at a throwaway home makes a leak land there.
 func TestMain(m *testing.M) {
-	// The /browser-mcp tests re-exec this binary as their chrome-devtools-mcp
+	// The browser tool tests re-exec this binary as their chrome-devtools-mcp
 	// stand-in (browsermcp_test.go), so no node is needed to test the bridge.
 	if mode := os.Getenv(fakeBrowserMCPEnv); mode != "" {
 		os.Exit(runFakeBrowserMCP(mode))

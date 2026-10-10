@@ -9,7 +9,7 @@ lasso listens on `127.0.0.1:8090` by default, which is fine for a browser on the
 
 ## The rule: never bind it publicly
 
-The left column of lasso is a **writable shell** on your machine. The file endpoints read and write any path as the user lasso runs as, `/mcp` lets a caller spawn agents, and `/cdp` and `/browser-mcp` drive a real browser with whatever logins it holds. Anyone who reaches the port can do all of that. [Security](../security.md) has the full picture.
+The left column of lasso is a **writable shell** on your machine. The file endpoints read and write any path as the user lasso runs as, `/mcp` lets a caller spawn agents, and `/cdp` and `/mcp`'s browser tools drive a real browser with whatever logins it holds. Anyone who reaches the port can do all of that. [Security](../security.md) has the full picture.
 
 So never bind lasso to `0.0.0.0` or a public address. On a VPS that is the open internet.
 

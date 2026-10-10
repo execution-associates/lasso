@@ -146,7 +146,7 @@ function PaceBar({ percent, elapsed }: { percent: number; elapsed: number }) {
   return (
     <span className="relative inline-block h-[7px] w-9 shrink-0 overflow-hidden rounded-sm bg-[color-mix(in_srgb,var(--foreground)_12%,var(--background))] align-middle">
       <span
-        className="absolute inset-y-0 left-0 bg-foreground"
+        className="fx-meter absolute inset-y-0 left-0 bg-foreground"
         style={{ width: `${onPace}%` }}
       />
       {over > 0 ? (

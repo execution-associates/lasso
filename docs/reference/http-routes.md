@@ -4,7 +4,7 @@ description: lasso's route table, and which auth gate guards each route.
 order: 99
 ---
 
-Everything lasso serves comes from one listener (`-listen`). The browser UI uses the `/api/*` routes; agents use `/mcp`, `/herdr-mcp`, `/browser-mcp` and `/cdp`. The `/api/*` routes are lasso's own UI API, not a stable public interface: they can change between releases. Script lasso through [`lasso mcp`](../mcp/cli.md) or the MCP server instead.
+Everything lasso serves comes from one listener (`-listen`). The browser UI uses the `/api/*` routes; agents use `/mcp`, `/herdr-mcp` and `/cdp`. The `/api/*` routes are lasso's own UI API, not a stable public interface: they can change between releases. Script lasso through [`lasso mcp`](../mcp/cli.md) or the MCP server instead.
 
 ## Auth gates
 
@@ -12,17 +12,19 @@ A request passes through these layers, outermost first:
 
 1. **Internal CDP token.** lasso's own chrome-devtools-mcp children reach `/cdp` with a random per-process token, honored on `/cdp` paths only, ahead of every other gate.
 2. **The Access header gate**, when `-require-access-header` is on: every route, with no exemptions, answers 403 without a non-empty `Cf-Access-Authenticated-User-Email` header (or with one not in `-access-allowed-emails`). Off by default, and nothing reads the header while it is off.
-3. **UI_AUTH basic auth**, when `UI_AUTH` is set: every route **except** `/mcp`, `/herdr-mcp`, `/cdp`, `/browser-mcp`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/oauth/register` and `/oauth/token` (and their subpaths). `/oauth/authorize` stays behind it on purpose: that is where a human approves a client.
+3. **UI_AUTH basic auth**, when `UI_AUTH` is set: every route **except** `/mcp`, `/herdr-mcp`, `/cdp`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/oauth/register` and `/oauth/token` (and their subpaths). `/oauth/authorize` stays behind it on purpose: that is where a human approves a client.
 4. **Per-route gates** on the exempt routes:
 
 | route | gate | open by default? | with `UI_AUTH` only | with `MCP_OAUTH` |
 | --- | --- | --- | --- | --- |
 | `/mcp` | `withMCPAuth` | yes | open | bearer token or `UI_AUTH` basic credentials |
+| `/mcp`'s `browser_*` tools | `withBrowserToolGate`, checked per call | yes | `UI_AUTH` basic | as `/mcp`; the token's scope must include lasso's own machine |
 | `/herdr-mcp` | `withMCPAuth` | yes | open | same as `/mcp`; each call's host is checked against the token's scope |
 | `/cdp` | `withCDPAuth` | yes | `UI_AUTH` basic | bearer token or `UI_AUTH` basic; the token's scope must include lasso's own machine |
-| `/browser-mcp` | `withBrowserMCPAuth` | yes | `UI_AUTH` basic | same as `/cdp` |
 
-`/cdp` and `/browser-mcp` also refuse any request whose `Origin` names a different website, before any credential check and whatever the auth settings. That is what stops a page you visit from driving a lasso on your own machine. Under `MCP_OAUTH` without `UI_AUTH`, lasso's own Browser tab (same origin, no `Authorization` header) still reaches `/cdp`.
+The `browser_*` tools front `/cdp`, so they meet `/cdp`'s standard rather than `/mcp`'s: a call that falls short is answered with a tool error (`isError`), while the rest of `/mcp` works as usual on the same connection.
+
+`/cdp` and the `browser_*` tools also refuse any request whose `Origin` names a different website, before any credential check and whatever the auth settings. That is what stops a page you visit from driving a lasso on your own machine. Under `MCP_OAUTH` without `UI_AUTH`, lasso's own Browser tab (same origin, no `Authorization` header) still reaches `/cdp`.
 
 So on a loopback or tailnet lasso with no `UI_AUTH` and no `MCP_OAUTH`, **everything is open** to whoever can reach the port. That is the intended trust model for a private network; put an edge gate (Cloudflare Access) or `UI_AUTH` in front of anything wider. See [Security](../security.md).
 
@@ -75,7 +77,7 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 | `/api/host-update`, `/api/host-provision` | Update herdr on a host; install and start herdr on a host that lacks it. |
 | `/api/usage` | Provider rate-limit windows for the usage footer. |
 | `/api/frameable` | Whether a URL can be framed, for the Browser tab's iframe mode. |
-| `/api/browser`, `/api/browser/profiles[/…]` | Shared-browser status and profiles. |
+| `/api/browser`, `/api/browser/profiles[/…]` | Shared-browser status, and the browsers (stored as profiles, hence the path). |
 | `/api/push`, `/api/push/subscribe`, `/api/push/unsubscribe`, `/api/push/test` | Web Push devices. `subscribe` accepts only an `https` endpoint with a valid P-256 key. |
 | `/api/log` | With `-dev` only: browser log sink. |
 
@@ -90,10 +92,9 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 
 | route | purpose |
 | --- | --- |
-| `/mcp` | lasso's MCP server (streamable HTTP): agents, hosts, notify, open_file, browser profiles and tabs, plugin tools. See [MCP tools](../mcp/tools.md). |
-| `/browser-mcp` | chrome-devtools-mcp against the shared browser, one URL for every profile. `/browser-mcp/<id>` pins one profile. See [Browser MCP](../mcp/browser-mcp.md). |
-| `/cdp`, `/cdp/p/<id>` | Raw Chrome DevTools Protocol WebSocket for the default profile, or for profile `<id>`. |
-| `/cdp/profiles` | `GET`: every browser profile and the CDP address of each, for a client with no MCP server. Never starts a browser. Same gates as `/cdp`. See [Browser MCP](../mcp/browser-mcp.md#discovering-profiles-over-cdp). |
+| `/mcp` | lasso's MCP server (streamable HTTP): agents, hosts, notify, open_file, browsers and their tabs, the `browser_*` tools (chrome-devtools-mcp's), plugin tools. See [MCP tools](../mcp/tools.md) and [The browser tools](../mcp/browser.md). |
+| `/cdp`, `/cdp/p/<id>` | Raw Chrome DevTools Protocol WebSocket for the default browser, or for browser `<id>`. |
+| `/cdp/browsers` | `GET`: every browser and the CDP address of each, for a client with no MCP. Never starts a browser. Same gates as `/cdp`. `/cdp/profiles` answers the same list under a `profiles` key. See [Discovering browsers over CDP](../mcp/browser.md#discovering-browsers-over-cdp). |
 | `/.well-known/oauth-protected-resource[/…]`, `/.well-known/oauth-authorization-server[/…]` | OAuth discovery documents. 404 unless `MCP_OAUTH` is set. |
 | `/oauth/register`, `/oauth/token` | Dynamic client registration; token endpoint. 404 unless `MCP_OAUTH` is set. |
 | `/oauth/authorize` | The consent screen. Behind `UI_AUTH` and the Access gate. 404 unless `MCP_OAUTH` is set. |

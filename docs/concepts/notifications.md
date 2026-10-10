@@ -34,6 +34,15 @@ or with the `notify` tool on lasso's MCP server. Both are the same call ([`lasso
 - Deliberate messages are **never collapsed or rate-limited**: two messages are two things the agent chose to say.
 - `-title` overrides the headline, and a message can be piped in on stdin: `make test 2>&1 | tail -5 | lasso notify`.
 
+### A bot answers
+
+A [bot](../web-ui/bots.md) with **Notify me when it answers** on (the default) sends a notification each time it finishes a reply with something new.
+
+- **Titled with the bot's name**, with the start of its message as the body and the bot's picture as the icon.
+- **One entry per bot.** A newer answer replaces the older notification.
+- **No replay on restart.** The first time lasso sees each bot after it starts, it only notes the bot's latest message, so a restart doesn't announce every bot's last answer again.
+- **Not for what you're reading.** No notification is shown while that bot's conversation is focused and on screen. iPhone and iPad are the exception and always show one, because iOS withdraws permission from a site whose pushes show nothing.
+
 ### The test button
 
 Settings → General → Notifications → **Send a test notification** sends one through exactly the same path, to every registered device.
@@ -51,9 +60,11 @@ An agent should check that answer before telling you it pinged you.
 
 Tapping a notification opens lasso on the **host** the agent runs on. It deliberately doesn't focus the agent's pane: herdr's focus is shared by every client of that session, so a notification that moved it would move it for everyone watching.
 
+A bot's notification opens **that bot's conversation** instead. Either way, an open lasso window is reused rather than a new one opened.
+
 ## Devices
 
-Each device registers itself from Settings → General → Notifications, and **every registered device gets every notification**. The Settings list shows each device with the outcome of its last push. Unticking the box on a device removes it.
+Each device registers itself from Settings → General → Notifications, or with the bell in the Bots list's header, and **every registered device gets every notification**. The installed [Bots app](../web-ui/bots.md#the-bots-app) is a device of its own and turns notifications on with its bell. The Settings list shows each device with the outcome of its last push. Unticking the box on a device removes it.
 
 - A push service answering that a subscription **is gone** (HTTP 404 or 410) removes that device automatically.
 - Any other failure (a rejected credential, the push service being down) is recorded on the device and shown in Settings as `last push failed: <reason>`, and the device keeps being tried. A transient outage never deletes a healthy device.

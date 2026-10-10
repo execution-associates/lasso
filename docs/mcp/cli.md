@@ -46,6 +46,7 @@ lasso mcp list-agents -host myhost
 lasso mcp create-agent -type git -repo ~/src/app -prompt "fix the flaky test" -agent codex
 lasso mcp get-agent -to "Fix the push flow"
 lasso mcp shared-browser -start=false
+lasso mcp browser-list-pages -browser work
 ```
 
 - **The flags come from the server.** Each tool's flags are built from the input schema the running server advertises, not from a table in the binary. The `lasso` you type may be older or newer than the one answering (after a `lasso update`, or with `LASSO_URL` pointing at another machine), and the flags always match the server. Plugin tools (`<plugin>__<tool>`) show up the same way.

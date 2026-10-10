@@ -21,6 +21,7 @@
 @import "@fontsource/jetbrains-mono/400.css";
 @import "@fontsource/jetbrains-mono/500.css";
 @import "@fontsource/jetbrains-mono/600.css";
+@import "./fx.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -81,10 +82,11 @@
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
 
-  /* Nothing is flat: no elevation shadows — surfaces separate by border + a
+  /* The flat chrome has no elevation shadows: surfaces separate by border + a
    * panel/hover brightness step, never by drop shadow or blur. The shadow-elev-*
    * / shadow-well utilities are kept (call sites still compose them with ring-*),
-   * but neutralized to none so focus rings survive while elevation reads flat. */
+   * neutralized to none here; fx.css gives them palette-tinted values under a
+   * palette's chrome. */
   --shadow-elev-sm: none;
   --shadow-elev-md: none;
   --shadow-elev-pop: none;
@@ -122,11 +124,14 @@
  * each device's own color scheme (see lib/mode.ts; index.html paints the
  * default class pre-paint).
  *
- * NOTE: the chrome no longer reflects herdr's theme. herdr now dictates *only*
- * the terminal (xterm) palette — refreshTheme() in lib/theme.ts pins the live
- * terminals to herdr's theme but deliberately does NOT repaint these --h-* vars.
+ * These are the FLAT chrome, the "Nothing (flat)" appearance, which no palette
+ * paints. When the chrome follows a palette (the default), lib/theme.ts
+ * overrides the --h-* values from it, and fx.css adds the character layer on
+ * top: radius, tinted shadows, sheens, and grain and light on the grounds.
+ * Both are gated on attributes lib/theme.ts sets, so without them this file
+ * alone is the flat chrome.
  *
- * Nothing rule: color is not the hierarchy — brightness is. --h-accent is
+ * Nothing rule (the flat chrome): color is not the hierarchy — brightness is. --h-accent is
  * monochrome (white on dark, black on light): the high-contrast "primary/active"
  * signal for chrome (buttons, active tabs, focus, selection). Red (#D71921) is an
  * INTERRUPT, never decorative — it lives only in --h-bad (destructive/error). The

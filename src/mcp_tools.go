@@ -25,8 +25,11 @@ import (
 //                  deliberate counterpart to the blocked watcher; see notify.go)
 //   - showing:     open_file (an agent opens a file in its human's sidebar file
 //                  viewer, e.g. a doc it just wrote; see openfile.go)
-//   - browsing:    shared_browser (starts the Chromium a human watches in the
-//                  Browser tab and says where to connect; see mcp_browser.go)
+//   - browsing:    shared_browser (starts a browser a human watches in the
+//                  Browser tab and gives its CDP endpoints; see mcp_browser.go),
+//                  the browser and tab tools (mcp_browser_profiles.go), and the
+//                  browser_* tools, chrome-devtools-mcp's, which browsermcp.go
+//                  registers once it has learned them
 
 // registerMCPTools wires every tool onto the server. The In/Out struct types
 // drive the JSON Schemas the SDK advertises (field docs come from `jsonschema`
@@ -90,6 +93,7 @@ func registerMCPTools(s *mcp.Server) {
 	registerBrowserProfileTools(s)
 	registerAgentMessagingTools(s)
 	registerSettingsTools(s)
+	registerBotTools(s)
 }
 
 // ---------------------------------------------------------------------------

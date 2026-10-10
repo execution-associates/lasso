@@ -36,7 +36,7 @@ export function UserBubble({
     <div className="flex justify-end">
       <div
         className={cn(
-          "rounded-xl rounded-br-sm border border-primary/20 bg-primary/8 text-foreground leading-snug",
+          "fx-bubble rounded-xl rounded-br-sm border border-primary/20 bg-primary/8 text-foreground leading-snug",
           compact
             ? "max-w-[90%] px-2.5 py-1.5 text-[12.5px]"
             : "max-w-[85%] px-3 py-2 text-[13.5px]"
