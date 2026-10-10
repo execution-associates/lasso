@@ -35,7 +35,7 @@ import { blurHerdrTerminal, focusHerdrTerminal } from "@/lib/terminal"
 import { patchUIState, uiStateNow } from "@/lib/ui-state"
 import { cn } from "@/lib/utils"
 
-type AgentType = "git" | "scratch"
+export type AgentType = "git" | "scratch"
 
 // A create whose response is lost mid-flight (lasso restarting under
 // `lasso update`, a dropped tunnel) surfaces as a 502/503/504 or a fetch
@@ -279,6 +279,7 @@ export function NewDialog({
   agentsOnly = false,
   terminalHidden = agentsOnly,
   onTerminalCreated,
+  typeRequest = null,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -299,6 +300,10 @@ export function NewDialog({
   // reading view can switch to the terminal (the chat cannot show a shell) and
   // the close then hands the keyboard to the view the new shell is on.
   onTerminalCreated?: () => void
+  // ⌘O asks for Git and ⌘⇧O for Scratch; null (the footer's New) keeps the
+  // remembered type. A fresh object per keypress, so pressing the same chord
+  // again while the dialog is open still flips a type changed by hand.
+  typeRequest?: { type: AgentType } | null
 }) {
   const [showAdvanced, setShowAdvanced] = React.useState(false)
   const [terminalCreating, setTerminalCreating] = React.useState(false)
@@ -418,6 +423,14 @@ export function NewDialog({
 
   // Form state.
   const [type, setType] = React.useState<AgentType>("git")
+  // The request still waiting for the seed below, which lands only once the
+  // repos load and would otherwise put the remembered type back over it. Taken
+  // once, so a later re-seed (another host picked) keeps a type changed by hand.
+  const pendingTypeRequest = React.useRef(typeRequest)
+  React.useEffect(() => {
+    pendingTypeRequest.current = typeRequest
+    if (open && typeRequest) setType(typeRequest.type)
+  }, [open, typeRequest])
   const [prompt, setPrompt] = React.useState("")
   const [repo, setRepo] = React.useState("")
   const [baseBranch, setBaseBranch] = React.useState("")
@@ -554,7 +567,9 @@ export function NewDialog({
     if (seededForHost.current === selectedHost) return
     seededForHost.current = selectedHost
     const draft = readDraft(selectedHost)
-    setType(draft.type || config.last_agent_type || "git")
+    const requested = pendingTypeRequest.current?.type
+    pendingTypeRequest.current = null
+    setType(requested || draft.type || config.last_agent_type || "git")
     setPrefix(draft.prefix ?? config.branch_prefix ?? "")
     const seededAgent =
       (draft.agent && harnesses.some((h) => h.id === draft.agent)
@@ -1044,9 +1059,15 @@ export function NewDialog({
                 >
                   <TabsTrigger ref={gitTypeTabRef} value="git">
                     Git
+                    <kbd className="font-mono text-[10px] text-muted-foreground">
+                      ⌘O
+                    </kbd>
                   </TabsTrigger>
                   <TabsTrigger ref={scratchTypeTabRef} value="scratch">
                     Scratch
+                    <kbd className="font-mono text-[10px] text-muted-foreground">
+                      ⌘⇧O
+                    </kbd>
                   </TabsTrigger>
                 </TabsList>
               </Tabs>

@@ -27,7 +27,8 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
         label:
           "Find a pane… (herdr's search, ⌃B G; in chat/agents: find an agent)",
       },
-      { keys: "⌘O", label: "New agent…" },
+      { keys: "⌘O", label: "New Git agent…" },
+      { keys: "⌘⇧O", label: "New Scratch agent…" },
       { keys: "⌘I", label: "New terminal…" },
       { keys: "⌘/", label: "Toggle keyboard shortcuts" },
     ],
@@ -74,4 +75,4 @@ export const APP_KEYS = new Set([
   ".",
   ";",
 ])
-export const APP_SHIFT_KEYS = new Set(["f", "s", "b"])
+export const APP_SHIFT_KEYS = new Set(["o", "f", "s", "b"])

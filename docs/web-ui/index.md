@@ -42,7 +42,7 @@ At desktop widths (768 px and wider) a single footer row runs along the bottom. 
 | Usage | Each tracked provider's quota windows. They scroll inside their own track, so a long list never pushes the buttons offscreen. See [Usage](./sidebar.md#usage). |
 | **Grid** | Switches the left column to the Grid, and back (the button then reads **Terminal**). `⌘E`. |
 | **Chat** | Switches the left column to the chat view, and back (the button then reads **Terminal**). `⌘J`. |
-| **New** | Opens the [New dialog](./new-agent.md) on its Agent form. `⌘O` opens it on Agent, `⌘I` on Terminal. |
+| **New** | Opens the [New dialog](./new-agent.md) on its Agent form. `⌘O` opens it on a Git agent, `⌘⇧O` on a Scratch agent, `⌘I` on Terminal. |
 | **Sidebar** | Shows or hides the right sidebar. While it is collapsed, the button carries the working tree's git status badge so you can still see it. `⌘\`. |
 
 ![the desktop footer: host and keyboard-shortcut buttons on the left, each provider's 5-hour and weekly budgets in the middle, New and Sidebar on the right](../assets/screenshots/usage-footer.png)
@@ -84,7 +84,8 @@ Every app shortcut uses the `⌘` key only, never `Ctrl`, so none of them collid
 | Keys | Action |
 | --- | --- |
 | `⌘K` | In the terminal, opens herdr's own pane search (the same as herdr's `Ctrl-B g`). In Chat and Bots, opens a fleet-wide agent picker instead; in the Grid, focuses the Grid's own search box. |
-| `⌘O` | New agent |
+| `⌘O` | New Git agent |
+| `⌘⇧O` | New Scratch agent |
 | `⌘I` | New terminal (from Chat, returns to the terminal first) |
 | `⌘/` | Toggle the keyboard shortcut reference |
 

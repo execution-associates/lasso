@@ -34,7 +34,11 @@ import { ChatView } from "@/components/ChatView"
 import { FilesPanel } from "@/components/FilesPanel"
 import { GitStatusBadge } from "@/components/GitStatusBadge"
 import { HostSwitcher } from "@/components/HostSwitcher"
-import { NewDialog, type NewDialogTab } from "@/components/NewDialog"
+import {
+  type AgentType,
+  NewDialog,
+  type NewDialogTab,
+} from "@/components/NewDialog"
 import { OnboardingTour, type TourPrepare } from "@/components/OnboardingTour"
 import { PluginTab } from "@/components/PluginTab"
 import { ScratchTab } from "@/components/ScratchTab"
@@ -370,6 +374,9 @@ function Shell() {
   const [newOpen, setNewOpen] = React.useState(false)
   const [newTab, setNewTab] = React.useState<NewDialogTab>("agent")
   const [newBoth, setNewBoth] = React.useState(false)
+  const [newTypeRequest, setNewTypeRequest] = React.useState<{
+    type: AgentType
+  } | null>(null)
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false)
   const [switcherOpen, setSwitcherOpen] = React.useState(false)
   const [hostMenuOpen, setHostMenuOpen] = React.useState(false)
@@ -608,6 +615,7 @@ function Shell() {
   const openNew = React.useCallback(() => {
     setNewTab("agent")
     setNewBoth(false)
+    setNewTypeRequest(null)
     setNewOpen(true)
   }, [])
   // The mobile chat header's New: the one creator a reading view opens with
@@ -617,6 +625,7 @@ function Shell() {
   const openNewFromChat = React.useCallback(() => {
     setNewTab("agent")
     setNewBoth(true)
+    setNewTypeRequest(null)
     setNewOpen(true)
   }, [])
 
@@ -791,8 +800,8 @@ function Shell() {
       window.removeEventListener(MOBILE_COMMAND_EVENT, onMobileCommand)
   }, [toggleSidebar, openNew, openHostMenu])
 
-  // ⌘K → herdr's own pane search, ⌘O/⌘I → the agent/terminal tabs in the New
-  // dialog, ⌘;/⌘J/⌘E/⌘./⌘B → the left column's views and sidebar, ⌘\ and ⌘⇧F/S/B →
+  // ⌘K → herdr's own pane search, ⌘O/⌘⇧O → a Git/Scratch agent and ⌘I → a
+  // terminal in the New dialog, ⌘;/⌘J/⌘E/⌘./⌘B → the left column's views and sidebar, ⌘\ and ⌘⇧F/S/B →
   // the right sidebar, ⌘/ → toggles the keyboard-shortcuts reference. Bound to the Cmd key only (not Ctrl) so it
   // never clobbers terminal control keys like Ctrl-H (backspace). The
   // herdr/shell terminal iframes re-dispatch Cmd-shortcuts to this document, so
@@ -803,6 +812,15 @@ function Shell() {
       if (!e.metaKey || e.ctrlKey || e.altKey) return
       const k = e.key.toLowerCase()
       if (e.shiftKey) {
+        // ⌘⇧O is ⌘O's Scratch twin (see the ⌘O branch below).
+        if (k === "o") {
+          e.preventDefault()
+          setNewTab("agent")
+          setNewBoth(false)
+          setNewTypeRequest({ type: "scratch" })
+          setNewOpen(true)
+          return
+        }
         // ⌘⇧ + a tab's initial jumps the right sidebar to it, opening the
         // sidebar if collapsed — through openSidebar, so it stamps intent and
         // wins the synced-layout claim like ⌘\.
@@ -842,6 +860,7 @@ function Shell() {
         e.preventDefault()
         setNewTab(k === "o" ? "agent" : "terminal")
         setNewBoth(false)
+        if (k === "o") setNewTypeRequest({ type: "git" })
         // ⌘I asks for a TERMINAL, and chat mode's creator has no terminal to
         // offer (see NewDialog's agentsOnly) — so it hands the screen back
         // first, rather than opening an agent form in answer to a terminal
@@ -1353,6 +1372,7 @@ function Shell() {
           }
           terminalHidden={leftView !== "terminal"}
           onTerminalCreated={() => setLeftView("terminal")}
+          typeRequest={newTypeRequest}
         />
         <OnboardingTour
           open={tourOpen}
@@ -1492,7 +1512,7 @@ function Shell() {
           <Button
             variant="ghost"
             size="sm"
-            title="New agent or terminal (⌘O / ⌘I)"
+            title="New agent or terminal (⌘O git / ⌘⇧O scratch / ⌘I)"
             data-tour="new"
             onClick={openNew}
           >
