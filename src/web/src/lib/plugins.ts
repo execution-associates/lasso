@@ -55,8 +55,8 @@ import {
   type PluginTabInfo,
 } from "@/lib/api"
 import { requestOpenFile } from "@/lib/open-file"
+import { pluginFontFaces, themeSnapshot } from "@/lib/plugin-theme"
 import { qk, queryClient } from "@/lib/query"
-import { paletteColors } from "@/lib/theme"
 
 // Plugins, on the client: the listing, the icons a manifest may name, and the
 // postMessage bridge a plugin tab talks to lasso through.
@@ -305,14 +305,9 @@ function agentAt(host: string | null, pane: string | null): string | null {
   return best?.name ?? null
 }
 
-// themeSnapshot is what theme.get answers and the "theme" push carries: the
-// scheme and the palette's hexes. Colors only — see lib/theme.ts:paletteColors.
-export function themeSnapshot() {
-  return {
-    dark: document.documentElement.classList.contains("dark"),
-    colors: paletteColors(),
-  }
-}
+// themeSnapshot is what theme.get answers and the "theme" push carries; it
+// lives in lib/plugin-theme.ts with the fonts and the change observer.
+export { themeSnapshot }
 
 // attachPluginBridge wires one plugin iframe to lasso.
 //
@@ -364,6 +359,10 @@ export function attachPluginBridge(opts: BridgeOptions): PluginBridge {
     {
       "context.get": () => context(),
       "theme.get": () => themeSnapshot(),
+      // The bytes of the faces lasso's fonts are drawn from, for the page to
+      // register with FontFace (see lib/plugin-theme.ts for why it cannot
+      // fetch them itself). Asked again when theme's fonts_key changes.
+      "fonts.get": async () => ({ faces: await pluginFontFaces() }),
       "file.open": (p: Params) => {
         const path = p.path
         if (typeof path !== "string" || !path.startsWith("/"))
