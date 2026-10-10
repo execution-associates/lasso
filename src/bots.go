@@ -460,6 +460,9 @@ func botTaskScript(r *botRecord, dir string, envKeys []string) string {
 	fmt.Fprintf(&b, "NAME=%s\n", q(r.Name))
 	b.WriteString(`unset CLAUDECODE CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_SESSION_ID
 if [ -n "${HERDR_PANE_ID:-}" ] && command -v herdr >/dev/null 2>&1; then
+  # The pane's screen as one line: claude wraps its dialogs to the pane's
+  # width, so in a narrow pane a phrase spans lines and a plain grep misses it.
+  screen() { herdr pane read "$HERDR_PANE_ID" --source visible 2>/dev/null | tr -s '[:space:]' ' '; }
   # Claim the herdr agent name. It only succeeds once herdr has detected claude,
   # a few seconds after exec, so it retries.
   (
@@ -472,10 +475,10 @@ if [ -n "${HERDR_PANE_ID:-}" ] && command -v herdr >/dev/null 2>&1; then
   # refuse it: move down, re-read, and confirm only on the Yes line.
   (
     for _ in $(seq 1 90); do
-      if herdr pane read "$HERDR_PANE_ID" --source visible 2>/dev/null | grep -q 'Is this a project you created or one you trust'; then
+      if screen | grep -q 'Is this a project you created or one you trust'; then
         herdr pane send-keys "$HERDR_PANE_ID" Down >/dev/null 2>&1
         sleep 1
-        if herdr pane read "$HERDR_PANE_ID" --source visible 2>/dev/null | grep -q '❯ Yes, I trust this folder'; then
+        if screen | grep -q '❯ Yes, I trust this folder'; then
           herdr pane send-keys "$HERDR_PANE_ID" Enter >/dev/null 2>&1
         fi
         break
@@ -489,7 +492,7 @@ if [ -n "${HERDR_PANE_ID:-}" ] && command -v herdr >/dev/null 2>&1; then
   # nothing pre-accepts it. Answer it only once its own wording is on screen.
   (
     for _ in $(seq 1 90); do
-      if herdr pane read "$HERDR_PANE_ID" --source visible 2>/dev/null | grep -q 'I am using this for local development'; then
+      if screen | grep -q 'I am using this for local development'; then
         herdr pane send-keys "$HERDR_PANE_ID" Enter >/dev/null 2>&1
         break
       fi
