@@ -3358,6 +3358,7 @@ function PluginPermissionList({
   const secrets = mcp?.secrets ?? []
   const themes = permissions.themes ?? []
   const fonts = permissions.fonts ?? []
+  const agents = permissions.agents ?? []
   const item = "text-[13px] text-foreground [overflow-wrap:anywhere]"
   const code = "font-mono text-[12px]"
   return (
@@ -3395,6 +3396,22 @@ function PluginPermissionList({
           itemClass={item}
           codeClass={code}
         />
+      )}
+      {/* The one grant that acts as the human: its pages read these agents'
+          whole conversations and type into their panes. */}
+      {agents.length > 0 && (
+        <div>
+          <p className={labelClass}>Agents</p>
+          <ul className="list-disc pl-5">
+            {agents.map((a) => (
+              <li key={`${a.host}/${a.name}`} className={item}>
+                Read the chat and type into agent{" "}
+                <code className={code}>{a.name}</code> on{" "}
+                <code className={code}>{a.host}</code>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {mcp && (
         <>

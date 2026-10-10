@@ -104,6 +104,10 @@ type pluginManifest struct {
 	// where lasso frames it differs.
 	Views []pluginTabSpec `json:"views"`
 	MCP   *pluginMCPSpec  `json:"mcp"`
+	// Agents are the herdr agents this plugin's PAGES may read the chat of and
+	// type into, through the bridge's chat.* methods (pluginchat.go). A grant
+	// like any other: in the fingerprint, shown in the approval dialog.
+	Agents []pluginAgentSpec `json:"agents"`
 	// Themes, Fonts and ChatStyles are appearance contributions: data, never
 	// code or CSS (pluginappearance.go, chattext.go).
 	Themes     []pluginThemeSpec     `json:"themes"`
@@ -243,6 +247,9 @@ func (m *pluginManifest) validate(dirName string) error {
 	if err := m.validateAppearance(); err != nil {
 		return err
 	}
+	if err := validatePluginAgents(m.Agents); err != nil {
+		return err
+	}
 	if m.MCP == nil {
 		return nil
 	}
@@ -376,6 +383,8 @@ type pluginPerms struct {
 	// should see everything a plugin adds before approving it.
 	Themes []string         `json:"themes"`
 	Fonts  []pluginFontPerm `json:"fonts"`
+	// Agents is the chat grant: read and type into these agents' panes.
+	Agents []pluginAgentPerm `json:"agents"`
 }
 
 type pluginTabPerm struct {
@@ -410,6 +419,7 @@ func (m *pluginManifest) perms() pluginPerms {
 	for _, f := range m.Fonts {
 		p.Fonts = append(p.Fonts, pluginFontPerm{ID: f.ID, Family: f.Family, Category: f.Category})
 	}
+	p.Agents = m.agentPerms()
 	if c := m.MCP; c != nil {
 		mp := &pluginMCPPerms{
 			Image:   c.Image,
@@ -442,7 +452,7 @@ func (m *pluginManifest) perms() pluginPerms {
 // emptyPluginPerms is the zero listing, with every list present so a client
 // never needs a nil check.
 func emptyPluginPerms() pluginPerms {
-	return pluginPerms{Tabs: []pluginTabPerm{}, Views: []pluginTabPerm{}, Themes: []string{}, Fonts: []pluginFontPerm{}}
+	return pluginPerms{Tabs: []pluginTabPerm{}, Views: []pluginTabPerm{}, Themes: []string{}, Fonts: []pluginFontPerm{}, Agents: []pluginAgentPerm{}}
 }
 
 // pluginFingerprint is the sha256 of a canonical JSON of the approved
@@ -470,6 +480,9 @@ func (m *pluginManifest) fingerprint() string {
 		MCP    *pluginMCPPerms  `json:"mcp,omitempty"`
 		Themes []string         `json:"themes,omitempty"`
 		Fonts  []pluginFontPerm `json:"fonts,omitempty"`
+		// omitempty: a plugin without agents keeps the fingerprint it was
+		// approved under.
+		Agents []pluginAgentPerm `json:"agents,omitempty"`
 	}
 	pages := func(in []pluginTabPerm) []tab {
 		out := []tab{}
@@ -512,6 +525,9 @@ func (m *pluginManifest) fingerprint() string {
 	if len(p.Fonts) > 0 {
 		c.Fonts = slices.Clone(p.Fonts)
 		sort.Slice(c.Fonts, func(i, j int) bool { return c.Fonts[i].ID < c.Fonts[j].ID })
+	}
+	if len(p.Agents) > 0 {
+		c.Agents = p.Agents // agentPerms already sorted and deduplicated them
 	}
 	b, _ := json.Marshal(c)
 	sum := sha256.Sum256(append([]byte("lasso-plugin-perms/1\n"), b...))
@@ -1145,6 +1161,9 @@ func (m *pluginManager) serveAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if m.serveInstallAPI(w, r, rest) {
+		return
+	}
+	if m.serveChatAPI(w, r, rest) {
 		return
 	}
 	if r.Method != http.MethodPost {
