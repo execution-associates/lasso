@@ -238,22 +238,8 @@ func (m *pluginManager) serveChatAPI(w http.ResponseWriter, r *http.Request, res
 		outcome, detail := chatAnswer(be, p.PaneID, kind, in.Expect, in.Labels, in.Answers)
 		writeJSON(w, map[string]any{"outcome": outcome, "detail": detail})
 	case "stop":
-		// Escape interrupts a working Claude Code turn. On an idle one it would
-		// throw away whatever a human has half-typed in the terminal, so it is
-		// sent only while the agent is working by herdr's or the transcript's
-		// account — the same two sources the chat's `running` combines.
-		if status != "working" && !buildChatPayload(be, p, "", false).Running {
-			writeJSON(w, map[string]any{"outcome": "refused", "detail": "the agent is not working"})
-			return true
-		}
-		if _, err := be.HerdrCall("pane.send_keys", map[string]any{
-			"pane_id": p.PaneID,
-			"keys":    []string{"Escape"},
-		}); err != nil {
-			writeJSON(w, map[string]any{"outcome": "uncertain", "detail": "the pane stopped answering: " + err.Error()})
-			return true
-		}
-		writeJSON(w, map[string]any{"outcome": "sent"})
+		outcome, detail := chatStop(be, p, status)
+		writeJSON(w, map[string]any{"outcome": outcome, "detail": detail})
 	}
 	return true
 }
@@ -273,4 +259,22 @@ func writePluginChatErr(w http.ResponseWriter, name, agent string, err error) bo
 		http.Error(w, err.Error(), http.StatusBadGateway)
 	}
 	return true
+}
+
+// chatStop interrupts a working agent with one Escape. On an idle one it would
+// throw away whatever a human has half-typed in the terminal, so it is sent
+// only while the agent is working by herdr's or the transcript's account — the
+// same two sources the chat's `running` combines. Shared by the chat view's
+// /api/chat/stop and a plugin's chat.stop.
+func chatStop(be Backend, p pane, status string) (outcome, detail string) {
+	if status != "working" && !buildChatPayload(be, p, "", false).Running {
+		return "refused", "the agent is not working"
+	}
+	if _, err := be.HerdrCall("pane.send_keys", map[string]any{
+		"pane_id": p.PaneID,
+		"keys":    []string{"Escape"},
+	}); err != nil {
+		return "uncertain", "the pane stopped answering: " + err.Error()
+	}
+	return "sent", ""
 }
