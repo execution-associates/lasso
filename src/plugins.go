@@ -1284,6 +1284,10 @@ func (m *pluginManager) serveFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	rest := strings.TrimPrefix(r.URL.Path, "/plugins/")
 	name, rel, _ := strings.Cut(rest, "/")
+	if name == "_sdk" {
+		servePluginSDK(w, r, rel)
+		return
+	}
 	if !pluginNameRE.MatchString(name) {
 		http.NotFound(w, r)
 		return

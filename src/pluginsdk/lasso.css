@@ -1,0 +1,114 @@
+/* lasso plugin SDK base styles. Served at /plugins/_sdk/lasso.css. Every value
+ * is one of lasso's tokens, which /plugins/_sdk/lasso.js sets on <html> and
+ * keeps current; the fallbacks are what a page shows before the first push.
+ * Opt-in classes (lasso-*) for the common controls; the element rules are
+ * only the page base, so a plugin's own CSS wins without a fight. */
+
+:root {
+  --background: #111;
+  --foreground: #eee;
+  --card: #1a1a1a;
+  --card-foreground: #eee;
+  --muted: #222;
+  --muted-foreground: #999;
+  --primary: #eee;
+  --primary-foreground: #111;
+  --border: #333;
+  --input: #333;
+  --ring: #888;
+  --radius: 0.5rem;
+  --font-sans: system-ui, sans-serif;
+  --font-mono: ui-monospace, monospace;
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font: 13px/1.5 var(--font-sans);
+}
+
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--font-mono);
+}
+
+a {
+  color: var(--primary);
+}
+
+::selection {
+  background: color-mix(in oklab, var(--primary) 30%, transparent);
+}
+
+.lasso-card {
+  background: var(--card);
+  color: var(--card-foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-elev-sm, none);
+}
+
+.lasso-muted {
+  color: var(--muted-foreground);
+}
+
+.lasso-label {
+  font-family: var(--font-label, var(--font-mono));
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.lasso-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--secondary, var(--muted));
+  color: var(--secondary-foreground, var(--foreground));
+  font: inherit;
+  cursor: pointer;
+}
+
+.lasso-button:hover {
+  background: var(--accent, var(--muted));
+  color: var(--accent-foreground, var(--foreground));
+}
+
+.lasso-button.primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: transparent;
+}
+
+.lasso-button:focus-visible,
+.lasso-input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.lasso-input {
+  padding: 4px 8px;
+  border: 1px solid var(--input);
+  border-radius: calc(var(--radius) - 2px);
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+}
+
+.lasso-chat {
+  font-family: var(--font-chat, var(--font-sans));
+  font-size: var(--chat-size, 14px);
+  font-weight: var(--chat-weight, 400);
+  line-height: var(--chat-leading, 1.6);
+  letter-spacing: var(--chat-tracking, 0);
+  max-width: var(--chat-measure, 72ch);
+}

@@ -2,6 +2,7 @@ import * as React from "react"
 
 import type { PluginTabInfo } from "@/lib/api"
 import { useApp } from "@/lib/app-store"
+import { onAppearanceChanged } from "@/lib/plugin-theme"
 import {
   attachPluginBridge,
   type PluginBridge,
@@ -77,7 +78,24 @@ export function PluginTab({
         activeRef.current && document.visibilityState === "visible",
     })
     bridge.current = b
-    const offTheme = onThemeApplied(() => b.push("theme", themeSnapshot()))
+    // Pushed on any appearance change (palette, scheme, typography, chat
+    // text), but only when what the page is told actually moved.
+    // refreshTheme's own signal stays too: the terminal palette (`colors`)
+    // is module state there, not something the DOM observer can see.
+    let last = JSON.stringify(themeSnapshot())
+    const pushIfMoved = () => {
+      const snap = themeSnapshot()
+      const json = JSON.stringify(snap)
+      if (json === last) return
+      last = json
+      b.push("theme", snap)
+    }
+    const offObserved = onAppearanceChanged(pushIfMoved)
+    const offApplied = onThemeApplied(pushIfMoved)
+    const offTheme = () => {
+      offObserved()
+      offApplied()
+    }
     return () => {
       offTheme()
       b.dispose()
