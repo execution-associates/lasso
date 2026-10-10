@@ -1,0 +1,8 @@
+# Overlay for the OpenBot example plugin's tasks (scripts/container-openbot.sh):
+# examples/plugins/openbot at its real position under the fake repo root. The
+# whole plugin directory, not just web/, because the build writes the bundle
+# into its ui/. Nothing else from the repo is mounted.
+services:
+  web:
+    volumes:
+      - "${LASSO_OPENBOT:?set by container-openbot.sh}:/home/dev/repo/examples/plugins/openbot:device=openbot"

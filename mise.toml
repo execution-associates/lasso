@@ -60,14 +60,24 @@ run = "./scripts/container-build-web.sh"
 # `tsc -b`, not `tsc --noEmit` — the root tsconfig has `files: []`, so a bare
 # --noEmit checks nothing at all and passes.
 [tasks.typecheck]
-description = "Typecheck the frontend (tsc -b) inside this worktree's dev container"
+description = "Typecheck the frontend and the OpenBot example plugin (tsc -b) inside this worktree's dev container"
 dir = "{{config_root}}"
-run = "./scripts/container-web.sh typecheck"
+run = ["./scripts/container-web.sh typecheck", "./scripts/container-openbot.sh typecheck"]
 
 [tasks.lint]
-description = "Lint the frontend (biome) inside this worktree's dev container"
+description = "Lint the frontend and the OpenBot example plugin (biome) inside this worktree's dev container"
 dir = "{{config_root}}"
-run = "./scripts/container-web.sh lint"
+run = ["./scripts/container-web.sh lint", "./scripts/container-openbot.sh lint"]
+
+[tasks."openbot:build"]
+description = "Build the OpenBot example plugin's page into examples/plugins/openbot/ui, inside this worktree's dev container"
+dir = "{{config_root}}"
+run = "./scripts/container-openbot.sh build"
+
+[tasks."openbot:check"]
+description = "biome check --write on the OpenBot example plugin, inside this worktree's dev container"
+dir = "{{config_root}}"
+run = "./scripts/container-openbot.sh check"
 
 [tasks.check]
 description = "biome check --write (format + lint fixes + sorting) inside this worktree's dev container"

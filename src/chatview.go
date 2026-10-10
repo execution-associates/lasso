@@ -62,7 +62,9 @@ const (
 // chatItem is one renderable row. Exactly one of Text / Tool / Marker carries
 // the content, keyed by Kind.
 type chatItem struct {
-	Kind string `json:"kind"` // user | agent | tool | marker
+	// user | agent | tool | marker, and "incoming" (a message a Claude Code
+	// channel delivered) only when the caller asked for those.
+	Kind string `json:"kind"`
 	ID   string `json:"id"`
 	At   string `json:"at,omitempty"`
 	// Text is the prose of a user or agent row.
@@ -76,6 +78,9 @@ type chatItem struct {
 	// hundred times is a chat nobody can read.
 	Count int       `json:"count,omitempty"`
 	Tool  *chatTool `json:"tool,omitempty"`
+	// Source is the channel server an incoming row came from
+	// ("gmail-channel"); its envelope is the row's Text.
+	Source string `json:"source,omitempty"`
 	// off is where in the transcript this row's record begins. Not on the wire:
 	// it is what makes paging exact (the oldest KEPT row is the cursor the next
 	// page is fetched before), and a row dropped by the per-read cap must not
@@ -766,13 +771,20 @@ func appendMarker(out *chatParse, it chatItem) {
 // The item model, the cards, paging and everything downstream are shared; only
 // the record reader differs.
 type claudeRecord struct {
-	Type        string         `json:"type"`
-	UUID        string         `json:"uuid"`
-	Timestamp   string         `json:"timestamp"`
-	AITitle     string         `json:"aiTitle"`
-	IsSidechain bool           `json:"isSidechain"`
-	IsMeta      bool           `json:"isMeta"`
-	Message     *claudeMessage `json:"message"`
+	Type        string `json:"type"`
+	UUID        string `json:"uuid"`
+	Timestamp   string `json:"timestamp"`
+	AITitle     string `json:"aiTitle"`
+	IsSidechain bool   `json:"isSidechain"`
+	IsMeta      bool   `json:"isMeta"`
+	// Origin says where a meta user turn came from. A Claude Code channel
+	// (mail, chat, a scheduler) delivers its messages as isMeta user turns
+	// with origin.kind "channel".
+	Origin struct {
+		Kind   string `json:"kind"`
+		Server string `json:"server"`
+	} `json:"origin"`
+	Message *claudeMessage `json:"message"`
 	// ToolUseResult is the record-level payload claude writes beside a tool
 	// result. For an ask it is where the ANSWERS live: the tool_result block
 	// itself carries only a sentence of prose ("Your questions have been
@@ -825,6 +837,18 @@ func claudeBlocks(raw json.RawMessage) []claudeBlock {
 	return blocks
 }
 
+// claudeUserText is a user message's text blocks joined: a channel delivery is
+// one text block, the <channel …>…</channel> envelope.
+func claudeUserText(raw json.RawMessage) string {
+	var parts []string
+	for _, b := range claudeBlocks(raw) {
+		if b.Type == "text" && strings.TrimSpace(b.Text) != "" {
+			parts = append(parts, strings.TrimSpace(b.Text))
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
 // claudeResultBody reads a tool_result's content, which is a string for text and
 // an array when the tool returned images alongside it.
 func claudeResultBody(raw json.RawMessage) (body string, images int) {
@@ -859,12 +883,17 @@ func claudeResultBody(raw json.RawMessage) (body string, images int) {
 // card still carries the call and its result, which is the part the parent's
 // conversation is actually about.
 func parseClaudeTranscript(data []byte, base int64) chatParse {
-	return parseClaudeLines(splitLogLines(data, base))
+	return parseClaudeLines(splitLogLines(data, base), false)
 }
 
 // parseClaudeLines is parseClaudeTranscript over lines the log reader has
 // already split and compacted, each carrying its own file offset.
-func parseClaudeLines(lines []jsonlLine) chatParse {
+//
+// withIncoming also emits the messages Claude Code channels delivered, as
+// "incoming" rows (see chatItem). lasso's own chat leaves them out; a plugin's
+// agent grant asks for them (pluginchat.go), since for an assistant they are
+// most of what it is answering.
+func parseClaudeLines(lines []jsonlLine, withIncoming bool) chatParse {
 	var out chatParse
 	byCall := map[string]*chatTool{}
 	type pendingResult struct {
@@ -898,7 +927,18 @@ func parseClaudeLines(lines []jsonlLine) chatParse {
 		if rec.Type != "user" && rec.Type != "assistant" {
 			continue
 		}
-		if rec.IsSidechain || rec.IsMeta || rec.Message == nil {
+		if rec.IsSidechain || rec.Message == nil {
+			continue
+		}
+		if rec.IsMeta {
+			if withIncoming && rec.Type == "user" && rec.Origin.Kind == "channel" {
+				if text := claudeUserText(rec.Message.Content); text != "" {
+					out.items = append(out.items, chatItem{
+						Kind: "incoming", ID: rowID(rec.UUID, 0), At: rec.Timestamp,
+						Text: text, Source: rec.Origin.Server, off: lineStart,
+					})
+				}
+			}
 			continue
 		}
 		first := len(out.items)
@@ -1053,15 +1093,15 @@ func claudeTool(b claudeBlock) *chatTool {
 // log that cannot be parsed is reported as such instead of being read as some
 // other harness's format.
 func parseTranscript(harness string, data []byte, base int64) chatParse {
-	return parseTranscriptLines(harness, splitLogLines(data, base))
+	return parseTranscriptLines(harness, splitLogLines(data, base), false)
 }
 
 // parseTranscriptLines dispatches already-split log lines to the harness's
 // parser. Every harness is read this way (readLogPage), because every one of
 // them can inline an image into a record far bigger than any byte window.
-func parseTranscriptLines(harness string, lines []jsonlLine) chatParse {
+func parseTranscriptLines(harness string, lines []jsonlLine, withIncoming bool) chatParse {
 	if strings.ToLower(strings.TrimSpace(harness)) == "claude" {
-		return parseClaudeLines(lines)
+		return parseClaudeLines(lines, withIncoming)
 	}
 	if isCodex(harness) {
 		return parseCodexLines(lines)
@@ -1800,7 +1840,18 @@ func serveChat(w http.ResponseWriter, r *http.Request) {
 	// pane listing, the records and the stat come from one host. The one
 	// exception is a pane whose host does not have its log at all, which
 	// resolvePaneLog finds on another host and reports as served_by.
-	be, p := scr.be, scr.pane
+	// ?incoming=1 adds the messages Claude Code channels delivered (mail,
+	// texts, scheduled loops): the Bots view asks for them, the terminal's chat
+	// overlay does not.
+	writeChat(w, buildChatPayload(scr.be, scr.pane, r.URL.Query().Get("before"), r.URL.Query().Get("incoming") == "1"))
+}
+
+// buildChatPayload reads one pane's session as chat rows: the page ending at
+// `before` (a transcript offset; "" or out of range = the tail). Shared by the
+// tab's own chat and a plugin's agent grant (pluginchat.go), so both read a
+// pane exactly the same way. withIncoming adds channel-delivered messages as
+// "incoming" rows (parseClaudeLines).
+func buildChatPayload(be Backend, p pane, before string, withIncoming bool) chatPayload {
 	// herdr's own view of the pane is what answers "is it generating right now",
 	// and it answers BEFORE the transcript can. Both harnesses write a COMPLETE
 	// assistant message, so the first seconds of every turn have no record at
@@ -1854,8 +1905,7 @@ func serveChat(w http.ResponseWriter, r *http.Request) {
 		out.Note = tx.Note
 		out.Starting = tx.Starting
 		out.Unavailable = lg.unavailable
-		writeChat(w, out)
-		return
+		return out
 	}
 	path, info, src := tx.Path, lg.info, lg.be
 	out.ServedBy = lg.host
@@ -1863,12 +1913,12 @@ func serveChat(w http.ResponseWriter, r *http.Request) {
 	// above the one already on screen. Absent (or out of range) means the tail,
 	// which is what a view opens on.
 	end := info.Size()
-	if v := r.URL.Query().Get("before"); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 && n < end {
+	if before != "" {
+		if n, err := strconv.ParseInt(before, 10, 64); err == nil && n > 0 && n < end {
 			end = n
 		}
 	}
-	parsed := readLogPage(src, path, tx.Harness, info.Size(), end)
+	parsed := readLogPage(src, path, tx.Harness, info.Size(), end, withIncoming)
 	out.Items = parsed.items
 	out.Model = parsed.model
 	out.Tokens = parsed.tokens
@@ -1897,7 +1947,7 @@ func serveChat(w http.ResponseWriter, r *http.Request) {
 	if out.Agent == "" {
 		out.Agent = "agent"
 	}
-	writeChat(w, out)
+	return out
 }
 
 // writeChat answers a chat request. Every path funnels through here so that
@@ -2047,27 +2097,68 @@ func serveChatSend(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "pane_id and text are required", http.StatusBadRequest)
 		return
 	}
+	kind, err := chatPaneKind(be, req.PaneID)
+	switch {
+	case errors.Is(err, errChatNoPane):
+		http.Error(w, "pane not found", http.StatusNotFound)
+		return
+	case err != nil:
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	outcome, detail := chatSubmit(be, req.PaneID, kind, req.Text)
+	writeJSON(w, map[string]any{"outcome": outcome, "detail": detail})
+}
+
+// serveChatStop interrupts the pane's agent (chatStop): POST {pane_id}, on
+// this tab's host like send.
+func serveChatStop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	be, err := reqHostBackend(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	var req struct {
+		PaneID string `json:"pane_id"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil || strings.TrimSpace(req.PaneID) == "" {
+		http.Error(w, "pane_id is required", http.StatusBadRequest)
+		return
+	}
 	panes, err := panesRaw(be)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	kind := ""
-	found := false
-	for _, p := range panes {
-		if p.PaneID == req.PaneID {
-			// herdr's own answer, never the caller's claim.
-			kind, _ = paneAgentPresence(p)
-			found = true
-			break
-		}
-	}
-	if !found {
+	p, ok := findChatPane(panes, req.PaneID)
+	if !ok {
 		http.Error(w, "pane not found", http.StatusNotFound)
 		return
 	}
-	outcome, detail := chatSubmit(be, req.PaneID, kind, req.Text)
+	_, status := paneAgentPresence(p)
+	outcome, detail := chatStop(be, p, status)
 	writeJSON(w, map[string]any{"outcome": outcome, "detail": detail})
+}
+
+// chatPaneKind is the harness running in a pane, as herdr reports it — never a
+// caller's claim, since the keys typed into it depend on it. errChatNoPane when
+// the pane is not on this host.
+func chatPaneKind(be Backend, paneID string) (string, error) {
+	panes, err := panesRaw(be)
+	if err != nil {
+		return "", err
+	}
+	for _, p := range panes {
+		if p.PaneID == paneID {
+			kind, _ := paneAgentPresence(p)
+			return kind, nil
+		}
+	}
+	return "", errChatNoPane
 }
 
 // ---------------------------------------------------------------------------
@@ -2244,65 +2335,60 @@ func serveChatAnswer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "pane_id and answers are required", http.StatusBadRequest)
 		return
 	}
-	for _, a := range req.Answers {
-		if len(a.Selected) == 0 || len(a.Selected) > chatAskMaxPicks {
-			http.Error(w, "every answer needs at least one option", http.StatusBadRequest)
-			return
-		}
-		if a.Options < 0 || a.Options > chatAskMaxPicks {
-			http.Error(w, "option count out of range", http.StatusBadRequest)
-			return
-		}
-		// The indexes index the keystroke sequence built below, so a negative
-		// one is not a wrong answer, it is a panic in strings.Repeat.
-		for _, idx := range a.Selected {
-			if idx < 0 || idx >= chatAskMaxPicks {
-				http.Error(w, "option index out of range", http.StatusBadRequest)
-				return
-			}
-		}
+	if err := checkAskAnswers(req.Answers); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
-	panes, err := panesRaw(be)
-	if err != nil {
+	kind, err := chatPaneKind(be, req.PaneID)
+	switch {
+	case errors.Is(err, errChatNoPane):
+		http.Error(w, "pane not found", http.StatusNotFound)
+		return
+	case err != nil:
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	// Which keyboard the dialog speaks is herdr's answer, never the caller's —
-	// the two harnesses take different keys for the same question, so a wrong
-	// one types into a dialog that is reading something else.
-	kind := ""
-	found := false
-	for _, p := range panes {
-		if p.PaneID == req.PaneID {
-			kind, _ = paneAgentPresence(p)
-			found = true
-			break
+	outcome, detail := chatAnswer(be, req.PaneID, kind, req.Expect, req.Labels, req.Answers)
+	writeJSON(w, map[string]any{"outcome": outcome, "detail": detail})
+}
+
+// checkAskAnswers bounds what a caller can make lasso type into an ask dialog.
+func checkAskAnswers(answers []chatAskPick) error {
+	for _, a := range answers {
+		if len(a.Selected) == 0 || len(a.Selected) > chatAskMaxPicks {
+			return errors.New("every answer needs at least one option")
+		}
+		if a.Options < 0 || a.Options > chatAskMaxPicks {
+			return errors.New("option count out of range")
+		}
+		// The indexes index the keystroke sequence chatAskKeystrokes builds, so
+		// a negative one is not a wrong answer, it is a panic in strings.Repeat.
+		for _, idx := range a.Selected {
+			if idx < 0 || idx >= chatAskMaxPicks {
+				return errors.New("option index out of range")
+			}
 		}
 	}
-	if !found {
-		http.Error(w, "pane not found", http.StatusNotFound)
-		return
-	}
-	refuse := func(detail string) {
-		writeJSON(w, map[string]any{"outcome": "refused", "detail": detail})
-	}
-	screen, ok := paneVisibleText(be, req.PaneID)
+	return nil
+}
+
+// chatAnswer types an ask's answers into a pane once its screen still shows
+// that question. "sent" or "refused"; never retried (see serveChatAnswer).
+func chatAnswer(be Backend, paneID, kind, expect string, labels []string, answers []chatAskPick) (outcome, detail string) {
+	screen, ok := paneVisibleText(be, paneID)
 	if !ok {
-		refuse("could not read the pane to check the question is still up")
-		return
+		return "refused", "could not read the pane to check the question is still up"
 	}
-	if !askScreenHolds(screen, req.Expect, req.Labels) {
-		refuse("that question is no longer on the pane's screen — answer it in the terminal")
-		return
+	if !askScreenHolds(screen, expect, labels) {
+		return "refused", "that question is no longer on the pane's screen — answer it in the terminal"
 	}
 	if _, err := be.HerdrCall("pane.send_text", map[string]any{
-		"pane_id": req.PaneID,
-		"text":    chatAskKeystrokes(kind, req.Answers),
+		"pane_id": paneID,
+		"text":    chatAskKeystrokes(kind, answers),
 	}); err != nil {
-		refuse("the pane stopped answering: " + err.Error())
-		return
+		return "refused", "the pane stopped answering: " + err.Error()
 	}
-	writeJSON(w, map[string]any{"outcome": "sent"})
+	return "sent", ""
 }
 
 // chatAskProbeLen is how much of a question or option is looked for on the
@@ -2456,11 +2542,11 @@ func shortPath(p string) string {
 // 1.3 MB. A byte window that lands inside one parses to nothing, and a page
 // with nothing in it read as the top of the conversation, so scrolling back
 // stopped one page up.
-func readLogPage(b Backend, path, harness string, size, end int64) chatParse {
+func readLogPage(b Backend, path, harness string, size, end int64, withIncoming bool) chatParse {
 	var parsed chatParse
 	for tries := 0; ; tries++ {
 		lines := logLinesBefore(b, path, size, end, chatReadBytes*(tries+1))
-		parsed = parseTranscriptLines(harness, lines)
+		parsed = parseTranscriptLines(harness, lines, withIncoming)
 		// A page the scan bound cut short inside a run of image records has no
 		// rows, and a page with no rows would otherwise report the top of the
 		// conversation. Its lines still say how far it got.

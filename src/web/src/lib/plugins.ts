@@ -55,8 +55,8 @@ import {
   type PluginTabInfo,
 } from "@/lib/api"
 import { requestOpenFile } from "@/lib/open-file"
+import { pluginFontFaces, themeSnapshot } from "@/lib/plugin-theme"
 import { qk, queryClient } from "@/lib/query"
-import { paletteColors } from "@/lib/theme"
 
 // Plugins, on the client: the listing, the icons a manifest may name, and the
 // postMessage bridge a plugin tab talks to lasso through.
@@ -93,6 +93,20 @@ export function pluginTabsOf(data: PluginsPayload | undefined): {
   for (const plugin of data?.plugins ?? []) {
     if (plugin.state !== "enabled") continue
     for (const tab of plugin.tabs ?? []) out.push({ plugin, tab })
+  }
+  return out
+}
+
+// pluginViewsOf is pluginTabsOf for the main window's views: what the footer's
+// view menu offers beside Terminal, Chat and Grid.
+export function pluginViewsOf(data: PluginsPayload | undefined): {
+  plugin: Plugin
+  view: PluginTabInfo
+}[] {
+  const out: { plugin: Plugin; view: PluginTabInfo }[] = []
+  for (const plugin of data?.plugins ?? []) {
+    if (plugin.state !== "enabled") continue
+    for (const view of plugin.views ?? []) out.push({ plugin, view })
   }
   return out
 }
@@ -207,10 +221,15 @@ export interface PluginPaneContext {
   pane_id: string | null
 }
 
+// Where a plugin page is framed: a sidebar tab, or a view filling the main
+// window. Told to the page in its context so one page can serve both.
+export type PluginPlacement = "sidebar" | "main"
+
 interface BridgeOptions {
   frame: HTMLIFrameElement
   plugin: string
   tab: string
+  placement: PluginPlacement
   // Read at call time, so an answer is about the pane focused NOW.
   context: () => PluginPaneContext
   // Whether this tab is what the human is looking at. file.open rearranges the
@@ -237,6 +256,31 @@ type Params = Record<string, unknown>
 
 class BridgeError extends Error {}
 
+const AGENT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
+
+// chatTarget reads {agent, host?} for the chat.* methods. Only the shape is
+// checked here; whether the plugin may reach that agent is the server's call.
+function chatTarget(p: Params): { agent: string; host?: string } {
+  if (typeof p.agent !== "string" || !AGENT_NAME.test(p.agent))
+    throw new BridgeError("agent must be an agent name")
+  if (p.host === undefined) return { agent: p.agent }
+  if (typeof p.host !== "string" || !AGENT_NAME.test(p.host))
+    throw new BridgeError("host must be a host name")
+  return { agent: p.agent, host: p.host }
+}
+
+function isAskPick(
+  v: unknown
+): v is { selected: number[]; multi: boolean; options: number } {
+  return (
+    isRecord(v) &&
+    Array.isArray(v.selected) &&
+    v.selected.every((n) => Number.isInteger(n)) &&
+    typeof v.multi === "boolean" &&
+    Number.isInteger(v.options)
+  )
+}
+
 function isRecord(v: unknown): v is Params {
   return typeof v === "object" && v !== null && !Array.isArray(v)
 }
@@ -261,14 +305,9 @@ function agentAt(host: string | null, pane: string | null): string | null {
   return best?.name ?? null
 }
 
-// themeSnapshot is what theme.get answers and the "theme" push carries: the
-// scheme and the palette's hexes. Colors only — see lib/theme.ts:paletteColors.
-export function themeSnapshot() {
-  return {
-    dark: document.documentElement.classList.contains("dark"),
-    colors: paletteColors(),
-  }
-}
+// themeSnapshot is what theme.get answers and the "theme" push carries; it
+// lives in lib/plugin-theme.ts with the fonts and the change observer.
+export { themeSnapshot }
 
 // attachPluginBridge wires one plugin iframe to lasso.
 //
@@ -295,6 +334,13 @@ export function attachPluginBridge(opts: BridgeOptions): PluginBridge {
     frame.contentWindow?.postMessage({ lasso: 1, ...msg }, "*")
   }
 
+  const requireOnScreen = (method: string) => {
+    if (!opts.onScreen())
+      throw new BridgeError(
+        `${method} is only honoured while the plugin is on screen`
+      )
+  }
+
   const context = () => {
     const c = opts.context()
     return {
@@ -302,6 +348,7 @@ export function attachPluginBridge(opts: BridgeOptions): PluginBridge {
       agent: agentAt(c.host, c.pane_id),
       plugin,
       tab,
+      placement: opts.placement,
     }
   }
 
@@ -312,6 +359,10 @@ export function attachPluginBridge(opts: BridgeOptions): PluginBridge {
     {
       "context.get": () => context(),
       "theme.get": () => themeSnapshot(),
+      // The bytes of the faces lasso's fonts are drawn from, for the page to
+      // register with FontFace (see lib/plugin-theme.ts for why it cannot
+      // fetch them itself). Asked again when theme's fonts_key changes.
+      "fonts.get": async () => ({ faces: await pluginFontFaces() }),
       "file.open": (p: Params) => {
         const path = p.path
         if (typeof path !== "string" || !path.startsWith("/"))
@@ -324,10 +375,7 @@ export function attachPluginBridge(opts: BridgeOptions): PluginBridge {
           throw new BridgeError("line must be a positive integer")
         if (p.host !== undefined && (typeof p.host !== "string" || !p.host))
           throw new BridgeError("host must be a non-empty string")
-        if (!opts.onScreen())
-          throw new BridgeError(
-            "file.open is only honoured while the tab is on screen"
-          )
+        requireOnScreen("file.open")
         const c = opts.context()
         const host =
           (p.host as string | undefined) ?? c.cwd_host ?? c.host ?? "local"
@@ -351,6 +399,55 @@ export function attachPluginBridge(opts: BridgeOptions): PluginBridge {
         // The plugin is this bridge's, not the message's: the server then
         // refuses any tool that is not that plugin's own.
         return api.pluginCall(plugin, p.tool, args)
+      },
+      // The agent grant. The server checks the plugin's approved manifest
+      // names the agent (on that host) and resolves its pane by name, so a
+      // page can neither pick a pane nor reach an agent it was not granted.
+      // Reading is allowed while the page is mounted; anything that types
+      // into the pane follows file.open's rule and needs the page on screen,
+      // since a page nobody is looking at must not act as the human.
+      "chat.read": (p: Params) => {
+        const t = chatTarget(p)
+        const before = p.before
+        if (
+          before !== undefined &&
+          !(
+            typeof before === "number" &&
+            Number.isInteger(before) &&
+            before > 0
+          )
+        )
+          throw new BridgeError("before must be a positive integer")
+        return api.pluginChat(plugin, t, before as number | undefined)
+      },
+      "chat.send": (p: Params) => {
+        const t = chatTarget(p)
+        if (typeof p.text !== "string" || !p.text.trim())
+          throw new BridgeError("text must be a non-empty string")
+        requireOnScreen("chat.send")
+        return api.pluginChatSend(plugin, t, p.text)
+      },
+      "chat.answer": (p: Params) => {
+        const t = chatTarget(p)
+        const { expect, labels, answers } = p
+        if (typeof expect !== "string")
+          throw new BridgeError("expect must be a string")
+        if (
+          !Array.isArray(labels) ||
+          !labels.every((l) => typeof l === "string")
+        )
+          throw new BridgeError("labels must be a list of strings")
+        if (!Array.isArray(answers) || !answers.every(isAskPick))
+          throw new BridgeError(
+            "answers must be a list of {selected, multi, options}"
+          )
+        requireOnScreen("chat.answer")
+        return api.pluginChatAnswer(plugin, t, expect, labels, answers)
+      },
+      "chat.stop": (p: Params) => {
+        const t = chatTarget(p)
+        requireOnScreen("chat.stop")
+        return api.pluginChatStop(plugin, t)
       },
       toast: (p: Params) => {
         if (typeof p.message !== "string" || !p.message.trim())

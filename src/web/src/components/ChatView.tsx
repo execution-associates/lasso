@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   AlertTriangle,
   ArrowRight,
@@ -6,21 +6,27 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Clock,
   File as FileIcon,
   Globe,
   Image as ImageIcon,
+  Inbox,
   ListTodo,
   Loader2,
+  Mail,
   Maximize2,
+  MessageSquare,
   PanelRightOpen,
   Paperclip,
   Pencil,
+  Phone,
   Pin,
   PinOff,
   Plus,
   Power,
   Search,
   Send,
+  Square,
   SquareTerminal,
   Users,
   Wrench,
@@ -38,6 +44,7 @@ import {
   api,
   type ChatDiffLine,
   type ChatItem,
+  type ChatSendResult,
   type ChatTool,
   type HostPane,
 } from "@/lib/api"
@@ -352,7 +359,7 @@ function AskCard({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-lg border bg-card",
+        "fx-plate overflow-hidden rounded-lg border bg-card",
         answerable ? "border-primary/40" : "border-border"
       )}
     >
@@ -551,7 +558,7 @@ function ToolCard({ tool }: { tool: ChatTool }) {
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-lg border bg-card",
+        "fx-plate overflow-hidden rounded-lg border bg-card",
         tool.state === "error" ? "border-destructive/40" : "border-border"
       )}
     >
@@ -772,6 +779,130 @@ function TaskNotificationRow({
   )
 }
 
+// channelMessage reads the envelope a Claude Code channel delivers a message
+// in: `<channel source="gmail-channel" from_name="…" …>body</channel>`. For a
+// bot most of what it answers arrives this way (mail, texts, Mattermost, its
+// own scheduled loops), not typed by the human, so it is shown as an incoming
+// message with where it came from rather than as the human's bubble. The
+// attribute names are each channel server's own; one this does not know keeps
+// its source name as the label and its body.
+export function channelMessage(text: string, source?: string) {
+  const t = text.trim()
+  const m = t.match(/^<channel\b([^>]*)>([\s\S]*?)<\/channel>$/)
+  if (!m) {
+    return {
+      label: (source || "Message").replace(/-channel$/, ""),
+      from: "",
+      subject: "",
+      body: t,
+    }
+  }
+  const attr = (name: string) =>
+    decodeEntities(m[1].match(new RegExp(`\\b${name}="([^"]*)"`))?.[1] ?? "")
+  const src = attr("source") || source || ""
+  let label = src.replace(/-channel$/, "") || "Message"
+  let from = ""
+  let subject = ""
+  switch (src) {
+    case "gmail-channel":
+      label = "Email"
+      from = attr("from_name") || attr("from_email")
+      subject = attr("subject")
+      break
+    case "mattermost-channel":
+      label = "Mattermost"
+      from = attr("user")
+      subject = attr("channel_name") && `#${attr("channel_name")}`
+      break
+    case "triage-channel":
+      // One channel for several services (iMessage, texts, …): the service
+      // is the label.
+      label = attr("service") || "Message"
+      from = attr("sender_name") || attr("sender")
+      subject = attr("thread_name") || attr("subject")
+      break
+    case "everloop":
+      label = "Scheduled"
+      subject = attr("loop")
+      break
+    case "hotline":
+      label = "Hotline"
+      from = attr("from")
+      break
+  }
+  return { label, from, subject, body: m[2].trim() }
+}
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+}
+
+// The glyph for where a message came from. The family lives in the glyph, as
+// on the tool cards; colour stays reserved for state.
+function channelIcon(label: string): typeof Wrench {
+  const l = label.toLowerCase()
+  if (l === "email" || l.includes("mail")) return Mail
+  if (l === "scheduled") return Clock
+  if (l === "hotline") return Phone
+  if (/mattermost|imessage|text|sms|slack|whatsapp|telegram/.test(l)) {
+    return MessageSquare
+  }
+  return Inbox
+}
+
+// ChannelCard is one delivered message: where it came from on top, the body
+// under it, clamped when long — a forwarded thread can run to pages, and the
+// bot's answer to it is what the reader came for.
+function ChannelCard({ msg }: { msg: ReturnType<typeof channelMessage> }) {
+  const [open, setOpen] = React.useState(false)
+  const long = msg.body.length > 280 || msg.body.split("\n").length > 4
+  const Icon = channelIcon(msg.label)
+  return (
+    <div className="fx-plate max-w-[92%] overflow-hidden rounded-lg border border-border bg-card">
+      <div className="flex min-w-0 items-center gap-2 px-2.5 pt-2">
+        <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="shrink-0 rounded bg-muted px-1.5 py-px font-mono text-[10px] text-muted-foreground uppercase tracking-wide">
+          {msg.label}
+        </span>
+        {msg.from && (
+          <span className="min-w-0 shrink truncate font-semibold text-[12.5px] text-foreground">
+            {msg.from}
+          </span>
+        )}
+        {msg.subject && (
+          <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">
+            {msg.subject}
+          </span>
+        )}
+      </div>
+      {msg.body && (
+        <div
+          className={cn(
+            "whitespace-pre-wrap break-words px-2.5 pt-1.5 pb-2 text-[13px] text-foreground leading-snug",
+            long && !open && "line-clamp-4"
+          )}
+        >
+          {msg.body}
+        </div>
+      )}
+      {long && (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="px-2.5 pb-2 text-[11.5px] text-muted-foreground hover:text-foreground"
+        >
+          {open ? "Show less" : "Show more"}
+        </button>
+      )}
+    </div>
+  )
+}
+
 function RowView({
   row,
   resolveImage,
@@ -818,6 +949,8 @@ function RowView({
       ) : (
         <ToolCard tool={item.tool} />
       )
+    case "incoming":
+      return <ChannelCard msg={channelMessage(item.text ?? "", item.source)} />
     case "marker":
       if (item.marker === "interrupted") {
         return (
@@ -851,28 +984,62 @@ function RowView({
 // same thing.
 const draftsByTarget = new Map<string, string>()
 
+// A line above the composer: why a send, a stop or a queued message did not go
+// through. "bad" is a refusal (nothing reached the pane), "warn" an uncertain
+// outcome (something may have).
+type ComposerNotice = { tone: "bad" | "warn"; text: string }
+
+// What ChatView did with a submitted message: delivered (confirmed), held in
+// the send-while-working queue, or neither — and then why.
+type SubmitResult = { cleared: boolean; notice?: ComposerNotice }
+
+// noticeFor words a send that did not land. Refused means nothing reached the
+// pane, so the draft is exactly as unsent as it was; uncertain means it may
+// have, and a second attempt could duplicate a turn, so nothing is retried.
+function noticeFor(res: ChatSendResult): ComposerNotice {
+  if (res.outcome === "refused") {
+    return { tone: "bad", text: res.detail || "the message was refused" }
+  }
+  return {
+    tone: "warn",
+    text: `${res.detail || "delivery unconfirmed"} — check the terminal. Nothing will be resent automatically.`,
+  }
+}
+
 // Composer types into the pane the transcript belongs to — addressed by host
-// AND pane, both taken from the payload on screen.
+// AND pane, both taken from the payload on screen. WHETHER a message goes now
+// or waits its turn is ChatView's call (`onSubmit`), since the queue outlives
+// a draft.
 //
-// The draft is cleared ONLY on a confirmed submission. A refused or uncertain
-// send keeps the text and says which it was: the alternative — clearing on a
-// void call, as the terminal's own paste helper does — silently loses a message
-// whenever the iframe is not ready, and there is no way for the human to tell
-// that happened. Nothing here ever retries by itself; an uncertain send may
-// already have landed, and a second attempt would duplicate a turn.
+// The draft is cleared ONLY on a confirmed submission (or once the message is
+// held in the queue). A refused or uncertain send keeps the text and says which
+// it was: the alternative — clearing on a void call, as the terminal's own
+// paste helper does — silently loses a message whenever the iframe is not
+// ready, and there is no way for the human to tell that happened. Nothing here
+// ever retries by itself; an uncertain send may already have landed, and a
+// second attempt would duplicate a turn.
+//
+// While the agent works, an empty composer's Send is a Stop: the one thing a
+// reader watching a turn go wrong needs, where their thumb already is. A draft
+// brings Send back, which then holds the message until the agent is idle.
 function Composer({
   host,
   paneID,
-  newestUser,
-  onQueued,
+  running,
+  notice,
+  setNotice,
+  onSubmit,
+  onStop,
+  placeholder,
 }: {
   host: string
   paneID: string
-  // The transcript's newest user turn as of this render, captured when a send
-  // STARTS: a poll can land mid-send and see the row this send just created, and
-  // a snapshot taken after that would never match again.
-  newestUser: string
-  onQueued: (text: string, after: string) => void
+  running: boolean
+  notice: ComposerNotice | null
+  setNotice: (n: ComposerNotice | null) => void
+  onSubmit: (message: string) => Promise<SubmitResult>
+  onStop: () => Promise<void>
+  placeholder?: string
 }) {
   const target = `${host}\u0000${paneID}`
   const ref = React.useRef<HTMLTextAreaElement>(null)
@@ -880,12 +1047,9 @@ function Composer({
     () => draftsByTarget.get(target) ?? ""
   )
   const [sending, setSending] = React.useState(false)
+  const [stopping, setStopping] = React.useState(false)
   const [attaching, setAttaching] = React.useState(false)
   const fileRef = React.useRef<HTMLInputElement>(null)
-  const [notice, setNotice] = React.useState<{
-    tone: "bad" | "warn"
-    text: string
-  } | null>(null)
 
   // Files attached to this message. Shown as chips — a thumbnail for an image,
   // a name for anything else — NOT spliced into the text as a path: the path is
@@ -960,31 +1124,17 @@ function Composer({
     // The paths go WITH the message, space-separated like the terminal's own
     // paste: the agent has to be told which file to open.
     const message = [body, ...paths].filter(Boolean).join(" ")
-    // Captured before the round trip: the transcript this send is about to add
-    // to is the one on screen NOW.
-    const after = newestUser
     setSending(true)
     setNotice(null)
     try {
-      const res = await api.chatSend(host, paneID, message)
-      if (res.outcome === "confirmed") {
+      const res = await onSubmit(message)
+      if (res.cleared) {
         setText("")
         setAttachments([])
-        // The pane has it and the transcript does not yet: the echo is the only
-        // thing standing between "sent" and the row appearing.
-        onQueued(message, after)
-      } else if (res.outcome === "refused") {
-        // Nothing reached the pane, so the draft is exactly as unsent as it was
-        // — attachments included, since their paths were never delivered.
-        setNotice({
-          tone: "bad",
-          text: res.detail || "the message was refused",
-        })
-      } else {
-        setNotice({
-          tone: "warn",
-          text: `${res.detail || "delivery unconfirmed"} — check the terminal before sending again`,
-        })
+      } else if (res.notice) {
+        // Nothing reached the pane (or may have): the draft stays, attachments
+        // included, since their paths were never confirmed delivered.
+        setNotice(res.notice)
       }
     } catch (e) {
       setNotice({ tone: "bad", text: (e as Error).message })
@@ -993,6 +1143,18 @@ function Composer({
       ref.current?.focus({ preventScroll: true })
     }
   }
+
+  const stop = async () => {
+    if (stopping) return
+    setStopping(true)
+    try {
+      await onStop()
+    } finally {
+      setStopping(false)
+    }
+  }
+  const showStop =
+    running && !sending && !text.trim() && attachments.length === 0
 
   // Below md the two buttons take the row's FULL height in a browser TAB, and
   // stay pinned squares in an installed app. Same row, two different things
@@ -1114,26 +1276,50 @@ function Composer({
               <Paperclip className="size-4" />
             )}
           </button>
-          <button
-            type="button"
-            onClick={() => void send()}
-            disabled={sending || (!text.trim() && attachments.length === 0)}
-            title="Send (⌘Enter)"
-            aria-label="Send"
-            className={cn(
-              "order-3 flex shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground disabled:opacity-40 md:order-none",
-              buttonBox
-            )}
-          >
-            {sending ? (
-              // on="accent": this button is filled with the theme's accent, and
-              // the orb's own scheme detection reads the DOCUMENT, which is the
-              // wrong surface to choose ink for (see ui/orb.tsx).
-              <Orb state="working" px={20} on="accent" />
-            ) : (
-              <Send className="size-5" />
-            )}
-          </button>
+          {showStop ? (
+            <button
+              type="button"
+              onClick={() => void stop()}
+              disabled={stopping}
+              title="Stop the agent"
+              aria-label="Stop the agent"
+              className={cn(
+                "order-3 flex shrink-0 items-center justify-center rounded-lg border border-input bg-background text-foreground hover:bg-accent disabled:opacity-40 md:order-none",
+                buttonBox
+              )}
+            >
+              {stopping ? (
+                <Orb state="working" px={20} />
+              ) : (
+                <Square className="size-4" fill="currentColor" />
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void send()}
+              disabled={sending || (!text.trim() && attachments.length === 0)}
+              title={
+                running
+                  ? "Send when the agent is done (⌘Enter)"
+                  : "Send (⌘Enter)"
+              }
+              aria-label="Send"
+              className={cn(
+                "order-3 flex shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground disabled:opacity-40 md:order-none",
+                buttonBox
+              )}
+            >
+              {sending ? (
+                // on="accent": this button is filled with the theme's accent,
+                // and the orb's own scheme detection reads the DOCUMENT, which
+                // is the wrong surface to choose ink for (see ui/orb.tsx).
+                <Orb state="working" px={20} on="accent" />
+              ) : (
+                <Send className="size-5" />
+              )}
+            </button>
+          )}
         </div>
         <textarea
           ref={ref}
@@ -1169,7 +1355,7 @@ function Composer({
               void send()
             }
           }}
-          placeholder="Message the agent…"
+          placeholder={placeholder ?? "Message the agent…"}
           // 16px on touch: iOS zooms the page for a smaller field.
           className="order-2 max-h-40 min-w-0 flex-1 resize-none rounded-lg border border-input bg-background px-2.5 py-1.5 text-base outline-none placeholder:text-muted-foreground focus-visible:border-ring md:order-1 md:text-[13px]"
         />
@@ -1272,6 +1458,11 @@ export type ChatModalActions = {
   onEnd: () => void
 }
 
+// One message held by the send-while-working queue: typed while the agent was
+// busy, sent once it is idle. Keyed by target like the echoes, so a queue for
+// one agent never drains into another.
+type HeldMessage = { id: number; target: string; text: string }
+
 export function ChatView({
   address,
   modal,
@@ -1279,6 +1470,13 @@ export function ChatView({
   onShowSidebar,
   onNew,
   className,
+  incoming = false,
+  variant = "default",
+  title: titleOverride,
+  headerLead,
+  headerExtra,
+  placeholder,
+  active = true,
 }: {
   // A named agent to read instead of herdr's focused pane. Reading by address
   // is what lets the modal open without re-pointing herdr's one global focus.
@@ -1300,8 +1498,28 @@ export function ChatView({
   // agent sidebar is beside it (see App.tsx), and it has to be told to take the
   // width that is left over rather than its content's own.
   className?: string
+  // Also show what Claude Code channels delivered (mail, texts, scheduled
+  // loops) as incoming cards. The Bots view reads a bot this way; the
+  // terminal's chat leaves them out, as the transcript's meta turns they are.
+  incoming?: boolean
+  // "bot": embedded in the Bots view, which owns the agent's lifecycle and
+  // its own chrome — so the header drops the pin, End agent and the phone's
+  // New/Terminal/Sidebar trio, and the title is not a rename.
+  variant?: "default" | "bot"
+  // A fixed title instead of herdr's workspace label: the bot's name, or the
+  // Bots view's bot switcher when it is too narrow for its list.
+  title?: React.ReactNode
+  // Header slots: before the title (a phone's Back) and at the right end.
+  headerLead?: React.ReactNode
+  headerExtra?: React.ReactNode
+  placeholder?: string
+  // False while the view is kept mounted but not on screen: the transcript
+  // poll stops, and resumes on the way back.
+  active?: boolean
 }) {
   const { activePaneID, panesRev, host } = useApp()
+  const queryClient = useQueryClient()
+  const bot = variant === "bot"
   // The pane-close confirmation. Closing is herdr's own pane.close — what ends
   // the agent in the pane; there is no softer "detach" — so it is asked before it
   // happens rather than done.
@@ -1309,15 +1527,21 @@ export function ChatView({
   // The view follows the focused pane, so the chat is always the session the
   // terminal beside it would be showing. Polled: the transcript is a file the
   // agent appends to, and nothing pushes it. Bounded by the server's caps.
+  // `incoming` is part of the key: the same pane read with and without the
+  // channel rows is two different answers.
+  const keyHost = address ? address.host : (host ?? "")
+  const keyPane = address ? address.paneID : (activePaneID ?? "")
+  const queryKey = React.useMemo(
+    () => [...qk.chat(keyHost, keyPane), incoming ? "incoming" : "plain"],
+    [keyHost, keyPane, incoming]
+  )
   const { data, isLoading, error } = useQuery({
-    queryKey: address
-      ? qk.chat(address.host, address.paneID)
-      : qk.chat(host ?? "", activePaneID ?? ""),
+    queryKey,
     queryFn: () =>
       address
-        ? api.chat(address.paneID, undefined, address.host)
-        : api.chat(activePaneID ?? undefined),
-    refetchInterval: 2000,
+        ? api.chat(address.paneID, undefined, address.host, incoming)
+        : api.chat(activePaneID ?? undefined, undefined, undefined, incoming),
+    refetchInterval: active ? 2000 : false,
     // panes_rev moves when herdr sees the pane change; the interval covers the
     // transcript growing within one state.
     refetchIntervalInBackground: false,
@@ -1432,7 +1656,7 @@ export function ChatView({
     try {
       // The page belongs to the transcript on screen, so it is addressed to that
       // record's host — not to whichever host this tab has moved to since.
-      const page = await api.chat(pane, before, pageHost)
+      const page = await api.chat(pane, before, pageHost, incoming)
       setAcc((prev) => {
         if (prev.key !== key) return prev
         const have = new Set(prev.items.map((it) => it.id))
@@ -1454,7 +1678,7 @@ export function ChatView({
     } finally {
       setLoadingOlder(false)
     }
-  }, [acc.key, acc.olderStart, data, loadingOlder])
+  }, [acc.key, acc.olderStart, data, loadingOlder, incoming])
 
   // Back to the newest row, for a reader who has scrolled up. `stick` is what
   // makes it STAY there: the poll's re-pin, a landed page and the composer
@@ -1476,7 +1700,7 @@ export function ChatView({
   // output has to re-pin too.
   React.useLayoutEffect(() => {
     const el = scrollRef.current
-    if (!el || rows.length === 0) return
+    if (!el || (rows.length === 0 && queued.length === 0)) return
     const restore = restoreHeight.current
     if (restore != null) {
       el.scrollTop += el.scrollHeight - restore
@@ -1489,7 +1713,9 @@ export function ChatView({
       // header must not flash an indicator for a frame it is at the bottom for.
       setAtBottom(true)
     }
-  }, [rows])
+    // `queued` too: a sent message shows as an echo below the rows before the
+    // transcript has it, and that echo is what the sender wants to see.
+  }, [rows, queued])
 
   // The transcript's viewport shrinks when the composer grows into a longer
   // draft, and when a phone's keyboard opens over it. A reader who is at the
@@ -1514,6 +1740,145 @@ export function ChatView({
   }, [hasMore, loadingOlder, loadOlder])
 
   const running = data?.running ?? false
+
+  // The composer's notice, lifted here because the queue below can fail too
+  // and says so in the same place. Tagged with its target so one agent's
+  // refusal is never shown under another's composer.
+  const [noticeState, setNoticeState] = React.useState<{
+    target: string
+    notice: ComposerNotice
+  } | null>(null)
+  const notice = noticeState?.target === target ? noticeState.notice : null
+  const setNotice = React.useCallback(
+    (n: ComposerNotice | null) =>
+      setNoticeState(n ? { target, notice: n } : null),
+    [target]
+  )
+
+  // The send-while-working queue. A message sent while the agent is busy is
+  // HELD rather than typed into a turn in progress, and goes out by itself, one
+  // at a time, once the agent is idle — how a chat app holds a follow-up. It is
+  // this tab's (state, not the server's), so it says so. Stop pauses it: the
+  // next message after an interrupt is a decision, not something that fires the
+  // moment the agent goes quiet.
+  const [held, setHeld] = React.useState<HeldMessage[]>([])
+  const [holdPaused, setHoldPaused] = React.useState(false)
+  const [delivering, setDelivering] = React.useState(false)
+  const heldHere = React.useMemo(
+    () => held.filter((m) => m.target === target),
+    [held, target]
+  )
+  // Echoes still waiting for their row. The queue does not drain past one: a
+  // confirmed send only becomes "running" in the payload once the transcript
+  // records the turn, and until then an idle-looking agent would be handed the
+  // next message mid-start.
+  const echoesHere = queued.some((q) => q.target === target)
+
+  // deliver types one message into the pane on screen. Only "confirmed" puts
+  // an echo up; the caller decides what a refusal means for its draft or queue.
+  const deliver = React.useCallback(
+    async (message: string): Promise<ChatSendResult> => {
+      if (!data?.pane_id) return { outcome: "refused", detail: "no pane" }
+      const pane = data.pane_id
+      const paneHost = data.host
+      const sentTo = `${paneHost}\u0000${pane}`
+      // Captured before the round trip: the transcript this send is about to
+      // add to is the one on screen NOW (see newestUserID).
+      const after = newestUser
+      setDelivering(true)
+      try {
+        const res = await api.chatSend(paneHost, pane, message)
+        if (res.outcome === "confirmed") {
+          // The pane has it and the transcript does not yet: the echo is the
+          // only thing standing between "sent" and the row appearing.
+          setQueued((prev) => [
+            ...prev,
+            { id: echoSeq.current++, target: sentTo, text: message, after },
+          ])
+          void queryClient.invalidateQueries({ queryKey })
+        }
+        return res
+      } finally {
+        setDelivering(false)
+      }
+    },
+    [data?.pane_id, data?.host, newestUser, queryClient, queryKey]
+  )
+
+  const submit = React.useCallback(
+    async (message: string): Promise<SubmitResult> => {
+      // Sending is a return to the conversation's end: follow it again even
+      // if the reader had scrolled up, so the message and its answer show.
+      stick.current = true
+      setAtBottom(true)
+      const el = scrollRef.current
+      if (el) el.scrollTop = el.scrollHeight
+      // Stop holds only what was already waiting: with nothing held, a new
+      // message goes out as usual.
+      if (heldHere.length === 0) setHoldPaused(false)
+      if (running || heldHere.length > 0 || delivering) {
+        setHeld((prev) => [
+          ...prev,
+          { id: echoSeq.current++, target, text: message },
+        ])
+        return { cleared: true }
+      }
+      const res = await deliver(message)
+      return res.outcome === "confirmed"
+        ? { cleared: true }
+        : { cleared: false, notice: noticeFor(res) }
+    },
+    [running, heldHere.length, delivering, deliver, target]
+  )
+
+  // Drain one held message whenever the agent is idle and nothing is in flight.
+  // A failure pauses the queue and leaves the message in it: a refusal can be
+  // sent again with "Send queued messages", and an uncertain one is never
+  // resent by itself.
+  React.useEffect(() => {
+    if (running || delivering || holdPaused || echoesHere) return
+    const head = heldHere[0]
+    if (!head) return
+    void deliver(head.text).then((res) => {
+      if (res.outcome === "confirmed") {
+        setHeld((prev) => prev.filter((m) => m.id !== head.id))
+      } else {
+        setHoldPaused(true)
+        setNotice(noticeFor(res))
+      }
+    })
+  }, [
+    running,
+    delivering,
+    holdPaused,
+    echoesHere,
+    heldHere,
+    deliver,
+    setNotice,
+  ])
+
+  const stopAgent = React.useCallback(async () => {
+    if (!data?.pane_id) return
+    setHoldPaused(true)
+    setNotice(null)
+    try {
+      const res = await api.chatStop(data.host, data.pane_id)
+      if (res.outcome === "refused") {
+        setNotice({
+          tone: "bad",
+          text: res.detail || "the agent was not stopped",
+        })
+      } else if (res.outcome === "uncertain") {
+        setNotice({
+          tone: "warn",
+          text: `${res.detail || "stop unconfirmed"} — check the terminal`,
+        })
+      }
+      void queryClient.invalidateQueries({ queryKey })
+    } catch (e) {
+      setNotice({ tone: "bad", text: (e as Error).message })
+    }
+  }, [data?.pane_id, data?.host, queryClient, setNotice, queryKey])
   // Closing the pane needs no navigation of lasso's own: the chat follows herdr's
   // focused pane, so the view has already moved on by the time the pane is gone.
   // Addressed to the PAYLOAD's host, not the tab's: the pane on screen is another
@@ -1566,7 +1931,7 @@ export function ChatView({
         className
       )}
     >
-      <div className="flex flex-none items-center gap-2 border-border border-b px-2.5 py-1.5">
+      <div className="fx-headline flex flex-none items-center gap-2 border-border border-b px-2.5 py-1.5">
         {/* Below md the modal is a full-screen sheet, and its way out is a
             BACK, not a cross: it reads as navigation, so nobody takes it for
             the thing that ends the agent. */}
@@ -1582,7 +1947,14 @@ export function ChatView({
             Agents
           </button>
         )}
-        <ChatTitle title={data?.title || data?.agent || "Chat"} pane={pane} />
+        {headerLead}
+        {titleOverride !== undefined ? (
+          <span className="min-w-0 truncate font-medium text-[12.5px] text-foreground">
+            {titleOverride}
+          </span>
+        ) : (
+          <ChatTitle title={data?.title || data?.agent || "Chat"} pane={pane} />
+        )}
         <span className="ml-auto flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
           {/* Only when the reader is NOT at the bottom. At the bottom the
               conversation carries the indicator itself, at the point the next
@@ -1598,7 +1970,8 @@ export function ChatView({
         </span>
         {/* The agents grid's pin, from where the agent is being read. It is the
             same ui_state entry, so it leads the grid and the chat's sidebar. */}
-        {pane && (
+        {headerExtra}
+        {pane && !bot && (
           <button
             type="button"
             onClick={() => setAgentPinned(paneKey(pane), !pinned)}
@@ -1660,7 +2033,7 @@ export function ChatView({
               <X className="size-4" />
             </button>
           </>
-        ) : (
+        ) : bot ? null : (
           <>
             <button
               type="button"
@@ -1783,13 +2156,20 @@ export function ChatView({
               </div>
             )}
             {rows.map((row) => (
-              <RowView
+              // A wrapper so a row that arrives fades in (fx.css; only under
+              // the palette chrome), once: rows are keyed, so a poll that
+              // re-renders them does not replay it.
+              <div
                 key={row.kind === "group" ? row.id : row.item.id}
-                row={row}
-                resolveImage={resolveImage}
-                host={data?.host ?? ""}
-                paneID={data?.pane_id ?? ""}
-              />
+                className="fx-in min-w-0"
+              >
+                <RowView
+                  row={row}
+                  resolveImage={resolveImage}
+                  host={data?.host ?? ""}
+                  paneID={data?.pane_id ?? ""}
+                />
+              </div>
             ))}
             {/* The message the pane has taken but the transcript has not written
                 yet, drawn exactly where its row will appear and in the user's
@@ -1806,7 +2186,7 @@ export function ChatView({
                       {q.text}
                     </div>
                     <div className="mt-1 text-[10.5px] text-muted-foreground">
-                      queued…
+                      sent…
                     </div>
                   </div>
                 </div>
@@ -1844,6 +2224,59 @@ export function ChatView({
         )}
       </div>
 
+      {/* Held messages, above the composer that queued them: what goes next,
+          in order, each removable — and, once a Stop or a failed send has
+          paused them, the one explicit way to let them go. */}
+      {data?.pane_id && heldHere.length > 0 && (
+        <div className="flex-none border-border border-t bg-card">
+          <div className={cn("flex flex-col gap-1.5 py-2", MEASURE)}>
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <span className="font-medium text-foreground">
+                {holdPaused ? "Messages on hold" : "Up next"}
+              </span>
+              <span className="truncate">
+                {holdPaused
+                  ? "· nothing goes out until you say so"
+                  : "· sent when the agent is done, from this tab"}
+              </span>
+            </div>
+            {heldHere.map((m) => (
+              <div
+                key={m.id}
+                className="flex items-start gap-2 rounded-lg border border-border border-dashed bg-background/60 py-1 pr-1 pl-2.5"
+              >
+                <span className="line-clamp-3 min-w-0 flex-1 whitespace-pre-wrap break-words py-0.5 text-[12.5px] text-foreground">
+                  {m.text}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setHeld((prev) => prev.filter((x) => x.id !== m.id))
+                  }
+                  aria-label="Remove queued message"
+                  title="Remove"
+                  className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </div>
+            ))}
+            {holdPaused && (
+              <button
+                type="button"
+                onClick={() => {
+                  setNotice(null)
+                  setHoldPaused(false)
+                }}
+                className="self-start rounded-lg bg-primary px-3 py-1.5 font-medium text-[12.5px] text-primary-foreground"
+              >
+                Send queued messages
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* The composer addresses the HOST and PANE this payload came from, not
           the tab's current host and not herdr's current focus: pane ids are
           unique per host only, so a submission aimed by "what is live right
@@ -1859,13 +2292,12 @@ export function ChatView({
           key={`${data.host}\u0000${data.pane_id}`}
           host={data.host}
           paneID={data.pane_id}
-          newestUser={newestUser}
-          onQueued={(text, after) =>
-            setQueued((prev) => [
-              ...prev,
-              { id: echoSeq.current++, target, text, after },
-            ])
-          }
+          running={running}
+          notice={notice}
+          setNotice={setNotice}
+          onSubmit={submit}
+          onStop={stopAgent}
+          placeholder={placeholder}
         />
       )}
 

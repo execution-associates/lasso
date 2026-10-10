@@ -99,7 +99,15 @@ type pluginManifest struct {
 	Version     string          `json:"version"`
 	Description string          `json:"description"`
 	Tabs        []pluginTabSpec `json:"tabs"`
-	MCP         *pluginMCPSpec  `json:"mcp"`
+	// Views are pages for the MAIN window, beside the terminal, chat and grid
+	// in the footer's view menu. Same shape and same serving as a tab; only
+	// where lasso frames it differs.
+	Views []pluginTabSpec `json:"views"`
+	MCP   *pluginMCPSpec  `json:"mcp"`
+	// Agents are the herdr agents this plugin's PAGES may read the chat of and
+	// type into, through the bridge's chat.* methods (pluginchat.go). A grant
+	// like any other: in the fingerprint, shown in the approval dialog.
+	Agents []pluginAgentSpec `json:"agents"`
 	// Themes, Fonts and ChatStyles are appearance contributions: data, never
 	// code or CSS (pluginappearance.go, chattext.go).
 	Themes     []pluginThemeSpec     `json:"themes"`
@@ -230,38 +238,16 @@ func (m *pluginManifest) validate(dirName string) error {
 	if err := m.validateRuntime(); err != nil {
 		return err
 	}
-	if len(m.Tabs) > 16 {
-		return fmt.Errorf("at most 16 tabs (has %d)", len(m.Tabs))
+	if err := validatePluginPages("tabs", m.Tabs, 16); err != nil {
+		return err
 	}
-	seen := map[string]bool{}
-	for i, t := range m.Tabs {
-		if !pluginNameRE.MatchString(t.ID) {
-			return fmt.Errorf("tabs[%d]: id %q must match %s", i, t.ID, pluginNameRE)
-		}
-		if seen[t.ID] {
-			return fmt.Errorf("tabs[%d]: duplicate id %q", i, t.ID)
-		}
-		seen[t.ID] = true
-		if strings.TrimSpace(t.Label) == "" || len(t.Label) > 64 {
-			return fmt.Errorf("tabs[%d] (%s): label must be 1-64 characters", i, t.ID)
-		}
-		switch {
-		case t.Entry != "" && t.URL != "":
-			return fmt.Errorf("tabs[%d] (%s): has both entry and url; a tab is one or the other", i, t.ID)
-		case t.Entry != "":
-			if _, err := cleanPluginPath(t.Entry); err != nil {
-				return fmt.Errorf("tabs[%d] (%s): entry: %v", i, t.ID, err)
-			}
-		case t.URL != "":
-			u, err := url.Parse(t.URL)
-			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-				return fmt.Errorf("tabs[%d] (%s): url must be an absolute http(s) URL", i, t.ID)
-			}
-		default:
-			return fmt.Errorf("tabs[%d] (%s): needs an entry (a file in the plugin) or a url", i, t.ID)
-		}
+	if err := validatePluginPages("views", m.Views, 8); err != nil {
+		return err
 	}
 	if err := m.validateAppearance(); err != nil {
+		return err
+	}
+	if err := validatePluginAgents(m.Agents); err != nil {
 		return err
 	}
 	if m.MCP == nil {
@@ -347,18 +333,58 @@ func cleanPluginPath(p string) (string, error) {
 	return c, nil
 }
 
+// validatePluginPages checks a manifest's tabs or views: both are a page lasso
+// frames, an entry it serves or a url it frames as-is.
+func validatePluginPages(kind string, pages []pluginTabSpec, limit int) error {
+	if len(pages) > limit {
+		return fmt.Errorf("at most %d %s (has %d)", limit, kind, len(pages))
+	}
+	seen := map[string]bool{}
+	for i, t := range pages {
+		if !pluginNameRE.MatchString(t.ID) {
+			return fmt.Errorf("%s[%d]: id %q must match %s", kind, i, t.ID, pluginNameRE)
+		}
+		if seen[t.ID] {
+			return fmt.Errorf("%s[%d]: duplicate id %q", kind, i, t.ID)
+		}
+		seen[t.ID] = true
+		if strings.TrimSpace(t.Label) == "" || len(t.Label) > 64 {
+			return fmt.Errorf("%s[%d] (%s): label must be 1-64 characters", kind, i, t.ID)
+		}
+		switch {
+		case t.Entry != "" && t.URL != "":
+			return fmt.Errorf("%s[%d] (%s): has both entry and url; a page is one or the other", kind, i, t.ID)
+		case t.Entry != "":
+			if _, err := cleanPluginPath(t.Entry); err != nil {
+				return fmt.Errorf("%s[%d] (%s): entry: %v", kind, i, t.ID, err)
+			}
+		case t.URL != "":
+			u, err := url.Parse(t.URL)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				return fmt.Errorf("%s[%d] (%s): url must be an absolute http(s) URL", kind, i, t.ID)
+			}
+		default:
+			return fmt.Errorf("%s[%d] (%s): needs an entry (a file in the plugin) or a url", kind, i, t.ID)
+		}
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // permissions and their fingerprint
 // ---------------------------------------------------------------------------
 
 // pluginPerms is what enabling a plugin approves, as the listing shows it.
 type pluginPerms struct {
-	Tabs []pluginTabPerm `json:"tabs"`
-	MCP  *pluginMCPPerms `json:"mcp,omitempty"`
+	Tabs  []pluginTabPerm `json:"tabs"`
+	Views []pluginTabPerm `json:"views"`
+	MCP   *pluginMCPPerms `json:"mcp,omitempty"`
 	// Themes and Fonts are low-risk (data lasso renders itself), but a human
 	// should see everything a plugin adds before approving it.
 	Themes []string         `json:"themes"`
 	Fonts  []pluginFontPerm `json:"fonts"`
+	// Agents is the chat grant: read and type into these agents' panes.
+	Agents []pluginAgentPerm `json:"agents"`
 }
 
 type pluginTabPerm struct {
@@ -384,12 +410,16 @@ func (m *pluginManifest) perms() pluginPerms {
 	for _, t := range m.Tabs {
 		p.Tabs = append(p.Tabs, pluginTabPerm{ID: t.ID, Label: t.Label, Entry: t.Entry, URL: t.URL})
 	}
+	for _, t := range m.Views {
+		p.Views = append(p.Views, pluginTabPerm{ID: t.ID, Label: t.Label, Entry: t.Entry, URL: t.URL})
+	}
 	for _, t := range m.Themes {
 		p.Themes = append(p.Themes, t.ID)
 	}
 	for _, f := range m.Fonts {
 		p.Fonts = append(p.Fonts, pluginFontPerm{ID: f.ID, Family: f.Family, Category: f.Category})
 	}
+	p.Agents = m.agentPerms()
 	if c := m.MCP; c != nil {
 		mp := &pluginMCPPerms{
 			Image:   c.Image,
@@ -422,7 +452,7 @@ func (m *pluginManifest) perms() pluginPerms {
 // emptyPluginPerms is the zero listing, with every list present so a client
 // never needs a nil check.
 func emptyPluginPerms() pluginPerms {
-	return pluginPerms{Tabs: []pluginTabPerm{}, Themes: []string{}, Fonts: []pluginFontPerm{}}
+	return pluginPerms{Tabs: []pluginTabPerm{}, Views: []pluginTabPerm{}, Themes: []string{}, Fonts: []pluginFontPerm{}, Agents: []pluginAgentPerm{}}
 }
 
 // pluginFingerprint is the sha256 of a canonical JSON of the approved
@@ -436,7 +466,8 @@ func emptyPluginPerms() pluginPerms {
 // written into herdr's config and synced to the fleet, and a family is what
 // the typography picker offers — but not the files behind them: editing a
 // palette's colours is not a permission change. Both are omitempty, so a
-// plugin with neither keeps the fingerprint it was approved under.
+// plugin with neither keeps the fingerprint it was approved under. Views are
+// canonicalized like tabs and omitempty for the same reason.
 func (m *pluginManifest) fingerprint() string {
 	p := m.perms()
 	type tab struct {
@@ -445,24 +476,35 @@ func (m *pluginManifest) fingerprint() string {
 	}
 	type canon struct {
 		Tabs   []tab            `json:"tabs"`
+		Views  []tab            `json:"views,omitempty"`
 		MCP    *pluginMCPPerms  `json:"mcp,omitempty"`
 		Themes []string         `json:"themes,omitempty"`
 		Fonts  []pluginFontPerm `json:"fonts,omitempty"`
+		// omitempty: a plugin without agents keeps the fingerprint it was
+		// approved under.
+		Agents []pluginAgentPerm `json:"agents,omitempty"`
 	}
-	c := canon{Tabs: []tab{}}
-	for _, t := range p.Tabs {
-		entry := t.Entry
-		if entry != "" {
-			entry, _ = cleanPluginPath(entry) // validated; "./ui/x" and "ui/x" are one file
+	pages := func(in []pluginTabPerm) []tab {
+		out := []tab{}
+		for _, t := range in {
+			entry := t.Entry
+			if entry != "" {
+				entry, _ = cleanPluginPath(entry) // validated; "./ui/x" and "ui/x" are one file
+			}
+			out = append(out, tab{Entry: entry, URL: t.URL})
 		}
-		c.Tabs = append(c.Tabs, tab{Entry: entry, URL: t.URL})
+		sort.Slice(out, func(i, j int) bool {
+			if out[i].Entry != out[j].Entry {
+				return out[i].Entry < out[j].Entry
+			}
+			return out[i].URL < out[j].URL
+		})
+		return out
 	}
-	sort.Slice(c.Tabs, func(i, j int) bool {
-		if c.Tabs[i].Entry != c.Tabs[j].Entry {
-			return c.Tabs[i].Entry < c.Tabs[j].Entry
-		}
-		return c.Tabs[i].URL < c.Tabs[j].URL
-	})
+	c := canon{Tabs: pages(p.Tabs)}
+	if len(p.Views) > 0 {
+		c.Views = pages(p.Views)
+	}
 	if p.MCP != nil {
 		mp := *p.MCP
 		mp.Network = slices.Clone(mp.Network)
@@ -483,6 +525,9 @@ func (m *pluginManifest) fingerprint() string {
 	if len(p.Fonts) > 0 {
 		c.Fonts = slices.Clone(p.Fonts)
 		sort.Slice(c.Fonts, func(i, j int) bool { return c.Fonts[i].ID < c.Fonts[j].ID })
+	}
+	if len(p.Agents) > 0 {
+		c.Agents = p.Agents // agentPerms already sorted and deduplicated them
 	}
 	b, _ := json.Marshal(c)
 	sum := sha256.Sum256(append([]byte("lasso-plugin-perms/1\n"), b...))
@@ -961,6 +1006,7 @@ type pluginPayload struct {
 	Fingerprint string               `json:"fingerprint,omitempty"`
 	Permissions pluginPerms          `json:"permissions"`
 	Tabs        []pluginTabOut       `json:"tabs"`
+	Views       []pluginTabOut       `json:"views"`
 	MCP         *pluginMCPPayload    `json:"mcp,omitempty"`
 	Themes      []pluginThemeOut     `json:"themes"`
 	Fonts       []pluginFontOut      `json:"fonts"`
@@ -1045,6 +1091,7 @@ func (m *pluginManager) listing() pluginsPayload {
 			Fingerprint: e.FP,
 			Permissions: emptyPluginPerms(),
 			Tabs:        []pluginTabOut{},
+			Views:       []pluginTabOut{},
 			Themes:      []pluginThemeOut{},
 			Fonts:       []pluginFontOut{},
 			ChatStyles:  []pluginChatStyleOut{},
@@ -1058,6 +1105,15 @@ func (m *pluginManager) listing() pluginsPayload {
 			if p.State == pluginStateEnabled {
 				for _, t := range e.Man.Tabs {
 					p.Tabs = append(p.Tabs, pluginTabOut{
+						ID:       t.ID,
+						GlobalID: "plugin:" + e.Name + ":" + t.ID,
+						Label:    t.Label,
+						Icon:     t.Icon,
+						Src:      pluginTabSrc(e.Name, t),
+					})
+				}
+				for _, t := range e.Man.Views {
+					p.Views = append(p.Views, pluginTabOut{
 						ID:       t.ID,
 						GlobalID: "plugin:" + e.Name + ":" + t.ID,
 						Label:    t.Label,
@@ -1105,6 +1161,9 @@ func (m *pluginManager) serveAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if m.serveInstallAPI(w, r, rest) {
+		return
+	}
+	if m.serveChatAPI(w, r, rest) {
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -1244,6 +1303,10 @@ func (m *pluginManager) serveFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	rest := strings.TrimPrefix(r.URL.Path, "/plugins/")
 	name, rel, _ := strings.Cut(rest, "/")
+	if name == "_sdk" {
+		servePluginSDK(w, r, rel)
+		return
+	}
 	if !pluginNameRE.MatchString(name) {
 		http.NotFound(w, r)
 		return

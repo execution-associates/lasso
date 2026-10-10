@@ -23,7 +23,7 @@ self.addEventListener("activate", (event) =>
 )
 
 // The payload is the encrypted JSON from webpush.go's webPushPayload:
-// {kind, title, body, tag, host}. Everything needed to render is in it — the
+// {kind, title, body, tag, host, url, icon}. Everything needed to render is in it — the
 // worker cannot call back into lasso, which behind Cloudflare Access would be
 // an unauthenticated request that returns a login page.
 self.addEventListener("push", (event) => {
@@ -37,11 +37,19 @@ self.addEventListener("push", (event) => {
     data = {}
   }
   const title = data.title || "lasso"
+  // Only a root-relative icon (a bot's picture) is used; anything else falls
+  // back to lasso's own.
+  const icon =
+    typeof data.icon === "string" && data.icon.startsWith("/")
+      ? data.icon
+      : "/favicon-192.png"
+  const url =
+    typeof data.url === "string" && data.url.startsWith("/") ? data.url : ""
   const options = {
     body: data.body || "",
-    icon: "/favicon-192.png",
+    icon,
     badge: "/favicon-192.png",
-    data: { host: data.host || "", kind: data.kind || "" },
+    data: { host: data.host || "", kind: data.kind || "", url },
   }
   // A tag COLLAPSES: a later notification carrying it replaces the earlier one.
   // The server sends one per pane for a blocked agent (repeated "still blocked"
@@ -58,7 +66,28 @@ self.addEventListener("push", (event) => {
     options.tag = data.tag
     options.renotify = true
   }
-  event.waitUntil(self.registration.showNotification(title, options))
+  event.waitUntil(
+    (async () => {
+      // A message the reader is already looking at — a bot's chat focused and
+      // on screen — is not news. Never skipped on iOS, which revokes the
+      // permission of an origin whose pushes show nothing.
+      if (url && !/iPhone|iPad|iPod/.test(self.navigator.userAgent)) {
+        const windows = await self.clients.matchAll({
+          type: "window",
+          includeUncontrolled: true,
+        })
+        const target = new URL(url, self.location.origin).pathname
+        const watching = windows.some(
+          (c) =>
+            c.focused &&
+            c.visibilityState === "visible" &&
+            new URL(c.url).pathname === target
+        )
+        if (watching) return
+      }
+      await self.registration.showNotification(title, options)
+    })()
+  )
 })
 
 // Opening the notification lands you in lasso, on the host the event happened
@@ -67,8 +96,13 @@ self.addEventListener("push", (event) => {
 // link that moved it would move it for everyone (see lib/url.ts).
 self.addEventListener("notificationclick", (event) => {
   event.notification.close()
-  const host = (event.notification.data && event.notification.data.host) || ""
-  const target = new URL(host ? `/?host=${encodeURIComponent(host)}` : "/", self.location.origin)
+  const data = event.notification.data || {}
+  const host = data.host || ""
+  // A bot's message opens its chat; everything else opens lasso on its host.
+  const target = new URL(
+    data.url || (host ? `/?host=${encodeURIComponent(host)}` : "/"),
+    self.location.origin
+  )
   event.waitUntil(
     (async () => {
       const windows = await self.clients.matchAll({
@@ -82,7 +116,8 @@ self.addEventListener("notificationclick", (event) => {
         // standalone contexts, and a focused lasso on the wrong host is still
         // far better than a second window.
         try {
-          if (host && new URL(client.url).searchParams.get("host") !== host) {
+          const at = new URL(client.url)
+          if (data.url ? at.pathname !== target.pathname : host && at.searchParams.get("host") !== host) {
             await client.navigate(target.href)
           }
         } catch {}

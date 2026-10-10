@@ -35,8 +35,10 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {
     title: "Views",
     shortcuts: [
+      { keys: "⌘;", label: "Terminal" },
       { keys: "⌘J", label: "Chat ⟷ terminal" },
       { keys: "⌘E", label: "Grid ⟷ terminal" },
+      { keys: "⌘.", label: "Bots ⟷ terminal" },
       {
         keys: "⌘B",
         label: "Left sidebar (herdr's in the terminal, agents in chat)",
@@ -60,5 +62,16 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
 
 // The ⌘ keys (lower-cased e.key) App claims, split by whether Shift is held.
 // LiveBrowser leaves exactly these to bubble instead of sending them to the page.
-export const APP_KEYS = new Set(["k", "o", "i", "\\", "/", "j", "e", "b"])
+export const APP_KEYS = new Set([
+  "k",
+  "o",
+  "i",
+  "\\",
+  "/",
+  "j",
+  "e",
+  "b",
+  ".",
+  ";",
+])
 export const APP_SHIFT_KEYS = new Set(["f", "s", "b"])

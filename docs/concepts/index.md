@@ -23,7 +23,7 @@ lasso's **New** dialog and its `create_agent` MCP tool turn "make a worktree, op
 
 ## The shared browser
 
-lasso can run a real Chromium on its own machine that you watch and click in from the sidebar's Browser tab, while your agents drive the same pages over the Chrome DevTools Protocol or the `/browser-mcp` MCP server. Profiles give it separate logins, and a profile can be a remote browser lasso dials. See [The shared browser](./shared-browser.md).
+lasso can run a real Chromium on its own machine that you watch and click in from the sidebar's Browser tab, while your agents drive the same pages with the `browser_*` tools on lasso's MCP server or over the Chrome DevTools Protocol. Several browsers give it separate logins, and a browser can be a remote one lasso dials. See [The shared browser](./shared-browser.md).
 
 ## Notifications
 
@@ -31,7 +31,7 @@ An agent blocked on a tool approval does nothing until someone answers. lasso wa
 
 ## Where state lives
 
-lasso keeps its own state in `~/.lasso/` on the machine it runs on: `lasso.db` (settings, agent records, push devices, UI preferences), the shared browser's profiles, and the worktrees and scratch directories of agents it created locally. Agents created on another host get their worktrees under that host's `~/.lasso/`, and each host's creator settings live in that host's own `~/.lasso/lasso.db`. [Files and directories](../reference/files.md) lists everything.
+lasso keeps its own state in `~/.lasso/` on the machine it runs on: `lasso.db` (settings, agent records, push devices, UI preferences), the shared browsers' data directories, and the worktrees and scratch directories of agents it created locally. Agents created on another host get their worktrees under that host's `~/.lasso/`, and each host's creator settings live in that host's own `~/.lasso/lasso.db`. [Files and directories](../reference/files.md) lists everything.
 
 UI preferences such as the theme, the appearance mode and the sidebar layout are stored on the server, not in the browser, so every browser on the same lasso agrees.
 

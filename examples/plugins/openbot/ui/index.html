@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>OpenBot</title>
+    <!-- Which agent this page talks to. It must also be granted in
+         plugin.json's "agents" (and approved in lasso's Settings): the page
+         naming it grants nothing. -->
+    <meta name="openbot-agent" content="jessica" />
+    <meta name="openbot-host" content="local" />
+    <!-- lasso's SDK: its theme tokens, fonts and the bridge. Served by lasso. -->
+    <link rel="stylesheet" href="/plugins/_sdk/lasso.css" />
+    <script src="/plugins/_sdk/lasso.js"></script>
+    <!-- The app, built from ../web (mise run openbot:build). -->
+    <link rel="stylesheet" href="openbot.css" />
+    <!-- Classic, deferred: a module script would be a CORS fetch, which an
+         opaque-origin page cannot make. -->
+    <script defer src="openbot.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

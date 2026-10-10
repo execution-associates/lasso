@@ -2,10 +2,12 @@ import * as React from "react"
 
 import type { PluginTabInfo } from "@/lib/api"
 import { useApp } from "@/lib/app-store"
+import { onAppearanceChanged } from "@/lib/plugin-theme"
 import {
   attachPluginBridge,
   type PluginBridge,
   type PluginPaneContext,
+  type PluginPlacement,
   themeSnapshot,
 } from "@/lib/plugins"
 import { onThemeApplied } from "@/lib/theme"
@@ -20,19 +22,23 @@ import { onThemeApplied } from "@/lib/theme"
 const PLUGIN_SANDBOX =
   "allow-scripts allow-forms allow-popups allow-modals allow-downloads"
 
-// A plugin's sidebar tab: its page in a sandboxed iframe, and — for a page
-// lasso serves — the postMessage bridge that is its only way to reach lasso
-// (lib/plugins.ts).
+// A plugin's page — a sidebar tab, or a view in the main window — in a
+// sandboxed iframe, and, for a page lasso serves, the postMessage bridge that
+// is its only way to reach lasso (lib/plugins.ts). Both placements get the
+// same frame and the same bridge; only `placement` in its context differs.
 export function PluginTab({
   plugin,
   tab,
   active,
+  placement = "sidebar",
 }: {
   plugin: string
   tab: PluginTabInfo
-  // On screen: this tab selected and the sidebar open. file.open is refused
-  // otherwise, since a tab nobody can see must not rearrange the screen.
+  // On screen: this tab selected and the sidebar open, or this view the main
+  // window's. file.open is refused otherwise, since a page nobody can see must
+  // not rearrange the screen.
   active: boolean
+  placement?: PluginPlacement
 }) {
   const frame = React.useRef<HTMLIFrameElement>(null)
   const bridge = React.useRef<PluginBridge | null>(null)
@@ -66,18 +72,36 @@ export function PluginTab({
       frame: el,
       plugin,
       tab: tab.id,
+      placement,
       context: () => ctxRef.current,
       onScreen: () =>
         activeRef.current && document.visibilityState === "visible",
     })
     bridge.current = b
-    const offTheme = onThemeApplied(() => b.push("theme", themeSnapshot()))
+    // Pushed on any appearance change (palette, scheme, typography, chat
+    // text), but only when what the page is told actually moved.
+    // refreshTheme's own signal stays too: the terminal palette (`colors`)
+    // is module state there, not something the DOM observer can see.
+    let last = JSON.stringify(themeSnapshot())
+    const pushIfMoved = () => {
+      const snap = themeSnapshot()
+      const json = JSON.stringify(snap)
+      if (json === last) return
+      last = json
+      b.push("theme", snap)
+    }
+    const offObserved = onAppearanceChanged(pushIfMoved)
+    const offApplied = onThemeApplied(pushIfMoved)
+    const offTheme = () => {
+      offObserved()
+      offApplied()
+    }
     return () => {
       offTheme()
       b.dispose()
       bridge.current = null
     }
-  }, [served, plugin, tab.id])
+  }, [served, plugin, tab.id, placement])
 
   // Push the context whenever the focused pane moves. Keyed on the values, not
   // on ctx's identity, which is new every render; the bridge reads them itself.

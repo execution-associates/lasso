@@ -55,6 +55,8 @@ const DEFAULTS: UIState = {
   // Mirrors getUIState in db.go. BrowserTab still shows embed until the
   // server says a Chromium is available.
   browser_mode: "live",
+  // Mirrors getUIState in db.go.
+  texture: "subtle",
   // Mirrors getUIState in db.go: the default order, nothing hidden.
   sidebar_tabs: [],
   // Every slot on lasso's own default typeface.

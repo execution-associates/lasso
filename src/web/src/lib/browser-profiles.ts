@@ -6,11 +6,12 @@ import type {
 import { lsGet, lsSet } from "@/lib/app-store"
 import { qk, queryClient } from "@/lib/query"
 
-// Browser profiles: each is its own Chromium with its own persistent cookies
-// and logins (browser.go). Which one the Browser tab shows is a
-// per-device preference, so it lives in localStorage rather than ui_state —
-// two people (or a laptop and a phone) looking at different profiles of the
-// same lasso is the point of having them.
+// lasso's browsers: each is its own Chromium with its own persistent cookies
+// and logins (browser.go; the server stores one as a "profile", hence the
+// names here). Which one the Browser tab shows is a per-device preference, so
+// it lives in localStorage rather than ui_state — two people (or a laptop and
+// a phone) looking at different browsers of the same lasso is the point of
+// having them.
 
 export const DEFAULT_PROFILE = "default"
 
@@ -41,7 +42,6 @@ export function profilesOf(
       reason: st?.reason ?? "",
       pages: st?.pages ?? [],
       ws_path: st?.ws_path || "/cdp",
-      mcp_path: "/browser-mcp",
     },
   ]
 }

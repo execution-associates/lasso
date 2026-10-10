@@ -45,12 +45,15 @@ Below the checkbox, Settings lists every registered device with the outcome of i
 
 ## What you'll be notified about
 
-Two things, on every registered device:
+Three things, on every registered device:
 
 - **An agent that blocks**: stops mid-task waiting on a tool approval, a plan gate or a question, on any host lasso can reach. lasso watches for this in the background, but only while at least one device is registered.
 - **An agent that asks for you** with `lasso notify "..."` or the `notify` MCP tool.
+- **A bot that answers**, when that bot's **Notify me when it answers** is on.
 
-Opening a notification lands lasso on the host the agent runs on. [Notifications](../concepts/notifications.md) explains exactly when one is sent and how delivery is reported.
+Opening a notification lands lasso on the host the agent runs on, or in the bot's conversation.
+
+To get your [bots](../web-ui/bots.md) as an app of their own, install the [Bots app](../web-ui/bots.md#the-bots-app) the same way from lasso's `/bots` page, then press the bell inside it. [Notifications](../concepts/notifications.md) explains exactly when one is sent and how delivery is reported.
 
 ## Things to know
 

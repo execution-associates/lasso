@@ -13,12 +13,13 @@ lasso's interface is one page with two columns and a footer. The left column is 
 
 The left column is herdr itself, served by `ttyd`. Anything you type goes to herdr's focused pane, and other browsers on the same lasso see the same session. There is no header bar over it: lasso adds controls around the terminal, never on top of it. See [The terminal](./terminal.md).
 
-The same column has two reading views that cover the terminal without unmounting it:
+The footer's view menu (it names the view you are in) switches what fills this column. Besides the terminal it offers three views that cover the terminal without unmounting it:
 
-- **Chat** renders the focused agent's session as a conversation with a composer to reply. Toggle it with the footer's **Chat** button or `⌘J`.
-- **Grid** lays out every agent lasso can reach as a grid of cards, one transcript per card, grouped by machine. Toggle it with the footer's **Grid** button or `⌘E`.
+- **Chat** renders the focused agent's session as a conversation with a composer to reply. `⌘J` toggles it.
+- **Grid** lays out every agent lasso can reach as a grid of cards, one transcript per card, grouped by machine. `⌘E` toggles it.
+- **Bots** lists lasso's long-lived Claude Code sessions like a messaging app, with each bot's conversation and settings. `⌘.` toggles it. See [Bots](./bots.md).
 
-Both are described in [The terminal](./terminal.md#chat-view).
+Chat and the Grid are described in [The terminal](./terminal.md#chat-view). Below them the menu lists any views your [plugins](../plugins/index.md) add. On a phone the input dial's **Chat** button opens the same picker.
 
 ## The sidebar
 
@@ -35,7 +36,7 @@ At desktop widths (768 px and wider) a single footer row runs along the bottom. 
 
 | Control | What it does |
 | --- | --- |
-| Left sidebar toggle | In the terminal, toggles herdr's own sidebar (it sends herdr's `prefix` + `b` chord). In Chat, shows or hides lasso's agent list. Disabled in the Grid. `⌘B`. |
+| Left sidebar toggle | In the terminal, toggles herdr's own sidebar (it sends herdr's `prefix` + `b` chord). In Chat, shows or hides lasso's agent list. Disabled in the Grid and Bots. `⌘B`. |
 | **Switch host** (server icon) | Opens the host menu: the local machine, every reachable alias from your SSH config with its herdr version and any update or set-up action, and lasso's own version. Picking a host moves this browser tab to it. See [Hosts](../concepts/hosts.md). |
 | **Keyboard shortcuts** (keyboard icon) | Opens the shortcut reference. `⌘/`. |
 | Usage | Each tracked provider's quota windows. They scroll inside their own track, so a long list never pushes the buttons offscreen. See [Usage](./sidebar.md#usage). |
@@ -66,9 +67,9 @@ Adding lasso to your home screen, HTTPS, and enabling notifications are covered 
 
 ## The first-run tour
 
-The first time anyone opens a lasso, a short tour walks through the interface. It spotlights each control in turn and lets you try the ones that change a view in place (Chat, Agents, the sidebar tabs). Use `←` and `→` to move and `Esc` to skip.
+The first time anyone opens a lasso, a short tour walks through the interface. It spotlights each control in turn and lets you try the ones that change a view in place (the view menu, the sidebar tabs). Use `←` and `→` to move and `Esc` to skip.
 
-On a desktop it covers the terminal, **New**, **Chat**, **Grid**, the host menu, the sidebar and the shortcut reference. On a phone it covers the terminal and the input dial, since the footer controls do not exist there.
+On a desktop it covers the terminal, **New**, the view menu, the Bots view, the host menu, the sidebar and the shortcut reference. On a phone it covers the terminal, the Bots view and the input dial, since the footer controls do not exist there.
 
 Finishing or skipping the tour is recorded on the server, so it does not reappear in other browsers. Replay it from **Settings → General → Take the tour**.
 
@@ -82,7 +83,7 @@ Every app shortcut uses the `⌘` key only, never `Ctrl`, so none of them collid
 
 | Keys | Action |
 | --- | --- |
-| `⌘K` | In the terminal, opens herdr's own pane search (the same as herdr's `Ctrl-B g`). In Chat or the Grid, opens a fleet-wide agent picker instead. |
+| `⌘K` | In the terminal, opens herdr's own pane search (the same as herdr's `Ctrl-B g`). In Chat and Bots, opens a fleet-wide agent picker instead; in the Grid, focuses the Grid's own search box. |
 | `⌘O` | New agent |
 | `⌘I` | New terminal (from Chat, returns to the terminal first) |
 | `⌘/` | Toggle the keyboard shortcut reference |
@@ -93,6 +94,8 @@ Every app shortcut uses the `⌘` key only, never `Ctrl`, so none of them collid
 | --- | --- |
 | `⌘J` | Chat ⟷ terminal |
 | `⌘E` | Grid ⟷ terminal |
+| `⌘.` | Bots ⟷ terminal |
+| `⌘;` | Terminal, from any view |
 | `⌘B` | Left sidebar: herdr's in the terminal, the agent list in Chat |
 | `⌘\` | Toggle the right sidebar |
 | `⌘⇧F` | Open the sidebar on Files |

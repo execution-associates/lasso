@@ -48,6 +48,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Field, flatFieldClass, labelClass } from "@/components/ui/field"
 import { NO_AUTOCORRECT } from "@/components/ui/input"
 import { Orb } from "@/components/ui/orb"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -65,7 +66,9 @@ import {
   type PluginPermissions,
   type PluginPreview,
   type PluginState,
+  type PluginTabPermission,
   type SidebarTabPref,
+  type Texture,
   type ThemeCatalogEntry,
   type ThemePayload,
   type TypographySlot,
@@ -152,33 +155,6 @@ import {
   setThemeBackground,
   themeBackgrounds,
 } from "@/lib/wallpaper"
-
-// Native textarea/select styled to match the shadcn <Input>.
-const fieldClass =
-  "w-full rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm shadow-well outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
-const labelClass = "font-medium text-muted-foreground text-xs"
-
-function Field({
-  label,
-  hint,
-  htmlFor,
-  children,
-}: {
-  label: string
-  hint?: string
-  htmlFor?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <label className={labelClass} htmlFor={htmlFor}>
-        {label}
-      </label>
-      {children}
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
-    </div>
-  )
-}
 
 type SaveState = "idle" | "saving" | "saved" | "error"
 
@@ -422,7 +398,7 @@ export function SettingsTab({ active }: { active: boolean }) {
                   </label>
                   <select
                     id="settings-host"
-                    className={cn(fieldClass, "max-w-xs")}
+                    className={cn(flatFieldClass, "max-w-xs")}
                     value={host}
                     onChange={(e) => setSelectedHost(e.target.value)}
                   >
@@ -981,7 +957,7 @@ function ChatTextSettings() {
         <div className="flex items-center gap-2">
           <select
             id="settings-chat-style"
-            className={cn(fieldClass, "max-w-[15rem]")}
+            className={cn(flatFieldClass, "max-w-[15rem]")}
             value={text.preset ?? ""}
             onChange={(e) => pickChatStyle(e.target.value)}
           >
@@ -1249,7 +1225,7 @@ function TypographySlotSelect({
       </label>
       <select
         id={id}
-        className={cn(fieldClass, "max-w-[15rem]")}
+        className={cn(flatFieldClass, "max-w-[15rem]")}
         value={stored}
         onChange={(e) => setTypography(slot, e.target.value)}
         style={active ? { fontFamily: previewStack(active) } : undefined}
@@ -1369,7 +1345,7 @@ function PalettePrefs({
             </label>
             <select
               id={`settings-palette-${s}`}
-              className={cn(fieldClass, "max-w-[15rem]")}
+              className={cn(flatFieldClass, "max-w-[15rem]")}
               value={prefs[s]}
               disabled={themes.length === 0}
               onChange={(e) => onChoose(s, e.target.value)}
@@ -1515,7 +1491,7 @@ function HerdrThemeSelect({
       </label>
       <select
         id="settings-herdr-theme"
-        className={cn(fieldClass, "max-w-xs")}
+        className={cn(flatFieldClass, "max-w-xs")}
         value={value}
         disabled={!t || governs}
         onChange={(e) => {
@@ -1727,7 +1703,7 @@ function ThemeBackgrounds({
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         <input
-          className={cn(fieldClass, "min-w-0 flex-1 basis-52")}
+          className={cn(flatFieldClass, "min-w-0 flex-1 basis-52")}
           {...NO_AUTOCORRECT}
           placeholder="Image URL, or an absolute path on this host"
           value={url}
@@ -1795,8 +1771,30 @@ function AtmosphereControls({
 }) {
   const shade = getShading(theme)
   const scrim = getScrim(theme)
+  const texture = useUIState().texture
   return (
     <div className="mt-1 flex flex-col gap-2">
+      {/* Every theme's, not this one's: it is how the chrome feels, and it
+          applies only while the chrome follows a palette. */}
+      <div className="flex flex-col gap-1">
+        <label
+          className="flex items-center gap-2 text-muted-foreground text-xs"
+          htmlFor="settings-texture"
+        >
+          Texture — grain, light and sheen on the chrome, never under the
+          terminal or a conversation
+        </label>
+        <select
+          id="settings-texture"
+          className={cn(flatFieldClass, "max-w-xs")}
+          value={texture}
+          onChange={(e) => patchUIState({ texture: e.target.value as Texture })}
+        >
+          <option value="subtle">Subtle</option>
+          <option value="full">Full</option>
+          <option value="off">Off — flat panels</option>
+        </select>
+      </div>
       <label
         className="flex cursor-pointer select-none items-center gap-2 text-muted-foreground text-xs"
         htmlFor="settings-atmo-shade"
@@ -1894,7 +1892,7 @@ function ThemeInstall({
       <span className={labelClass}>Install a theme</span>
       <div className="flex flex-wrap items-center gap-1.5">
         <input
-          className={cn(fieldClass, "min-w-0 flex-1 basis-64")}
+          className={cn(flatFieldClass, "min-w-0 flex-1 basis-64")}
           {...NO_AUTOCORRECT}
           placeholder="https://github.com/user/omarchy-<name>-theme"
           value={url}
@@ -2261,11 +2259,12 @@ function SharedBrowserSettings({ active }: { active: boolean }) {
   })
 
   const endpoint = cdpURL()
-  // /browser-mcp is lasso's origin, like /cdp: there is one shared browser per
-  // lasso whatever host this tab is driving.
-  const mcpEndpoint = `${location.origin}/browser-mcp`
-  const mcpAdd = `claude mcp add --transport http lasso-browser ${mcpEndpoint}`
-  const mcpSessions = st?.mcp_sessions ?? 0
+  // The browser tools are on lasso's own MCP server, at lasso's origin like
+  // /cdp: there is one set of browsers per lasso whatever host this tab is
+  // driving.
+  const mcpEndpoint = `${location.origin}/mcp`
+  const mcpAdd = `claude mcp add --transport http lasso ${mcpEndpoint}`
+  const toolSessions = st?.tools_sessions ?? 0
   const busy = action.isPending
 
   let state: React.ReactNode
@@ -2372,7 +2371,7 @@ function SharedBrowserSettings({ active }: { active: boolean }) {
       </label>
       <select
         id="settings-browser-mode"
-        className={cn(fieldClass, "max-w-xs")}
+        className={cn(flatFieldClass, "max-w-xs")}
         value={mode}
         onChange={(e) =>
           patchUIState({ browser_mode: e.target.value as BrowserMode })
@@ -2384,32 +2383,38 @@ function SharedBrowserSettings({ active }: { active: boolean }) {
 
       <div className="mt-1 flex flex-wrap items-center gap-1.5">
         <span className={labelClass}>Connect an agent</span>
-        {mcpSessions > 0 && (
+        {toolSessions > 0 && (
           <Pill tone="good">
-            {mcpSessions} {mcpSessions === 1 ? "agent" : "agents"} using it
+            {toolSessions} {toolSessions === 1 ? "agent" : "agents"} using it
           </Pill>
         )}
       </div>
-      {st && !st.mcp_available && st.mcp_reason && (
+      {st && !st.tools_available && st.tools_reason && (
         <p className="text-[11px] text-warn [overflow-wrap:anywhere]">
-          {st.mcp_reason}
+          {st.tools_reason}
         </p>
       )}
-      <CopyLine label="browser MCP URL" text={mcpEndpoint} />
+      <CopyLine label="lasso MCP URL" text={mcpEndpoint} />
       <CopyLine label="claude mcp add command" text={mcpAdd} />
       <p className="text-[11px] text-muted-foreground">
-        Gives an agent chrome-devtools-mcp's tools, already pointed at this
-        browser, with nothing to install on its machine. Other agents (Codex,
-        OpenCode, …) add the same URL as a streamable-HTTP MCP server. Behind
-        UI_AUTH or MCP_OAUTH a remote agent sends an Authorization header (a
-        token from <code className="font-mono">lasso mcp-client token</code>, or
-        Basic credentials for UI_AUTH). This one URL drives every browser
-        profile: each tool takes an optional{" "}
-        <code className="font-mono">profile</code> (id or name; omitted = the
-        default), so a new profile needs no new MCP server. Connecting is free;
-        a chrome-devtools-mcp process starts only when an agent first uses a
-        profile. Profiles are managed from the bar along the bottom of the
-        Browser tab; the CDP endpoint below is the default profile's.
+        lasso's own MCP server carries the browser: its{" "}
+        <code className="font-mono">browser_*</code> tools (
+        <code className="font-mono">browser_new_page</code>,{" "}
+        <code className="font-mono">browser_click</code>,{" "}
+        <code className="font-mono">browser_take_screenshot</code>, …) are
+        chrome-devtools-mcp's, already pointed at these browsers, with nothing
+        to install on the agent's machine.{" "}
+        <code className="font-mono">lasso connect</code> registers it with the
+        agent CLIs on a machine; other agents add the URL as a streamable-HTTP
+        MCP server. Each browser tool takes an optional{" "}
+        <code className="font-mono">browser</code> (id or name; omitted = the
+        default), so a new browser needs no reconnect. Behind UI_AUTH the
+        browser tools need its Basic credentials on the agent's connection;
+        behind MCP_OAUTH, a token from{" "}
+        <code className="font-mono">lasso mcp-client token</code> that reaches
+        this machine. A chrome-devtools-mcp process starts only when an agent
+        first uses a browser. Browsers are managed from the bar along the bottom
+        of the Browser tab; the CDP endpoint below is the default browser's.
       </p>
       <CopyLine label="CDP endpoint" text={endpoint} />
       <p className="text-[11px] text-muted-foreground">
@@ -2592,7 +2597,7 @@ function CreatorHostSetting({
       </label>
       <select
         id="settings-creator-host"
-        className={cn(fieldClass, "max-w-xs")}
+        className={cn(flatFieldClass, "max-w-xs")}
         value={pinned}
         onChange={(e) => patchUIState({ creator_default_host: e.target.value })}
       >
@@ -2971,7 +2976,7 @@ function CreationSettings({ active, host }: { active: boolean; host: string }) {
             <textarea
               id="settings-repos-root"
               {...NO_AUTOCORRECT}
-              className={cn(fieldClass, "resize-none")}
+              className={cn(flatFieldClass, "resize-none")}
               rows={3}
               value={reposRoot}
               onChange={(e) => setReposRoot(e.target.value)}
@@ -2987,7 +2992,7 @@ function CreationSettings({ active, host }: { active: boolean; host: string }) {
           >
             <select
               id="settings-default-agent"
-              className={fieldClass}
+              className={flatFieldClass}
               value={defaultAgent}
               onChange={(e) => setDefaultAgent(e.target.value)}
               onBlur={flushDefaults}
@@ -3009,7 +3014,7 @@ function CreationSettings({ active, host }: { active: boolean; host: string }) {
             <textarea
               id="settings-scratch-setup"
               {...NO_AUTOCORRECT}
-              className={cn(fieldClass, "resize-none font-mono")}
+              className={cn(flatFieldClass, "resize-none font-mono")}
               rows={3}
               value={scratchSetup}
               onChange={(e) => setScratchSetup(e.target.value)}
@@ -3036,7 +3041,7 @@ function CreationSettings({ active, host }: { active: boolean; host: string }) {
           >
             <select
               id="settings-default-terminal-workspace"
-              className={fieldClass}
+              className={flatFieldClass}
               value={defaultTerminalWorkspace}
               onChange={(event) =>
                 setDefaultTerminalWorkspace(event.target.value)
@@ -3075,7 +3080,7 @@ function CreationSettings({ active, host }: { active: boolean; host: string }) {
           <Field label="Repository" htmlFor="settings-repo">
             <select
               id="settings-repo"
-              className={fieldClass}
+              className={flatFieldClass}
               value={repoPath}
               onChange={(e) => setRepoPath(e.target.value)}
             >
@@ -3096,7 +3101,7 @@ function CreationSettings({ active, host }: { active: boolean; host: string }) {
             <textarea
               id="settings-copy-files"
               {...NO_AUTOCORRECT}
-              className={cn(fieldClass, "resize-none")}
+              className={cn(flatFieldClass, "resize-none")}
               rows={2}
               value={copyFiles}
               onChange={(e) => setCopyFiles(e.target.value)}
@@ -3114,7 +3119,7 @@ function CreationSettings({ active, host }: { active: boolean; host: string }) {
             <textarea
               id="settings-setup"
               {...NO_AUTOCORRECT}
-              className={cn(fieldClass, "resize-none font-mono")}
+              className={cn(flatFieldClass, "resize-none font-mono")}
               rows={3}
               value={setup}
               onChange={(e) => setSetup(e.target.value)}
@@ -3298,6 +3303,47 @@ const MCP_STATUS_TONE: Record<
   unavailable: "warn",
 }
 
+// The pages a plugin frames, tabs or main-window views alike: each one's own
+// file, or the outside address it frames.
+function PluginPageList({
+  title,
+  pages,
+  itemClass,
+  codeClass,
+}: {
+  title: string
+  pages: PluginTabPermission[]
+  itemClass: string
+  codeClass: string
+}) {
+  return (
+    <div>
+      <p className={labelClass}>{title}</p>
+      {pages.length === 0 ? (
+        <p className="text-[13px] text-muted-foreground">none</p>
+      ) : (
+        <ul className="list-disc pl-5">
+          {pages.map((t) => (
+            <li key={t.id} className={itemClass}>
+              {t.label ?? t.id}:{" "}
+              {t.url ? (
+                <>
+                  frames <code className={codeClass}>{t.url}</code>
+                </>
+              ) : (
+                <>
+                  serves <code className={codeClass}>{t.entry}</code> from the
+                  plugin's directory
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 // PluginPermissionList spells out exactly what enabling approves — the same
 // fields the server fingerprints, so what the human reads here is what a
 // later manifest edit would have to be re-approved against.
@@ -3308,6 +3354,7 @@ function PluginPermissionList({
 }) {
   // Go encodes an empty list as null, so every list is defaulted on the way in.
   const tabs = permissions.tabs ?? []
+  const views = permissions.views ?? []
   const mcp = permissions.mcp
   const command = mcp?.command ?? []
   const network = mcp?.network ?? []
@@ -3315,6 +3362,7 @@ function PluginPermissionList({
   const secrets = mcp?.secrets ?? []
   const themes = permissions.themes ?? []
   const fonts = permissions.fonts ?? []
+  const agents = permissions.agents ?? []
   const item = "text-[13px] text-foreground [overflow-wrap:anywhere]"
   const code = "font-mono text-[12px]"
   return (
@@ -3337,30 +3385,38 @@ function PluginPermissionList({
           </p>
         </div>
       )}
-      <div>
-        <p className={labelClass}>Sidebar tabs</p>
-        {tabs.length === 0 ? (
-          <p className="text-[13px] text-muted-foreground">none</p>
-        ) : (
+      <PluginPageList
+        title="Sidebar tabs"
+        pages={tabs}
+        itemClass={item}
+        codeClass={code}
+      />
+      {/* Only when there are any: "none" for a kind most plugins never use
+          would be noise in every dialog. */}
+      {views.length > 0 && (
+        <PluginPageList
+          title="Main window views"
+          pages={views}
+          itemClass={item}
+          codeClass={code}
+        />
+      )}
+      {/* The one grant that acts as the human: its pages read these agents'
+          whole conversations and type into their panes. */}
+      {agents.length > 0 && (
+        <div>
+          <p className={labelClass}>Agents</p>
           <ul className="list-disc pl-5">
-            {tabs.map((t) => (
-              <li key={t.id} className={item}>
-                {t.label ?? t.id}:{" "}
-                {t.url ? (
-                  <>
-                    frames <code className={code}>{t.url}</code>
-                  </>
-                ) : (
-                  <>
-                    serves <code className={code}>{t.entry}</code> from the
-                    plugin's directory
-                  </>
-                )}
+            {agents.map((a) => (
+              <li key={`${a.host}/${a.name}`} className={item}>
+                Read the chat and type into agent{" "}
+                <code className={code}>{a.name}</code> on{" "}
+                <code className={code}>{a.host}</code>
               </li>
             ))}
           </ul>
-        )}
-      </div>
+        </div>
+      )}
       {mcp && (
         <>
           <div>
@@ -3878,6 +3934,11 @@ function PluginRow({
           Tabs: {(p.tabs ?? []).map((t) => t.label).join(", ")}
         </p>
       )}
+      {p.state === "enabled" && (p.views?.length ?? 0) > 0 && (
+        <p className="text-[11px] text-muted-foreground">
+          Views: {(p.views ?? []).map((t) => t.label).join(", ")}
+        </p>
+      )}
       {(p.themes?.length ?? 0) > 0 && (
         <p className="text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
           Themes:{" "}
@@ -4121,7 +4182,7 @@ function PluginInstallRow({
       <span className={labelClass}>Install from GitHub</span>
       <div className="flex flex-wrap items-center gap-1.5">
         <input
-          className={cn(fieldClass, "min-w-0 flex-1 basis-52 font-mono")}
+          className={cn(flatFieldClass, "min-w-0 flex-1 basis-52 font-mono")}
           {...NO_AUTOCORRECT}
           aria-label="GitHub source"
           placeholder="owner/repo or owner/repo/subdir"
@@ -4153,7 +4214,7 @@ function PluginInstallRow({
       </button>
       {pinning && (
         <input
-          className={cn(fieldClass, "font-mono")}
+          className={cn(flatFieldClass, "font-mono")}
           {...NO_AUTOCORRECT}
           aria-label="Git ref"
           placeholder="tag, branch or commit (default branch if empty)"

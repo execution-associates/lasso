@@ -49,6 +49,9 @@ const (
 	// kind rather than a special case inside a transport so that the button
 	// exercises exactly the path a real notification takes.
 	notifTest notifKind = "test"
+	// notifBotMessage: a bot finished a turn with something new to say
+	// (botNotifyTick). Tagged per bot, so a run of answers leaves the newest.
+	notifBotMessage notifKind = "bot_message"
 )
 
 // notification is one thing worth telling the user about.
@@ -68,6 +71,12 @@ type notification struct {
 	// move it for everyone (the same reason lib/url.ts keeps focus out of the
 	// URL).
 	Host string
+	// URL is the lasso page opening the notification lands on ("/bots/<name>"),
+	// root-relative; "" opens lasso on Host.
+	URL string
+	// Icon is a root-relative image shown with it (a bot's picture); "" is
+	// lasso's own icon.
+	Icon string
 }
 
 // notifTransport is one way a notification reaches a human.

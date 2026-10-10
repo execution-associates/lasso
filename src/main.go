@@ -92,12 +92,13 @@ var (
 		"device scale factor the shared browser renders at, so the Browser tab is sharp on a HiDPI screen (1 = Chromium's default; costs raster CPU and makes agent screenshots larger). env LASSO_BROWSER_SCALE")
 	browserMem = flag.String("browser-mem", envOrDefault("LASSO_BROWSER_MEM", "2G"),
 		"MemoryHigh for the shared browser's systemd user scope (linux), e.g. 4G; \"off\" or empty lifts it (both limits off = no scope). env LASSO_BROWSER_MEM")
-	// /browser-mcp (browsermcp.go): chrome-devtools-mcp bridged to agents over
-	// HTTP, one child per session per profile it uses, spawned on first use.
+	// The browser_* tools on /mcp (browsermcp.go): chrome-devtools-mcp bridged
+	// to agents, one child per MCP session per browser it uses, spawned on
+	// first use.
 	browserMCPBin = flag.String("browser-mcp", os.Getenv("LASSO_BROWSER_MCP"),
-		"chrome-devtools-mcp binary behind /browser-mcp (a path or a PATH name); empty = chrome-devtools-mcp on PATH; \"off\" disables the endpoint. There is no npx fallback. env LASSO_BROWSER_MCP")
+		"chrome-devtools-mcp binary behind /mcp's browser_* tools (a path or a PATH name); empty = chrome-devtools-mcp on PATH; \"off\" leaves /mcp without browser tools. There is no npx fallback. env LASSO_BROWSER_MCP")
 	browserMCPMax = flag.Int("browser-mcp-max", envInt("LASSO_BROWSER_MCP_MAX", 0),
-		"most chrome-devtools-mcp processes /browser-mcp runs at once (one per session per profile it has used); 0 = no limit, the default. env LASSO_BROWSER_MCP_MAX")
+		"most chrome-devtools-mcp processes the browser_* tools run at once (one per MCP session per browser it has used); 0 = no limit, the default. env LASSO_BROWSER_MCP_MAX")
 )
 
 // theme is resolved at startup (mirroring herdr's config) and drives both the
@@ -249,6 +250,7 @@ func runServer() {
 	// Agent records: keep them reconciled against herdr's panes without a reader
 	// (see agentreap.go — the aggregation used to be driven by a browser).
 	go startAgentReaper(ctx)
+	go startBotLoop(ctx)
 
 	// The shared browser launches lazily (first /cdp request, the Browser tab's
 	// start, or the MCP tool); nothing runs until then. run() is its idle stop
@@ -266,9 +268,9 @@ func runServer() {
 	sharedBrowser = newBrowserManager(browserCfg)
 	sharedBrowsers = newBrowserFleet(browserCfg)
 	go sharedBrowsers.run(ctx)
-	// A session's child for a profile holds a CDP connection to that profile's
-	// browser process, so when it goes away (stop, idle stop, relaunch, crash)
-	// that child is closed and the next call to the profile spawns a fresh one.
+	// A session's child for a browser holds a CDP connection to that browser's
+	// process, so when it goes away (stop, idle stop, relaunch, crash) that
+	// child is closed and the next call to the browser spawns a fresh one.
 	browserMCP = newBrowserMCPBridge(browserMCPConfig{
 		Binary:    *browserMCPBin,
 		ExtraArgs: os.Getenv("LASSO_BROWSER_MCP_ARGS"),
@@ -276,6 +278,7 @@ func runServer() {
 	})
 	sharedBrowser.onStop = browserMCP.browserStopped
 	sharedBrowsers.onStop = browserMCP.browserStoppedFor
+	go browserMCP.run(ctx)
 
 	// Plugins (plugins.go): sidebar tabs and MCP tools from <lassoDir>/plugins.
 	// Nothing a plugin ships runs until the operator enables it; its MCP server
@@ -324,6 +327,9 @@ func runServer() {
 	mux.HandleFunc("/api/chat", serveChat)
 	mux.HandleFunc("/api/chat/send", serveChatSend)
 	mux.HandleFunc("/api/chat/answer", serveChatAnswer)
+	mux.HandleFunc("/api/chat/stop", serveChatStop)
+	mux.HandleFunc("/api/bots", serveBots)
+	mux.HandleFunc("/api/bots/", serveBots)
 	mux.HandleFunc("/api/all-panes", serveAllPanes)
 	mux.HandleFunc("/api/ui-state", serveUIState)
 	mux.HandleFunc("/api/clients", serveClients)
@@ -378,8 +384,10 @@ func runServer() {
 	//
 	// withMCPAuth is a no-op unless MCP_OAUTH is set; when it is, /mcp requires a
 	// bearer token from lasso's own OAuth server (oauth.go) or the UI_AUTH
-	// credentials.
-	mcpHandler := withMCPAuth(withRequestBase(newMCPHandler()), authUser, authPass, hasAuth)
+	// credentials. withBrowserToolGate inside it stamps whether the request
+	// meets /cdp's stricter standard, which every browser_* tool call checks
+	// (browsermcp.go).
+	mcpHandler := withMCPAuth(withBrowserToolGate(withRequestBase(newMCPHandler()), authUser, authPass, hasAuth), authUser, authPass, hasAuth)
 	mux.Handle("/mcp", mcpHandler)
 	mux.Handle("/mcp/", mcpHandler)
 	go plugins.run(ctx)
@@ -405,13 +413,6 @@ func runServer() {
 	cdpHandler := withCDPAuth(http.HandlerFunc(serveCDPRouted), authUser, authPass, hasAuth)
 	mux.Handle("/cdp", cdpHandler)
 	mux.Handle("/cdp/", cdpHandler)
-	// The shared browser as an MCP server (browsermcp.go): one URL an agent adds
-	// to get chrome-devtools-mcp's tools against this browser. NOT under /mcp/,
-	// which is lasso's own MCP server's prefix. Exempt from UI_AUTH below and
-	// gated by withBrowserMCPAuth, which is /cdp's rule since it fronts /cdp.
-	browserMCPHandler := withBrowserMCPAuth(browserMCP, authUser, authPass, hasAuth)
-	mux.Handle("/browser-mcp", browserMCPHandler)
-	mux.Handle("/browser-mcp/", browserMCPHandler)
 	// herdr's own socket API as MCP tools (herdrmcp.go), the standalone
 	// herdr-mcp bridge's surface served from here. It drives the same hosts as
 	// /mcp's tools on the same credentials, so it takes /mcp's gate exactly:
@@ -453,7 +454,6 @@ func runServer() {
 	handler := gate.wrap(withAuthExcept(mux, authUser, authPass, hasAuth,
 		"/mcp",
 		"/cdp",
-		"/browser-mcp",
 		"/herdr-mcp",
 		"/.well-known/oauth-protected-resource",
 		"/.well-known/oauth-authorization-server",
@@ -475,8 +475,11 @@ func runServer() {
 		log.Printf("dev:      web port %s busy → using %s", *listenAddr, boundAddr)
 		*listenAddr = boundAddr // so the URL log + isLoopback reflect reality
 	}
-	// Where /browser-mcp's children dial /cdp: the address actually bound.
+	// Where the browser tools' children dial /cdp: the address actually bound.
 	browserMCP.setListenAddr(ln.Addr())
+	// Learn chrome-devtools-mcp's tools now, so the first /mcp session has them
+	// without waiting on a probe.
+	go browserMCP.ensureTools(browserMCPStartTimeout)
 
 	// Spawn ttyd only after the web port is ours — so a busy-port exit above
 	// never leaves an orphaned ttyd behind (its cleanup is tied to ctx, which
@@ -530,9 +533,9 @@ func runServer() {
 		// Streaming handlers (SSE) watch `draining` and exit immediately, so
 		// Shutdown only waits on real work — not on the drain window per se.
 		close(draining)
-		// /browser-mcp sessions hold streams open for as long as their client
-		// likes; closing them (and their children) first keeps the drain to
-		// real work, and lasso never exits ahead of a child.
+		// The browser tools' chrome-devtools-mcp children: stopped first, so
+		// a call waiting on one answers now and lasso never exits ahead of a
+		// child.
 		browserMCP.closeAll("lasso shutting down")
 		// Plugin servers likewise: lasso never exits ahead of a child, and a
 		// sandboxed one's isb sandbox is removed, not orphaned.

@@ -499,6 +499,10 @@ func serveUIState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("browser_mode must be one of %s", strings.Join(browserModes, ", ")), http.StatusBadRequest)
 			return
 		}
+		if !validTexture(us.Texture) {
+			http.Error(w, fmt.Sprintf("texture must be one of %s", strings.Join(textures, ", ")), http.StatusBadRequest)
+			return
+		}
 		if us.SidebarTabs == nil {
 			us.SidebarTabs = stored.SidebarTabs
 		} else if us.SidebarTabs, err = normalizeSidebarTabs(us.SidebarTabs); err != nil {
