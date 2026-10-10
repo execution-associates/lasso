@@ -98,7 +98,7 @@ func TestCodexLinesCrossGiantRecords(t *testing.T) {
 	size := int64(len(data))
 
 	// The tail: a plain window would land inside the image and show nothing.
-	page := readLogPage(b, path, "codex", size, size)
+	page := readLogPage(b, path, "codex", size, size, false)
 	var kinds []string
 	for _, it := range page.items {
 		kinds = append(kinds, it.Kind)
@@ -119,7 +119,7 @@ func TestCodexLinesCrossGiantRecords(t *testing.T) {
 
 	// A page ending at the assistant row pages back across the giant line.
 	before := page.items[2].off
-	older := readLogPage(b, path, "codex", size, before)
+	older := readLogPage(b, path, "codex", size, before, false)
 	if len(older.items) != 2 || older.items[0].Text != "make the banner" {
 		t.Fatalf("page above the giant line = %+v", older.items)
 	}

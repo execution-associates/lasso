@@ -183,7 +183,9 @@ func (m *pluginManager) serveChatAPI(w http.ResponseWriter, r *http.Request, res
 		q := r.URL.Query()
 		be, p, err := m.pluginChatResolve(name, q.Get("agent"), q.Get("host"))
 		if !writePluginChatErr(w, name, q.Get("agent"), err) {
-			writeChat(w, buildChatPayload(be, p, q.Get("before")))
+			// With the channel messages: for an assistant they are most of
+			// what it is answering.
+			writeChat(w, buildChatPayload(be, p, q.Get("before"), true))
 		}
 		return true
 	}
@@ -240,7 +242,7 @@ func (m *pluginManager) serveChatAPI(w http.ResponseWriter, r *http.Request, res
 		// throw away whatever a human has half-typed in the terminal, so it is
 		// sent only while the agent is working by herdr's or the transcript's
 		// account — the same two sources the chat's `running` combines.
-		if status != "working" && !buildChatPayload(be, p, "").Running {
+		if status != "working" && !buildChatPayload(be, p, "", false).Running {
 			writeJSON(w, map[string]any{"outcome": "refused", "detail": "the agent is not working"})
 			return true
 		}
