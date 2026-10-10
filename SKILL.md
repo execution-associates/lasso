@@ -1,6 +1,6 @@
 ---
 name: lasso
-description: Use lasso, the web UI and MCP server over herdr, to spawn and manage coding agents across machines, notify the human who runs it, show them a file, and drive the shared browser they watch live. Use when you have lasso's MCP tools (create_agent, list_agents, notify, open_file, shared_browser, ...) or the `lasso` CLI, when asked to "spin up an agent", "start a worktree agent", "close yourself", "ping me", "open it for me", "show me in the browser", or when $HERDR_PANE_ID is set inside a lasso-created pane.
+description: Use lasso, the web UI and MCP server over herdr, to spawn and manage coding agents across machines, notify the human who runs it, show them a file, and drive the browsers they watch live. Use when you have lasso's MCP tools (create_agent, list_agents, notify, open_file, list_browsers, browser_new_page, ...) or the `lasso` CLI, when asked to "spin up an agent", "start a worktree agent", "close yourself", "ping me", "open it for me", "show me in the browser", or when $HERDR_PANE_ID is set inside a lasso-created pane.
 ---
 
 # Using lasso as an agent
@@ -11,12 +11,11 @@ Full documentation: `docs/` in this repo, starting at [docs/index.md](docs/index
 
 ## How you reach it
 
-There are three MCP servers, usually registered by `lasso connect`:
+There are two MCP servers, usually registered by `lasso connect`:
 
 | Server | URL | What it is for |
 | --- | --- | --- |
-| `lasso` | `<lasso>/mcp` | Agents, hosts, `notify`, `open_file`, browser profiles and tabs, settings |
-| `lasso-browser` | `<lasso>/browser-mcp` | chrome-devtools-mcp's tools (navigate, click, fill, screenshot, console, network) against the shared browser |
+| `lasso` | `<lasso>/mcp` | Agents, hosts, `notify`, `open_file`, settings, lasso's browsers and tabs, and the `browser_*` tools (chrome-devtools-mcp's navigate, click, fill, screenshot, console, network) that drive them |
 | `lasso-herdr` | `<lasso>/herdr-mcp` | herdr's socket API, one tool per herdr method (`pane_list`, `pane_read`, `agent_prompt`, ...), on any host lasso drives; pass `host` (or `machine`), omit it for your own host |
 
 If your tools are missing, check `claude mcp list` (or your CLI's equivalent) and ask the human to run `lasso connect`. Every MCP tool also has a shell form: `lasso mcp` lists them, `lasso mcp <tool> -h` shows flags, and `lasso notify`, `lasso open` and `lasso closeme` are shortcuts for the common ones.
@@ -76,17 +75,19 @@ herdr pane report-metadata "$HERDR_PANE_ID" --source agent:self --token summary=
 
 Don't use `herdr pane report-agent`; it overrides herdr's own status detection.
 
-## The shared browser
+## The browsers
 
-A real Chromium on lasso's machine that the human watches, and can click in, from lasso's Browser tab.
+lasso's browsers are real Chromiums on lasso's machine (or remote browsers lasso dials) that the human watches, and can click in, from lasso's Browser tab. Each is separate, with its own cookies, logins and pages.
 
-- Call `shared_browser` to start it and get the `/browser-mcp` URL (`mcp_endpoint`), the raw CDP websocket (`ws_endpoint`, for Playwright's `connectOverCDP`), `profiles_url` (a plain `GET` listing every profile and its own CDP websocket), and the open pages. `available: false` or `mcp_available: false` come with a reason.
-- **Open your own page** (`new_page` on `lasso-browser`) instead of navigating one you didn't open. The human's tab shows the most recently opened page, so opening one puts them on it.
-- **Close the pages you opened** when you are done.
-- `localhost` inside the browser means lasso's machine, not yours.
+- **Drive them with the `browser_*` tools** on lasso's `/mcp`: chrome-devtools-mcp's tools with a `browser_` prefix (`browser_new_page`, `browser_navigate_page`, `browser_click`, `browser_fill`, `browser_take_snapshot`, `browser_take_screenshot`, `browser_list_pages`, `browser_close_page`, ...). Each takes an optional `browser` (id or display name; omitted means the default). Page ids belong to one browser, so pass the same `browser` on every call about a page. Missing `browser_*` tools mean chrome-devtools-mcp is not installed on lasso's machine; `shared_browser` says why (`browser_tools_reason`).
+- **Open your own page** (`browser_new_page`) instead of navigating one you didn't open. The human's tab shows the most recently opened page, so opening one puts them on it.
+- **Close the pages you opened** (`browser_close_page`) when you are done.
+- `localhost` inside a browser lasso launches means lasso's machine, not yours.
 - **Logged-in accounts are the human's.** Reading is fine; posting, sending, accepting or buying needs their go-ahead.
-- **Profiles** are separate Chromiums with their own cookies, logins and proxy. Every `lasso-browser` tool takes an optional `profile` (id or display name; omitted means the default). Page ids belong to one profile, so pass the same `profile` on every call about a page. Manage profiles with `list_browser_profiles`, `create_browser_profile`, `update_browser_profile`, `delete_browser_profile`.
-- To put a page on the human's screen from `/mcp`, use `open_browser_tab`; `show_browser_tab`, `list_browser_tabs` and `close_browser_tab` manage existing tabs.
+- Manage browsers with `list_browsers`, `create_browser`, `update_browser`, `delete_browser`.
+- To put a page on the human's screen, use `open_browser_tab`; `show_browser_tab`, `list_browser_tabs` and `close_browser_tab` manage existing tabs.
+- For Playwright or raw CDP, `shared_browser` starts a browser and returns its CDP websocket (`ws_endpoint`, for `connectOverCDP`) and `browsers_url` (a plain `GET` listing every browser and its own CDP websocket).
+- A browser tool call refused with a tool error about the Origin, `UI_AUTH` or your credential's reach is lasso's gate, not a bug: under `UI_AUTH` the browser tools need its basic credentials on your MCP connection, and under `MCP_OAUTH` your credential must reach lasso's own machine.
 
 ## Settings
 

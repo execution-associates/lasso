@@ -112,7 +112,7 @@ These subcommands are clients of a running lasso. They find it the same way:
 
 ### `lasso connect`
 
-Registers lasso's streamable-HTTP MCP servers with every supported agent CLI found on this machine (Claude Code, Codex, OpenCode, omp): `lasso` at `<url>/mcp`, `lasso-browser` at `<url>/browser-mcp` and `lasso-herdr` at `<url>/herdr-mcp`. It probes the server first: `/mcp` must answer or nothing is registered, `lasso-browser` is registered only when lasso reports that `/browser-mcp` can serve, and `lasso-herdr` only when `/herdr-mcp` lists herdr's tools. Re-running it is safe: an identical entry is left alone and a different one is replaced.
+Registers lasso's streamable-HTTP MCP servers with every supported agent CLI found on this machine (Claude Code, Codex, OpenCode, omp): `lasso` at `<url>/mcp`, which carries the `browser_*` tools too, and `lasso-herdr` at `<url>/herdr-mcp`. It probes the server first: `/mcp` must answer or nothing is registered, and `lasso-herdr` is registered only when `/herdr-mcp` lists herdr's tools. When lasso reports that its browser tools can't run, it says why. Every run also removes an entry named `lasso-browser` wherever it finds one, since lasso serves no `/browser-mcp`. Re-running it is safe: an identical entry is left alone and a different one is replaced.
 
 | flag | default | effect |
 | --- | --- | --- |
@@ -121,7 +121,6 @@ Registers lasso's streamable-HTTP MCP servers with every supported agent CLI fou
 | `-header 'Name: value'` | | An extra header to register and probe with. Repeatable. |
 | `-only a,b` | all found | Only these CLIs: `claude`, `codex`, `opencode`, `omp`, `pi`. |
 | `-scope <s>` | `user` | Claude Code scope: `user`, `local` or `project`. |
-| `-browser` | `true` | `-browser=false` skips `lasso-browser`. |
 | `-herdr` | `true` | `-herdr=false` skips `lasso-herdr`. |
 | `-remove` | `false` | Unregister every lasso server from every CLI instead. |
 | `-dry-run` | `false` | Print what would be run or written; change nothing. |

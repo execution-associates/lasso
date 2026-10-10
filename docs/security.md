@@ -15,9 +15,9 @@ The short version: **whoever can reach lasso's port can act as you on every mach
 | --- | --- |
 | **The terminals** (`/terminal/`, `/shell/`) | A writable shell on lasso's machine, and on any SSH host the tab switches to. Type anything you could type yourself. |
 | **The file endpoints** (`/api/file`, `/api/files`, `/api/file-write`, `/api/file-rename`, `/api/file-delete`, `/api/file-upload`) | Read, write, rename, delete and upload **any absolute path** the lasso user can access, on lasso's machine or on any host lasso can reach over SSH (a request can name the host). |
-| **`/mcp`** | Create and close agents on any reachable host, list repositories and branches, push notifications to your phone, open files in your sidebar, manage browser profiles. Enabled plugins add their own tools. |
+| **`/mcp`** | Create and close agents on any reachable host, list repositories and branches, push notifications to your phone, open files in your sidebar, manage the shared browsers. Enabled plugins add their own tools. |
 | **`/herdr-mcp`** | herdr's whole socket API on any reachable host: split and close panes, type into any terminal (`pane_send_text`, `pane_send_keys`), start and prompt agents, run herdr plugin actions. Typing into a terminal is running commands as you. |
-| **`/cdp` and `/browser-mcp`** | Full control of the shared Chromium: read every open page, type into it, navigate it, run scripts in it. That includes **every site its profiles are logged into**. |
+| **`/cdp` and `/mcp`'s `browser_*` tools** | Full control of the shared Chromiums: read every open page, type into it, navigate it, run scripts in it. That includes **every site the browsers are logged into**. |
 | **The rest of `/api/*`** | Everything the UI does: switching hosts, updating herdr on remote hosts, changing themes across the fleet, managing plugins. |
 
 The SSH reach matters. lasso uses your `~/.ssh/config` and keys, so a lasso that can reach ten hosts hands all ten to whoever reaches lasso.
@@ -32,13 +32,13 @@ The check sees only the bind address. A tunnel, `tailscale serve`, an SSH forwar
 
 ### `UI_AUTH`: basic auth
 
-`UI_AUTH=user:pass` turns on HTTP basic auth for the UI, the API, the terminals, `/cdp` and `/browser-mcp`. It is read **from the environment only**, never from a flag, because a command line is visible to every user on the machine through `ps` and `/proc`. In a systemd unit, use an `EnvironmentFile` that only you can read.
+`UI_AUTH=user:pass` turns on HTTP basic auth for the UI, the API, the terminals, `/cdp` and `/mcp`'s `browser_*` tools (where it is required per call, while the rest of `/mcp` stays open). It is read **from the environment only**, never from a flag, because a command line is visible to every user on the machine through `ps` and `/proc`. In a systemd unit, use an `EnvironmentFile` that only you can read.
 
 `UI_AUTH` does **not** cover `/mcp` or `/herdr-mcp`, which are open by default so agent CLIs connect without credentials.
 
 ### `MCP_OAUTH`: gating `/mcp`
 
-`MCP_OAUTH=client_id:client_secret` (environment only, like `UI_AUTH`) makes lasso a small OAuth 2.1 authorization server for its own `/mcp`. `/mcp` then requires a bearer token lasso issued, or the `UI_AUTH` credentials. It also enables per-host credentials, which limit which hosts' agents a caller can see and manage. `/herdr-mcp` takes exactly `/mcp`'s rule and checks every call's host against the credential's scope. With `MCP_OAUTH` set, `/cdp` and `/browser-mcp` follow the same rule, and a per-host credential reaches them only if its scope includes lasso's own machine.
+`MCP_OAUTH=client_id:client_secret` (environment only, like `UI_AUTH`) makes lasso a small OAuth 2.1 authorization server for its own `/mcp`. `/mcp` then requires a bearer token lasso issued, or the `UI_AUTH` credentials. It also enables per-host credentials, which limit which hosts' agents a caller can see and manage. `/herdr-mcp` takes exactly `/mcp`'s rule and checks every call's host against the credential's scope. With `MCP_OAUTH` set, `/cdp` and the `browser_*` tools follow the same rule, and a per-host credential reaches them only if its scope includes lasso's own machine; a `browser_*` call that does not is a tool error.
 
 The OAuth discovery, registration and token endpoints are open (they are the credential-less half of the handshake). The consent page, `/oauth/authorize`, stays behind `UI_AUTH` or Access, so registering a client gets nobody a token until a human who can already get into lasso approves it.
 
@@ -52,11 +52,11 @@ That header is only meaningful behind Cloudflare Access, which strips any copy a
 
 ### The browser's origin guard
 
-`/cdp` and `/browser-mcp` refuse any request whose `Origin` names a different website than the one lasso is being reached on, before any authentication runs. Without this, a web page you happen to visit could open a connection to a lasso on your own machine (loopback, no auth) and drive the shared browser with your logins. Requests with no `Origin`, such as an agent's MCP client or Playwright, are unaffected.
+`/cdp` and the `browser_*` tools refuse any request whose `Origin` names a different website than the one lasso is being reached on, before any authentication runs. Without this, a web page you happen to visit could open a connection to a lasso on your own machine (loopback, no auth) and drive the shared browser with your logins. Requests with no `Origin`, such as an agent's MCP client or Playwright, are unaffected.
 
-lasso's own chrome-devtools-mcp processes (the ones behind `/browser-mcp`) reach `/cdp` over loopback with a random token minted for each lasso process. It is held only in memory and in those processes' arguments, and is accepted only on `/cdp`. They also start with a minimal environment that does not include `UI_AUTH`, `MCP_OAUTH`, or other secrets of lasso's.
+lasso's own chrome-devtools-mcp processes (the ones behind the `browser_*` tools) reach `/cdp` over loopback with a random token minted for each lasso process. It is held only in memory and in those processes' arguments, and is accepted only on `/cdp`. They also start with a minimal environment that does not include `UI_AUTH`, `MCP_OAUTH`, or other secrets of lasso's.
 
-lasso never falls back to `npx chrome-devtools-mcp@latest`: fetching an unpinned package at runtime, on the machine holding the browser's logged-in profiles, is a supply-chain risk. It also never adds Chromium's `--no-sandbox` on its own, except when running as root, where Chromium will not start without it.
+lasso never falls back to `npx chrome-devtools-mcp@latest`: fetching an unpinned package at runtime, on the machine holding the browsers' logins, is a supply-chain risk. It also never adds Chromium's `--no-sandbox` on its own, except when running as root, where Chromium will not start without it.
 
 ### Plugins
 
@@ -87,6 +87,6 @@ A push subscription is a URL lasso will POST to on its own, so registering one i
 
 A few more habits worth keeping:
 
-- **Log the shared browser into accounts carefully.** Every agent that can reach `/cdp` or `/browser-mcp` can act as you on those sites, in every [browser profile](./concepts/shared-browser.md): profiles separate cookies, not access. Log in only where you are happy for your agents to act as you.
+- **Log the shared browser into accounts carefully.** Every agent that can reach `/cdp` or the `browser_*` tools can act as you on those sites, in every one of [lasso's browsers](./concepts/shared-browser.md): separate browsers separate cookies, not access. Log in only where you are happy for your agents to act as you.
 - **Keep secrets out of argv.** `UI_AUTH`, `MCP_OAUTH` and `LASSO_MCP_TOKEN` belong in the environment.
 - **Turn off the in-app update on shared boxes** with `-disable-self-update`, so an agent working through the UI cannot rebuild and restart lasso.

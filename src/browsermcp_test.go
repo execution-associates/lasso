@@ -21,7 +21,7 @@ import (
 )
 
 // fakeBrowserMCPEnv, when set, makes the test binary a chrome-devtools-mcp
-// stand-in (see TestMain): "ok" serves three tools over stdio, "crash" dies on
+// stand-in (see TestMain): "ok" serves four tools over stdio, "crash" dies on
 // startup the way a broken install does.
 const fakeBrowserMCPEnv = "LASSO_TEST_FAKE_BROWSER_MCP"
 
@@ -35,8 +35,11 @@ func runFakeBrowserMCP(mode string) int {
 		return 3
 	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "fake-chrome-devtools-mcp", Version: "0"}, nil)
-	obj := map[string]any{"type": "object", "properties": map[string]any{"x": map[string]any{"type": "number"}}}
-	srv.AddTool(&mcp.Tool{Name: "echo", Description: "echo the arguments and argv", InputSchema: obj,
+	obj := map[string]any{"type": "object", "properties": map[string]any{
+		"x":      map[string]any{"type": "number", "description": "a number; list_pages has none"},
+		"pageId": map[string]any{"type": "number", "description": "The page."},
+	}}
+	srv.AddTool(&mcp.Tool{Name: "echo", Description: "echo the arguments and argv (click through list_pages first)", InputSchema: obj,
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}},
 		func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			b, _ := json.Marshal(map[string]any{"args": req.Params.Arguments, "argv": os.Args[1:]})
@@ -53,11 +56,18 @@ func runFakeBrowserMCP(mode string) int {
 		func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: strings.Join(os.Environ(), "\n")}}}, nil
 		})
+	srv.AddTool(&mcp.Tool{Name: "list_pages", Description: "list the pages", InputSchema: map[string]any{"type": "object"}},
+		func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "[]"}}}, nil
+		})
 	if err := srv.Run(context.Background(), &mcp.StdioTransport{}); err != nil && !errors.Is(err, io.EOF) {
 		return 1
 	}
 	return 0
 }
+
+// fakeToolCount is how many tools the fake child serves.
+const fakeToolCount = 4
 
 // testBrowserMCP is a bridge whose chrome-devtools-mcp is this test binary.
 // max <= 0 is no limit, the production default.
@@ -73,15 +83,63 @@ func testBrowserMCP(t *testing.T, mode string, max int) *browserMCPBridge {
 	return b
 }
 
-func browserMCPConnect(t *testing.T, endpoint string) (*mcp.ClientSession, error) {
+// mcpServerWith is lasso's /mcp exactly as main wires it — withMCPAuth around
+// withBrowserToolGate around the real server — with b as the browser bridge.
+func mcpServerWith(t *testing.T, b *browserMCPBridge, user, pass string, hasAuth bool) *httptest.Server {
+	t.Helper()
+	prev := browserMCP
+	browserMCP = b
+	t.Cleanup(func() { browserMCP = prev })
+	h := withMCPAuth(withBrowserToolGate(withRequestBase(newMCPHandler()), user, pass, hasAuth), user, pass, hasAuth)
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// hdrRT sends fixed headers (and basic credentials) on every request: an
+// agent's MCP client configured with them.
+type hdrRT struct {
+	h          http.Header
+	user, pass string
+}
+
+func (h hdrRT) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	for k, v := range h.h {
+		r.Header[k] = v
+	}
+	if h.user != "" {
+		r.SetBasicAuth(h.user, h.pass)
+	}
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+func mcpConnect(t *testing.T, endpoint string, rt http.RoundTripper) (*mcp.ClientSession, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	c := mcp.NewClient(&mcp.Implementation{Name: "test-agent", Version: "0"}, nil)
-	return c.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: endpoint, DisableStandaloneSSE: true}, nil)
+	tr := &mcp.StreamableClientTransport{Endpoint: endpoint, DisableStandaloneSSE: true}
+	if rt != nil {
+		tr.HTTPClient = &http.Client{Transport: rt}
+	}
+	sess, err := c.Connect(ctx, tr, nil)
+	if err == nil {
+		t.Cleanup(func() { _ = sess.Close() })
+	}
+	return sess, err
 }
 
-// childPIDs is every live child's pid, by profile, across all sessions.
+func mustConnect(t *testing.T, endpoint string, rt http.RoundTripper) *mcp.ClientSession {
+	t.Helper()
+	sess, err := mcpConnect(t, endpoint, rt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sess
+}
+
+// childPIDs is every live child's pid, by browser, across all sessions.
 func (b *browserMCPBridge) childPIDs() map[string][]int {
 	out := map[string][]int{}
 	for _, s := range b.snapshot() {
@@ -128,7 +186,7 @@ type fakeEcho struct {
 	Argv []string       `json:"argv"`
 }
 
-// wsEndpoint is the --wsEndpoint the child was started with: which profile's
+// wsEndpoint is the --wsEndpoint the child was started with: which browser's
 // /cdp it dials.
 func (e fakeEcho) wsEndpoint() string {
 	for i, a := range e.Argv {
@@ -139,15 +197,15 @@ func (e fakeEcho) wsEndpoint() string {
 	return ""
 }
 
-// callEcho calls the fake's echo tool. A tool error comes back as its text in
-// refusal, with a zero fakeEcho.
+// callEcho calls browser_echo. A tool error comes back as its text in refusal,
+// with a zero fakeEcho.
 func callEcho(t *testing.T, sess *mcp.ClientSession, args map[string]any) (out fakeEcho, refusal string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	res, err := sess.CallTool(ctx, &mcp.CallToolParams{Name: "echo", Arguments: args})
+	res, err := sess.CallTool(ctx, &mcp.CallToolParams{Name: "browser_echo", Arguments: args})
 	if err != nil {
-		t.Fatalf("echo %v: %v", args, err)
+		t.Fatalf("browser_echo %v: %v", args, err)
 	}
 	text := res.Content[0].(*mcp.TextContent).Text
 	if res.IsError {
@@ -159,65 +217,92 @@ func callEcho(t *testing.T, sess *mcp.ClientSession, args map[string]any) (out f
 	return out, ""
 }
 
-func TestBrowserMCPBridgeMirrorsAndForwards(t *testing.T) {
+func listTools(t *testing.T, sess *mcp.ClientSession) map[string]*mcp.Tool {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	byName := map[string]*mcp.Tool{}
+	for tl, err := range sess.Tools(ctx, nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		byName[tl.Name] = tl
+	}
+	return byName
+}
+
+func browserToolNames(tools map[string]*mcp.Tool) []string {
+	var out []string
+	for n := range tools {
+		if strings.HasPrefix(n, browserToolPrefix) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+func TestBrowserToolsMirrorAndForward(t *testing.T) {
 	t.Setenv("UI_AUTH", "u:secret")
 	t.Setenv("MCP_OAUTH", "cid:csecret")
-	openTestDB(t) // resolving a named profile reads the stored list
+	openTestDB(t) // resolving a named browser reads the stored list
 	b := testBrowserMCP(t, "ok", 0)
-	srv := httptest.NewServer(b)
-	defer srv.Close()
-
-	sess, err := browserMCPConnect(t, srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	srv := mcpServerWith(t, b, "", "", false)
+	sess := mustConnect(t, srv.URL, nil)
 	init := sess.InitializeResult()
-	if init.ServerInfo.Name != "lasso-browser" || !strings.Contains(init.Instructions, "SHARED browser") || !strings.Contains(init.Instructions, "`profile`") {
+	if init.ServerInfo.Name != "lasso" || !strings.Contains(init.Instructions, "browser_new_page") || !strings.Contains(init.Instructions, `"browser"`) {
 		t.Errorf("initialize = %+v / %q", init.ServerInfo, init.Instructions)
-	}
-	if init.Capabilities.Tools == nil {
-		t.Errorf("no tools capability advertised")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	// tools/list mirrors the child: names, descriptions, schemas, annotations —
-	// plus the bridge's own optional `profile`.
-	lt, err := sess.ListTools(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
+	// tools/list carries lasso's own tools AND the child's, renamed browser_*,
+	// with descriptions, schemas and annotations as the child gave them — plus
+	// the optional `browser`.
+	byName := listTools(t, sess)
+	if byName["list_agents"] == nil || byName["list_browsers"] == nil || byName["shared_browser"] == nil {
+		t.Errorf("lasso's own tools are missing: %v", byName)
 	}
-	byName := map[string]*mcp.Tool{}
-	for _, tl := range lt.Tools {
-		byName[tl.Name] = tl
+	if got := browserToolNames(byName); len(got) != fakeToolCount {
+		t.Fatalf("browser tools = %v", got)
 	}
-	if len(byName) != 3 || byName["echo"] == nil || byName["snap"] == nil || byName["env"] == nil {
-		t.Fatalf("tools = %v", byName)
+	for _, raw := range []string{"echo", "snap", "env", "list_pages"} {
+		if byName[raw] != nil {
+			t.Errorf("%s is on /mcp under its own name", raw)
+		}
 	}
-	if e := byName["echo"]; e.Description != "echo the arguments and argv" || e.Annotations == nil || !e.Annotations.ReadOnlyHint {
-		t.Errorf("echo = %+v", e)
+	e := byName["browser_echo"]
+	if e == nil || e.Annotations == nil || !e.Annotations.ReadOnlyHint {
+		t.Fatalf("browser_echo = %+v", e)
 	}
-	for _, name := range []string{"echo", "snap", "env"} {
+	// Sibling tool names in descriptions follow the rename; English words don't.
+	if e.Description != "echo the arguments and argv (click through browser_list_pages first)" {
+		t.Errorf("description = %q", e.Description)
+	}
+	es, _ := json.Marshal(e.InputSchema)
+	if !strings.Contains(string(es), "a number; browser_list_pages has none") || !strings.Contains(string(es), `"x"`) {
+		t.Errorf("schema descriptions not renamed: %s", es)
+	}
+	if !strings.Contains(string(es), "pass the same `browser` as the browser_list_pages/browser_new_page call") {
+		t.Errorf("pageId does not say it belongs to one browser: %s", es)
+	}
+	for _, name := range []string{"browser_echo", "browser_snap", "browser_env", "browser_list_pages"} {
 		s, _ := json.Marshal(byName[name].InputSchema)
-		if !strings.Contains(string(s), `"profile":{"description":"Browser profile`) {
-			t.Errorf("%s schema lacks profile: %s", name, s)
+		if !strings.Contains(string(s), `"browser":{"description":"Which browser to run this in`) {
+			t.Errorf("%s schema lacks browser: %s", name, s)
 		}
-		if strings.Contains(string(s), `"required":["profile"`) {
-			t.Errorf("%s: profile must be optional: %s", name, s)
+		if strings.Contains(string(s), `"required":["browser"`) {
+			t.Errorf("%s: browser must be optional: %s", name, s)
 		}
-	}
-	if s, _ := json.Marshal(byName["echo"].InputSchema); !strings.Contains(string(s), `"x"`) {
-		t.Errorf("echo schema = %s", s)
 	}
 
-	// tools/call forwards the arguments as given, minus `profile`, and the
-	// child ran with lasso's flags: its own /cdp, the internal token, the
-	// screenshot bounds.
-	echoed, msg := callEcho(t, sess, map[string]any{"x": 7, "profile": "default"})
+	// tools/call forwards the arguments as given, minus `browser`, under the
+	// child's own tool name, and the child ran with lasso's flags: its own
+	// /cdp, the internal token, the screenshot bounds.
+	echoed, msg := callEcho(t, sess, map[string]any{"x": 7, "browser": "default"})
 	if msg != "" {
 		t.Fatal(msg)
 	}
-	if echoed.Args["x"] != float64(7) || echoed.Args["profile"] != nil || len(echoed.Args) != 1 {
+	if echoed.Args["x"] != float64(7) || echoed.Args["browser"] != nil || len(echoed.Args) != 1 {
 		t.Errorf("args = %v", echoed.Args)
 	}
 	argv := strings.Join(echoed.Argv, " ")
@@ -233,7 +318,7 @@ func TestBrowserMCPBridgeMirrorsAndForwards(t *testing.T) {
 	}
 
 	// Image content comes back byte for byte.
-	res, err := sess.CallTool(ctx, &mcp.CallToolParams{Name: "snap"})
+	res, err := sess.CallTool(ctx, &mcp.CallToolParams{Name: "browser_snap"})
 	if err != nil || len(res.Content) != 2 {
 		t.Fatalf("snap: %v %+v", err, res)
 	}
@@ -243,7 +328,7 @@ func TestBrowserMCPBridgeMirrorsAndForwards(t *testing.T) {
 	}
 
 	// lasso's credentials never reach the child.
-	res, err = sess.CallTool(ctx, &mcp.CallToolParams{Name: "env"})
+	res, err = sess.CallTool(ctx, &mcp.CallToolParams{Name: "browser_env"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,13 +339,11 @@ func TestBrowserMCPBridgeMirrorsAndForwards(t *testing.T) {
 	if !strings.Contains(env, "CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS=1") {
 		t.Errorf("child env lacks the telemetry opt-out:\n%s", env)
 	}
-
-	// An unknown tool is the mirror's refusal, not a hang.
-	if _, err := sess.CallTool(ctx, &mcp.CallToolParams{Name: "nope"}); err == nil {
-		t.Errorf("unknown tool succeeded")
+	if strings.Contains(env, browserGateToken) {
+		t.Errorf("child env carries the gate token")
 	}
 
-	// Three calls to the default profile: one child, reused.
+	// Three calls to the default browser: one child, reused.
 	pids := b.childPIDs()
 	if len(pids) != 1 || len(pids[defaultBrowserProfile]) != 1 || pids[defaultBrowserProfile][0] <= 1 {
 		t.Fatalf("live pids = %v", pids)
@@ -276,34 +359,23 @@ func TestBrowserMCPBridgeMirrorsAndForwards(t *testing.T) {
 
 // initialize and tools/list spawn nothing: the tool list comes from a cache,
 // learned by ONE short probe per lasso process (per binary), not per session.
-func TestBrowserMCPLazySpawn(t *testing.T) {
+func TestBrowserToolsLazySpawn(t *testing.T) {
 	b := testBrowserMCP(t, "ok", 0)
-	srv := httptest.NewServer(b)
-	defer srv.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
+	srv := mcpServerWith(t, b, "", "", false)
 
 	var sessions []*mcp.ClientSession
 	for i := 0; i < 5; i++ {
-		sess, err := browserMCPConnect(t, srv.URL)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer sess.Close()
-		lt, err := sess.ListTools(ctx, nil)
-		if err != nil || len(lt.Tools) != 3 {
-			t.Fatalf("session %d tools: %v %v", i, err, lt)
+		sess := mustConnect(t, srv.URL, nil)
+		if got := browserToolNames(listTools(t, sess)); len(got) != fakeToolCount {
+			t.Fatalf("session %d browser tools: %v", i, got)
 		}
 		sessions = append(sessions, sess)
 	}
 	if n := b.probes.Load(); n != 1 {
 		t.Errorf("probes = %d, want exactly 1 for 5 sessions", n)
 	}
-	if b.liveChildren() != 0 || b.sessions() != 0 || len(b.childPIDs()) != 0 {
-		t.Errorf("after initialize + tools/list: children=%d sessions-with-children=%d", b.liveChildren(), b.sessions())
-	}
-	if len(b.snapshot()) != 5 {
-		t.Errorf("registered sessions = %d", len(b.snapshot()))
+	if b.liveChildren() != 0 || b.sessions() != 0 || len(b.snapshot()) != 0 {
+		t.Errorf("after initialize + tools/list: children=%d sessions=%d", b.liveChildren(), len(b.snapshot()))
 	}
 
 	// The first tool call is what spawns.
@@ -314,49 +386,37 @@ func TestBrowserMCPLazySpawn(t *testing.T) {
 		t.Errorf("after one call: children=%d sessions=%d", b.liveChildren(), b.sessions())
 	}
 
-	// A binary that changed under lasso (an upgrade) is probed again.
-	b.tools.Store(&browserMCPToolCache{key: "some older binary", tools: nil})
-	sess, err := browserMCPConnect(t, srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sess.Close()
-	if lt, err := sess.ListTools(ctx, nil); err != nil || len(lt.Tools) != 3 {
-		t.Fatalf("after re-probe: %v %v", err, lt)
+	// A binary that changed under lasso (an upgrade) is probed again by the
+	// next initialize.
+	b.tools.Store(&browserMCPToolCache{key: "some older binary", tools: b.tools.Load().tools})
+	sess := mustConnect(t, srv.URL, nil)
+	if got := browserToolNames(listTools(t, sess)); len(got) != fakeToolCount {
+		t.Fatalf("after re-probe: %v", got)
 	}
 	if n := b.probes.Load(); n != 2 {
 		t.Errorf("probes after a binary change = %d, want 2", n)
 	}
 }
 
-// Calls route to the profile they name, each profile getting its own child in
-// the session, and an unknown profile is an error naming the real ones.
-func TestBrowserMCPRoutesByProfile(t *testing.T) {
+// Calls route to the browser they name, each browser getting its own child in
+// the session, and an unknown browser is an error naming the real ones.
+func TestBrowserToolsRouteByBrowser(t *testing.T) {
 	f := testFleet(t)
 	if _, err := f.create("Work", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	b := testBrowserMCP(t, "ok", 0)
-	srv := httptest.NewServer(b)
-	defer srv.Close()
-	sess, err := browserMCPConnect(t, srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sess.Close()
-	if ins := sess.InitializeResult().Instructions; !strings.Contains(ins, `work ("Work")`) {
-		t.Errorf("instructions do not list the profiles: %q", ins)
-	}
+	sess := mustConnect(t, mcpServerWith(t, b, "", "", false).URL, nil)
 
 	for _, c := range []struct {
 		args map[string]any
 		want string
 	}{
 		{nil, "ws://127.0.0.1:1/cdp"},
-		{map[string]any{"profile": "work"}, "ws://127.0.0.1:1/cdp/p/work"},
-		{map[string]any{"profile": "WORK"}, "ws://127.0.0.1:1/cdp/p/work"}, // the display name, any case
-		{map[string]any{"profile": ""}, "ws://127.0.0.1:1/cdp"},
-		{map[string]any{"profile": "default", "x": 1}, "ws://127.0.0.1:1/cdp"},
+		{map[string]any{"browser": "work"}, "ws://127.0.0.1:1/cdp/p/work"},
+		{map[string]any{"browser": "WORK"}, "ws://127.0.0.1:1/cdp/p/work"}, // the display name, any case
+		{map[string]any{"browser": ""}, "ws://127.0.0.1:1/cdp"},
+		{map[string]any{"browser": "default", "x": 1}, "ws://127.0.0.1:1/cdp"},
 	} {
 		got, msg := callEcho(t, sess, c.args)
 		if msg != "" {
@@ -365,8 +425,8 @@ func TestBrowserMCPRoutesByProfile(t *testing.T) {
 		if got.wsEndpoint() != c.want {
 			t.Errorf("%v dialed %q, want %q", c.args, got.wsEndpoint(), c.want)
 		}
-		if _, has := got.Args["profile"]; has {
-			t.Errorf("%v: profile reached the child: %v", c.args, got.Args)
+		if _, has := got.Args["browser"]; has {
+			t.Errorf("%v: browser reached the child: %v", c.args, got.Args)
 		}
 	}
 	pids := b.childPIDs()
@@ -374,54 +434,48 @@ func TestBrowserMCPRoutesByProfile(t *testing.T) {
 		t.Errorf("children = %v (%d)", pids, b.liveChildren())
 	}
 
-	// Unknown: a tool error listing the profiles, nothing spawned, and no
-	// fallback to another profile.
-	_, msg := callEcho(t, sess, map[string]any{"profile": "personal", "x": 1})
-	if !strings.Contains(msg, `no browser profile "personal"`) || !strings.Contains(msg, `work ("Work")`) || !strings.Contains(msg, "default") {
-		t.Errorf("unknown profile: %q", msg)
+	// Unknown: a tool error listing the browsers, nothing spawned, and no
+	// fallback to another browser.
+	_, msg := callEcho(t, sess, map[string]any{"browser": "personal", "x": 1})
+	if !strings.Contains(msg, `no browser "personal"`) || !strings.Contains(msg, `work ("Work")`) || !strings.Contains(msg, "default") {
+		t.Errorf("unknown browser: %q", msg)
 	}
-	if _, msg := callEcho(t, sess, map[string]any{"profile": 3}); !strings.Contains(msg, "must be a string") {
-		t.Errorf("non-string profile: %q", msg)
+	if _, msg := callEcho(t, sess, map[string]any{"browser": 3}); !strings.Contains(msg, "must be a string") {
+		t.Errorf("non-string browser: %q", msg)
 	}
 	if b.liveChildren() != 2 {
 		t.Errorf("a refused call spawned: %d children", b.liveChildren())
 	}
 }
 
-// Profiles resolve at call time: one created after the session started works
+// Browsers resolve at call time: one created after the session started works
 // without reconnecting, and one deleted since is refused.
-func TestBrowserMCPProfileCreatedAfterSessionStart(t *testing.T) {
+func TestBrowserToolsBrowserCreatedAfterSessionStart(t *testing.T) {
 	f := testFleet(t)
 	b := testBrowserMCP(t, "ok", 0)
-	srv := httptest.NewServer(b)
-	defer srv.Close()
-	sess, err := browserMCPConnect(t, srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sess.Close()
-	if _, msg := callEcho(t, sess, map[string]any{"profile": "late"}); !strings.Contains(msg, `no browser profile "late"`) {
+	sess := mustConnect(t, mcpServerWith(t, b, "", "", false).URL, nil)
+	if _, msg := callEcho(t, sess, map[string]any{"browser": "late"}); !strings.Contains(msg, `no browser "late"`) {
 		t.Fatalf("before it exists: %q", msg)
 	}
 	if _, err := f.create("Late", "late", ""); err != nil {
 		t.Fatal(err)
 	}
-	got, msg := callEcho(t, sess, map[string]any{"profile": "Late"})
+	got, msg := callEcho(t, sess, map[string]any{"browser": "Late"})
 	if msg != "" || got.wsEndpoint() != "ws://127.0.0.1:1/cdp/p/late" {
 		t.Fatalf("after create: %q %q", msg, got.wsEndpoint())
 	}
 	if err := f.remove(context.Background(), "late"); err != nil {
 		t.Fatal(err)
 	}
-	if _, msg := callEcho(t, sess, map[string]any{"profile": "late"}); !strings.Contains(msg, `no browser profile "late"`) {
+	if _, msg := callEcho(t, sess, map[string]any{"browser": "late"}); !strings.Contains(msg, `no browser "late"`) {
 		t.Errorf("after delete: %q", msg)
 	}
 }
 
-// One profile's browser stopping closes only that profile's child in each
-// session; the session and its other children carry on, and the next call to
-// the stopped profile spawns a fresh child.
-func TestBrowserMCPProfileStopClosesOnlyThatChild(t *testing.T) {
+// One browser stopping closes only that browser's child in each session; the
+// session and its other children carry on, and the next call to the stopped
+// browser spawns a fresh child.
+func TestBrowserToolsStopClosesOnlyThatChild(t *testing.T) {
 	f := testFleet(t)
 	if _, err := f.create("Work", "work", ""); err != nil {
 		t.Fatal(err)
@@ -430,22 +484,13 @@ func TestBrowserMCPProfileStopClosesOnlyThatChild(t *testing.T) {
 	f.onStop = b.browserStoppedFor
 	sharedBrowser.onStop = b.browserStopped
 	work := runProfileOn(t, f, "work", newFakeChromium(t))
-	srv := httptest.NewServer(b)
-	defer srv.Close()
+	srv := mcpServerWith(t, b, "", "", false)
 
-	a, err := browserMCPConnect(t, srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer a.Close()
-	other, err := browserMCPConnect(t, srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer other.Close()
+	a := mustConnect(t, srv.URL, nil)
+	other := mustConnect(t, srv.URL, nil)
 	for _, s := range []*mcp.ClientSession{a, other} {
 		for _, p := range []string{"default", "work"} {
-			if _, msg := callEcho(t, s, map[string]any{"profile": p}); msg != "" {
+			if _, msg := callEcho(t, s, map[string]any{"browser": p}); msg != "" {
 				t.Fatal(msg)
 			}
 		}
@@ -467,20 +512,18 @@ func TestBrowserMCPProfileStopClosesOnlyThatChild(t *testing.T) {
 	}
 	for _, pid := range before[defaultBrowserProfile] {
 		if !alive(pid) {
-			t.Errorf("default child %d died with the work profile's browser", pid)
+			t.Errorf("default child %d died with the work browser", pid)
 		}
 	}
 	if len(b.snapshot()) != 2 {
 		t.Errorf("sessions = %d, want both still open", len(b.snapshot()))
 	}
 
-	// Both sessions keep working: the default child is the same process, and
-	// work gets a new one.
 	got, msg := callEcho(t, a, nil)
 	if msg != "" || got.wsEndpoint() != "ws://127.0.0.1:1/cdp" {
 		t.Fatalf("default after the stop: %q %q", msg, got.wsEndpoint())
 	}
-	if got, msg := callEcho(t, a, map[string]any{"profile": "work"}); msg != "" || got.wsEndpoint() != "ws://127.0.0.1:1/cdp/p/work" {
+	if got, msg := callEcho(t, a, map[string]any{"browser": "work"}); msg != "" || got.wsEndpoint() != "ws://127.0.0.1:1/cdp/p/work" {
 		t.Fatalf("work after the stop: %q %q", msg, got.wsEndpoint())
 	}
 	now := b.childPIDs()
@@ -490,16 +533,10 @@ func TestBrowserMCPProfileStopClosesOnlyThatChild(t *testing.T) {
 }
 
 // A child that dies on its own is dropped; the session survives and the next
-// call to that profile respawns.
-func TestBrowserMCPChildDeathRespawns(t *testing.T) {
+// call to that browser respawns.
+func TestBrowserToolsChildDeathRespawns(t *testing.T) {
 	b := testBrowserMCP(t, "ok", 0)
-	srv := httptest.NewServer(b)
-	defer srv.Close()
-	sess, err := browserMCPConnect(t, srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sess.Close()
+	sess := mustConnect(t, mcpServerWith(t, b, "", "", false).URL, nil)
 	if _, msg := callEcho(t, sess, nil); msg != "" {
 		t.Fatal(msg)
 	}
@@ -514,20 +551,42 @@ func TestBrowserMCPChildDeathRespawns(t *testing.T) {
 	}
 }
 
-// No limit by default: many sessions and profiles each get their child.
-func TestBrowserMCPNoCapByDefault(t *testing.T) {
+// A session that makes no browser call for browserMCPIdle has its children
+// stopped (/mcp sessions have no timeout of their own); it stays a session, and
+// its next call spawns afresh.
+func TestBrowserToolsIdleSessionLosesItsChildren(t *testing.T) {
+	b := testBrowserMCP(t, "ok", 0)
+	sess := mustConnect(t, mcpServerWith(t, b, "", "", false).URL, nil)
+	if _, msg := callEcho(t, sess, nil); msg != "" {
+		t.Fatal(msg)
+	}
+	pid := b.childPIDs()[defaultBrowserProfile][0]
+	b.reapIdle(time.Now().Add(browserMCPIdle - time.Minute))
+	if !alive(pid) || b.liveChildren() != 1 {
+		t.Fatalf("reaped before the idle time")
+	}
+	b.reapIdle(time.Now().Add(browserMCPIdle + time.Minute))
+	waitGone(t, pid)
+	if b.liveChildren() != 0 || len(b.snapshot()) != 1 {
+		t.Errorf("after the reap: children=%d sessions=%d", b.liveChildren(), len(b.snapshot()))
+	}
+	if _, msg := callEcho(t, sess, nil); msg != "" {
+		t.Fatalf("after the reap: %s", msg)
+	}
+	if p := b.childPIDs()[defaultBrowserProfile]; len(p) != 1 || p[0] == pid {
+		t.Errorf("respawned = %v (old %d)", p, pid)
+	}
+}
+
+// No limit by default: many sessions and browsers each get their child.
+func TestBrowserToolsNoCapByDefault(t *testing.T) {
 	if b := newBrowserMCPBridge(browserMCPConfig{}); b.cfg.Max != 0 {
 		t.Errorf("default Max = %d, want 0 (no limit)", b.cfg.Max)
 	}
 	b := testBrowserMCP(t, "ok", 0)
-	srv := httptest.NewServer(b)
-	defer srv.Close()
+	srv := mcpServerWith(t, b, "", "", false)
 	for i := 0; i < 10; i++ {
-		sess, err := browserMCPConnect(t, srv.URL)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer sess.Close()
+		sess := mustConnect(t, srv.URL, nil)
 		if _, msg := callEcho(t, sess, nil); msg != "" {
 			t.Fatalf("session %d: %s", i, msg)
 		}
@@ -538,32 +597,24 @@ func TestBrowserMCPNoCapByDefault(t *testing.T) {
 }
 
 // The opt-in limit counts children, not sessions: a session over it still
-// opens, and its first call is refused naming the knob.
-func TestBrowserMCPOptInCap(t *testing.T) {
+// opens, and its first browser call is refused naming the knob.
+func TestBrowserToolsOptInCap(t *testing.T) {
 	testFleet(t)
 	if _, err := sharedBrowsers.create("Work", "work", ""); err != nil {
 		t.Fatal(err)
 	}
 	b := testBrowserMCP(t, "ok", 1)
-	srv := httptest.NewServer(b)
-	defer srv.Close()
-	first, err := browserMCPConnect(t, srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	srv := mcpServerWith(t, b, "", "", false)
+	first := mustConnect(t, srv.URL, nil)
 	if _, msg := callEcho(t, first, nil); msg != "" {
 		t.Fatal(msg)
 	}
-	second, err := browserMCPConnect(t, srv.URL)
-	if err != nil {
-		t.Fatalf("initialize spawns nothing, so it is never over the cap: %v", err)
-	}
-	defer second.Close()
+	second := mustConnect(t, srv.URL, nil)
 	if _, msg := callEcho(t, second, nil); !strings.Contains(msg, "limit of 1") || !strings.Contains(msg, "LASSO_BROWSER_MCP_MAX") {
 		t.Errorf("second session's call over the cap: %q", msg)
 	}
-	if _, msg := callEcho(t, first, map[string]any{"profile": "work"}); !strings.Contains(msg, "limit of 1") {
-		t.Errorf("a second profile in the same session over the cap: %q", msg)
+	if _, msg := callEcho(t, first, map[string]any{"browser": "work"}); !strings.Contains(msg, "limit of 1") {
+		t.Errorf("a second browser in the same session over the cap: %q", msg)
 	}
 	b.mu.Lock()
 	starting := b.starting
@@ -578,123 +629,89 @@ func TestBrowserMCPOptInCap(t *testing.T) {
 	}
 }
 
-// /browser-mcp/<id> is pinned to its profile as before: its tools take no
-// `profile`, calls dial that profile, and naming another is refused.
-func TestBrowserMCPPinnedPath(t *testing.T) {
-	f := testFleet(t)
-	if _, err := f.create("Work", "work", ""); err != nil {
-		t.Fatal(err)
-	}
-	b := testBrowserMCP(t, "ok", 0)
-	mux := http.NewServeMux()
-	mux.Handle("/browser-mcp", b)
-	mux.Handle("/browser-mcp/", b)
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-
-	if _, err := browserMCPConnect(t, srv.URL+"/browser-mcp/nope"); err == nil {
-		t.Errorf("an unknown pinned profile opened a session")
-	}
-	sess, err := browserMCPConnect(t, srv.URL+"/browser-mcp/work")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sess.Close()
-	if ins := sess.InitializeResult().Instructions; !strings.Contains(ins, `PROFILE "work"`) {
-		t.Errorf("instructions = %q", ins)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	lt, err := sess.ListTools(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, tl := range lt.Tools {
-		if s, _ := json.Marshal(tl.InputSchema); strings.Contains(string(s), `"profile"`) {
-			t.Errorf("pinned %s advertises profile: %s", tl.Name, s)
+// With no usable chrome-devtools-mcp, /mcp works as ever and simply has no
+// browser_* tools; shared_browser says why. Tools registered while it was
+// there are withdrawn by the next initialize once it is gone.
+func TestBrowserToolsUnavailable(t *testing.T) {
+	openTestDB(t)
+	for _, c := range []struct {
+		cfg  browserMCPConfig
+		look func(string) (string, error)
+		want []string
+	}{
+		{browserMCPConfig{Binary: "/nonexistent/chrome-devtools-mcp"}, nil, []string{"does not exist", "npm i -g chrome-devtools-mcp"}},
+		{browserMCPConfig{Binary: "off"}, nil, []string{"disabled"}},
+		{browserMCPConfig{}, func(string) (string, error) { return "", errors.New("not found") }, []string{"not installed", "mise use -g npm:chrome-devtools-mcp"}},
+	} {
+		b := newBrowserMCPBridge(c.cfg)
+		if c.look != nil {
+			b.lookPath = c.look
 		}
-	}
-	if b.liveChildren() != 0 {
-		t.Errorf("a pinned initialize spawned")
-	}
-	got, msg := callEcho(t, sess, map[string]any{"x": 1})
-	if msg != "" || got.wsEndpoint() != "ws://127.0.0.1:1/cdp/p/work" || got.Args["x"] != float64(1) {
-		t.Errorf("pinned call: %q %q %v", msg, got.wsEndpoint(), got.Args)
-	}
-	if got, msg := callEcho(t, sess, map[string]any{"profile": "Work"}); msg != "" || got.Args["profile"] != nil {
-		t.Errorf("matching profile: %q %v", msg, got.Args)
-	}
-	if _, msg := callEcho(t, sess, map[string]any{"profile": "default"}); !strings.Contains(msg, `pinned to browser profile "work"`) {
-		t.Errorf("mismatched profile: %q", msg)
-	}
-	if b.childPIDs()[defaultBrowserProfile] != nil {
-		t.Errorf("a pinned session spawned a default child")
-	}
-}
-
-func postInitialize(t *testing.T, h http.Handler) (int, string) {
-	t.Helper()
-	body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`
-	r := httptest.NewRequest("POST", "http://lasso.lan:8190/browser-mcp", strings.NewReader(body))
-	r.Header.Set("Content-Type", "application/json")
-	r.Header.Set("Accept", "application/json, text/event-stream")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, r)
-	return w.Code, w.Body.String()
-}
-
-func TestBrowserMCPUnavailable(t *testing.T) {
-	b := newBrowserMCPBridge(browserMCPConfig{Binary: "/nonexistent/chrome-devtools-mcp"})
-	if code, body := postInitialize(t, b); code != 503 || !strings.Contains(body, "does not exist") || !strings.Contains(body, "npm i -g chrome-devtools-mcp") {
-		t.Errorf("missing path: %d %q", code, body)
-	}
-	b = newBrowserMCPBridge(browserMCPConfig{Binary: "off"})
-	if code, body := postInitialize(t, b); code != 503 || !strings.Contains(body, "disabled") {
-		t.Errorf("off: %d %q", code, body)
-	}
-	b = newBrowserMCPBridge(browserMCPConfig{})
-	b.lookPath = func(string) (string, error) { return "", errors.New("not found") }
-	if code, body := postInitialize(t, b); code != 503 || !strings.Contains(body, "not installed") || !strings.Contains(body, "mise use -g npm:chrome-devtools-mcp") {
-		t.Errorf("not on PATH: %d %q", code, body)
+		sess := mustConnect(t, mcpServerWith(t, b, "", "", false).URL, nil)
+		tools := listTools(t, sess)
+		if tools["list_agents"] == nil || len(browserToolNames(tools)) != 0 {
+			t.Errorf("%+v: tools = %v", c.cfg, tools)
+		}
+		var out sharedBrowserOut
+		if msg := callTool(t, sess, "shared_browser", map[string]any{"start": false}, &out); msg != "" {
+			t.Fatal(msg)
+		}
+		for _, w := range c.want {
+			if out.BrowserTools || !strings.Contains(out.ToolsReason, w) {
+				t.Errorf("%+v: shared_browser = %v %q, want %q", c.cfg, out.BrowserTools, out.ToolsReason, w)
+			}
+		}
 	}
 	var nilBridge *browserMCPBridge
-	if code, _ := postInitialize(t, nilBridge); code != 503 {
-		t.Errorf("unconfigured: %d", code)
+	if _, reason, ok := nilBridge.resolve(); ok || !strings.Contains(reason, "not configured") {
+		t.Errorf("unconfigured: %v %q", ok, reason)
+	}
+
+	// Registered, then switched off: the next initialize withdraws them.
+	b := testBrowserMCP(t, "ok", 0)
+	srv := mcpServerWith(t, b, "", "", false)
+	sess := mustConnect(t, srv.URL, nil)
+	if got := browserToolNames(listTools(t, sess)); len(got) != fakeToolCount {
+		t.Fatalf("browser tools = %v", got)
+	}
+	b.cfg.Binary = "off"
+	sess = mustConnect(t, srv.URL, nil)
+	if got := browserToolNames(listTools(t, sess)); len(got) != 0 {
+		t.Errorf("after off: browser tools = %v", got)
 	}
 }
 
-func TestBrowserMCPChildFailsToStart(t *testing.T) {
+// A chrome-devtools-mcp that cannot start is never /mcp's problem: initialize
+// succeeds without browser tools, and the broken binary is not re-probed on
+// every initialize.
+func TestBrowserToolsProbeFailure(t *testing.T) {
 	b := testBrowserMCP(t, "crash", 4)
-	srv := httptest.NewServer(b)
-	defer srv.Close()
-	_, err := browserMCPConnect(t, srv.URL)
-	if err == nil {
-		t.Fatal("a child that dies on startup produced a session")
-	}
-	for _, want := range []string{"exited during startup", "exit status 3", "boom: fake chrome-devtools-mcp failure"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error %q lacks %q", err, want)
+	srv := mcpServerWith(t, b, "", "", false)
+	for i := 0; i < 3; i++ {
+		sess, err := mcpConnect(t, srv.URL, nil)
+		if err != nil {
+			t.Fatalf("a broken chrome-devtools-mcp broke /mcp: %v", err)
+		}
+		if got := browserToolNames(listTools(t, sess)); len(got) != 0 {
+			t.Errorf("browser tools from a crashing child: %v", got)
 		}
 	}
+	if n := b.probes.Load(); n != 1 {
+		t.Errorf("probes = %d, want 1 (a failure is remembered)", n)
+	}
 	if len(b.snapshot()) != 0 || b.liveChildren() != 0 || b.starting != 0 {
-		t.Errorf("after a failed start: sessions=%d children=%d starting=%d", len(b.snapshot()), b.liveChildren(), b.starting)
+		t.Errorf("after a failed probe: sessions=%d children=%d starting=%d", len(b.snapshot()), b.liveChildren(), b.starting)
 	}
 }
 
 // With the tool list already learned, a child that fails to start is the tool
 // call's error (isError, with the reason), not a broken session.
-func TestBrowserMCPSpawnFailureIsAToolError(t *testing.T) {
+func TestBrowserToolsSpawnFailureIsAToolError(t *testing.T) {
 	b := testBrowserMCP(t, "ok", 0)
-	srv := httptest.NewServer(b)
-	defer srv.Close()
-	sess, err := browserMCPConnect(t, srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sess.Close()
+	sess := mustConnect(t, mcpServerWith(t, b, "", "", false).URL, nil)
 	b.cfg.ExtraEnv = []string{fakeBrowserMCPEnv + "=crash"}
 	_, msg := callEcho(t, sess, nil)
-	if !strings.Contains(msg, "exited during startup") || !strings.Contains(msg, "boom") {
+	if !strings.Contains(msg, "exited during startup") || !strings.Contains(msg, "exit status 3") || !strings.Contains(msg, "boom") {
 		t.Errorf("spawn failure: %q", msg)
 	}
 	b.cfg.ExtraEnv = []string{fakeBrowserMCPEnv + "=ok"}
@@ -703,91 +720,164 @@ func TestBrowserMCPSpawnFailureIsAToolError(t *testing.T) {
 	}
 }
 
-func TestBrowserMCPAuthGate(t *testing.T) {
-	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(299) })
-	do := func(h http.Handler, origin, user, pass, bearer string) int {
-		r := httptest.NewRequest("POST", "http://lasso.lan:8190/browser-mcp", nil)
-		if origin != "" {
-			r.Header.Set("Origin", origin)
-		}
-		if user != "" {
-			r.SetBasicAuth(user, pass)
-		}
-		if bearer != "" {
-			r.Header.Set("Authorization", "Bearer "+bearer)
-		}
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, r)
-		return w.Code
-	}
+// ---------------------------------------------------------------------------
+// the gate: /cdp's standard on every browser tool call
+// ---------------------------------------------------------------------------
+
+// Under UI_AUTH alone /mcp is open, but the browser tools are not: a call
+// without the UI_AUTH credentials (or with wrong ones, or with a forged gate
+// header) is a tool error and spawns nothing, while lasso's other tools work.
+func TestBrowserToolsRefusedUnderUIAuthWithoutCredentials(t *testing.T) {
 	prev := oauthCfg
 	oauthCfg = oauthConf{}
 	t.Cleanup(func() { oauthCfg = prev })
+	testFleet(t)
+	b := testBrowserMCP(t, "ok", 0)
+	srv := mcpServerWith(t, b, "u", "p", true)
 
-	// Open: neither UI_AUTH nor MCP_OAUTH.
-	h := withBrowserMCPAuth(ok, "", "", false)
-	if c := do(h, "", "", "", ""); c != 299 {
-		t.Errorf("open: %d", c)
+	forged := http.Header{browserGateHeader: {"ok"}, browserRefusalHeader: {""}}
+	for name, rt := range map[string]http.RoundTripper{
+		"none":   nil,
+		"wrong":  hdrRT{user: "u", pass: "wrong"},
+		"forged": hdrRT{h: forged},
+	} {
+		sess, err := mcpConnect(t, srv.URL, rt)
+		if err != nil {
+			t.Fatalf("%s: /mcp itself is open under UI_AUTH alone: %v", name, err)
+		}
+		tools := listTools(t, sess)
+		if len(browserToolNames(tools)) != fakeToolCount {
+			t.Errorf("%s: browser tools not listed: %v", name, tools)
+		}
+		if _, msg := callEcho(t, sess, nil); !strings.Contains(msg, "UI_AUTH") {
+			t.Errorf("%s: browser call = %q, want a UI_AUTH refusal", name, msg)
+		}
+		var browsers listBrowsersOut
+		if msg := callTool(t, sess, "list_browsers", nil, &browsers); msg != "" || len(browsers.Browsers) == 0 {
+			t.Errorf("%s: lasso's other tools should not need UI_AUTH: %s", name, msg)
+		}
 	}
-	if c := do(h, "https://evil.example", "", "", ""); c != 403 {
-		t.Errorf("open, foreign Origin: %d", c)
+	if b.liveChildren() != 0 || len(b.snapshot()) != 0 {
+		t.Errorf("refused calls spawned: children=%d sessions=%d", b.liveChildren(), len(b.snapshot()))
 	}
-	if c := do(h, "null", "", "", ""); c != 403 {
-		t.Errorf("open, null Origin: %d", c)
-	}
-	// UI_AUTH only: basic, like /cdp (NOT open like /mcp — this fronts /cdp).
-	h = withBrowserMCPAuth(ok, "u", "p", true)
-	if c := do(h, "", "", "", ""); c != 401 {
-		t.Errorf("UI_AUTH, none: %d", c)
-	}
-	if c := do(h, "", "u", "wrong", ""); c != 401 {
-		t.Errorf("UI_AUTH, wrong: %d", c)
-	}
-	if c := do(h, "", "u", "p", ""); c != 299 {
-		t.Errorf("UI_AUTH, right: %d", c)
-	}
-	if c := do(h, "https://evil.example", "u", "p", ""); c != 403 {
-		t.Errorf("UI_AUTH, foreign Origin with creds: %d", c)
+	sess := mustConnect(t, srv.URL, hdrRT{user: "u", pass: "p"})
+	if _, msg := callEcho(t, sess, nil); msg != "" {
+		t.Errorf("with the credentials: %s", msg)
 	}
 }
 
-func TestBrowserMCPAuthGateOAuth(t *testing.T) {
+// A foreign Origin is refused whatever the credentials — a web page must not
+// drive the browser through a loopback lasso — while no Origin (an agent's MCP
+// client) and lasso's own origin pass.
+func TestBrowserToolsRefuseForeignOrigin(t *testing.T) {
+	prev := oauthCfg
+	oauthCfg = oauthConf{}
+	t.Cleanup(func() { oauthCfg = prev })
+	openTestDB(t)
+	b := testBrowserMCP(t, "ok", 0)
+
+	open := mcpServerWith(t, b, "", "", false)
+	for _, origin := range []string{"https://evil.example", "null", "http://127.0.0.1:1"} {
+		sess := mustConnect(t, open.URL, hdrRT{h: http.Header{"Origin": {origin}}})
+		if _, msg := callEcho(t, sess, nil); !strings.Contains(msg, "cross-origin") {
+			t.Errorf("open, Origin %s: %q", origin, msg)
+		}
+	}
+	if b.liveChildren() != 0 {
+		t.Errorf("a cross-origin call spawned")
+	}
+	sess := mustConnect(t, open.URL, hdrRT{h: http.Header{"Origin": {open.URL}}})
+	if _, msg := callEcho(t, sess, nil); msg != "" {
+		t.Errorf("lasso's own origin: %s", msg)
+	}
+
+	authed := mcpServerWith(t, b, "u", "p", true)
+	sess = mustConnect(t, authed.URL, hdrRT{h: http.Header{"Origin": {"https://evil.example"}}, user: "u", pass: "p"})
+	if _, msg := callEcho(t, sess, nil); !strings.Contains(msg, "cross-origin") {
+		t.Errorf("UI_AUTH, foreign Origin with credentials: %q", msg)
+	}
+}
+
+// Under MCP_OAUTH /mcp needs a credential, and the browser tools also need its
+// reach to include lasso's own machine, where the browsers run.
+func TestBrowserToolsRefuseNonLocalCallerUnderOAuth(t *testing.T) {
 	openTestDB(t)
 	enableOAuth(t, "")
 	stubSSHHosts(t, "gigachad")
-	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(299) })
-	do := func(h http.Handler, origin, bearer string) int {
-		r := httptest.NewRequest("POST", "http://lasso.lan:8190/browser-mcp", nil)
-		if origin != "" {
-			r.Header.Set("Origin", origin)
-		}
-		if bearer != "" {
-			r.Header.Set("Authorization", "Bearer "+bearer)
-		}
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, r)
-		return w.Code
+	b := testBrowserMCP(t, "ok", 0)
+	srv := mcpServerWith(t, b, "", "", false)
+
+	if _, err := mcpConnect(t, srv.URL, nil); err == nil {
+		t.Errorf("no token: /mcp answered")
 	}
-	h := withBrowserMCPAuth(ok, "", "", false)
-	if c := do(h, "", ""); c != 401 {
-		t.Errorf("no token: %d", c)
+	remote := mustConnect(t, srv.URL, bearerRT{token: hostClientToken(t, "gigachad", scopeSelf)})
+	if _, msg := callEcho(t, remote, nil); !strings.Contains(msg, "outside this credential's reach") {
+		t.Errorf("self-scoped remote token: %q", msg)
 	}
-	if c := do(h, "", "garbage"); c != 401 {
-		t.Errorf("bad token: %d", c)
-	}
-	// No same-origin allowance: no page of lasso's speaks MCP.
-	if c := do(h, "http://lasso.lan:8190", ""); c != 401 {
-		t.Errorf("same-origin without token: %d", c)
-	}
-	if c := do(h, "", hostClientToken(t, "gigachad", scopeSelf)); c != http.StatusForbidden {
-		t.Errorf("self-scoped remote token: %d, want 403", c)
+	if b.liveChildren() != 0 {
+		t.Errorf("a refused call spawned")
 	}
 	local := hostClientToken(t, "local", scopeSelf)
-	if c := do(h, "", local); c != 299 {
-		t.Errorf("lasso-host token: %d", c)
+	sess := mustConnect(t, srv.URL, bearerRT{token: local})
+	if _, msg := callEcho(t, sess, nil); msg != "" {
+		t.Errorf("lasso-host token: %s", msg)
 	}
-	if c := do(h, "https://evil.example", local); c != 403 {
-		t.Errorf("foreign Origin with a good token: %d", c)
+	evil := mustConnect(t, srv.URL, hdrRT{h: http.Header{"Origin": {"https://evil.example"}, "Authorization": {"Bearer " + local}}})
+	if _, msg := callEcho(t, evil, nil); !strings.Contains(msg, "cross-origin") {
+		t.Errorf("foreign Origin with a good token: %q", msg)
+	}
+}
+
+// A call that never passed withBrowserToolGate (no HTTP request, or a header a
+// client made up) is refused: the verdict is a per-process secret, not a flag.
+func TestBrowserToolRefusalWithoutTheGate(t *testing.T) {
+	for _, req := range []*mcp.CallToolRequest{
+		nil,
+		{},
+		{Extra: &mcp.RequestExtra{Header: http.Header{}}},
+		{Extra: &mcp.RequestExtra{Header: http.Header{browserGateHeader: {"ok"}}}},
+		{Extra: &mcp.RequestExtra{Header: http.Header{browserGateHeader: {browserGateToken[:63] + "x"}}}},
+	} {
+		if browserToolRefusal(req) == "" {
+			t.Errorf("%+v passed", req)
+		}
+	}
+	ok := &mcp.CallToolRequest{Extra: &mcp.RequestExtra{Header: http.Header{browserGateHeader: {browserGateToken}}}}
+	if why := browserToolRefusal(ok); why != "" {
+		t.Errorf("the real token: %s", why)
+	}
+
+	// The wrapper overwrites whatever a client sent.
+	var seen http.Header
+	h := withBrowserToolGate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { seen = r.Header.Clone() }), "u", "p", true)
+	r := httptest.NewRequest("POST", "http://lasso.lan:8190/mcp", nil)
+	r.Header.Set(browserGateHeader, browserGateToken) // even the right value, guessed
+	r.Header.Set(browserRefusalHeader, "")
+	h.ServeHTTP(httptest.NewRecorder(), r)
+	if seen.Get(browserGateHeader) != "" || !strings.Contains(seen.Get(browserRefusalHeader), "UI_AUTH") {
+		t.Errorf("headers after the gate: %v", seen)
+	}
+}
+
+func TestBrowserToolRename(t *testing.T) {
+	in := &mcp.Tool{Name: "take_snapshot", Description: "Take a snapshot. Prefer it to take_screenshot; click and fill use its uids. See list_pages.",
+		InputSchema: map[string]any{"type": "object", "properties": map[string]any{
+			"filePath": map[string]any{"type": "string", "description": "Like take_screenshot's."},
+			"browser":  nil,
+		}}}
+	out, own := browserTool(in, []string{"take_snapshot", "take_screenshot", "click", "fill", "list_pages"})
+	if out.Name != "browser_take_snapshot" || !own {
+		t.Errorf("name %q own %v", out.Name, own)
+	}
+	if out.Description != "Take a snapshot. Prefer it to browser_take_screenshot; click and fill use its uids. See browser_list_pages." {
+		t.Errorf("description = %q", out.Description)
+	}
+	s, _ := json.Marshal(out.InputSchema)
+	if !strings.Contains(string(s), "Like browser_take_screenshot's.") {
+		t.Errorf("schema = %s", s)
+	}
+	if in.Name != "take_snapshot" || strings.Contains(in.Description, "browser_") {
+		t.Errorf("the cached tool was modified: %+v", in)
 	}
 }
 
@@ -807,6 +897,9 @@ func TestInternalCDPToken(t *testing.T) {
 	if len(internalCDPToken) != 64 {
 		t.Fatalf("token length %d", len(internalCDPToken))
 	}
+	if internalCDPToken == browserGateToken {
+		t.Fatalf("the internal CDP token and the browser gate token are the same value")
+	}
 	for _, p := range []string{"/cdp", "/cdp/", "/cdp/json/list"} {
 		if c := do(p, internalCDPToken); c != 299 {
 			t.Errorf("right token on %s: %d", p, c)
@@ -819,7 +912,7 @@ func TestInternalCDPToken(t *testing.T) {
 		t.Errorf("no token: %d", c)
 	}
 	// The token opens /cdp and nothing else.
-	for _, p := range []string{"/api/browser", "/browser-mcp", "/mcp", "/cdpx"} {
+	for _, p := range []string{"/api/browser", "/mcp", "/cdpx"} {
 		if c := do(p, internalCDPToken); c != 403 {
 			t.Errorf("right token on %s: %d", p, c)
 		}
@@ -881,42 +974,44 @@ func TestBrowserMCPListenAddr(t *testing.T) {
 	}
 }
 
-// The shared_browser tool and /api/browser both report the MCP endpoint.
-func TestSharedBrowserReportsMCPEndpoint(t *testing.T) {
+// The shared_browser tool and /api/browser both report whether the browser
+// tools can run, and shared_browser hands back the CDP listing's URL.
+func TestSharedBrowserReportsBrowserTools(t *testing.T) {
 	openTestDB(t)
 	f := newFakeChromium(t)
-	prevB, prevM := sharedBrowser, browserMCP
+	prevB := sharedBrowser
 	sharedBrowser = testBrowserManager(t, f)
-	browserMCP = testBrowserMCP(t, "ok", 4)
-	t.Cleanup(func() { sharedBrowser, browserMCP = prevB, prevM })
+	t.Cleanup(func() { sharedBrowser = prevB })
+	b := testBrowserMCP(t, "ok", 4)
+	srv := mcpServerWith(t, b, "", "", false)
 
 	st := sharedBrowser.status()
-	if !st.MCPAvailable || st.MCPBinary == "" || st.MCPReason != "" || st.MCPSessions != 0 {
+	if !st.ToolsAvailable || st.ToolsBinary == "" || st.ToolsReason != "" || st.ToolsSessions != 0 {
 		t.Errorf("status = %+v", st)
 	}
 
-	srv := httptest.NewServer(withRequestBase(newMCPHandler()))
-	defer srv.Close()
-	sess, err := browserMCPConnect(t, srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sess.Close()
+	sess := mustConnect(t, srv.URL, nil)
 	var out sharedBrowserOut
 	if msg := callTool(t, sess, "shared_browser", map[string]any{"start": false}, &out); msg != "" {
 		t.Fatal(msg)
 	}
 	su, _ := url.Parse(srv.URL)
-	if out.MCPEndpoint != "http://"+su.Host+"/browser-mcp" || !out.MCPAvailable || out.MCPReason != "" {
+	if !out.BrowserTools || out.ToolsReason != "" || out.BrowsersURL != "http://"+su.Host+"/cdp/browsers" || out.Browser != "default" {
 		t.Errorf("out = %+v", out)
 	}
+	if _, msg := callEcho(t, sess, nil); msg != "" {
+		t.Fatal(msg)
+	}
+	if st := sharedBrowser.status(); st.ToolsSessions != 1 {
+		t.Errorf("tools_sessions = %d after a call", st.ToolsSessions)
+	}
 
-	browserMCP = newBrowserMCPBridge(browserMCPConfig{Binary: "off"})
+	b.cfg.Binary = "off"
 	out = sharedBrowserOut{}
 	if msg := callTool(t, sess, "shared_browser", map[string]any{"start": false}, &out); msg != "" {
 		t.Fatal(msg)
 	}
-	if out.MCPAvailable || !strings.Contains(out.MCPReason, "disabled") {
+	if out.BrowserTools || !strings.Contains(out.ToolsReason, "disabled") {
 		t.Errorf("off: %+v", out)
 	}
 }

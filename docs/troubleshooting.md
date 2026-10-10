@@ -85,8 +85,8 @@ On Ubuntu 23.10 and later, AppArmor lets only binaries with an AppArmor profile 
 - write an AppArmor profile that grants `userns` to the binary you want to use;
 - knowingly run it unsandboxed with `LASSO_BROWSER_ARGS=--no-sandbox`. Every page an agent opens then runs with your full user privileges.
 
-**`the browser profile ... is in use by another lasso (pid N); give a second instance its own LASSO_DIR`**
-Two lasso instances on one machine can't share a browser profile. Start the second with its own data directory, such as `LASSO_DIR=~/.lasso-second`.
+**`the browser data directory ... is in use by another lasso (pid N); give a second instance its own LASSO_DIR`**
+Two lasso instances on one machine can't share a browser's data directory. Start the second with its own data directory, such as `LASSO_DIR=~/.lasso-second`.
 
 **Iframe mode shows an error instead of the page**
 Iframe mode loads the page in your own browser, so your browser's rules apply:
@@ -97,14 +97,22 @@ Iframe mode loads the page in your own browser, so your browser's rules apply:
 
 **Agent** mode has none of these limits, because the page runs in the shared browser on lasso's machine. There, a bare port means `localhost` on lasso's machine.
 
-## `/browser-mcp` answers 503
+## No `browser_*` tools on `/mcp`
 
-`/browser-mcp` runs Google's chrome-devtools-mcp on lasso's machine, and answers 503 with the reason when it can't:
+The `browser_*` tools are Google's chrome-devtools-mcp, run by lasso on its own machine. When it can't run them, `/mcp` simply has none, and the `shared_browser` tool's `browser_tools_reason` (and **Settings → General → Terminal & browser**) says why:
 
-- `chrome-devtools-mcp is not installed on lasso's machine` — install it there (not on the agent's machine): `npm i -g chrome-devtools-mcp` or `mise use -g npm:chrome-devtools-mcp`, or set `LASSO_BROWSER_MCP` to its path. lasso deliberately has no `npx` fallback.
-- `the browser MCP endpoint is disabled` — `LASSO_BROWSER_MCP=off` or `-browser-mcp off` is set.
+- `chrome-devtools-mcp is not installed on lasso's machine` — install it there (not on the agent's machine): `npm i -g chrome-devtools-mcp` or `mise use -g npm:chrome-devtools-mcp`, or set `LASSO_BROWSER_MCP` to its path. lasso deliberately has no `npx` fallback. The tools appear on the next MCP session's initialize, with no restart.
+- `the browser tools are disabled` — `LASSO_BROWSER_MCP=off` or `-browser-mcp off` is set.
 
-`lasso connect` registers `lasso-browser` only when this endpoint can serve, and says what's missing otherwise.
+`lasso connect` prints the same reason.
+
+## A `browser_*` call is refused
+
+The browser tools are gated like `/cdp`, more strictly than the rest of `/mcp`, and a call that falls short comes back as a tool error:
+
+- `the browser tools need lasso's UI_AUTH credentials` — lasso has `UI_AUTH` set without `MCP_OAUTH`. `/mcp` itself is open then, but the browser tools need the `UI_AUTH` basic credentials on the agent's MCP connection (an `Authorization: Basic …` header; `lasso connect` registers them when `UI_AUTH` is in its environment).
+- `… outside this credential's reach` — under `MCP_OAUTH`, a per-host credential whose scope does not include lasso's own machine, where the browsers run.
+- `the browser tools refuse a cross-origin request` — the request carried an `Origin` from another website.
 
 ## Plugins
 

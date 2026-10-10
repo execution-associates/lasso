@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,53 +23,66 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// /browser-mcp — the shared browser as an MCP server (see browser.go for the
-// browser itself). An agent adds ONE HTTP MCP URL and gets Google's
-// chrome-devtools-mcp tool surface against every profile of the Chromium the
-// human watches in the Browser tab, with nothing installed on the agent's
-// machine and lasso's own auth in front of it.
+// The browser tools — lasso's shared browsers driven through Google's
+// chrome-devtools-mcp, served as tools on lasso's own /mcp beside list_agents
+// and the rest (see browser.go for the browsers themselves). An agent that has
+// lasso's MCP server has the browser: nothing to install on its machine, no
+// second server to add, lasso's own auth in front.
 //
-// chrome-devtools-mcp only speaks stdio — it has no HTTP server mode — so lasso
-// is a BRIDGE. Every tool it mirrors gains an optional `profile` argument; the
-// bridge strips it and forwards the call to this session's child for that
-// profile, spawning the child on the first call that needs it. So one MCP
-// session holds up to one chrome-devtools-mcp child per profile it has used,
-// and a session that never calls a browser tool holds none. Children are per
-// session (not shared) because chrome-devtools-mcp keeps per-client state — the
-// "selected page", console/network buffers, emulation — and per profile
-// because a profile is its own Chromium, which one child can only dial one of.
+// chrome-devtools-mcp only speaks stdio, so lasso is a BRIDGE. It learns
+// chrome-devtools-mcp's tool list once per process (a short probe child,
+// refreshed by every real spawn and re-probed when the binary changes) and
+// registers each tool on the shared /mcp server as browser_<name>, with an
+// optional `browser` argument added. A call strips `browser` and forwards to
+// the calling session's child for that browser, spawning it on the first call
+// that needs it. So one MCP session holds up to one chrome-devtools-mcp child
+// per browser it has used, and a session that never calls a browser tool holds
+// none. Children are per session (not shared) because chrome-devtools-mcp
+// keeps per-client state — the "selected page", console/network buffers,
+// emulation — and per browser because one child can only dial one browser.
 //
-// initialize and tools/list are answered from a cached copy of
-// chrome-devtools-mcp's tool list, learned once per lasso process (a short
-// probe child the first time a session needs it, refreshed by every real spawn
-// and re-probed when the binary changes), which is what lets a session start
-// without spawning anything.
+// The shared server is one *mcp.Server for every session, but every tool call
+// carries its *mcp.ServerSession, which is what children are keyed by; the
+// session's end is ServerSession.Wait returning.
 //
-// /browser-mcp/<id> still exists for configs written before this: the same
-// session pinned to one profile, whose tools take no `profile`.
+// A child connects to lasso's OWN /cdp (/cdp/p/<id> for a browser other than
+// the default), never to Chromium's loopback port: that address survives
+// relaunches, launches the browser lazily, and its in-flight counter is what
+// keeps the idle stop from firing under an agent that is still connected. It
+// authenticates with an internal token (see internalCDPToken in cdpproxy.go)
+// because an agent's credential never reaches lasso's own child.
 //
-// A child connects to lasso's OWN /cdp (/cdp/p/<id> for a profile), never to
-// Chromium's loopback port: that address survives relaunches, launches the
-// browser lazily, and its in-flight counter is what keeps the idle stop from
-// firing under an agent that is still connected. It authenticates with an
-// internal token (see internalCDPToken in cdpproxy.go) because an agent's
-// credential never reaches lasso's own child.
+// The browser tools are gated to /cdp's standard, which is stricter than the
+// rest of /mcp (withBrowserToolGate, browserToolRefusal): a foreign Origin is
+// refused, under UI_AUTH alone the call needs the UI_AUTH credentials, and
+// under MCP_OAUTH the caller's reach must include lasso's own machine. A call
+// that does not meet it is a tool error.
 //
-// Lifetime: a profile's browser stopping (stop, relaunch, idle stop, crash)
-// closes that profile's child in every session and nothing else — its CDP
-// connection is dead, and the next call to that profile spawns a fresh one. A
-// child that dies on its own is dropped the same way. The SESSION ends when the
-// client DELETEs it, after browserMCPSessionTimeout idle, or at shutdown, and
-// that kills every child it holds.
+// Lifetime: a browser stopping (stop, relaunch, idle stop, crash) closes that
+// browser's child in every session and nothing else — its CDP connection is
+// dead, and the next call to that browser spawns a fresh one. A child that dies
+// on its own is dropped the same way. The session ending (DELETE, shutdown)
+// kills every child it holds, and so does browserMCPIdle without a browser
+// call: /mcp sessions have no timeout of their own, so a client that went away
+// without closing its session would otherwise keep its children forever.
 
-// browserMCPSessionTimeout reaps the children of an agent that went away
-// without closing its session (a killed process, a laptop lid). The SDK pauses
-// it while a POST is being answered, so a long tool call never trips it.
-const browserMCPSessionTimeout = 30 * time.Minute
+// browserMCPIdle stops the children of a session that has made no browser
+// call for this long (the session itself stays: it is /mcp's). The next call
+// spawns a fresh child, as after a browser restart.
+const browserMCPIdle = 30 * time.Minute
 
 // browserMCPStartTimeout bounds spawning a child through its tools/list. node's
 // cold start is a second or two; anything past this is a child that is stuck.
 const browserMCPStartTimeout = 45 * time.Second
+
+// browserMCPListWait is how long an /mcp initialize waits for a tool-list probe
+// in flight before answering without the browser tools; the probe's result is
+// announced with tools/list_changed when it lands.
+const browserMCPListWait = 10 * time.Second
+
+// browserMCPProbeRetry keeps a binary whose probe failed from being probed on
+// every initialize.
+const browserMCPProbeRetry = time.Minute
 
 // browserMCPTerminate is how long the SDK's stdio close waits after closing the
 // child's stdin (and again after SIGTERM) before escalating.
@@ -78,26 +94,26 @@ const browserMCPTerminate = 2 * time.Second
 // browser's logged-in profile, is a supply-chain hole with lasso's name on it.
 const browserMCPInstallHint = "install it on lasso's machine (`npm i -g chrome-devtools-mcp` or `mise use -g npm:chrome-devtools-mcp`), or set LASSO_BROWSER_MCP to its path"
 
-// browserMCPInstructions is surfaced to the model once per session through
-// initialize. It is the etiquette of a browser someone else is looking at.
-const browserMCPInstructions = `This is lasso's SHARED browser: a real Chromium on lasso's machine that a human is watching live in lasso's Browser tab, and that other agents may be using too.
+// browserToolPrefix names every mirrored chrome-devtools-mcp tool on /mcp:
+// click is browser_click, navigate_page is browser_navigate_page. lasso's own
+// browser tools (list_browsers, open_browser_tab, …) do not start with it, so
+// the prefix is the whole of what marks a tool as chrome-devtools-mcp's.
+const browserToolPrefix = "browser_"
 
-- The human's tab shows ONE page, the most recently opened. Open your own page (new_page) rather than navigating a page you did not open, unless the human asked you to work in theirs.
-- Close the pages you opened (close_page) when you are done.
-- localhost inside this browser means lasso's machine, not yours.
-- Accounts logged into this browser are the human's, not yours: reading is fine, but posting, sending, accepting or buying anything needs the human's go-ahead first.`
+// browserToolParam is the argument every browser_* tool gains, and loses again
+// before the call reaches a child.
+const browserToolParam = "browser"
 
-// browserMCPProfileParam is the argument the bridge adds to every mirrored
-// tool of a /browser-mcp session, and strips before the call reaches a child.
-const browserMCPProfileParam = "profile"
+// browserToolParamDesc is that argument's description.
+const browserToolParamDesc = "Which browser to run this in: its id or display name (list_browsers shows them). Omit for the default browser. Each browser is a separate Chromium (or a remote browser lasso dials) with its own cookies, logins and pages, so a pageId from one browser means nothing in another."
 
 type browserMCPConfig struct {
 	Binary    string // -browser-mcp / LASSO_BROWSER_MCP: a path or PATH name; "off" disables; "" = chrome-devtools-mcp
 	ExtraArgs string // LASSO_BROWSER_MCP_ARGS, whitespace-split after lasso's own
 	// Max is the most chrome-devtools-mcp children alive at once across every
-	// session and profile (-browser-mcp-max / LASSO_BROWSER_MCP_MAX); <= 0 is no
-	// limit, the default. The tool-list probe is not counted: it is what lets a
-	// session start without a child, and it lives for a second.
+	// session and browser (-browser-mcp-max / LASSO_BROWSER_MCP_MAX); <= 0 is
+	// no limit, the default. The tool-list probe is not counted: it lives for a
+	// second.
 	Max int
 	// ExtraEnv is appended to the child's minimal environment. A test seam (the
 	// fake child is this test binary, told what to be by an env var); nothing in
@@ -105,30 +121,39 @@ type browserMCPConfig struct {
 	ExtraEnv []string
 }
 
-// browserMCPBridge serves /browser-mcp.
+// browserMCPBridge serves the browser_* tools on lasso's /mcp.
 type browserMCPBridge struct {
 	cfg      browserMCPConfig
 	lookPath func(string) (string, error)
-	handler  *mcp.StreamableHTTPHandler
 
 	// cdpEndpoint is ws://<the address lasso bound>/cdp, set once the listener
 	// is up (the route table is built before the bind).
 	cdpEndpoint atomic.Value // string
 
 	mu       sync.Mutex
-	live     map[*browserMCPSession]struct{} // initialized sessions, with or without children
-	children int                             // counted children alive, across every session
-	starting int                             // slots reserved by spawns still in flight
+	live     map[*mcp.ServerSession]*browserMCPSession // sessions that have called a browser tool
+	children int                                       // counted children alive, across every session
+	starting int                                       // slots reserved by spawns still in flight
 
 	// tools is chrome-devtools-mcp's tool list, keyed by the binary it came
 	// from; probeMu makes a burst of first initializes share one probe.
 	tools   atomic.Pointer[browserMCPToolCache]
 	probeMu sync.Mutex
 	probes  atomic.Int64 // probe children spawned, for tests
+	failKey string       // under probeMu: the binary whose last probe failed
+	failAt  time.Time
+
+	// regMu guards what is registered on srv: the names, and the list they
+	// came from (so an unchanged list is not re-added, which would send every
+	// session a tools/list_changed for nothing).
+	regMu    sync.Mutex
+	srv      *mcp.Server
+	regNames map[string]bool
+	regList  []*mcp.Tool
 }
 
 // browserMCPToolCache is one binary's tool list, already filtered to what
-// Server.AddTool accepts. Sessions register copies; nothing mutates it.
+// Server.AddTool accepts. Registration makes copies; nothing mutates it.
 type browserMCPToolCache struct {
 	key   string
 	tools []*mcp.Tool
@@ -139,23 +164,8 @@ type browserMCPToolCache struct {
 var browserMCP *browserMCPBridge
 
 func newBrowserMCPBridge(cfg browserMCPConfig) *browserMCPBridge {
-	b := &browserMCPBridge{cfg: cfg, lookPath: exec.LookPath, live: map[*browserMCPSession]struct{}{}}
+	b := &browserMCPBridge{cfg: cfg, lookPath: exec.LookPath, live: map[*mcp.ServerSession]*browserMCPSession{}}
 	b.cdpEndpoint.Store("")
-	// getServer is called for every request that carries no session id — in
-	// practice the initialize that opens a session (anything else without an id
-	// fails initialization and the SDK closes it). Each gets a server of its
-	// own, since a session's children are its own.
-	b.handler = mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
-		// /browser-mcp/<id> pins the session to that profile (ServeHTTP has
-		// already refused a malformed or unknown one); bare /browser-mcp routes.
-		return b.newSessionServer(strings.Trim(strings.TrimPrefix(r.URL.Path, "/browser-mcp"), "/"))
-	}, &mcp.StreamableHTTPOptions{
-		// Same reason as newMCPHandler: lasso is loopback-bound and reached
-		// through a tunnel under a public Host, which the SDK's DNS-rebinding
-		// guard would 403. The gate is withBrowserMCPAuth plus Access.
-		DisableLocalhostProtection: true,
-		SessionTimeout:             browserMCPSessionTimeout,
-	})
 	return b
 }
 
@@ -177,14 +187,14 @@ func (b *browserMCPBridge) setListenAddr(addr net.Addr) {
 }
 
 // resolve finds the chrome-devtools-mcp to run. ok=false carries a reason the
-// Settings pane, /api/browser and a refused session all show as-is.
+// Settings pane, /api/browser and shared_browser all show as-is.
 func (b *browserMCPBridge) resolve() (bin, reason string, ok bool) {
 	if b == nil {
-		return "", "the browser MCP endpoint is not configured on this lasso", false
+		return "", "the browser tools are not configured on this lasso", false
 	}
 	e := strings.TrimSpace(b.cfg.Binary)
 	if strings.EqualFold(e, "off") {
-		return "", "the browser MCP endpoint is disabled (LASSO_BROWSER_MCP=off / -browser-mcp off)", false
+		return "", "the browser tools are disabled (LASSO_BROWSER_MCP=off / -browser-mcp off)", false
 	}
 	if e == "" {
 		e = "chrome-devtools-mcp"
@@ -206,7 +216,7 @@ func (b *browserMCPBridge) resolve() (bin, reason string, ok bool) {
 }
 
 // sessions is the number of sessions holding at least one child: the agents
-// actually using the browser, not every client that merely loaded the server.
+// actually using a browser, not every client connected to /mcp.
 func (b *browserMCPBridge) sessions() int {
 	n := 0
 	for _, s := range b.snapshot() {
@@ -232,55 +242,126 @@ func (b *browserMCPBridge) liveChildren() int {
 	return b.children
 }
 
-// browserMCPProfile is the browser profile a /browser-mcp path names:
-// /browser-mcp is the default profile's, /browser-mcp/<id> another's.
-// ok=false is a path with more than one segment after the prefix.
-func browserMCPProfile(p string) (string, bool) {
-	rest := strings.Trim(strings.TrimPrefix(p, "/browser-mcp"), "/")
-	if rest == "" {
-		return defaultBrowserProfile, true
-	}
-	if strings.Contains(rest, "/") {
-		return "", false
-	}
-	return rest, true
-}
+// ---------------------------------------------------------------------------
+// registration on /mcp
+// ---------------------------------------------------------------------------
 
-// browserMCPPathFor is the /browser-mcp address that drives a profile. It is
-// the one URL for every profile now — its tools take `profile` — so an agent
-// told about a profile is never steered into adding a second MCP server.
-// /browser-mcp/<id> still answers, for configs that already name it.
-func browserMCPPathFor(string) string {
-	return "/browser-mcp"
-}
-
-// ServeHTTP refuses a NEW session up front when the endpoint cannot work (off,
-// or no chrome-devtools-mcp), with the reason in the body, instead of letting
-// the client find out from a failed initialize. A request that names a session
-// always reaches the SDK, so an existing one can still be closed.
-func (b *browserMCPBridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if b == nil {
-		http.Error(w, "the browser MCP endpoint is not configured on this lasso", http.StatusServiceUnavailable)
+// attach makes srv (lasso's shared /mcp server) the one the browser tools are
+// registered on, and has every initialize there make sure they are current: a
+// cheap check when the cached list is this binary's, a probe when it is not
+// (chrome-devtools-mcp installed or upgraded since), and a removal when
+// chrome-devtools-mcp is gone or switched off. A probe that fails is logged,
+// never the initialize's error: /mcp's own tools do not depend on it.
+func (b *browserMCPBridge) attach(srv *mcp.Server) {
+	if b == nil || srv == nil {
 		return
 	}
-	if r.Header.Get("Mcp-Session-Id") == "" {
-		if _, reason, ok := b.resolve(); !ok {
-			http.Error(w, reason, http.StatusServiceUnavailable)
-			return
-		}
-		profile, ok := browserMCPProfile(r.URL.Path)
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		if profile != defaultBrowserProfile {
-			if _, err := browserFor(profile); err != nil {
-				http.Error(w, err.Error(), http.StatusNotFound)
-				return
+	b.regMu.Lock()
+	b.srv, b.regNames, b.regList = srv, map[string]bool{}, nil
+	b.regMu.Unlock()
+	srv.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if method == "initialize" {
+				b.ensureTools(browserMCPListWait)
 			}
+			return next(ctx, method, req)
+		}
+	})
+	// A list learned before this server existed (another attach, in tests).
+	if c := b.tools.Load(); c != nil {
+		b.register(c.tools)
+	}
+}
+
+// ensureTools brings the registered browser tools in line with the binary
+// that would run now, waiting up to wait for a probe it has to start. The
+// probe itself runs detached, so a slow one still lands (and is announced with
+// tools/list_changed) after the caller has moved on.
+func (b *browserMCPBridge) ensureTools(wait time.Duration) {
+	if b == nil {
+		return
+	}
+	bin, _, ok := b.resolve()
+	if !ok {
+		b.register(nil)
+		return
+	}
+	key := browserMCPBinKey(bin)
+	if c := b.tools.Load(); c != nil && c.key == key {
+		b.register(c.tools)
+		return
+	}
+	b.probeMu.Lock()
+	recent := b.failKey == key && time.Since(b.failAt) < browserMCPProbeRetry
+	b.probeMu.Unlock()
+	if recent {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ctx, cancel := context.WithTimeout(context.Background(), browserMCPStartTimeout)
+		defer cancel()
+		tools, err := b.toolList(ctx)
+		if err != nil {
+			log.Printf("browser-mcp: no browser tools on /mcp: %v", err)
+			return
+		}
+		b.register(tools)
+	}()
+	select {
+	case <-done:
+	case <-time.After(wait):
+		log.Printf("browser-mcp: chrome-devtools-mcp's tool list is taking longer than %s; the browser tools will be announced when it arrives", wait)
+	}
+}
+
+// register makes the browser tools on /mcp exactly tools (nil = none): each
+// added (or replaced) as browser_<name>, and any registered before that is no
+// longer in the list removed. An unchanged list touches nothing.
+func (b *browserMCPBridge) register(tools []*mcp.Tool) {
+	b.regMu.Lock()
+	defer b.regMu.Unlock()
+	srv := b.srv
+	if srv == nil {
+		return
+	}
+	if sameToolSlice(tools, b.regList) && (len(tools) > 0 || len(b.regNames) == 0) {
+		return
+	}
+	names := map[string]bool{}
+	var raw []string
+	for _, t := range tools {
+		raw = append(raw, t.Name)
+	}
+	for _, t := range tools {
+		bt, own := browserTool(t, raw)
+		if own {
+			log.Printf("browser-mcp: tool %q has a %q argument of its own; it is passed through and runs in the default browser", t.Name, browserToolParam)
+		}
+		srv.AddTool(bt, b.forward(t.Name, own))
+		names[bt.Name] = true
+	}
+	var gone []string
+	for n := range b.regNames {
+		if !names[n] {
+			gone = append(gone, n)
 		}
 	}
-	b.handler.ServeHTTP(w, r)
+	if len(gone) > 0 {
+		sort.Strings(gone)
+		srv.RemoveTools(gone...)
+	}
+	if len(tools) > 0 || len(gone) > 0 {
+		log.Printf("browser-mcp: %d browser tool(s) on /mcp (%d removed)", len(names), len(gone))
+	}
+	b.regNames, b.regList = names, tools
+}
+
+// sameToolSlice is identity, not equality: learnTools hands back the cached
+// slice itself when a list did not change.
+func sameToolSlice(a, b []*mcp.Tool) bool {
+	return len(a) == len(b) && (len(a) == 0 || &a[0] == &b[0])
 }
 
 // ---------------------------------------------------------------------------
@@ -320,28 +401,30 @@ func (b *browserMCPBridge) toolList(ctx context.Context) ([]*mcp.Tool, error) {
 	}
 	b.probeMu.Lock()
 	defer b.probeMu.Unlock()
-	if c := b.tools.Load(); c != nil && c.key == key { // a concurrent initialize probed first
+	if c := b.tools.Load(); c != nil && c.key == key { // a concurrent caller probed first
 		return c.tools, nil
 	}
 	b.probes.Add(1)
 	ch, tools, err := b.spawn(ctx, bin, defaultBrowserProfile)
 	if err != nil {
+		b.failKey, b.failAt = key, time.Now()
 		return nil, err
 	}
 	ch.stop("tool-list probe done")
+	b.failKey = ""
 	return b.learnTools(key, tools), nil
 }
 
 // learnTools stores a tool list (filtered to what AddTool accepts) as the
 // cache for a binary and returns it. A real spawn calls it too, so an upgrade
-// the key could not see is picked up by the next session to start. Sessions
-// already open keep the list they started with.
+// the key could not see is picked up — and registered on /mcp, which tells
+// every session with tools/list_changed.
 func (b *browserMCPBridge) learnTools(key string, tools []*mcp.Tool) []*mcp.Tool {
 	var ok []*mcp.Tool
 	for _, t := range tools {
 		if !mcpObjectSchema(t.InputSchema) {
 			// Server.AddTool panics on a non-object input schema. A child that
-			// ships one has a broken tool, not a broken session: skip it.
+			// ships one has a broken tool, not a broken bridge: skip it.
 			log.Printf("browser-mcp: skipping tool %q: its input schema is not an object", t.Name)
 			continue
 		}
@@ -359,7 +442,7 @@ func (b *browserMCPBridge) learnTools(key string, tools []*mcp.Tool) []*mcp.Tool
 		return prev.tools
 	}
 	if prev != nil {
-		log.Printf("browser-mcp: chrome-devtools-mcp's tool list changed (%d → %d tools); new sessions get the new one", len(prev.tools), len(ok))
+		log.Printf("browser-mcp: chrome-devtools-mcp's tool list changed (%d → %d tools)", len(prev.tools), len(ok))
 	}
 	b.tools.Store(&browserMCPToolCache{key: key, tools: ok})
 	return ok
@@ -374,39 +457,184 @@ func sameTools(a, b []*mcp.Tool) bool {
 	return string(ja) == string(jb)
 }
 
-// sessionTool is a session's copy of a cached tool: the schema cloned (AddTool
-// and the SDK get a value nobody else holds), and for an unpinned session the
-// `profile` argument added. own reports a tool that already has a `profile`
-// argument of its own, which is then passed through untouched and never routed.
-func sessionTool(t *mcp.Tool, profileDesc string) (tool *mcp.Tool, own bool) {
+// browserTool is the /mcp copy of one of chrome-devtools-mcp's tools: named
+// browser_<name>, its descriptions' mentions of its sibling tools renamed to
+// match (only names with an underscore, like list_pages or take_snapshot: a
+// bare "click" or "fill" is an English word as often as a tool), and the
+// `browser` argument added. own reports a tool that already has a `browser`
+// argument of its own, which is then passed through untouched and never
+// routed. The schema is cloned, so AddTool and the SDK get a value nobody else
+// holds.
+func browserTool(t *mcp.Tool, siblings []string) (tool *mcp.Tool, own bool) {
 	c := *t
+	c.Name = browserToolPrefix + t.Name
+	re := browserToolNameRE(siblings)
+	c.Description = renameBrowserTools(t.Description, re)
+	if c.Title != "" {
+		c.Title = "Browser: " + c.Title
+	}
 	var schema map[string]any
 	raw, _ := json.Marshal(t.InputSchema)
 	_ = json.Unmarshal(raw, &schema)
+	renameInDescriptions(schema, re)
 	props, _ := schema["properties"].(map[string]any)
-	if _, has := props[browserMCPProfileParam]; has {
+	if _, has := props[browserToolParam]; has {
 		own = true
 	}
-	if profileDesc != "" && !own {
+	if !own {
 		if props == nil {
 			props = map[string]any{}
 			schema["properties"] = props
 		}
-		props[browserMCPProfileParam] = map[string]any{"type": "string", "description": profileDesc}
+		props[browserToolParam] = map[string]any{"type": "string", "description": browserToolParamDesc}
 		if pid, ok := props["pageId"].(map[string]any); ok {
 			d, _ := pid["description"].(string)
-			pid["description"] = strings.TrimSpace(d + " A pageId belongs to ONE profile's browser: pass the same `profile` as the list_pages/new_page call it came from.")
+			pid["description"] = strings.TrimSpace(d + " A pageId belongs to ONE browser: pass the same `browser` as the browser_list_pages/browser_new_page call it came from.")
 		}
 	}
 	c.InputSchema = schema
 	return &c, own
 }
 
+// browserToolNameRE matches the sibling tool names worth renaming in text.
+func browserToolNameRE(siblings []string) *regexp.Regexp {
+	var alts []string
+	for _, n := range siblings {
+		if strings.Contains(n, "_") {
+			alts = append(alts, regexp.QuoteMeta(n))
+		}
+	}
+	if len(alts) == 0 {
+		return nil
+	}
+	// Longest first, so take_snapshot is never matched as a prefix of a longer
+	// name. \b on both sides: "browser_list_pages" has no boundary before
+	// list_pages ('_' is a word character), so nothing is prefixed twice.
+	sort.Slice(alts, func(i, j int) bool { return len(alts[i]) > len(alts[j]) })
+	return regexp.MustCompile(`\b(` + strings.Join(alts, "|") + `)\b`)
+}
+
+func renameBrowserTools(s string, re *regexp.Regexp) string {
+	if re == nil || s == "" {
+		return s
+	}
+	return re.ReplaceAllString(s, browserToolPrefix+"$1")
+}
+
+// renameInDescriptions renames sibling tools in every "description" string of
+// a JSON schema, at any depth.
+func renameInDescriptions(v any, re *regexp.Regexp) {
+	switch x := v.(type) {
+	case map[string]any:
+		for k, e := range x {
+			if s, ok := e.(string); ok && k == "description" {
+				x[k] = renameBrowserTools(s, re)
+				continue
+			}
+			renameInDescriptions(e, re)
+		}
+	case []any:
+		for _, e := range x {
+			renameInDescriptions(e, re)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// the gate: /cdp's standard, per call
+// ---------------------------------------------------------------------------
+
+// The browser tools front /cdp — the child a call reaches dials it on lasso's
+// internal token — so a call must meet /cdp's standard, which is stricter than
+// /mcp's: /mcp is open under UI_AUTH alone and takes requests with any Origin.
+// The verdict needs the HTTP request (its Origin, its Host, its basic
+// credentials), which a tool handler does not get, so withBrowserToolGate
+// reaches it on every /mcp request and stamps it into a header the handler
+// does get (the SDK copies the request's headers onto every call's Extra).
+
+// browserGateHeader carries browserGateToken when the request meets the
+// standard; browserRefusalHeader carries why it does not.
+const (
+	browserGateHeader    = "X-Lasso-Browser-Gate"
+	browserRefusalHeader = "X-Lasso-Browser-Refusal"
+)
+
+// browserGateToken is the per-process value that says "this request passed
+// withBrowserToolGate". Both headers are set or deleted on every request, so a
+// client cannot supply its own, and the value is random so even a path that
+// skipped the wrapper could not be talked through by a forged one.
+var browserGateToken = newInternalCDPToken()
+
+// withBrowserToolGate stamps the browser-tool verdict onto every /mcp request.
+// It sits inside withMCPAuth, so under MCP_OAUTH an unauthenticated request
+// never reaches it.
+func withBrowserToolGate(next http.Handler, user, pass string, hasAuth bool) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Del(browserGateHeader)
+		r.Header.Del(browserRefusalHeader)
+		if why := browserRequestRefusal(r, user, pass, hasAuth); why != "" {
+			r.Header.Set(browserRefusalHeader, why)
+		} else {
+			r.Header.Set(browserGateHeader, browserGateToken)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// browserRequestRefusal is /cdp's rule applied to an /mcp request:
+//
+//   - the Origin guard first: no Origin (a CLI or agent's MCP client) or
+//     lasso's own origin only (cdpOriginAllowed), so no web page a user visits
+//     can drive the browser through a loopback lasso's /mcp.
+//   - MCP_OAUTH set: what /mcp accepts (withMCPAuth has already required a
+//     lasso bearer token or the UI_AUTH basic credentials); the token's reach
+//     is checked per call (requireLocalBrowser), since TokenInfo is a call's.
+//   - only UI_AUTH set: its basic credentials, which /mcp itself does not ask
+//     for in this configuration and /cdp does.
+//   - neither: open, /mcp's and /cdp's trust model.
+//
+// There is no same-origin-page allowance like /cdp's: no page of lasso's speaks
+// MCP. Cloudflare Access (gate.wrap) still fronts all of it.
+func browserRequestRefusal(r *http.Request, user, pass string, hasAuth bool) string {
+	if !cdpOriginAllowed(r) {
+		return "the browser tools refuse a cross-origin request: a web page cannot drive lasso's browsers"
+	}
+	if oauthCfg.Enabled || !hasAuth {
+		return ""
+	}
+	u, p, ok := r.BasicAuth()
+	if ok && subtle.ConstantTimeCompare([]byte(u), []byte(user)) == 1 &&
+		subtle.ConstantTimeCompare([]byte(p), []byte(pass)) == 1 {
+		return ""
+	}
+	return "the browser tools need lasso's UI_AUTH credentials, which /mcp's other tools do not: send them as HTTP basic auth (an Authorization: Basic header) on this MCP connection"
+}
+
+// browserToolRefusal is a browser tool call's verdict: the request's, as
+// withBrowserToolGate stamped it, then the caller's reach (requireLocalBrowser:
+// the browsers run on lasso's own machine). "" = allowed.
+func browserToolRefusal(req *mcp.CallToolRequest) string {
+	var h http.Header
+	if req != nil && req.Extra != nil {
+		h = req.Extra.Header
+	}
+	if h == nil || subtle.ConstantTimeCompare([]byte(h.Get(browserGateHeader)), []byte(browserGateToken)) != 1 {
+		if h != nil && h.Get(browserRefusalHeader) != "" {
+			return h.Get(browserRefusalHeader)
+		}
+		return "the browser tools are served only over lasso's /mcp HTTP endpoint"
+	}
+	if err := requireLocalBrowser(req); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
 // ---------------------------------------------------------------------------
 // sessions and their children
 // ---------------------------------------------------------------------------
 
-// browserMCPChild is one chrome-devtools-mcp process, dialing one profile.
+// browserMCPChild is one chrome-devtools-mcp process, dialing one browser.
 type browserMCPChild struct {
 	b       *browserMCPBridge
 	profile string
@@ -428,11 +656,11 @@ func (c *browserMCPChild) stop(why string) {
 			c.b.children--
 			c.b.mu.Unlock()
 		}
-		log.Printf("browser-mcp: child pid %d for profile %q stopped (%s)", c.pid, c.profile, why)
+		log.Printf("browser-mcp: child pid %d for browser %q stopped (%s)", c.pid, c.profile, why)
 	})
 }
 
-// browserMCPSlot is a session's child for one profile: spawning until ready
+// browserMCPSlot is a session's child for one browser: spawning until ready
 // closes, then either child or err.
 type browserMCPSlot struct {
 	ready chan struct{}
@@ -440,153 +668,68 @@ type browserMCPSlot struct {
 	err   error
 }
 
-// browserMCPSession is one MCP session and the children behind it.
+// browserMCPSession is one /mcp session's browser state: its children.
 type browserMCPSession struct {
-	b   *browserMCPBridge
-	srv *mcp.Server
-	// pinned is the profile of a /browser-mcp/<id> session; "" is the bare
-	// /browser-mcp, whose calls name their profile.
-	pinned string
+	b  *browserMCPBridge
+	ss *mcp.ServerSession
 
 	mu       sync.Mutex
-	ss       *mcp.ServerSession
-	started  bool
 	closed   bool
-	children map[string]*browserMCPSlot // by profile id
+	inflight int                        // browser calls running now
+	lastUsed time.Time                  // the last browser call's start or end
+	children map[string]*browserMCPSlot // by browser id
 }
 
-func (b *browserMCPBridge) newSessionServer(pinned string) *mcp.Server {
-	s := &browserMCPSession{b: b, pinned: pinned, children: map[string]*browserMCPSlot{}}
-	s.srv = mcp.NewServer(&mcp.Implementation{
-		Name:    "lasso-browser",
-		Title:   "Lasso shared browser (chrome-devtools-mcp)",
-		Version: lassoSemver,
-	}, &mcp.ServerOptions{
-		Instructions: s.instructions(),
-		// The tools are registered while initialize is being answered. Declaring
-		// the capability up front, with listChanged off, keeps AddTool from
-		// queueing a tools/list_changed notification at a session that has not
-		// even received its initialize result yet.
-		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{ListChanged: false}},
-	})
-	s.srv.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
-		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
-			if method == "initialize" {
-				ss, _ := req.GetSession().(*mcp.ServerSession)
-				if err := s.start(ctx, ss); err != nil {
-					// The initialize answers with this error, the SDK closes the
-					// half-open session, and nothing is left running.
-					log.Printf("browser-mcp: session refused: %v", err)
-					return nil, err
-				}
-			}
-			return next(ctx, method, req)
-		}
-	})
-	return s.srv
-}
-
-// profilesLine lists the profiles as they are now, for text a model reads.
-// It is a snapshot — calls resolve profiles when they run — and empty when
-// lasso has no database (tests that never touch profiles).
-func profilesLine() string {
-	if db == nil {
-		return ""
-	}
-	var parts []string
-	for _, p := range allBrowserProfiles() {
-		parts = append(parts, fmt.Sprintf("%s (%q)", p.ID, p.Name))
-	}
-	return strings.Join(parts, ", ")
-}
-
-func (s *browserMCPSession) instructions() string {
-	if s.pinned != "" {
-		return browserMCPInstructions + "\n- This session drives the browser PROFILE \"" + s.pinned + "\": its own Chromium, with its own cookies and logins. Other profiles' pages are not visible here. The bare /browser-mcp URL drives every profile from one MCP server (each tool takes `profile`)."
-	}
-	line := "\n- Every tool takes an optional `profile`: a browser profile's id or display name, omitted = the default profile. Each profile is its own Chromium with its own cookies, logins and PAGES, so a pageId from list_pages/new_page means something only in the profile it came from: pass the same `profile` on every call about that page. Profiles created later work here without reconnecting; lasso's list_browser_profiles tool has the current list."
-	if ps := profilesLine(); ps != "" {
-		line += " Profiles when this session started: " + ps + "."
-	}
-	return browserMCPInstructions + line
-}
-
-func (s *browserMCPSession) profileParamDesc() string {
-	d := "Browser profile to run this in: its id or display name (lasso's list_browser_profiles shows them). Omit for the default profile. Each profile is a separate Chromium with its own cookies, logins and pages; a pageId from one profile means nothing in another."
-	if ps := profilesLine(); ps != "" {
-		d += " At session start: " + ps + "."
-	}
-	return d
-}
-
-// start registers the session's tools from the cached list (probing once if
-// there is none) and the session itself. It spawns no child: that waits for a
-// tool call. It runs inside the initialize request, so a failure — no
-// chrome-devtools-mcp, or a probe that could not start — is the initialize's.
-func (s *browserMCPSession) start(ctx context.Context, ss *mcp.ServerSession) error {
-	s.mu.Lock()
-	if s.started {
-		s.mu.Unlock()
-		return nil // a repeated initialize on a live session: nothing to redo
-	}
-	s.started = true
-	s.mu.Unlock()
+// sessionFor is ss's browser state, made on its first browser call. The
+// session ending (DELETE, shutdown) stops its children.
+func (b *browserMCPBridge) sessionFor(ss *mcp.ServerSession) (*browserMCPSession, error) {
 	if ss == nil {
-		return errors.New("browser MCP: no server session to bind to")
+		return nil, errors.New("the browser tools need an MCP session")
 	}
-	b := s.b
-	if s.pinned != "" {
-		if _, err := browserFor(s.pinned); err != nil {
-			return err
-		}
-	}
-	cctx, cancel := context.WithTimeout(ctx, browserMCPStartTimeout)
-	defer cancel()
-	tools, err := b.toolList(cctx)
-	if err != nil {
-		return err
-	}
-	desc := ""
-	if s.pinned == "" {
-		desc = s.profileParamDesc()
-	}
-	for _, t := range tools {
-		st, own := sessionTool(t, desc)
-		if own {
-			log.Printf("browser-mcp: tool %q has a %q argument of its own; it is passed through and runs in the session's default profile", t.Name, browserMCPProfileParam)
-		}
-		s.srv.AddTool(st, s.forward(t.Name, own))
-	}
-
-	s.mu.Lock()
-	s.ss = ss
-	s.mu.Unlock()
 	b.mu.Lock()
-	b.live[s] = struct{}{}
+	s := b.live[ss]
+	if s != nil {
+		b.mu.Unlock()
+		return s, nil
+	}
+	s = &browserMCPSession{b: b, ss: ss, lastUsed: time.Now(), children: map[string]*browserMCPSlot{}}
+	b.live[ss] = s
 	n := len(b.live)
 	b.mu.Unlock()
-	where := "every profile"
-	if s.pinned != "" {
-		where = fmt.Sprintf("profile %q", s.pinned)
-	}
-	log.Printf("browser-mcp: session opened for %s (%d tools, no child yet; %d sessions)", where, len(tools), n)
-	// The session ending (DELETE, idle timeout, shutdown) kills its children.
+	log.Printf("browser-mcp: session %s made its first browser call (%d sessions)", ss.ID(), n)
 	go func() { _ = ss.Wait(); s.end("session ended") }()
-	return nil
+	return s, nil
 }
 
-// forward is a mirrored tool's handler: it picks the profile, strips the
-// `profile` argument, and hands the call to that profile's child as-is (name
-// and raw arguments), returning its result as-is — Content (images too),
-// StructuredContent, IsError and _meta — so the bridge adds nothing a client
-// could tell apart from talking to chrome-devtools-mcp directly.
-func (s *browserMCPSession) forward(name string, own bool) mcp.ToolHandler {
+// use brackets a browser call, for the idle reaper.
+func (s *browserMCPSession) use(delta int) {
+	s.mu.Lock()
+	s.inflight += delta
+	s.lastUsed = time.Now()
+	s.mu.Unlock()
+}
+
+// forward is a browser tool's handler: it checks the gate, picks the browser,
+// strips the `browser` argument, and hands the call to this session's child
+// for that browser as-is (name and raw arguments), returning its result as-is
+// — Content (images too), StructuredContent, IsError and _meta — so the bridge
+// adds nothing a client could tell apart from chrome-devtools-mcp's own answer.
+func (b *browserMCPBridge) forward(name string, own bool) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		profile, args, refusal := s.route(req.Params.Arguments, own)
+		if why := browserToolRefusal(req); why != "" {
+			return browserMCPToolError(why), nil
+		}
+		browser, args, refusal := browserRoute(req.Params.Arguments, own)
 		if refusal != "" {
 			return browserMCPToolError(refusal), nil
 		}
-		child, err := s.child(ctx, profile)
+		s, err := b.sessionFor(req.Session)
+		if err != nil {
+			return browserMCPToolError(err.Error()), nil
+		}
+		s.use(1)
+		defer s.use(-1)
+		child, err := s.child(ctx, browser)
 		if err != nil {
 			return browserMCPToolError(err.Error()), nil
 		}
@@ -602,58 +745,50 @@ func browserMCPToolError(msg string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: msg}}}
 }
 
-// route decides which profile a call runs in and strips `profile` from its
-// arguments. Profiles are resolved NOW, not at initialize, so one created
-// after the session started works and one deleted since is refused. An
-// unknown profile is a refusal naming the current ones — never a quiet
-// fallback to another profile, which would act in the wrong browser with the
-// wrong logins. A pinned session accepts only its own profile.
-func (s *browserMCPSession) route(raw json.RawMessage, own bool) (profile string, args json.RawMessage, refusal string) {
-	profile = s.pinned
-	if profile == "" {
-		profile = defaultBrowserProfile
-	}
+// browserRoute decides which browser a call runs in and strips `browser` from
+// its arguments. Browsers are resolved NOW, so one created after the session
+// started works and one deleted since is refused. An unknown browser is a
+// refusal naming the current ones — never a quiet fallback to another, which
+// would act in the wrong browser with the wrong logins.
+func browserRoute(raw json.RawMessage, own bool) (browser string, args json.RawMessage, refusal string) {
 	if own || len(raw) == 0 {
-		return profile, raw, ""
+		return defaultBrowserProfile, raw, ""
 	}
 	var m map[string]json.RawMessage
 	if json.Unmarshal(raw, &m) != nil {
-		return profile, raw, "" // not an object: the child's to refuse
+		return defaultBrowserProfile, raw, "" // not an object: the child's to refuse
 	}
-	v, has := m[browserMCPProfileParam]
+	v, has := m[browserToolParam]
 	if !has {
-		return profile, raw, ""
+		return defaultBrowserProfile, raw, ""
 	}
-	delete(m, browserMCPProfileParam)
+	delete(m, browserToolParam)
 	args, _ = json.Marshal(m)
 	var name string
 	if string(v) != "null" {
 		if err := json.Unmarshal(v, &name); err != nil {
-			return "", nil, "`profile` must be a string: a browser profile's id or display name"
+			return "", nil, "`browser` must be a string: a browser's id or display name"
 		}
 	}
 	if strings.TrimSpace(name) == "" {
-		return profile, args, ""
+		return defaultBrowserProfile, args, ""
 	}
 	id, err := resolveProfile(name)
 	if err != nil {
 		return "", nil, err.Error()
 	}
-	if s.pinned != "" && id != s.pinned {
-		return "", nil, fmt.Sprintf("this session is pinned to browser profile %q (it was opened at /browser-mcp/%s); omit `profile`, or connect to /browser-mcp to drive every profile", s.pinned, s.pinned)
-	}
 	return id, args, ""
 }
 
-// child is this session's child for a profile, spawning it on first use.
-// Concurrent calls for one profile share one spawn. The spawn runs detached
+// child is this session's child for a browser, spawning it on first use.
+// Concurrent calls for one browser share one spawn. The spawn runs detached
 // from the caller, so a call that gives up still leaves the child ready for
 // the next; a failed spawn is forgotten, so the next call tries again.
 func (s *browserMCPSession) child(ctx context.Context, profile string) (*browserMCPChild, error) {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
-		return nil, errors.New("this browser session has ended; reconnect to start a new one")
+		return nil, errors.New("this MCP session has ended; reconnect to start a new one")
 	}
 	sl := s.children[profile]
 	if sl == nil {
@@ -685,7 +820,7 @@ func (s *browserMCPSession) spawnInto(sl *browserMCPSlot, profile string) {
 		close(sl.ready)
 	}
 	if profile != defaultBrowserProfile {
-		// The default profile always exists; another may have been deleted
+		// The default browser always exists; another may have been deleted
 		// between the call's resolve and here.
 		if _, err := browserFor(profile); err != nil {
 			fail(err)
@@ -715,13 +850,13 @@ func (s *browserMCPSession) spawnInto(sl *browserMCPSlot, profile string) {
 	n := b.children
 	b.mu.Unlock()
 	ch.counted = true
-	b.learnTools(browserMCPBinKey(bin), tools)
+	b.register(b.learnTools(browserMCPBinKey(bin), tools))
 
 	s.mu.Lock()
 	if s.closed || s.children[profile] != sl {
 		s.mu.Unlock()
 		ch.stop("session ended while it was starting")
-		fail(errors.New("this browser session has ended; reconnect to start a new one"))
+		fail(errors.New("this MCP session has ended; reconnect to start a new one"))
 		return
 	}
 	sl.child = ch
@@ -731,17 +866,17 @@ func (s *browserMCPSession) spawnInto(sl *browserMCPSlot, profile string) {
 	if b.cfg.Max > 0 {
 		limit = fmt.Sprintf("limit %d", b.cfg.Max)
 	}
-	log.Printf("browser-mcp: child pid %d started for profile %q (%d live, %s)", ch.pid, profile, n, limit)
+	log.Printf("browser-mcp: child pid %d started for browser %q (%d live, %s)", ch.pid, profile, n, limit)
 
 	// A child that dies on its own (a crash, an OOM kill) is dropped; the next
-	// call to its profile spawns a fresh one. The session is untouched.
+	// call to its browser spawns a fresh one. The session is untouched.
 	go func() {
 		_ = ch.client.Wait()
 		s.drop(profile, sl, "child exited")
 	}()
 }
 
-// drop forgets a profile's child (if it is still that slot's) and stops it.
+// drop forgets a browser's child (if it is still that slot's) and stops it.
 func (s *browserMCPSession) drop(profile string, sl *browserMCPSlot, why string) {
 	s.mu.Lock()
 	if s.children[profile] == sl {
@@ -753,7 +888,7 @@ func (s *browserMCPSession) drop(profile string, sl *browserMCPSlot, why string)
 	}
 }
 
-// end closes the session's side of things once: every child stopped, the
+// end closes the session's browser side once: every child stopped, the
 // session unregistered. A spawn still in flight sees closed and stops its own.
 func (s *browserMCPSession) end(why string) bool {
 	s.mu.Lock()
@@ -762,6 +897,19 @@ func (s *browserMCPSession) end(why string) bool {
 		return false
 	}
 	s.closed = true
+	kids := s.takeChildrenLocked()
+	s.mu.Unlock()
+
+	s.b.mu.Lock()
+	if s.b.live[s.ss] == s {
+		delete(s.b.live, s.ss)
+	}
+	s.b.mu.Unlock()
+	stopChildren(kids, why)
+	return true
+}
+
+func (s *browserMCPSession) takeChildrenLocked() []*browserMCPChild {
 	var kids []*browserMCPChild
 	for _, sl := range s.children {
 		if sl.child != nil {
@@ -769,13 +917,7 @@ func (s *browserMCPSession) end(why string) bool {
 		}
 	}
 	s.children = map[string]*browserMCPSlot{}
-	s.mu.Unlock()
-
-	s.b.mu.Lock()
-	delete(s.b.live, s)
-	s.b.mu.Unlock()
-	stopChildren(kids, why)
-	return true
+	return kids
 }
 
 func stopChildren(kids []*browserMCPChild, why string) {
@@ -787,7 +929,42 @@ func stopChildren(kids []*browserMCPChild, why string) {
 	wg.Wait()
 }
 
-// spawn starts a chrome-devtools-mcp dialing a profile's /cdp and lists its
+// run stops idle sessions' children until ctx ends.
+func (b *browserMCPBridge) run(ctx context.Context) {
+	if b == nil {
+		return
+	}
+	t := time.NewTicker(time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-t.C:
+			b.reapIdle(now)
+		}
+	}
+}
+
+// reapIdle stops the children of every session with no browser call running
+// and none for browserMCPIdle. The session's entry stays (it is still an /mcp
+// session); its next browser call spawns afresh.
+func (b *browserMCPBridge) reapIdle(now time.Time) {
+	for _, s := range b.snapshot() {
+		s.mu.Lock()
+		var kids []*browserMCPChild
+		if s.inflight == 0 && now.Sub(s.lastUsed) >= browserMCPIdle {
+			kids = s.takeChildrenLocked()
+		}
+		s.mu.Unlock()
+		if len(kids) > 0 {
+			log.Printf("browser-mcp: session %s made no browser call for %s: stopping %d child(ren)", s.ss.ID(), browserMCPIdle, len(kids))
+			stopChildren(kids, "session idle")
+		}
+	}
+}
+
+// spawn starts a chrome-devtools-mcp dialing a browser's /cdp and lists its
 // tools. The caller owns the child (and, for a counted one, the slot).
 func (b *browserMCPBridge) spawn(ctx context.Context, bin, profile string) (*browserMCPChild, []*mcp.Tool, error) {
 	endpoint, _ := b.cdpEndpoint.Load().(string)
@@ -795,7 +972,7 @@ func (b *browserMCPBridge) spawn(ctx context.Context, bin, profile string) (*bro
 		return nil, nil, errors.New("lasso is not listening yet; retry in a moment")
 	}
 	if profile != defaultBrowserProfile {
-		// cdpEndpoint is ws://<addr>/cdp; the profile's browser is one level down.
+		// cdpEndpoint is ws://<addr>/cdp; the browser's own is one level down.
 		endpoint += strings.TrimPrefix(cdpPathFor(profile), "/cdp")
 	}
 
@@ -830,30 +1007,19 @@ func (b *browserMCPBridge) spawn(ctx context.Context, bin, profile string) (*bro
 	return ch, tools, nil
 }
 
-// closeAll ends every session — its children stopped, then the server session
-// closed so the client sees it gone — and waits. Called at shutdown.
+// closeAll stops every session's children and waits. Called at shutdown, so
+// lasso never exits ahead of a child; the /mcp sessions themselves are left to
+// the server's shutdown.
 func (b *browserMCPBridge) closeAll(why string) {
 	sessions := b.snapshot()
 	if len(sessions) == 0 {
 		return
 	}
-	log.Printf("browser-mcp: closing %d session(s): %s", len(sessions), why)
+	log.Printf("browser-mcp: stopping the children of %d session(s): %s", len(sessions), why)
 	var wg sync.WaitGroup
 	for _, s := range sessions {
 		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			// Children first: ServerSession.Close waits for in-flight calls, and
-			// a call in flight is waiting on a child, which only answers (with an
-			// error) once it is gone.
-			s.end(why)
-			s.mu.Lock()
-			server := s.ss
-			s.mu.Unlock()
-			if server != nil {
-				_ = server.Close()
-			}
-		}()
+		go func() { defer wg.Done(); s.end(why) }()
 	}
 	wg.Wait()
 }
@@ -865,22 +1031,22 @@ func (b *browserMCPBridge) snapshot() []*browserMCPSession {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	out := make([]*browserMCPSession, 0, len(b.live))
-	for s := range b.live {
+	for _, s := range b.live {
 		out = append(out, s)
 	}
 	return out
 }
 
-// browserStopped is the default profile's stop hook (browserManager.onStop).
+// browserStopped is the default browser's stop hook (browserManager.onStop).
 func (b *browserMCPBridge) browserStopped(why string) {
 	b.browserStoppedFor(defaultBrowserProfile, why)
 }
 
-// browserStoppedFor stops every session's child for one profile, whose browser
-// just went away: their CDP connections belong to the process that ended. The
-// sessions stay, and so do their children for other profiles; the next call
-// to this profile spawns a child that dials the next browser. The set is taken
-// NOW, synchronously — a child that connects after this moment is on the next
+// browserStoppedFor stops every session's child for one browser, which just
+// went away: their CDP connections belong to the process that ended. The
+// sessions stay, and so do their children for other browsers; the next call to
+// this browser spawns a child that dials the next one. The set is taken NOW,
+// synchronously — a child that connects after this moment is on the next
 // browser and must survive — and stopped in the background, since the hook
 // runs with the browser's launch lock held. A spawn still in flight is left
 // alone: chrome-devtools-mcp dials CDP only when a tool runs, which is after
@@ -896,8 +1062,8 @@ func (b *browserMCPBridge) browserStoppedFor(profile, why string) {
 		s.mu.Unlock()
 	}
 	if len(kids) > 0 {
-		log.Printf("browser-mcp: profile %q's browser stopped (%s): stopping %d child(ren)", profile, why, len(kids))
-		go stopChildren(kids, "profile "+profile+"'s browser stopped ("+why+")")
+		log.Printf("browser-mcp: browser %q stopped (%s): stopping %d child(ren)", profile, why, len(kids))
+		go stopChildren(kids, "browser "+profile+" stopped ("+why+")")
 	}
 }
 
@@ -907,7 +1073,7 @@ func (b *browserMCPBridge) reserve() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.cfg.Max > 0 && b.children+b.starting >= b.cfg.Max {
-		return fmt.Errorf("lasso's browser MCP is at its limit of %d chrome-devtools-mcp processes (LASSO_BROWSER_MCP_MAX / -browser-mcp-max; 0 = no limit): an agent's session holds one per profile it has used until the session ends — close an idle agent's browser session, or raise or remove the limit", b.cfg.Max)
+		return fmt.Errorf("lasso's browser tools are at their limit of %d chrome-devtools-mcp processes (LASSO_BROWSER_MCP_MAX / -browser-mcp-max; 0 = no limit): an agent's MCP session holds one per browser it has used until the session ends or goes %s without a browser call — close an idle agent's session, or raise or remove the limit", b.cfg.Max, browserMCPIdle)
 	}
 	b.starting++
 	return nil
@@ -1115,39 +1281,4 @@ func (w *browserMCPStderr) Write(p []byte) (int, error) {
 		w.partial = w.partial[:0]
 	}
 	return len(p), nil
-}
-
-// withBrowserMCPAuth is /browser-mcp's gate. It is a front door to /cdp — the
-// child it spawns gets through /cdp on lasso's internal token — so it must be
-// at least as strict as withCDPAuth, and it follows /mcp for the token rules:
-//
-//   - the Origin guard first: no Origin (a CLI or agent's MCP client) or lasso's
-//     own origin only, so no web page a user visits can open a session and
-//     drive the browser through a loopback lasso.
-//   - MCP_OAUTH set: what /mcp accepts (a lasso bearer token, or the UI_AUTH
-//     basic credentials), and a token's scope must reach lasso's own machine,
-//     where the browser runs (cdpScopeCheck — 403 otherwise).
-//   - only UI_AUTH set: its basic credentials. Unlike /mcp, which is open in
-//     this configuration, because /cdp is not.
-//   - neither: open, /mcp's and /cdp's trust model.
-//
-// There is no same-origin-page allowance like /cdp's: no page of lasso's speaks
-// MCP. Cloudflare Access (gate.wrap) still fronts all of it.
-func withBrowserMCPAuth(next http.Handler, user, pass string, hasAuth bool) http.Handler {
-	var gated http.Handler
-	switch {
-	case oauthCfg.Enabled:
-		gated = withMCPAuth(cdpScopeCheck(next), user, pass, hasAuth)
-	case hasAuth:
-		gated = withAuth(next, user, pass, true)
-	default:
-		gated = next
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !cdpOriginAllowed(r) {
-			http.Error(w, "cross-origin request to /browser-mcp refused", http.StatusForbidden)
-			return
-		}
-		gated.ServeHTTP(w, r)
-	})
 }

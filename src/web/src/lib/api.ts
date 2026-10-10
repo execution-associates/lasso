@@ -1100,24 +1100,24 @@ export interface BrowserStatus {
   mem_high: string
   pages: BrowserPage[] | null
   ws_path: string
-  // /browser-mcp: chrome-devtools-mcp bridged to agents over HTTP, one URL
-  // for every profile, one child per session per profile it has used.
-  // `mcp_available` is false when it is not installed on lasso's machine or
-  // LASSO_BROWSER_MCP=off, with `mcp_reason` saying which (and how to install
-  // it); `mcp_sessions` counts sessions actually using the browser.
-  mcp_available?: boolean
-  mcp_binary?: string
-  mcp_reason?: string
-  mcp_sessions?: number
-  // Every profile, default first. Absent from an older server, which has only
+  // The browser_* tools on lasso's /mcp: chrome-devtools-mcp bridged to
+  // agents, one child per MCP session per browser it has used.
+  // `tools_available` is false when it is not installed on lasso's machine or
+  // LASSO_BROWSER_MCP=off, with `tools_reason` saying which (and how to
+  // install it); `tools_sessions` counts sessions actually using a browser.
+  tools_available?: boolean
+  tools_binary?: string
+  tools_reason?: string
+  tools_sessions?: number
+  // Every browser, default first. Absent from an older server, which has only
   // the one browser the top-level fields describe.
   profiles?: BrowserProfileStatus[]
 }
 
-// One browser profile: its own Chromium, its own persistent user-data dir
-// (cookies, logins). `ws_path` / `mcp_path` are
-// lasso-origin paths: "/cdp" for the default profile and "/cdp/p/<id>"
-// otherwise; "/browser-mcp" for every profile (its tools take `profile`).
+// One browser: its own Chromium (or a remote one lasso dials), with its own
+// persistent cookies and logins. The server stores a browser as a "profile",
+// hence the names. `ws_path` is a lasso-origin path: "/cdp" for the default
+// browser and "/cdp/p/<id>" otherwise.
 export interface BrowserProfileStatus {
   id: string
   name: string
@@ -1128,7 +1128,6 @@ export interface BrowserProfileStatus {
   reason: string
   pages: BrowserPage[] | null
   ws_path: string
-  mcp_path: string
 }
 
 export type BrowserAction = "start" | "stop" | "restart"
