@@ -1,30 +1,43 @@
 package main
 
-// A bot's environment is mise's: plain values and age-encrypted secrets in the
-// bot folder's mise.toml, decrypted by mise in memory when `mise run bot`
-// starts. Lasso drives the mise CLI for every read and write and never parses
-// the TOML. A secret's value goes in on STDIN (never argv, where `ps` would
-// show it) and never comes back out: listings carry mise's own "[redacted]".
+// A bot's environment is fnox's (https://fnox.jdx.dev), resolved by mise:
+//
+//	<dir>/fnox.toml          every variable, each held by a provider. Lasso writes
+//	                         it once, with two providers — "lasso", age-encrypted
+//	                         to lasso's own key (botkey.go), the default, and
+//	                         "plain" — and after that only through the fnox CLI,
+//	                         so a human can point default_provider at 1Password,
+//	                         a vault or anything else fnox speaks.
+//	<dir>/.mise/config.toml  lasso's: experimental mode and [secrets.fnox], so
+//	                         `mise run bot` asks fnox for the variables the task
+//	                         lists (botTaskScript) and hands them to that task
+//	                         alone — never to the shell or `mise env`. The bot's
+//	                         own mise.toml (tools, say) stays the human's.
+//
+// Values go in on STDIN, never argv (where `ps` shows them), and a secret's
+// never comes back out: listings carry only what `fnox list` prints without
+// --values, which for an encrypting provider is ciphertext lasso drops.
 
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
-const botMiseTimeout = 60 * time.Second
+const botToolTimeout = 60 * time.Second
 
-// botRun runs `mise <args>` with dir as the working directory on b's host,
-// through a login shell so mise is on PATH the way it is for the human.
-// A var so tests can record the calls instead of running mise.
-var botRun = func(b Backend, dir string, args []string, stdin []byte) ([]byte, error) {
-	parts := []string{"cd", shellQuote(dir), "&&", "mise"}
+// botRun runs `<tool> <args>` (tool is mise or fnox) with dir as the working
+// directory on b's host, through a login shell so the tools are on PATH the
+// way they are for the human. A var so tests can record the calls.
+var botRun = func(b Backend, dir, tool string, args []string, stdin []byte) ([]byte, error) {
+	parts := []string{"cd", shellQuote(dir), "&&", tool}
 	for _, a := range args {
 		parts = append(parts, shellQuote(a))
 	}
@@ -32,113 +45,242 @@ var botRun = func(b Backend, dir string, args []string, stdin []byte) ([]byte, e
 	if rb, ok := b.(*remoteBackend); ok {
 		return rb.runStdin(`${SHELL:-sh} -lc `+shellQuote(line), stdin)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), botMiseTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), botToolTimeout)
 	defer cancel()
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "sh"
 	}
 	cmd := exec.CommandContext(ctx, shell, "-lc", line)
-	if stdin != nil {
-		cmd.Stdin = bytes.NewReader(stdin)
-	}
+	cmd.Stdin = bytes.NewReader(stdin)
 	var errBuf bytes.Buffer
 	cmd.Stderr = &errBuf
 	out, err := cmd.Output()
 	if err != nil {
 		if msg := strings.TrimSpace(errBuf.String()); msg != "" {
-			return out, fmt.Errorf("mise %s: %s", strings.Join(args, " "), lastLines(msg, 3))
+			return out, fmt.Errorf("%s %s: %s", tool, strings.Join(args, " "), lastLines(msg, 3))
 		}
-		return out, fmt.Errorf("mise %s: %w", strings.Join(args, " "), err)
+		return out, fmt.Errorf("%s %s: %w", tool, strings.Join(args, " "), err)
 	}
 	return out, nil
 }
 
-func botMiseFile(dir string) string { return filepath.Join(dir, "mise.toml") }
+// The oldest mise with task `secrets` and [secrets.fnox], and the oldest fnox
+// that mise accepts for it.
+const (
+	botMinMise = "2026.10.4"
+	botMinFnox = "1.39.0"
+)
 
-// botMiseInit makes the folder's mise.toml usable for the task: experimental
-// mode (age values need it) and mise's trust, without which `mise run bot`
-// refuses the file. Trust goes first when the file already exists, since mise
-// will not even edit an untrusted config.
-func botMiseInit(b Backend, dir string) error {
-	if _, err := b.Stat(botMiseFile(dir)); err == nil {
-		if _, err := botRun(b, dir, []string{"trust", botMiseFile(dir)}, nil); err != nil {
-			return err
+var botToolsOK sync.Map // host -> time checked
+
+// botCheckTools refuses a host whose mise or fnox is missing or too old, with
+// what to run. Remembered per host for ten minutes once it passes.
+func botCheckTools(b Backend) error {
+	if t, ok := botToolsOK.Load(b.Name()); ok && time.Since(t.(time.Time)) < 10*time.Minute {
+		return nil
+	}
+	home, _ := b.HomeDir()
+	for _, c := range []struct{ tool, min, fix string }{
+		{"mise", botMinMise, "mise self-update"},
+		{"fnox", botMinFnox, "mise use -g fnox@latest"},
+	} {
+		out, err := botRun(b, home, c.tool, []string{"--version"}, nil)
+		if err != nil {
+			return fmt.Errorf("bots need %s %s or newer on %s, and it is not installed (%s)", c.tool, c.min, b.Name(), c.fix)
+		}
+		v := toolVersion(string(out))
+		if versionLess(v, c.min) {
+			return fmt.Errorf("bots need %s %s or newer on %s, which has %s (%s)", c.tool, c.min, b.Name(), v, c.fix)
 		}
 	}
-	if _, err := botRun(b, dir, []string{"settings", "set", "--local", "experimental", "true"}, nil); err != nil {
-		return botMiseHint(err)
-	}
-	_, err := botRun(b, dir, []string{"trust", botMiseFile(dir)}, nil)
-	return err
+	botToolsOK.Store(b.Name(), time.Now())
+	return nil
 }
 
-// botMiseHint turns "mise: command not found" into what to do about it.
-func botMiseHint(err error) error {
-	low := strings.ToLower(err.Error())
-	if strings.Contains(low, "not found") && strings.Contains(low, "mise") {
-		return fmt.Errorf("mise is not installed on this host; bots need it (https://mise.jdx.dev/getting-started.html): %w", err)
+// toolVersion picks the first dotted number out of `x --version`.
+func toolVersion(s string) string {
+	for _, f := range strings.Fields(s) {
+		if f != "" && f[0] >= '0' && f[0] <= '9' && strings.Contains(f, ".") {
+			return f
+		}
 	}
-	return err
+	return ""
+}
+
+// versionLess compares dotted numeric versions; an unparseable one is less.
+func versionLess(a, b string) bool {
+	pa, pb := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(pb); i++ {
+		if i >= len(pa) {
+			return true
+		}
+		x, err1 := strconv.Atoi(pa[i])
+		y, _ := strconv.Atoi(pb[i])
+		if err1 != nil {
+			return true
+		}
+		if x != y {
+			return x < y
+		}
+	}
+	return false
+}
+
+func botFnoxFile(dir string) string       { return filepath.Join(dir, "fnox.toml") }
+func botMiseConfigFile(dir string) string { return filepath.Join(dir, ".mise", "config.toml") }
+
+const botMiseConfig = `# Generated by lasso for this bot; lasso rewrites it on every save.
+# The bot's own mise.toml, if any, is yours.
+min_version = "` + botMinMise + `"
+
+[settings]
+experimental = true
+
+# The task's variables come from fnox.toml (see .mise/tasks/bot for which).
+[secrets.fnox]
+`
+
+// botEnvInit prepares the folder for `mise run bot`: lasso's mise config,
+// trusted, and a fnox.toml when there is none. An existing fnox.toml is the
+// human's and is left alone.
+func botEnvInit(b Backend, dir string) error {
+	if err := botCheckTools(b); err != nil {
+		return err
+	}
+	cfg := botMiseConfigFile(dir)
+	if err := b.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
+		return err
+	}
+	if err := b.WriteFile(cfg, []byte(botMiseConfig), 0o644); err != nil {
+		return err
+	}
+	if _, err := botRun(b, dir, "mise", []string{"trust", cfg}, nil); err != nil {
+		return err
+	}
+	if _, err := b.Stat(botFnoxFile(dir)); err == nil {
+		return nil
+	}
+	recipient, keyPath, err := botAgeRecipient(b)
+	if err != nil {
+		return fmt.Errorf("lasso's age key: %w", err)
+	}
+	return b.WriteFile(botFnoxFile(dir), []byte(botFnoxConfig(recipient, keyPath)), 0o644)
+}
+
+func botFnoxConfig(recipient, keyPath string) string {
+	return fmt.Sprintf(`# This bot's environment, managed with fnox (https://fnox.jdx.dev).
+# lasso adds and removes variables through the fnox CLI. Secrets go to
+# default_provider: "lasso" encrypts them to lasso's own age key. To keep them
+# somewhere else, add a provider (fnox provider add) and make it the default.
+default_provider = "lasso"
+
+[providers]
+lasso = { type = "age", recipients = [%q], key_file = %q }
+plain = { type = "plain" }
+`, recipient, keyPath)
 }
 
 type botEnvVar struct {
-	Key    string `json:"key"`
-	Value  string `json:"value,omitempty"` // plain values only; never a secret's
-	Secret bool   `json:"secret"`
+	Key      string `json:"key"`
+	Value    string `json:"value,omitempty"` // plain values only; never a secret's
+	Secret   bool   `json:"secret"`
+	Provider string `json:"provider,omitempty"`
 }
 
-// botEnvList lists the variables the bot's own mise.toml sets. `mise set`
-// prints every config in scope (global ones too), one "KEY VALUE SOURCE" row
-// each, so only rows whose source is this folder's file are kept.
+// botEnvList lists the variables the bot's own fnox.toml defines.
 func botEnvList(b Backend, dir string) ([]botEnvVar, error) {
-	if _, err := b.Stat(botMiseFile(dir)); err != nil {
+	if _, err := b.Stat(botFnoxFile(dir)); err != nil {
 		return []botEnvVar{}, nil
 	}
-	out, err := botRun(b, dir, []string{"set"}, nil)
+	out, err := botRun(b, dir, "fnox", []string{"list", "--full", "--sources"}, nil)
 	if err != nil {
-		return nil, botMiseHint(err)
+		return nil, err
 	}
-	return parseMiseSet(string(out), botMiseFile(dir)), nil
+	return parseFnoxList(string(out), botFnoxFile(dir)), nil
 }
 
-func parseMiseSet(out, file string) []botEnvVar {
+// parseFnoxList reads `fnox list --full --sources`: a fixed-width table whose
+// header names the columns. Only rows from this folder's fnox.toml are kept
+// (fnox also lists the global config's), and only a "plain" provider's
+// provider key is shown, since for that provider it IS the value.
+func parseFnoxList(out, file string) []botEnvVar {
 	vars := []botEnvVar{}
-	for _, line := range strings.Split(out, "\n") {
-		if !strings.HasSuffix(strings.TrimSpace(line), file) {
+	lines := strings.Split(out, "\n")
+	hi := -1
+	for i, l := range lines {
+		if strings.Contains(l, "Key") && strings.Contains(l, "Source File") {
+			hi = i
+			break
+		}
+	}
+	if hi < 0 {
+		return vars
+	}
+	head := lines[hi]
+	cols := []string{"Key", "Type", "Source File", "Provider Key", "Description"}
+	at := make([]int, len(cols))
+	for i, c := range cols {
+		if at[i] = strings.Index(head, c); at[i] < 0 {
+			return vars
+		}
+	}
+	cell := func(l string, i int) string {
+		start := at[i]
+		if start >= len(l) {
+			return ""
+		}
+		end := len(l)
+		if i+1 < len(at) && at[i+1] < end {
+			end = at[i+1]
+		}
+		return strings.TrimSpace(l[start:end])
+	}
+	for _, l := range lines[hi+1:] {
+		key := cell(l, 0)
+		if !botEnvKeyRE.MatchString(key) || cell(l, 2) != file {
 			continue
 		}
-		f := strings.Fields(strings.TrimSuffix(strings.TrimSpace(line), file))
-		if len(f) == 0 || !botEnvKeyRE.MatchString(f[0]) {
-			continue
-		}
-		value := strings.Join(f[1:], " ")
-		v := botEnvVar{Key: f[0], Secret: value == "[redacted]"}
+		provider := strings.TrimSuffix(strings.TrimPrefix(cell(l, 1), "provider ("), ")")
+		v := botEnvVar{Key: key, Provider: provider, Secret: provider != "plain"}
 		if !v.Secret {
-			v.Value = value
+			v.Value = cell(l, 3)
 		}
 		vars = append(vars, v)
 	}
 	return vars
 }
 
-// botEnvSet writes one variable. A secret is age-encrypted by mise with the
-// host's mise age key; its value rides stdin.
+// botEnvKeys is the variable names the task must ask mise for.
+func botEnvKeys(b Backend, dir string) []string {
+	vars, err := botEnvList(b, dir)
+	if err != nil {
+		return nil
+	}
+	keys := make([]string, 0, len(vars))
+	for _, v := range vars {
+		keys = append(keys, v.Key)
+	}
+	return keys
+}
+
+// botEnvSet writes one variable: a secret to fnox's default provider, a plain
+// value to "plain". Both ride stdin.
 func botEnvSet(b Backend, dir, key, value string, secret bool) error {
 	if !botEnvKeyRE.MatchString(key) {
 		return fmt.Errorf("%q is not an environment variable name", key)
 	}
-	if hasControl(value) && !secret {
+	if !secret && hasControl(value) {
 		return fmt.Errorf("a plain value cannot contain control characters; mark it secret")
 	}
-	if secret {
-		if ok, _ := botAgeKeyPresent(b); !ok {
-			return errBotNoAgeKey
-		}
-		_, err := botRun(b, dir, []string{"set", "--file", botMiseFile(dir), "--age-encrypt", "--stdin", key}, []byte(value))
+	if err := botEnvInit(b, dir); err != nil {
 		return err
 	}
-	_, err := botRun(b, dir, []string{"set", "--file", botMiseFile(dir), key + "=" + value}, nil)
+	args := []string{"set", key}
+	if !secret {
+		args = append(args, "--provider", "plain")
+	}
+	_, err := botRun(b, dir, "fnox", args, []byte(value))
 	return err
 }
 
@@ -146,44 +288,6 @@ func botEnvUnset(b Backend, dir, key string) error {
 	if !botEnvKeyRE.MatchString(key) {
 		return fmt.Errorf("%q is not an environment variable name", key)
 	}
-	_, err := botRun(b, dir, []string{"unset", "--file", botMiseFile(dir), key}, nil)
+	_, err := botRun(b, dir, "fnox", []string{"remove", key}, nil)
 	return err
-}
-
-var errBotNoAgeKey = errors.New("this host has no mise age key (~/.config/mise/age.txt), so secrets cannot be encrypted; create one in the bot's Environment settings")
-
-func botAgeKeyPath(b Backend) (string, error) {
-	home, err := b.HomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".config", "mise", "age.txt"), nil
-}
-
-func botAgeKeyPresent(b Backend) (bool, error) {
-	p, err := botAgeKeyPath(b)
-	if err != nil {
-		return false, err
-	}
-	_, err = b.Stat(p)
-	return err == nil, nil
-}
-
-// botAgeKeyCreate makes the host's mise age identity, only on a human's click.
-// It refuses to replace one: every secret already encrypted to the old key
-// would become unreadable.
-func botAgeKeyCreate(b Backend) error {
-	p, err := botAgeKeyPath(b)
-	if err != nil {
-		return err
-	}
-	if _, err := b.Stat(p); err == nil {
-		return fmt.Errorf("%s already exists", p)
-	}
-	if err := b.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-		return err
-	}
-	home, _ := b.HomeDir()
-	_, err = botRun(b, home, []string{"x", "age", "--", "age-keygen", "-o", p}, nil)
-	return botMiseHint(err)
 }

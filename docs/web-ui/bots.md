@@ -85,7 +85,7 @@ The bot's `CLAUDE.md`: who it is and how it works. Edit it here and **Save CLAUD
 
 ### Environment
 
-Variables in the bot's `mise.toml`, set when it launches. Tick **Secret** to store a value encrypted: it is encrypted to the host's mise age key, decrypted only in memory at launch, shown afterwards as `●●●●●●●●`, and can only be replaced, never read back. Changes reach a running bot on its next restart.
+Variables in the bot's `fnox.toml`, which mise hands to the bot, and nothing else, when it launches. Tick **Secret** to keep a value in the file's default provider. Unless you changed it, that is lasso's own age key (`~/.lasso/age.txt` on the bot's host), and the value is decrypted only at launch. Afterwards it shows as `●●●●●●●●` and can only be replaced, never read back. To keep secrets in 1Password, a vault or elsewhere, add a provider to the bot's `fnox.toml` with `fnox provider add` and make it `default_provider`. Changes reach a running bot on its next restart. Bots need mise 2026.10.4 and fnox 1.39 or newer on their host.
 
 A host with no age key yet cannot store secrets. The page says so and offers **Create encryption key**, which asks before writing `~/.config/mise/age.txt` on that host. Every bot on the host uses that one key, so back it up.
 

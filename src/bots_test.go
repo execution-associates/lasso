@@ -60,7 +60,7 @@ func testBot() *botRecord {
 
 func TestBotTaskScript(t *testing.T) {
 	r := testBot()
-	s := botTaskScript(r, "/home/u/bots/news-bot")
+	s := botTaskScript(r, "/home/u/bots/news-bot", []string{"GMAIL_TOKEN", "PLAIN"})
 	for _, want := range []string{
 		"exec claude '--mcp-config' '/home/u/bots/news-bot/.lasso/mcp.json'",
 		"'--strict-mcp-config'",
@@ -70,6 +70,7 @@ func TestBotTaskScript(t *testing.T) {
 		"I am using this for local development",
 		"❯ Yes, I trust this folder",
 		`herdr agent rename "$HERDR_PANE_ID" "$NAME"`,
+		"#MISE secrets=[\"GMAIL_TOKEN\",\"PLAIN\"]\n#MISE interactive=true\n",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("script lacks %q:\n%s", want, s)
@@ -88,8 +89,8 @@ func TestBotTaskScript(t *testing.T) {
 	}
 
 	r.MCP[0].Channel = false
-	if s := botTaskScript(r, "/d"); strings.Contains(s, "local development") {
-		t.Error("the dev-channel answer is written for a bot with no channels")
+	if s := botTaskScript(r, "/d", nil); strings.Contains(s, "local development") || strings.Contains(s, "#MISE secrets") {
+		t.Error("a bot with no channels or env got a dev-channel answer or a secrets grant")
 	}
 }
 
@@ -132,67 +133,129 @@ func TestValidateResumeArgv(t *testing.T) {
 	}
 }
 
-type miseCall struct {
+type toolCall struct {
 	dir   string
+	tool  string
 	args  []string
 	stdin string
 }
 
-func recordMise(t *testing.T, out string) *[]miseCall {
+// recordTools stands in for mise and fnox: versions new enough, `fnox list`
+// answering listOut, everything else succeeding silently.
+func recordTools(t *testing.T, listOut string) *[]toolCall {
 	t.Helper()
 	var mu sync.Mutex
-	calls := &[]miseCall{}
+	calls := &[]toolCall{}
 	prev := botRun
-	botRun = func(b Backend, dir string, args []string, stdin []byte) ([]byte, error) {
+	botRun = func(b Backend, dir, tool string, args []string, stdin []byte) ([]byte, error) {
 		mu.Lock()
 		defer mu.Unlock()
-		*calls = append(*calls, miseCall{dir, args, string(stdin)})
-		return []byte(out), nil
+		*calls = append(*calls, toolCall{dir, tool, args, string(stdin)})
+		switch {
+		case len(args) == 1 && args[0] == "--version" && tool == "mise":
+			return []byte("2026.10.7 linux-x64 (2026-10-09)"), nil
+		case len(args) == 1 && args[0] == "--version":
+			return []byte("fnox 1.39.0"), nil
+		case tool == "fnox" && args[0] == "list":
+			return []byte(listOut), nil
+		}
+		return nil, nil
 	}
-	t.Cleanup(func() { botRun = prev })
+	botToolsOK = sync.Map{}
+	t.Cleanup(func() { botRun = prev; botToolsOK = sync.Map{} })
 	return calls
 }
 
-func TestBotEnvSecretTravelsOnStdin(t *testing.T) {
-	calls := recordMise(t, "")
+func TestBotEnvValuesTravelOnStdin(t *testing.T) {
+	t.Setenv("LASSO_DIR", t.TempDir())
+	calls := recordTools(t, "")
 	b := &localBackend{}
 	dir := t.TempDir()
-	if err := botEnvSet(b, dir, "API_KEY", "hunter2", true); err != errBotNoAgeKey {
-		t.Fatalf("without an age key: %v", err)
-	}
-	home, _ := b.HomeDir()
-	key := filepath.Join(home, ".config", "mise", "age.txt")
-	os.MkdirAll(filepath.Dir(key), 0o700)
-	os.WriteFile(key, []byte("AGE-SECRET-KEY-TEST"), 0o600)
-	t.Cleanup(func() { os.Remove(key) })
-
 	if err := botEnvSet(b, dir, "API_KEY", "hunter2", true); err != nil {
 		t.Fatal(err)
 	}
 	c := (*calls)[len(*calls)-1]
-	if c.stdin != "hunter2" || strings.Contains(strings.Join(c.args, " "), "hunter2") {
+	if c.tool != "fnox" || c.stdin != "hunter2" || strings.Join(c.args, " ") != "set API_KEY" {
 		t.Fatalf("secret call = %+v", c)
-	}
-	if strings.Join(c.args, " ") != "set --file "+filepath.Join(dir, "mise.toml")+" --age-encrypt --stdin API_KEY" {
-		t.Errorf("args = %q", c.args)
 	}
 	if err := botEnvSet(b, dir, "PLAIN", "v", false); err != nil {
 		t.Fatal(err)
 	}
-	if c := (*calls)[len(*calls)-1]; c.args[len(c.args)-1] != "PLAIN=v" {
-		t.Errorf("plain args = %q", c.args)
+	if c := (*calls)[len(*calls)-1]; strings.Join(c.args, " ") != "set PLAIN --provider plain" || c.stdin != "v" {
+		t.Errorf("plain call = %+v", c)
+	}
+	for _, c := range *calls {
+		if strings.Contains(strings.Join(c.args, " "), "hunter2") {
+			t.Errorf("a value reached argv: %+v", c)
+		}
 	}
 	if err := botEnvSet(b, dir, "1BAD", "v", false); err == nil {
 		t.Error("accepted a bad key")
 	}
+
+	// The first write created fnox.toml with lasso's own age key, 0600.
+	fnox, err := os.ReadFile(botFnoxFile(dir))
+	if err != nil || !bytes.Contains(fnox, []byte(`default_provider = "lasso"`)) || !bytes.Contains(fnox, []byte(botAgeKeyPath(b))) {
+		t.Fatalf("fnox.toml: %v\n%s", err, fnox)
+	}
+	key, err := os.ReadFile(botAgeKeyPath(b))
+	if err != nil || !bytes.Contains(fnox, []byte(ageRecipientFromFile(string(key)))) {
+		t.Fatalf("age key: %v", err)
+	}
+	if fi, _ := os.Stat(botAgeKeyPath(b)); fi.Mode().Perm() != 0o600 {
+		t.Errorf("age key mode %v", fi.Mode().Perm())
+	}
+	// A second bot reuses the key; an edited fnox.toml is never rewritten.
+	os.WriteFile(botFnoxFile(dir), []byte("mine"), 0o644)
+	if err := botEnvInit(b, dir); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(botFnoxFile(dir)); string(got) != "mine" {
+		t.Error("botEnvInit overwrote fnox.toml")
+	}
+	if again, _ := os.ReadFile(botAgeKeyPath(b)); !bytes.Equal(again, key) {
+		t.Error("the age key changed")
+	}
 }
 
-func TestParseMiseSet(t *testing.T) {
-	file := "/home/u/bots/a/mise.toml"
-	out := "FOO    bar baz   " + file + "\nTOKEN  [redacted] " + file + "\nGLOBAL x /home/u/.config/mise/config.toml\n"
-	got := parseMiseSet(out, file)
-	if len(got) != 2 || got[0] != (botEnvVar{Key: "FOO", Value: "bar baz"}) || got[1] != (botEnvVar{Key: "TOKEN", Secret: true}) {
-		t.Errorf("got %+v", got)
+func TestBotToolsTooOld(t *testing.T) {
+	prev := botRun
+	botRun = func(b Backend, dir, tool string, args []string, stdin []byte) ([]byte, error) {
+		if tool == "mise" {
+			return []byte("2026.7.11 linux-x64"), nil
+		}
+		return []byte("fnox 1.39.0"), nil
+	}
+	botToolsOK = sync.Map{}
+	t.Cleanup(func() { botRun = prev; botToolsOK = sync.Map{} })
+	if err := botCheckTools(&localBackend{}); err == nil || !strings.Contains(err.Error(), "mise self-update") {
+		t.Errorf("err = %v", err)
+	}
+	for _, c := range []struct {
+		a, b string
+		less bool
+	}{{"2026.7.11", "2026.10.4", true}, {"2026.10.4", "2026.10.4", false}, {"1.40.0", "1.39.0", false}, {"", "1.0", true}} {
+		if versionLess(c.a, c.b) != c.less {
+			t.Errorf("versionLess(%q, %q) != %v", c.a, c.b, c.less)
+		}
+	}
+}
+
+func TestParseFnoxList(t *testing.T) {
+	file := "/home/u/bots/a/fnox.toml"
+	pad := func(s string, n int) string { return s + strings.Repeat(" ", n-len(s)) }
+	row := func(k, ty, src, pk string) string {
+		return " " + pad(k, 11) + pad(ty, 18) + pad(src, 40) + pad(pk, 20) + "\n"
+	}
+	out := row("Key", "Type", "Source File", "Provider Key") + " Description\n"
+	out = strings.Replace(out, "Provider Key        \n", "Provider Key        Description\n", 1)
+	out += row("API_TOKEN", "provider (lasso)", file, "YWdlLWVu...")
+	out += row("GREETING", "provider (plain)", file, "hello there")
+	out += row("GLOBAL", "provider (plain)", "/home/u/.config/fnox/config.toml", "x")
+	got := parseFnoxList(out, file)
+	if len(got) != 2 || got[0] != (botEnvVar{Key: "API_TOKEN", Secret: true, Provider: "lasso"}) ||
+		got[1] != (botEnvVar{Key: "GREETING", Value: "hello there", Provider: "plain"}) {
+		t.Errorf("got %+v\n%s", got, out)
 	}
 }
 
@@ -237,7 +300,7 @@ func useBotTestEnv(t *testing.T) Backend {
 	botBackend = func(string) (Backend, error) { return b, nil }
 	t.Cleanup(func() { botBackend = prev })
 	invalidatePaneList("local")
-	recordMise(t, "")
+	recordTools(t, "")
 	return b
 }
 

@@ -35,7 +35,6 @@ import { Field, fieldClass, labelClass } from "@/components/ui/field"
 import { NO_AUTOCORRECT } from "@/components/ui/input"
 import { Orb } from "@/components/ui/orb"
 import {
-  ApiError,
   api,
   type BotFields,
   type BotMCPServer,
@@ -1001,21 +1000,21 @@ function EnvironmentTab({ bot }: { bot: BotView }) {
     value: string
   } | null>(null)
   const [busy, setBusy] = React.useState(false)
-  const [confirmKey, setConfirmKey] = React.useState(false)
-  const ageKey = env.data?.age_key ?? true
+  // A running bot reads its environment once, at launch.
+  const [restartNeeded, setRestartNeeded] = React.useState(false)
 
-  const run = async (fn: () => Promise<unknown>, fail: string) => {
+  const run = async (
+    fn: () => Promise<{ restart_needed?: boolean }>,
+    fail: string
+  ) => {
     setBusy(true)
     try {
-      await fn()
+      const res = await fn()
+      if (res.restart_needed) setRestartNeeded(true)
       await queryClient.invalidateQueries({ queryKey: key })
       return true
     } catch (e) {
-      const msg =
-        e instanceof ApiError && e.status === 412
-          ? "this host has no encryption key yet"
-          : (e as Error).message
-      toast.error(`${fail}: ${msg}`)
+      toast.error(`${fail}: ${(e as Error).message}`)
       return false
     } finally {
       setBusy(false)
@@ -1028,11 +1027,21 @@ function EnvironmentTab({ bot }: { bot: BotView }) {
     <div className="flex flex-col gap-4">
       <p className="text-[12.5px] text-muted-foreground leading-relaxed">
         Variables in the bot's{" "}
-        <code className="font-mono text-[11.5px]">mise.toml</code>, set when it
-        launches. A secret is encrypted to the host's mise age key and only
-        decrypted in memory at launch; its value is never shown again, only
-        replaced. Changes reach a running bot on its next restart.
+        <code className="font-mono text-[11.5px]">fnox.toml</code>, handed to it
+        by mise when it launches and to nothing else. A secret goes to the
+        file's default provider (lasso's own age key unless you changed it) and
+        is decrypted only at launch; its value is never shown again, only
+        replaced. To keep secrets in 1Password, a vault or elsewhere, add a
+        provider to that file with{" "}
+        <code className="font-mono text-[11.5px]">fnox provider add</code> and
+        make it the default.
       </p>
+      {restartNeeded && (
+        <p className="rounded-lg bg-muted px-3 py-2 text-[12px] text-muted-foreground">
+          The bot is running with its old environment. Restart it from Launch
+          for the change to reach it.
+        </p>
+      )}
       {env.isPending && <Orb state="working" px={16} />}
       {env.error && (
         <p className="text-[12px] text-destructive">
@@ -1053,9 +1062,12 @@ function EnvironmentTab({ bot }: { bot: BotView }) {
                 {v.key}
               </span>
               {v.secret && (
-                <span className="flex items-center gap-1 rounded bg-muted px-1.5 py-px text-[10.5px] text-muted-foreground">
+                <span
+                  className="flex items-center gap-1 rounded bg-muted px-1.5 py-px text-[10.5px] text-muted-foreground"
+                  title={`Held by the fnox provider "${v.provider ?? ""}"`}
+                >
                   <KeyRound className="size-3" />
-                  secret
+                  {v.provider && v.provider !== "lasso" ? v.provider : "secret"}
                 </span>
               )}
               {editing?.key === v.key ? (
@@ -1168,31 +1180,9 @@ function EnvironmentTab({ bot }: { bot: BotView }) {
         <Check id="bot-env-secret" checked={newSecret} onChange={setNewSecret}>
           Secret (encrypted, never shown again)
         </Check>
-        {newSecret && !ageKey && (
-          <div className="flex flex-col gap-2 rounded-lg bg-muted px-3 py-2 text-[12px] text-muted-foreground">
-            <p>
-              {bot.host === "local" ? "This machine" : bot.host} has no mise age
-              key yet, so there is nothing to encrypt a secret to. Creating one
-              writes a private key under{" "}
-              <code className="font-mono">~/.config/mise/age.txt</code> on that
-              host; every bot there will use it.
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="self-start"
-              onClick={() => setConfirmKey(true)}
-            >
-              <KeyRound />
-              Create encryption key
-            </Button>
-          </div>
-        )}
         <Button
           className="self-start"
-          disabled={
-            busy || !newKey || keyBad || (newSecret && !ageKey) || !newValue
-          }
+          disabled={busy || !newKey || keyBad || !newValue}
           onClick={() =>
             void run(
               () => api.bots.envSet(bot.name, newKey, newValue, newSecret),
@@ -1209,34 +1199,6 @@ function EnvironmentTab({ bot }: { bot: BotView }) {
           Add
         </Button>
       </div>
-
-      <AlertDialog open={confirmKey} onOpenChange={setConfirmKey}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Create an encryption key?</AlertDialogTitle>
-            <AlertDialogDescription>
-              lasso will generate a mise age key on{" "}
-              {bot.host === "local" ? "this machine" : bot.host}. Secrets for
-              every bot on that host are encrypted to it, and anyone who can
-              read that file can decrypt them. Back it up: a lost key means
-              setting every secret again.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() =>
-                void run(
-                  () => api.bots.ageKey(bot.name),
-                  "could not create the key"
-                )
-              }
-            >
-              Create key
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }

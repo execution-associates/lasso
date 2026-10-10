@@ -850,6 +850,9 @@ export interface BotEnvVar {
   // Plain values only; a secret's value never leaves the host.
   value?: string
   secret: boolean
+  // The fnox provider holding it: "plain", "lasso" (lasso's age key), or
+  // whatever the bot's fnox.toml names.
+  provider?: string
 }
 
 export interface BotSkill {
@@ -1832,23 +1835,22 @@ export const api = {
     restart: (name: string, fresh = false) =>
       postJSON<{ bot: BotView }>(botURL(name, "/restart"), { fresh }),
     env: (name: string) =>
-      getJSON<{ vars: BotEnvVar[]; age_key: boolean }>(botURL(name, "/env")),
-    // 412 for a secret while the host has no mise age key.
+      getJSON<{ vars: BotEnvVar[]; fnox_file: string }>(botURL(name, "/env")),
     envSet: (name: string, key: string, value: string, secret: boolean) =>
-      sendJSON<{ ok: boolean }>("PUT", botURL(name, "/env"), {
-        key,
-        value,
-        secret,
-      }),
+      sendJSON<{ ok: boolean; restart_needed?: boolean }>(
+        "PUT",
+        botURL(name, "/env"),
+        {
+          key,
+          value,
+          secret,
+        }
+      ),
     envUnset: (name: string, key: string) =>
-      sendJSON<{ ok: boolean }>(
+      sendJSON<{ ok: boolean; restart_needed?: boolean }>(
         "DELETE",
         botURL(name, `/env?key=${encodeURIComponent(key)}`)
       ),
-    // Creates the bot's HOST's mise age key, which every secret there is
-    // encrypted to. Only ever on an explicit, confirmed click.
-    ageKey: (name: string) =>
-      postJSON<{ ok: boolean }>(botURL(name, "/age-key"), {}),
     skills: (name: string) =>
       getJSON<{ skills: BotSkill[] }>(botURL(name, "/skills")),
     // `from` is a skill directory on the bot's host (absolute or ~/…).

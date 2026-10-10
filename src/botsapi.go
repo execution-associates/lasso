@@ -12,7 +12,6 @@ package main
 //	GET    /api/bots/<name>/env               keys; secrets redacted
 //	PUT    /api/bots/<name>/env               {key, value, secret}
 //	DELETE /api/bots/<name>/env?key=
-//	POST   /api/bots/<name>/age-key           create the host's mise age key
 //	GET    /api/bots/<name>/skills            the folder's project skills
 //	POST   /api/bots/<name>/skills            {from}: copy a skill directory in
 //	DELETE /api/bots/<name>/skills?name=
@@ -73,16 +72,6 @@ func serveBots(w http.ResponseWriter, r *http.Request) {
 		serveBotLifecycle(w, r, b, rec, action)
 	case "env":
 		serveBotEnv(w, r, b, rec)
-	case "age-key":
-		if r.Method != http.MethodPost {
-			http.Error(w, "POST", http.StatusMethodNotAllowed)
-			return
-		}
-		if err := botAgeKeyCreate(b); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		writeJSON(w, map[string]any{"ok": true})
 	case "skills":
 		serveBotSkills(w, r, b, rec)
 	default:
@@ -150,7 +139,7 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 		writeJSON(w, map[string]any{
 			"bot":       v,
 			"dir_path":  dir,
-			"launch":    botTaskScript(rec, dir),
+			"launch":    botTaskScript(rec, dir, botEnvKeys(b, dir)),
 			"claude_md": filepath.Join(dir, "CLAUDE.md"),
 		})
 	case http.MethodPut:
@@ -240,8 +229,7 @@ func serveBotEnv(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
-		key, _ := botAgeKeyPresent(b)
-		writeJSON(w, map[string]any{"vars": vars, "age_key": key})
+		writeJSON(w, map[string]any{"vars": vars, "fnox_file": botFnoxFile(dir)})
 	case http.MethodPut:
 		var in struct {
 			Key    string `json:"key"`
@@ -252,28 +240,34 @@ func serveBotEnv(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 			http.Error(w, "bad body", http.StatusBadRequest)
 			return
 		}
-		if err := botMiseInit(b, dir); err != nil {
+		if err := botEnvSet(b, dir, in.Key, in.Value, in.Secret); err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
-		if err := botEnvSet(b, dir, in.Key, in.Value, in.Secret); err != nil {
-			code := http.StatusBadGateway
-			if errors.Is(err, errBotNoAgeKey) {
-				code = http.StatusPreconditionFailed
-			}
-			http.Error(w, err.Error(), code)
+		if err := botWriteTask(b, rec, dir); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
-		writeJSON(w, map[string]any{"ok": true})
+		writeJSON(w, map[string]any{"ok": true, "restart_needed": botRunning(b, rec)})
 	case http.MethodDelete:
 		if err := botEnvUnset(b, dir, r.URL.Query().Get("key")); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, map[string]any{"ok": true})
+		if err := botWriteTask(b, rec, dir); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "restart_needed": botRunning(b, rec)})
 	default:
 		http.Error(w, "GET, PUT or DELETE", http.StatusMethodNotAllowed)
 	}
+}
+
+// botRunning: an env change reaches a running bot only on its next start.
+func botRunning(b Backend, r *botRecord) bool {
+	_, ok := findBotPane(b, r)
+	return ok
 }
 
 // --- skills ------------------------------------------------------------------
