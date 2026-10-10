@@ -19,7 +19,7 @@ The footer's view menu (it names the view you are in) switches what fills this c
 - **Grid** lays out every agent lasso can reach as a grid of cards, one transcript per card, grouped by machine. `⌘E` toggles it.
 - **Bots** lists lasso's long-lived Claude Code sessions like a messaging app, with each bot's conversation and settings. `⌘.` toggles it. See [Bots](./bots.md).
 
-Chat and the Grid are described in [The terminal](./terminal.md#chat-view). Below them the menu lists any views your [plugins](../plugins/index.md) add. On a phone the input dial's **Chat** button opens the same picker.
+Chat and the Grid are described in [The terminal](./terminal.md#chat-view). Below them the menu lists any views your [plugins](../plugins/index.md) add. On a phone the input dial's big button opens the same picker.
 
 ## The sidebar
 
@@ -56,7 +56,7 @@ A host that is not answering says so in the host menu rather than holding up the
 Below 768 px wide (a phone, or a desktop window dragged narrow) the layout changes:
 
 - The footer is gone and the terminal gets the whole screen.
-- The **input dial** in the terminal's bottom-right corner takes over the footer's job: New, Chat, the host menu, the sidebar, herdr's pane search and the keys a touch keyboard lacks. See [The input dial](./terminal.md#the-input-dial-phones-and-narrow-windows).
+- The **input dial** in the terminal's bottom-right corner takes over the footer's job: its big button opens the view picker, which also holds New, Search, the host menu and the sidebar, and the smaller button above it opens the keys a touch keyboard lacks. See [The input dial](./terminal.md#the-input-dial-phones-and-narrow-windows).
 - An open sidebar covers the whole screen. Close it with the panel button at the right end of its tab strip.
 - The sidebar gains an **Agents** tab, first in the strip, listing every agent across your hosts. Picking one closes the sidebar and opens that agent in the chat view. At desktop widths the same list is the chat's docked left column instead, so the tab is not shown there.
 - The usage footer is not shown; the **Usage** sidebar tab has the same numbers.
