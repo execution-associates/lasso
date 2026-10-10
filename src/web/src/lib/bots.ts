@@ -51,6 +51,16 @@ export const BOT_PERMISSION_MODES: { value: string; label: string }[] = [
   { value: "bypassPermissions", label: "bypassPermissions" },
 ]
 
+// omp's approval modes (--approval-mode), as bots.go accepts them for an omp
+// bot ("" = omp's own default, yolo). A question or approval an omp bot asks
+// is answered from its chat.
+export const BOT_OMP_APPROVAL_MODES: { value: string; label: string }[] = [
+  { value: "", label: "default (yolo)" },
+  { value: "yolo", label: "yolo — never asks" },
+  { value: "write", label: "write — asks before running commands" },
+  { value: "always-ask", label: "always-ask — asks before any change" },
+]
+
 export function botRunning(b: BotView): boolean {
   return b.state !== "stopped"
 }

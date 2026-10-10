@@ -43,6 +43,7 @@ import { Orb } from "@/components/ui/orb"
 import { paneKey, renameAgent, useAgents } from "@/lib/agents"
 import {
   api,
+  type BotPendingUI,
   type ChatDiffLine,
   type ChatItem,
   type ChatSendResult,
@@ -294,7 +295,10 @@ function AskCard({
   // A question with no options is the free-text kind: the terminal is where it
   // is answered, so the card does not offer a form for it.
   const hasOptions = questions.some((q) => q.options.length > 0)
-  const answerable = running && !sent && !sending && hasOptions
+  // An omp bot's questions are answered on BotQuestion, over RPC: there is no
+  // dialog on a screen for keystrokes to reach.
+  const answerable =
+    running && !sent && !sending && hasOptions && !paneID.startsWith("bot:")
   const ready = questions.every((_, i) => (picks[i]?.length ?? 0) > 0)
 
   const send = async (answers: number[][]) => {
@@ -976,6 +980,141 @@ function RowView({
   }
 }
 
+// BotQuestion is what an omp bot is waiting on: its ask tool's question or an
+// approval, which omp sends lasso as an extension_ui_request instead of
+// drawing a dialog. Answered over RPC by option label (an approval is a select
+// of Approve/Deny), so unlike AskCard nothing depends on a screen.
+function BotQuestion({
+  bot,
+  question,
+  onAnswered,
+}: {
+  bot: string
+  question: BotPendingUI
+  onAnswered: () => void
+}) {
+  const [text, setText] = React.useState("")
+  const [sending, setSending] = React.useState(false)
+  const [notice, setNotice] = React.useState<string | null>(null)
+  const answer = async (
+    a: { value: string } | { confirmed: boolean } | { cancelled: true }
+  ) => {
+    setSending(true)
+    setNotice(null)
+    try {
+      const res = await api.bots.chatAnswer(bot, question.id, a)
+      if (res.outcome === "sent") onAnswered()
+      else setNotice(res.detail ?? "the bot did not take the answer")
+    } catch (e) {
+      setNotice((e as Error).message)
+    } finally {
+      setSending(false)
+    }
+  }
+  const [title, ...rest] = question.title.split("\n")
+  const detail = [rest.join("\n"), question.message ?? ""]
+    .filter(Boolean)
+    .join("\n")
+  const btn =
+    "rounded-lg border border-border px-3 py-1.5 text-[12.5px] hover:bg-accent/40 disabled:opacity-50"
+  return (
+    <div className="flex-none border-border border-t bg-card">
+      <div className={cn("flex flex-col gap-2 py-2.5", MEASURE)}>
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <span className="font-medium text-foreground">
+            The bot is waiting on you
+          </span>
+        </div>
+        <div className="whitespace-pre-wrap break-words font-medium text-[13px] text-foreground">
+          {title}
+        </div>
+        {detail && (
+          <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/60 p-2 font-mono text-[11.5px] text-muted-foreground">
+            {detail}
+          </pre>
+        )}
+        {question.method === "select" && (
+          <div className="flex flex-wrap gap-1.5">
+            {(question.options ?? []).map((o) => (
+              <button
+                key={o}
+                type="button"
+                disabled={sending}
+                onClick={() => void answer({ value: o })}
+                className={btn}
+              >
+                {o}
+              </button>
+            ))}
+          </div>
+        )}
+        {question.method === "confirm" && (
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              disabled={sending}
+              onClick={() => void answer({ confirmed: true })}
+              className={btn}
+            >
+              Yes
+            </button>
+            <button
+              type="button"
+              disabled={sending}
+              onClick={() => void answer({ confirmed: false })}
+              className={btn}
+            >
+              No
+            </button>
+          </div>
+        )}
+        {(question.method === "input" ||
+          question.method === "editor" ||
+          (question.method === "select" &&
+            (question.options ?? []).some((o) =>
+              /type your own/i.test(o)
+            ))) && (
+          <form
+            className="flex gap-1.5"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (text.trim()) void answer({ value: text })
+            }}
+          >
+            <input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder={question.placeholder || "Your answer"}
+              className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[12.5px]"
+              {...NO_AUTOCORRECT}
+            />
+            <button
+              type="submit"
+              disabled={sending || !text.trim()}
+              className={btn}
+            >
+              Send
+            </button>
+          </form>
+        )}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={sending}
+            onClick={() => void answer({ cancelled: true })}
+            className="text-[11.5px] text-muted-foreground hover:text-foreground"
+          >
+            Dismiss
+          </button>
+          {notice && (
+            <span className="text-[11.5px] text-destructive">{notice}</span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Unsent text, kept per TARGET (host + pane) rather than per composer. The chat
 // follows herdr's focus, so a single draft on the composer would silently
 // re-aim itself at whatever agent got focused next — and text written for one
@@ -1485,7 +1624,9 @@ export function ChatView({
 }: {
   // A named agent to read instead of herdr's focused pane. Reading by address
   // is what lets the modal open without re-pointing herdr's one global focus.
-  address?: { host: string; paneID: string }
+  // `bot` is an omp bot, which has no pane: it is read and driven through
+  // /api/bots/<name>/chat.
+  address?: { host: string; paneID: string } | { bot: string }
   modal?: ChatModalActions
   // The terminal, showing the pane this chat reads (herdr's focused one). md+
   // only: below md the view picker (onOpenViews) is the way there, as it is
@@ -1541,8 +1682,14 @@ export function ChatView({
   // agent appends to, and nothing pushes it. Bounded by the server's caps.
   // `incoming` is part of the key: the same pane read with and without the
   // channel rows is two different answers.
-  const keyHost = address ? address.host : (host ?? "")
-  const keyPane = address ? address.paneID : (activePaneID ?? "")
+  const botName = address && "bot" in address ? address.bot : undefined
+  const paneAddr = address && "paneID" in address ? address : undefined
+  const keyHost = botName ? "bot" : paneAddr ? paneAddr.host : (host ?? "")
+  const keyPane = botName
+    ? botName
+    : paneAddr
+      ? paneAddr.paneID
+      : (activePaneID ?? "")
   const queryKey = React.useMemo(
     () => [...qk.chat(keyHost, keyPane), incoming ? "incoming" : "plain"],
     [keyHost, keyPane, incoming]
@@ -1550,9 +1697,11 @@ export function ChatView({
   const { data, isLoading, error } = useQuery({
     queryKey,
     queryFn: () =>
-      address
-        ? api.chat(address.paneID, undefined, address.host, incoming)
-        : api.chat(activePaneID ?? undefined, undefined, undefined, incoming),
+      botName
+        ? api.bots.chat(botName)
+        : paneAddr
+          ? api.chat(paneAddr.paneID, undefined, paneAddr.host, incoming)
+          : api.chat(activePaneID ?? undefined, undefined, undefined, incoming),
     refetchInterval: active ? 2000 : false,
     // panes_rev moves when herdr sees the pane change; the interval covers the
     // transcript growing within one state.
@@ -1668,7 +1817,9 @@ export function ChatView({
     try {
       // The page belongs to the transcript on screen, so it is addressed to that
       // record's host — not to whichever host this tab has moved to since.
-      const page = await api.chat(pane, before, pageHost, incoming)
+      const page = botName
+        ? await api.bots.chat(botName, before)
+        : await api.chat(pane, before, pageHost, incoming)
       setAcc((prev) => {
         if (prev.key !== key) return prev
         const have = new Set(prev.items.map((it) => it.id))
@@ -1690,7 +1841,7 @@ export function ChatView({
     } finally {
       setLoadingOlder(false)
     }
-  }, [acc.key, acc.olderStart, data, loadingOlder, incoming])
+  }, [acc.key, acc.olderStart, data, loadingOlder, incoming, botName])
 
   // Back to the newest row, for a reader who has scrolled up. `stick` is what
   // makes it STAY there: the poll's re-pin, a landed page and the composer
@@ -1799,7 +1950,9 @@ export function ChatView({
       const after = newestUser
       setDelivering(true)
       try {
-        const res = await api.chatSend(paneHost, pane, message)
+        const res = botName
+          ? await api.bots.chatSend(botName, message)
+          : await api.chatSend(paneHost, pane, message)
         if (res.outcome === "confirmed") {
           // The pane has it and the transcript does not yet: the echo is the
           // only thing standing between "sent" and the row appearing.
@@ -1814,7 +1967,7 @@ export function ChatView({
         setDelivering(false)
       }
     },
-    [data?.pane_id, data?.host, newestUser, queryClient, queryKey]
+    [data?.pane_id, data?.host, newestUser, queryClient, queryKey, botName]
   )
 
   const submit = React.useCallback(
@@ -1828,7 +1981,9 @@ export function ChatView({
       // Stop holds only what was already waiting: with nothing held, a new
       // message goes out as usual.
       if (heldHere.length === 0) setHoldPaused(false)
-      if (running || heldHere.length > 0 || delivering) {
+      // An omp bot takes a message mid-run (a steer), so nothing is held for it
+      // while it works.
+      if ((running && !botName) || heldHere.length > 0 || delivering) {
         setHeld((prev) => [
           ...prev,
           { id: echoSeq.current++, target, text: message },
@@ -1840,7 +1995,7 @@ export function ChatView({
         ? { cleared: true }
         : { cleared: false, notice: noticeFor(res) }
     },
-    [running, heldHere.length, delivering, deliver, target]
+    [running, heldHere.length, delivering, deliver, target, botName]
   )
 
   // Drain one held message whenever the agent is idle and nothing is in flight.
@@ -1874,7 +2029,9 @@ export function ChatView({
     setHoldPaused(true)
     setNotice(null)
     try {
-      const res = await api.chatStop(data.host, data.pane_id)
+      const res = botName
+        ? await api.bots.chatStop(botName)
+        : await api.chatStop(data.host, data.pane_id)
       if (res.outcome === "refused") {
         setNotice({
           tone: "bad",
@@ -1890,7 +2047,7 @@ export function ChatView({
     } catch (e) {
       setNotice({ tone: "bad", text: (e as Error).message })
     }
-  }, [data?.pane_id, data?.host, queryClient, setNotice, queryKey])
+  }, [data?.pane_id, data?.host, queryClient, setNotice, queryKey, botName])
   // Closing the pane needs no navigation of lasso's own: the chat follows herdr's
   // focused pane, so the view has already moved on by the time the pane is gone.
   // Addressed to the PAYLOAD's host, not the tab's: the pane on screen is another
@@ -2306,6 +2463,15 @@ export function ChatView({
           terminal is showing a machine lasso could not read) has nothing to
           address, and a field that answers a send with a 400 is worse than no
           field. */}
+      {botName &&
+        (data?.pending_ui ?? []).map((q) => (
+          <BotQuestion
+            key={q.id}
+            bot={botName}
+            question={q}
+            onAnswered={() => void queryClient.invalidateQueries({ queryKey })}
+          />
+        ))}
       {data?.pane_id && (
         <Composer
           key={`${data.host}\u0000${data.pane_id}`}

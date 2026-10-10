@@ -53,12 +53,14 @@ import {
   type BotFields,
   type BotMCPServer,
   type BotOAuthStatus,
+  type BotRuntime,
   type BotSkill,
   type BotView,
   type HostInfo,
 } from "@/lib/api"
 import {
   BOT_NAME_RE,
+  BOT_OMP_APPROVAL_MODES,
   BOT_PERMISSION_MODES,
   botKey,
   botRunning,
@@ -94,7 +96,10 @@ const TABS: { id: Tab; label: string; existing?: boolean }[] = [
 ]
 
 // Claude Code's effort levels, for a server too old to list them.
-const FALLBACK_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
+const FALLBACK_EFFORTS: Record<BotRuntime, string[]> = {
+  claude: ["low", "medium", "high", "xhigh", "max"],
+  omp: ["off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"],
+}
 
 // A key/value row being edited. Rows rather than a record so a key can be
 // renamed mid-typing without the row jumping, and an empty one can exist.
@@ -119,6 +124,7 @@ type DraftServer = {
 }
 
 type Draft = {
+  runtime: BotRuntime
   name: string
   host: string
   workspace: string
@@ -159,6 +165,8 @@ function lines(text: string): string[] {
 
 function draftOf(b?: BotView): Draft {
   return {
+    // A new bot runs omp unless the human picks claude.
+    runtime: b?.runtime ?? "omp",
     name: b?.name ?? "",
     host: b?.host ?? "local",
     workspace: b?.workspace ?? "",
@@ -190,6 +198,7 @@ function draftOf(b?: BotView): Draft {
 
 function fieldsOf(d: Draft): BotFields {
   return {
+    runtime: d.runtime,
     dir: d.dir.trim(),
     workspace: d.workspace.trim(),
     model: d.model.trim(),
@@ -512,16 +521,22 @@ function GeneralTab({
   creating: boolean
   bot?: BotView
 }) {
-  // The model suggestions and effort levels are Claude Code's, from the host's
-  // own harness table (what the New dialog offers for claude).
+  // The model suggestions and effort levels are the runtime's own, from the
+  // host's harness table (what the New dialog offers for that agent; omp's
+  // models are the host's own role assignments).
   const config = useQuery({
     queryKey: qk.agentConfig(draft.host),
     queryFn: () => api.agentConfig(draft.host),
   })
-  const claude = config.data?.harnesses?.find((h) => h.id === "claude")
-  const efforts = claude?.effort_levels?.length
-    ? claude.effort_levels
-    : FALLBACK_EFFORTS
+  const omp = draft.runtime === "omp"
+  const harness = config.data?.harnesses?.find((h) => h.id === draft.runtime)
+  const efforts = harness?.effort_levels?.length
+    ? harness.effort_levels
+    : FALLBACK_EFFORTS[draft.runtime]
+  const permissions = omp ? BOT_OMP_APPROVAL_MODES : BOT_PERMISSION_MODES
+  // The runtime decides what the bot is, so it changes only while stopped:
+  // a switch also starts a new conversation, the two keeping different logs.
+  const runtimeLocked = !creating && !!bot && bot.state !== "stopped"
   const nameBad = creating && draft.name !== "" && !BOT_NAME_RE.test(draft.name)
   // Two raised tiles: what the bot is, then how it behaves.
   return (
@@ -554,6 +569,40 @@ function GeneralTab({
             />
           </Field>
         )}
+        <Field
+          label="Runtime"
+          htmlFor="bot-runtime"
+          hint={
+            runtimeLocked
+              ? "Stop the bot to change it."
+              : omp
+                ? "omp in RPC mode, kept running by lasso on this machine. Its questions and approvals come to its chat."
+                : "Claude Code in a herdr pane, on any host lasso drives."
+          }
+        >
+          <select
+            id="bot-runtime"
+            className={fieldClass}
+            value={draft.runtime}
+            disabled={runtimeLocked}
+            onChange={(e) => {
+              const runtime = e.target.value as BotRuntime
+              // Effort levels and permission modes are the runtime's own, so
+              // a value of the other's is cleared rather than saved.
+              set({
+                runtime,
+                effort: FALLBACK_EFFORTS[runtime].includes(draft.effort)
+                  ? draft.effort
+                  : "",
+                permission_mode: "",
+                ...(runtime === "omp" ? { host: "local" } : {}),
+              })
+            }}
+          >
+            <option value="omp">omp</option>
+            <option value="claude">Claude Code</option>
+          </select>
+        </Field>
         <Field label="Avatar">
           <div className="flex items-center gap-3">
             <AvatarPicture
@@ -571,7 +620,7 @@ function GeneralTab({
           </div>
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
-          {creating && (
+          {creating && !omp && (
             <Field
               label="Host"
               htmlFor="bot-host"
@@ -583,24 +632,26 @@ function GeneralTab({
               />
             </Field>
           )}
-          <Field
-            label="Workspace"
-            htmlFor="bot-workspace"
-            hint="The herdr workspace its pane opens in."
-          >
-            <input
-              {...NO_AUTOCORRECT}
-              id="bot-workspace"
-              value={draft.workspace}
-              onChange={(e) => set({ workspace: e.target.value })}
-              placeholder="Bots"
-              className={fieldClass}
-            />
-          </Field>
+          {!omp && (
+            <Field
+              label="Workspace"
+              htmlFor="bot-workspace"
+              hint="The herdr workspace its pane opens in."
+            >
+              <input
+                {...NO_AUTOCORRECT}
+                id="bot-workspace"
+                value={draft.workspace}
+                onChange={(e) => set({ workspace: e.target.value })}
+                placeholder="Bots"
+                className={fieldClass}
+              />
+            </Field>
+          )}
           <Field
             label="Folder"
             htmlFor="bot-dir"
-            hint="Its working directory, holding CLAUDE.md, skills and mise.toml."
+            hint={`Its working directory, holding ${omp ? "AGENTS.md" : "CLAUDE.md"}, skills and mise.toml.`}
           >
             <input
               {...NO_AUTOCORRECT}
@@ -616,7 +667,7 @@ function GeneralTab({
               id="bot-model"
               value={draft.model}
               onValueChange={(model) => set({ model })}
-              suggestions={claude?.model_suggestions ?? []}
+              suggestions={harness?.model_suggestions ?? []}
               placeholder="default"
               emptyOption="default"
             />
@@ -637,9 +688,13 @@ function GeneralTab({
             </select>
           </Field>
           <Field
-            label="Permission mode"
+            label={omp ? "Approval mode" : "Permission mode"}
             htmlFor="bot-permission"
-            hint="What it may do without asking. A bot nobody is watching usually needs more than the default."
+            hint={
+              omp
+                ? "What it may do without asking. Anything it asks waits in its chat for you."
+                : "What it may do without asking. A bot nobody is watching usually needs more than the default."
+            }
           >
             <select
               id="bot-permission"
@@ -647,7 +702,7 @@ function GeneralTab({
               value={draft.permission_mode}
               onChange={(e) => set({ permission_mode: e.target.value })}
             >
-              {BOT_PERMISSION_MODES.map((m) => (
+              {permissions.map((m) => (
                 <option key={m.value} value={m.value}>
                   {m.label}
                 </option>
@@ -657,7 +712,7 @@ function GeneralTab({
           <Field
             label="Extra CLI args"
             htmlFor="bot-args"
-            hint="Added to its claude command, one argument per line."
+            hint={`Added to its ${omp ? "omp" : "claude"} command, one argument per line.`}
           >
             <textarea
               {...NO_AUTOCORRECT}
@@ -1068,17 +1123,24 @@ function ConnectionsTab({
           {showChannel && <LassoChannelCard />}
         </div>
       )}
-      <Check
-        id="bot-strict"
-        checked={draft.strict_mcp}
-        onChange={(strict_mcp) => set({ strict_mcp })}
-      >
-        Only these servers (strict)
-        <span className="block text-[11.5px] text-muted-foreground">
-          Off, it also gets your claude.ai connectors and user-level MCP
-          servers.
-        </span>
-      </Check>
+      {draft.runtime === "omp" ? (
+        <p className="text-[11.5px] text-muted-foreground">
+          omp also loads your user-level omp MCP servers (~/.omp/agent/mcp.json)
+          alongside these.
+        </p>
+      ) : (
+        <Check
+          id="bot-strict"
+          checked={draft.strict_mcp}
+          onChange={(strict_mcp) => set({ strict_mcp })}
+        >
+          Only these servers (strict)
+          <span className="block text-[11.5px] text-muted-foreground">
+            Off, it also gets your claude.ai connectors and user-level MCP
+            servers.
+          </span>
+        </Check>
+      )}
       <Dialog open={!!current} onOpenChange={(o) => !o && close()}>
         {current && (
           <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">
@@ -1767,6 +1829,8 @@ function SkillsTab({ bot }: { bot: BotView }) {
 // Instructions
 
 function InstructionsTab({ bot, path }: { bot: BotView; path: string }) {
+  // CLAUDE.md for a claude bot, AGENTS.md for an omp one: the server names it.
+  const name = path.split("/").pop() || "CLAUDE.md"
   const file = useQuery({
     queryKey: ["bot-claude-md", bot.host, path],
     queryFn: () => api.fileText(path, bot.host),
@@ -1782,9 +1846,9 @@ function InstructionsTab({ bot, path }: { bot: BotView; path: string }) {
       await api.writeFile(path, value, bot.host)
       await file.refetch()
       setText(null)
-      toast.success("CLAUDE.md saved")
+      toast.success(`${name} saved`)
     } catch (e) {
-      toast.error(`could not save CLAUDE.md: ${(e as Error).message}`)
+      toast.error(`could not save ${name}: ${(e as Error).message}`)
     } finally {
       setSaving(false)
     }
@@ -1812,7 +1876,7 @@ function InstructionsTab({ bot, path }: { bot: BotView; path: string }) {
               if (dirty) void save()
             }
           }}
-          aria-label="CLAUDE.md"
+          aria-label={name}
           className={cn(
             fieldClass,
             "min-h-[50vh] flex-1 resize-y font-mono text-[13px] leading-relaxed md:text-[12.5px]"
@@ -1822,7 +1886,7 @@ function InstructionsTab({ bot, path }: { bot: BotView; path: string }) {
       <div className="flex items-center gap-2">
         <Button disabled={!dirty || saving} onClick={() => void save()}>
           {saving ? <Orb state="working" px={14} on="accent" /> : <Save />}
-          Save CLAUDE.md
+          Save {name}
         </Button>
         {dirty && (
           <Button variant="ghost" onClick={() => setText(null)}>

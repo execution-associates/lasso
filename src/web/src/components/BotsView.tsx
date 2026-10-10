@@ -700,11 +700,18 @@ export function BotsView({
       />
     )
   } else if (route.page === "chat" && current) {
+    // An omp bot has no pane: its chat is addressed by name, and it is there
+    // whenever the bot is not stopped.
+    const omp = current.runtime === "omp"
     page =
-      current.pane_id && current.state !== "stopped" ? (
+      (omp || current.pane_id) && current.state !== "stopped" ? (
         <ChatView
-          key={`${current.name}\u0000${current.host}\u0000${current.pane_id}`}
-          address={{ host: current.host, paneID: current.pane_id }}
+          key={`${current.name}\u0000${current.host}\u0000${omp ? "omp" : current.pane_id}`}
+          address={
+            omp
+              ? { bot: current.name }
+              : { host: current.host, paneID: current.pane_id ?? "" }
+          }
           incoming
           variant="bot"
           active={active}
@@ -729,7 +736,9 @@ export function BotsView({
               <SettingsButton
                 onClick={() => go({ page: "settings", name: current.name })}
               />
-              <TerminalButton onClick={() => void openTerminal(current)} />
+              {!omp && (
+                <TerminalButton onClick={() => void openTerminal(current)} />
+              )}
               <ViewsButton onOpen={onOpenViews} />
             </>
           }
@@ -752,8 +761,8 @@ export function BotsView({
         ) : bots.length === 0 ? (
           <>
             <p className="max-w-sm">
-              A bot is a Claude Code session lasso keeps running in its own
-              folder, with its own instructions, connections and secrets.
+              A bot is an agent session lasso keeps running in its own folder,
+              with its own instructions, connections and secrets.
             </p>
             <Button onClick={() => go({ page: "new" })}>
               <Plus />

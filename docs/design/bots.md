@@ -1,10 +1,13 @@
 # Bots
 
-A bot is a long-lived Claude Code session that lasso defines, launches in herdr and keeps running. Examples are an assistant with mail and chat channels, or a watcher on a schedule. The Bots view lists them like a messaging app, and each one's settings page edits what it runs with.
+A bot is a long-lived agent session that lasso defines, launches and keeps running. Its **runtime** is `omp` (the default for a new bot: omp in RPC mode under lasso's bot host, see "omp bots" below) or `claude` (Claude Code in a herdr pane; everything else on this page up to "omp bots" describes that runtime). Examples are an assistant with mail and chat channels, or a watcher on a schedule. The Bots view lists them like a messaging app, and each one's settings page edits what it runs with.
 
 Code:
 
 - `bots.go`: the row, validation and the generated files.
+- `botomp_files.go`: an omp bot's generated files, system prompt and job-event message.
+- `bothost.go`: `lasso bot-host`, the process that owns an omp bot's pipes.
+- `botomp.go`: lasso's side of an omp bot: the socket connection, start/stop, status, keep-running and job delivery.
 - `botenv.go`: env and secrets (fnox, through mise).
 - `botkey.go`: lasso's own age identity.
 - `claudesessions.go`: Claude Code's session registry.
@@ -21,7 +24,7 @@ The frontend is `BotsView.tsx`, `BotSettings.tsx`, `BotJobs.tsx` (with `lib/cron
 
 ## What a bot is
 
-**A row in `lasso.db`.** The `bots` table holds the name, host, folder, herdr workspace, model, effort, permission mode, MCP servers, extra args, the picture (`avatar_image`), notify, keep-running, stopped and the last session id.
+**A row in `lasso.db`.** The `bots` table holds the name, runtime, host, folder, herdr workspace, model, effort, permission mode, MCP servers, extra args, the picture (`avatar_image`), notify, keep-running, stopped and the last session id.
 
 **A folder on its host,** default `~/bots/<name>`, where claude runs:
 
@@ -120,7 +123,7 @@ A job is a message lasso delivers into a bot's session on a schedule, from a web
 - **A one-time run (`once_at`) is the alternative to cron,** for a date 5-field cron cannot name (it has no year; a yearly job would fire again). Stored as UTC, entered as wall-clock time in the job's zone. It fires once, late if lasso was down at the time, and then has no `next_at`; the job stays, enabled, as a record. A new or changed one in the past is refused, but a save that leaves an already-fired one alone is not.
 - **A webhook's key is its only credential.** `POST /hooks/bots/<bot>/<job>` is exempt from UI_AUTH; the key comes as `?key=` or a bearer token, compared in constant time. A wrong key, a missing job and a job without a webhook all answer 404. The body (≤64 KB, UTF-8) is appended to the message under a line saying it came from the caller, and the channel's instructions tell the bot to treat it as data, never instructions.
 
-### Watches
+### Watches (both runtimes)
 
 A job with a `command` is a watch (`botjobcmd.go`): everloop's `--command` semantics, moved into lasso so a bot needs no timers of its own. Change detection is cheap and belongs in a script; the bot's judgement is expensive and should run only when there is something to judge.
 
@@ -134,4 +137,40 @@ A job with a `command` is a watch (`botjobcmd.go`): everloop's `--command` seman
 - **The environment is a systemd user unit's, not lasso's** (`botCommandEnv`): `minimalChildEnv`'s allowlist plus `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`, `SSH_AUTH_SOCK` and `OP_VAULT`, PATH led by `~/.local/bin` and mise's shims, and `LASSO_BOT`/`LASSO_JOB`. Never `UI_AUTH`, `MCP_OAUTH` or `LASSO_MCP_TOKEN`, and never the bot's fnox env. Scripts fetch their own secrets (`secret KEY`), exactly as they did under everloop.
 - **Trust: a watch is arbitrary shell as lasso's user.** Anyone who can create or edit a job (the Jobs tab, `/api/bots/<name>/jobs`, or `create_bot_job`/`update_bot_job` on `/mcp`, which a bot may call for itself) can run any command lasso's user can. That is the same trust as `/mcp`'s `create_agent` and a bot running with `bypassPermissions`, and it is why jobs sit behind UI_AUTH and `/mcp`'s gate like those do. A webhook caller cannot set or change a command; it only supplies a body.
 
+## omp bots
+
+An omp bot (runtime `omp`) is omp in RPC mode (`omp --mode rpc-ui`, JSONL on stdin and stdout). There is no terminal: lasso drives it over the protocol instead of typing into a pane and reading the screen.
+
+```
+lasso (either instance) --unix socket--> lasso bot-host (systemd user unit lasso-bot-<name>)
+                                              '-- pipes --> mise run <task> [-- -c] --> exec omp --mode rpc-ui ...
+```
+
+**Its folder** (`botomp_files.go`) differs where omp differs from Claude Code:
+
+| file | owner | what |
+|---|---|---|
+| `AGENTS.md` | the human | instructions, stubbed once. omp reads `AGENTS.md`; it does not read a root `CLAUDE.md` |
+| `.omp/mcp.json` | lasso | omp's project MCP config: the bot's servers plus `lasso`, 0600 |
+| `.mise/tasks/bot` | lasso | `exec omp --mode rpc-ui --session-dir .lasso/sessions …`, with the same `#MISE secrets`/`interactive` lines as a claude bot's |
+| `.mise/tasks/restart` | lasso | touches `.lasso/restart` and nothing else |
+| `.lasso/sessions/` | omp | the session files, `<time>_<session id>.jsonl` |
+
+`fnox.toml`, `.mise/config.toml`, `.claude/skills/`, the avatar and `launch_task` modes work as for a claude bot.
+
+**Invariants:**
+
+- **The bot host owns the process, not lasso.** `lasso bot-host` (`bothost.go`) is started with `systemd-run --user --unit lasso-bot-<name> --collect`, with a systemd user unit's environment (`botCommandEnv`, never lasso's credentials). It survives lasso restarts, so a release never ends a turn. The unit name is the uniqueness lock: dev and production lasso cannot start two copies. With no user manager, start is refused with the reason; there is no detached-orphan fallback.
+- **The socket is the bot.** `<lassoDir>/bots/<name>.sock`, dir 0700 and socket 0600, because it is full control of the session. Client lines go to omp's stdin; omp's stdout lines go to every client, so both lassos on one `lasso.db` can watch and send. Responses are matched by id (`lasso-<pid>-<n>`), so each lasso ignores the other's.
+- **A reconnecting lasso loses nothing.** On connect the host sends `host_hello`: ready, streaming, and every `extension_ui_request` (select, confirm, input, editor) not yet answered. An answer passing through drops it and is broadcast as `host_ui_answered`, so every open chat's card goes.
+- **omp never sees herdr.** The host strips `HERDR_*` from omp's environment. herdr's omp extension would otherwise claim whatever pane those name, and herdr would run a second omp on the session when restoring that pane.
+- **Self-restart is the host's.** `mise run restart` leaves `.lasso/restart`. Once omp is ready and not streaming, the host removes the marker, closes omp's stdin (omp's clean exit) and runs the launch task again with `-- -c`, so new env, servers and settings apply on the same session. Any other exit ends the host and the unit; keep-running is lasso's.
+- **Stop is abort, EOF, then the group.** `host_stop` (or SIGTERM from `systemctl --user stop`) sends `abort`, closes stdin, and kills omp's process group after 5s. lasso falls back to `systemctl --user stop` after 8s.
+- **Status comes from the protocol.** `agent_start` until a terminal `agent_end` is working; an open question is blocked, with its title as `waiting_for`; before omp's `ready` is starting. A prompt omp accepts marks the bot working at once (unless omp says `agentInvoked: false`), so a poll does not read idle before `agent_start`. The session id comes from `get_state`, asked on ready and after each turn.
+- **The chat is the session file.** `/api/bots/<name>/chat` reads `<time>_<session id>.jsonl` with the chat view's omp parser (`fillChatLog`), and adds `pending_ui`. `chat/send` sends `prompt`, as a `steer` while the bot works (a human's words land mid-run); `chat/stop` sends `abort`; `chat/answer` sends the `extension_ui_response`. An approval is a `select` of Approve/Deny and is answered by label. The payload's `pane_id` is `bot:<name>`, so AskCard never types keystrokes for it.
+- **Jobs are prompts.** The runner's tick runs a delivery loop per connected bot: `claimBotEvents`, one `prompt` per event (`followUp` while working), then `ackBotEvents` and `botChannelSeen`. A prompt omp does not accept leaves its events claimed, to be handed out again: at least once, as with the channel. The event's header is a plain line (`[lasso job "<name>" trigger=… event=… count=… fired_at=…]`), never a tag: omp treats XML tags in its context as system-authored, and a webhook body must not read as that. The instructions that the channel's initialize carries for claude are in the omp bot's system prompt instead.
+- **Keep-running backs off.** A keep-running omp bot whose unit is not active is relaunched by the runner after 10s, then 20s, doubling to 5 minutes, reset once it has been up 10 minutes. There is no herdr restore to wait for.
+- **send_agent reaches it by name.** A local omp bot named as `to` gets the same relayed message and reply inbox as one prompt (`sendToOmpBot`), refused while it is waiting on a question.
+- **Local only, runtime fixed while running.** An omp bot must be on `local` (the socket is on lasso's machine). A save that changes `runtime` is refused while the bot runs, and switching starts a new conversation, since the two runtimes keep different session files.
+- **Signed-in MCP servers use omp's `!command` header.** omp has no `headersHelper`; the Authorization value is `!printf 'Bearer %s' "$(fnox … get LASSO_OAUTH_<S>_ACCESS)"`. omp also loads the user's own `~/.omp/agent/mcp.json` servers, so strict MCP does not apply to an omp bot.
 

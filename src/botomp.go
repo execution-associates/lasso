@@ -444,6 +444,18 @@ func botOmpSend(name, text string, steer bool) error {
 	if !resp.Success {
 		return fmt.Errorf("omp refused the message: %s", resp.Error)
 	}
+	// Working from the moment omp accepts a turn, not from its agent_start a
+	// beat later, so a poll in between does not read idle. A local slash
+	// command runs no turn (agentInvoked false) and gets no agent_end.
+	var ack struct {
+		AgentInvoked *bool `json:"agentInvoked"`
+	}
+	_ = json.Unmarshal(resp.Data, &ack)
+	if ack.AgentInvoked == nil || *ack.AgentInvoked {
+		ob.mu.Lock()
+		ob.streaming = true
+		ob.mu.Unlock()
+	}
 	return nil
 }
 
@@ -622,7 +634,9 @@ func botOmpSessionFile(b Backend, r *botRecord) string {
 
 // botOmpChat is the bot's chat payload, read from its session file.
 func botOmpChat(b Backend, r *botRecord, before string) chatPayload {
-	out := chatPayload{Agent: "omp", Host: r.Host, Title: r.Name, Cwd: expandTildeOn(b, r.Dir)}
+	// PaneID names the bot, not a pane: the chat view keys its rows and echoes
+	// by it, and every action on them goes to /api/bots/<name>/chat.
+	out := chatPayload{PaneID: "bot:" + r.Name, Agent: "omp", Host: r.Host, Title: r.Name, Cwd: expandTildeOn(b, r.Dir)}
 	s := ompBotFor(r.Name).snapshot()
 	path := botOmpSessionFile(b, r)
 	if path == "" {

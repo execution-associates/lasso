@@ -352,6 +352,10 @@ export interface ChatPayload {
   // Why items is empty, for a program: `not_found` names a session whose log
   // no host asked has yet, with the hosts checked and the ones that did not
   // answer in time.
+  // What an omp bot is waiting on the human for: a question from its ask
+  // tool, or an approval (a select of Approve/Deny). Answered with
+  // api.bots.chatAnswer.
+  pending_ui?: BotPendingUI[]
   unavailable?: {
     reason:
       | "no_session"
@@ -371,6 +375,16 @@ export interface ChatPayload {
 export interface ChatSendResult {
   outcome: "confirmed" | "refused" | "uncertain"
   detail?: string
+}
+
+// A question an omp bot is waiting on (an extension_ui_request).
+export interface BotPendingUI {
+  id: string
+  method: "select" | "confirm" | "input" | "editor"
+  title: string
+  message?: string
+  options?: string[]
+  placeholder?: string
 }
 
 // What became of a Stop pressed in the chat: one Escape typed into the pane.
@@ -823,8 +837,13 @@ export interface BotOAuthStatus {
 
 export type BotState = "stopped" | "starting" | "idle" | "working" | "blocked"
 
+// omp: omp in RPC mode under lasso's bot host (no herdr pane; its chat is
+// /api/bots/<name>/chat). claude: Claude Code in a herdr pane.
+export type BotRuntime = "omp" | "claude"
+
 // The editable half of a bot: what POST creates and PUT saves.
 export interface BotFields {
+  runtime: BotRuntime
   dir: string
   workspace: string
   model: string
@@ -1951,6 +1970,27 @@ export const api = {
     reorder: (names: string[]) =>
       sendJSON<{ ok: boolean }>("PUT", "/api/bots/order", { names }),
     get: (name: string) => getJSON<BotDetail>(botURL(name)),
+    // An omp bot's chat: the same payload as api.chat, read from its session
+    // file, with the questions it is waiting on in pending_ui.
+    chat: (name: string, before?: number) =>
+      getJSON<ChatPayload>(
+        `${botURL(name)}/chat${before ? `?before=${before}` : ""}`
+      ),
+    // A prompt, or a steer while it works: no pane to type into, and no
+    // composer to confirm against, so "confirmed" means omp accepted it.
+    chatSend: (name: string, text: string) =>
+      postJSON<ChatSendResult>(`${botURL(name)}/chat/send`, { text }),
+    chatStop: (name: string) =>
+      postJSON<ChatStopResult>(`${botURL(name)}/chat/stop`, {}),
+    chatAnswer: (
+      name: string,
+      id: string,
+      answer: { value: string } | { confirmed: boolean } | { cancelled: true }
+    ) =>
+      postJSON<ChatAnswerResult>(`${botURL(name)}/chat/answer`, {
+        id,
+        ...answer,
+      }),
     // A 200 can still carry `error`: the row was created but its folder could
     // not be written (or it would not start), which Settings is where to fix.
     create: (
