@@ -4,6 +4,7 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { DialogFooter } from "@/components/ui/dialog"
+import { Field } from "@/components/ui/field"
 import { Input, NO_AUTOCORRECT } from "@/components/ui/input"
 import { Orb } from "@/components/ui/orb"
 import { SCRATCH_WORKSPACE } from "@/lib/agents"
@@ -22,30 +23,6 @@ const MAX_COMMAND_LENGTH = 512
 // taller.
 const commandClass =
   "min-h-[4.5rem] w-full min-w-0 resize-y rounded-lg border border-input bg-transparent px-2.5 py-1 font-mono text-base shadow-well outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 md:text-sm dark:bg-input/30 dark:disabled:bg-input/80"
-
-const labelClass = "font-medium text-muted-foreground text-xs"
-
-function Field({
-  label,
-  htmlFor,
-  children,
-  hint,
-}: {
-  label: string
-  htmlFor: string
-  children: React.ReactNode
-  hint?: string
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <label className={labelClass} htmlFor={htmlFor}>
-        {label}
-      </label>
-      {children}
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
-    </div>
-  )
-}
 
 export function NewTerminalForm({
   open,

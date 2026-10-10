@@ -28,6 +28,7 @@ import { AgentSidebar } from "@/components/AgentSidebar"
 import { AgentSwitcher } from "@/components/AgentSwitcher"
 import { AgentsTab } from "@/components/AgentsTab"
 import { AgentsView } from "@/components/AgentsView"
+import { BotsView } from "@/components/BotsView"
 import { BrowserTab } from "@/components/BrowserTab"
 import { ChatView } from "@/components/ChatView"
 import { FilesPanel } from "@/components/FilesPanel"
@@ -109,7 +110,8 @@ import { cn } from "@/lib/utils"
 type RightView = string
 // The left column's faces — the main window: the terminal, the focused session
 // read as a conversation (ChatView), the fleet as parallel conversations
-// (AgentsView), and any enabled plugin's views (`plugin:<name>:<id>`). Not a
+// (AgentsView), lasso's long-lived bots as a messaging app (BotsView), and any
+// enabled plugin's views (`plugin:<name>:<id>`). Not a
 // RightView — the sidebar and the left column answer different questions.
 // The footer's view menu picks between them (MAIN_VIEWS, then the plugins').
 const MAIN_VIEWS: {
@@ -121,6 +123,7 @@ const MAIN_VIEWS: {
   { id: "terminal", label: "Terminal", icon: SquareTerminal },
   { id: "chat", label: "Chat", icon: MessageSquare, shortcut: "⌘J" },
   { id: "agents", label: "Grid", icon: Users, shortcut: "⌘E" },
+  { id: "bots", label: "Bots", icon: Bot },
 ]
 
 // Shared tab-strip styling: a full-width underline strip, matching the original
@@ -388,6 +391,14 @@ function Shell() {
     )
   }, [rightView])
 
+  // The Bots view mounts on its first visit and then stays, invisible, like a
+  // plugin view: a conversation's scroll and draft and the page it was on are
+  // still there when the reader comes back, and its polls stop while hidden.
+  const [botsMounted, setBotsMounted] = React.useState(leftView === "bots")
+  React.useEffect(() => {
+    if (leftView === "bots") setBotsMounted(true)
+  }, [leftView])
+
   // Plugin views for the main window, by the same rule as the panes: mounted
   // the first time they are shown, then kept (invisible) so leaving for the
   // terminal and back does not reload the page. A long-running app is the
@@ -424,13 +435,15 @@ function Shell() {
       })()
     : (MAIN_VIEWS.find((v) => v.id === leftView) ?? MAIN_VIEWS[0])
   // Only the terminal and the chat have a left-hand list to toggle (herdr's
-  // sidebar, lasso's agents). The grid and a plugin's view cover the terminal
-  // and dock nothing, so the toggle and ⌘B are off there.
+  // sidebar, lasso's agents). The grid, Bots (whose list is its own) and a
+  // plugin's view cover the terminal and dock nothing, so the toggle and ⌘B
+  // are off there.
   const noLeftSidebar = leftView !== "terminal" && leftView !== "chat"
   // The view picker below md, where the footer and its menu are gone. Opened
-  // by the dial's Chat button once a plugin adds a view, and by the Views
-  // button a plugin view carries (it covers the dial). Controlled, with its
-  // own anchor in the parent document, for the reason HostSwitcher gives.
+  // by the dial's Chat button, by the Views button a plugin view carries, and
+  // by the one in the Bots list's header (both cover the dial). Controlled,
+  // with its own anchor in the parent document, for the reason HostSwitcher
+  // gives.
   const [mobileViewsOpen, setMobileViewsOpen] = React.useState(false)
 
   // The active host (SSE-driven), mirrored into a ref so the (referentially
@@ -730,10 +743,9 @@ function Shell() {
         // is hidden, which is every width below md — phone or a desktop window
         // dragged narrow. The command comes from the dedicated button the dial
         // holds above its root, not from an arc target (lib/mobile-input-dial).
-        // Once a plugin adds a view there is more than one place to go, so the
-        // same button opens the picker; without one it stays a single tap.
-        if (pluginViews.length > 0) setMobileViewsOpen(true)
-        else toggleLeftView()
+        // There is more than one place to go from here (Chat, Bots, any
+        // plugin's views), so the button opens the picker.
+        setMobileViewsOpen(true)
       } else if (command === "search") {
         // Same destination as ⌘K: herdr's own search. The dial supplies the
         // chord a software keyboard can't type, and openHerdrGoto hands the
@@ -744,7 +756,7 @@ function Shell() {
     window.addEventListener(MOBILE_COMMAND_EVENT, onMobileCommand)
     return () =>
       window.removeEventListener(MOBILE_COMMAND_EVENT, onMobileCommand)
-  }, [toggleSidebar, openNew, openHostMenu, toggleLeftView, pluginViews])
+  }, [toggleSidebar, openNew, openHostMenu])
 
   // ⌘K → herdr's own pane search, ⌘O/⌘I → the agent/terminal tabs in the New
   // dialog, ⌘J/⌘E/⌘B → the left column's views and sidebar, ⌘\ and ⌘⇧F/S/B →
@@ -786,9 +798,11 @@ function Shell() {
         // has that search in its own nav, filtering the cards in place, so
         // there ⌘K just puts the cursor in it rather than opening a second one.
         if (leftView === "terminal") openHerdrGoto()
-        else if (leftView === "agents") {
+        else if (leftView === "agents" || leftView === "bots") {
           const f = document.querySelector<HTMLInputElement>(
-            "input[data-agents-filter]"
+            leftView === "bots"
+              ? "input[data-bots-filter]"
+              : "input[data-agents-filter]"
           )
           f?.focus()
           f?.select()
@@ -1043,6 +1057,23 @@ function Shell() {
                   />
                 </div>
               )}
+              {/* Bots overlays like the chat and is kept like a plugin view:
+                  visibility, not display, so a hidden one keeps its scroll. */}
+              {botsMounted && (
+                <div
+                  className={cn(
+                    "chat-overlay absolute inset-0 z-20 flex",
+                    leftView !== "bots" && "invisible"
+                  )}
+                  aria-hidden={leftView !== "bots"}
+                >
+                  <BotsView
+                    active={leftView === "bots"}
+                    onShowTerminal={() => selectLeftView("terminal")}
+                    onOpenViews={() => setMobileViewsOpen(true)}
+                  />
+                </div>
+              )}
               {/* A plugin's views overlay the terminal like the chat, and for
                   the same reason: the shared pty keeps its size underneath.
                   Kept mounted once visited; visibility, not display, so a
@@ -1069,8 +1100,15 @@ function Shell() {
               {/* The phone's view picker (md:hidden). Inside a plugin view its
                   trigger is a visible button in the dial's corner, since the
                   view covers the dial; anywhere else it is an invisible anchor
-                  the dial's Chat button opens it from. */}
-              <div className="absolute right-3 bottom-3 z-30 md:hidden">
+                  the dial's Chat button opens it from — in Bots, under the
+                  list header's own picker button, top-left, so the menu does
+                  not open over the composer. */}
+              <div
+                className={cn(
+                  "absolute z-30 md:hidden",
+                  leftView === "bots" ? "top-10 right-3" : "right-3 bottom-3"
+                )}
+              >
                 <DropdownMenu
                   open={mobileViewsOpen}
                   onOpenChange={setMobileViewsOpen}
@@ -1095,7 +1133,7 @@ function Shell() {
                     />
                   )}
                   <DropdownMenuContent
-                    side="top"
+                    side={leftView === "bots" ? "bottom" : "top"}
                     align="end"
                     className="min-w-48"
                   >

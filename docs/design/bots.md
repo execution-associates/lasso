@@ -11,7 +11,7 @@ Code:
 - `botsapi.go`: `/api/bots`.
 - `mcp_bots.go`: `list_bots`, `start_bot`, `stop_bot` and `restart_bot`.
 
-The frontend is `BotsView.tsx`, `BotSettings.tsx` and `BotsManage.tsx`.
+The frontend is `BotsView.tsx`, `BotSettings.tsx`, `BotsManage.tsx` and `BotParts.tsx`, with `lib/bots.ts` (the list poll, unread) and the `/bots/…` routes in `lib/url.ts`.
 
 ## What a bot is
 

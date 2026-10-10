@@ -48,6 +48,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Field, flatFieldClass, labelClass } from "@/components/ui/field"
 import { NO_AUTOCORRECT } from "@/components/ui/input"
 import { Orb } from "@/components/ui/orb"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -153,33 +154,6 @@ import {
   setThemeBackground,
   themeBackgrounds,
 } from "@/lib/wallpaper"
-
-// Native textarea/select styled to match the shadcn <Input>.
-const fieldClass =
-  "w-full rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm shadow-well outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
-const labelClass = "font-medium text-muted-foreground text-xs"
-
-function Field({
-  label,
-  hint,
-  htmlFor,
-  children,
-}: {
-  label: string
-  hint?: string
-  htmlFor?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <label className={labelClass} htmlFor={htmlFor}>
-        {label}
-      </label>
-      {children}
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
-    </div>
-  )
-}
 
 type SaveState = "idle" | "saving" | "saved" | "error"
 
@@ -423,7 +397,7 @@ export function SettingsTab({ active }: { active: boolean }) {
                   </label>
                   <select
                     id="settings-host"
-                    className={cn(fieldClass, "max-w-xs")}
+                    className={cn(flatFieldClass, "max-w-xs")}
                     value={host}
                     onChange={(e) => setSelectedHost(e.target.value)}
                   >
@@ -982,7 +956,7 @@ function ChatTextSettings() {
         <div className="flex items-center gap-2">
           <select
             id="settings-chat-style"
-            className={cn(fieldClass, "max-w-[15rem]")}
+            className={cn(flatFieldClass, "max-w-[15rem]")}
             value={text.preset ?? ""}
             onChange={(e) => pickChatStyle(e.target.value)}
           >
@@ -1250,7 +1224,7 @@ function TypographySlotSelect({
       </label>
       <select
         id={id}
-        className={cn(fieldClass, "max-w-[15rem]")}
+        className={cn(flatFieldClass, "max-w-[15rem]")}
         value={stored}
         onChange={(e) => setTypography(slot, e.target.value)}
         style={active ? { fontFamily: previewStack(active) } : undefined}
@@ -1370,7 +1344,7 @@ function PalettePrefs({
             </label>
             <select
               id={`settings-palette-${s}`}
-              className={cn(fieldClass, "max-w-[15rem]")}
+              className={cn(flatFieldClass, "max-w-[15rem]")}
               value={prefs[s]}
               disabled={themes.length === 0}
               onChange={(e) => onChoose(s, e.target.value)}
@@ -1516,7 +1490,7 @@ function HerdrThemeSelect({
       </label>
       <select
         id="settings-herdr-theme"
-        className={cn(fieldClass, "max-w-xs")}
+        className={cn(flatFieldClass, "max-w-xs")}
         value={value}
         disabled={!t || governs}
         onChange={(e) => {
@@ -1728,7 +1702,7 @@ function ThemeBackgrounds({
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         <input
-          className={cn(fieldClass, "min-w-0 flex-1 basis-52")}
+          className={cn(flatFieldClass, "min-w-0 flex-1 basis-52")}
           {...NO_AUTOCORRECT}
           placeholder="Image URL, or an absolute path on this host"
           value={url}
@@ -1895,7 +1869,7 @@ function ThemeInstall({
       <span className={labelClass}>Install a theme</span>
       <div className="flex flex-wrap items-center gap-1.5">
         <input
-          className={cn(fieldClass, "min-w-0 flex-1 basis-64")}
+          className={cn(flatFieldClass, "min-w-0 flex-1 basis-64")}
           {...NO_AUTOCORRECT}
           placeholder="https://github.com/user/omarchy-<name>-theme"
           value={url}
@@ -2373,7 +2347,7 @@ function SharedBrowserSettings({ active }: { active: boolean }) {
       </label>
       <select
         id="settings-browser-mode"
-        className={cn(fieldClass, "max-w-xs")}
+        className={cn(flatFieldClass, "max-w-xs")}
         value={mode}
         onChange={(e) =>
           patchUIState({ browser_mode: e.target.value as BrowserMode })
@@ -2593,7 +2567,7 @@ function CreatorHostSetting({
       </label>
       <select
         id="settings-creator-host"
-        className={cn(fieldClass, "max-w-xs")}
+        className={cn(flatFieldClass, "max-w-xs")}
         value={pinned}
         onChange={(e) => patchUIState({ creator_default_host: e.target.value })}
       >
@@ -2972,7 +2946,7 @@ function CreationSettings({ active, host }: { active: boolean; host: string }) {
             <textarea
               id="settings-repos-root"
               {...NO_AUTOCORRECT}
-              className={cn(fieldClass, "resize-none")}
+              className={cn(flatFieldClass, "resize-none")}
               rows={3}
               value={reposRoot}
               onChange={(e) => setReposRoot(e.target.value)}
@@ -2988,7 +2962,7 @@ function CreationSettings({ active, host }: { active: boolean; host: string }) {
           >
             <select
               id="settings-default-agent"
-              className={fieldClass}
+              className={flatFieldClass}
               value={defaultAgent}
               onChange={(e) => setDefaultAgent(e.target.value)}
               onBlur={flushDefaults}
@@ -3010,7 +2984,7 @@ function CreationSettings({ active, host }: { active: boolean; host: string }) {
             <textarea
               id="settings-scratch-setup"
               {...NO_AUTOCORRECT}
-              className={cn(fieldClass, "resize-none font-mono")}
+              className={cn(flatFieldClass, "resize-none font-mono")}
               rows={3}
               value={scratchSetup}
               onChange={(e) => setScratchSetup(e.target.value)}
@@ -3037,7 +3011,7 @@ function CreationSettings({ active, host }: { active: boolean; host: string }) {
           >
             <select
               id="settings-default-terminal-workspace"
-              className={fieldClass}
+              className={flatFieldClass}
               value={defaultTerminalWorkspace}
               onChange={(event) =>
                 setDefaultTerminalWorkspace(event.target.value)
@@ -3076,7 +3050,7 @@ function CreationSettings({ active, host }: { active: boolean; host: string }) {
           <Field label="Repository" htmlFor="settings-repo">
             <select
               id="settings-repo"
-              className={fieldClass}
+              className={flatFieldClass}
               value={repoPath}
               onChange={(e) => setRepoPath(e.target.value)}
             >
@@ -3097,7 +3071,7 @@ function CreationSettings({ active, host }: { active: boolean; host: string }) {
             <textarea
               id="settings-copy-files"
               {...NO_AUTOCORRECT}
-              className={cn(fieldClass, "resize-none")}
+              className={cn(flatFieldClass, "resize-none")}
               rows={2}
               value={copyFiles}
               onChange={(e) => setCopyFiles(e.target.value)}
@@ -3115,7 +3089,7 @@ function CreationSettings({ active, host }: { active: boolean; host: string }) {
             <textarea
               id="settings-setup"
               {...NO_AUTOCORRECT}
-              className={cn(fieldClass, "resize-none font-mono")}
+              className={cn(flatFieldClass, "resize-none font-mono")}
               rows={3}
               value={setup}
               onChange={(e) => setSetup(e.target.value)}
@@ -4178,7 +4152,7 @@ function PluginInstallRow({
       <span className={labelClass}>Install from GitHub</span>
       <div className="flex flex-wrap items-center gap-1.5">
         <input
-          className={cn(fieldClass, "min-w-0 flex-1 basis-52 font-mono")}
+          className={cn(flatFieldClass, "min-w-0 flex-1 basis-52 font-mono")}
           {...NO_AUTOCORRECT}
           aria-label="GitHub source"
           placeholder="owner/repo or owner/repo/subdir"
@@ -4210,7 +4184,7 @@ function PluginInstallRow({
       </button>
       {pinning && (
         <input
-          className={cn(fieldClass, "font-mono")}
+          className={cn(flatFieldClass, "font-mono")}
           {...NO_AUTOCORRECT}
           aria-label="Git ref"
           placeholder="tag, branch or commit (default branch if empty)"
