@@ -149,6 +149,38 @@ type TabDef = {
   className?: string
 }
 
+// Where the keyboard goes once a view has been picked from a view menu: the
+// view's own input where there is a hardware keyboard (xterm, the chat's
+// composer, the grid's filter, a plugin's page), else the view itself, since
+// focusing an input on a touch screen raises the on-screen keyboard over a view
+// the reader has not asked to type into yet. The view lands focused first and
+// its input takes over when it renders: a chat that just mounted has no
+// composer until its transcript arrives, and Bots has none until a bot is open.
+function focusLeftViewSurface(view: LeftView, tries = 0) {
+  const coarse = window.matchMedia("(pointer: coarse)").matches
+  if (view === "terminal") {
+    if (!coarse) focusHerdrTerminal()
+    return
+  }
+  const root = document.querySelector<HTMLElement>(
+    `[data-left-view="${CSS.escape(view)}"]`
+  )
+  if (root && tries === 0) root.focus({ preventScroll: true })
+  if (coarse && root) return
+  const input = root?.querySelector<HTMLElement>(
+    "[data-view-input]:not(:disabled), iframe"
+  )
+  // Only while focus is still where this put it: a reader who has clicked or
+  // typed elsewhere in the meantime keeps what they chose.
+  if (input) {
+    const here = document.activeElement
+    if (here === root || here === document.body || here === null)
+      input.focus({ preventScroll: true })
+    return
+  }
+  if (tries < 20) setTimeout(() => focusLeftViewSurface(view, tries + 1), 100)
+}
+
 // A tab strip that shows full text labels when they fit, and collapses every
 // tab to its icon when the track is too narrow for the labels — rather than
 // truncating the last tab to "Settin…" or forcing a horizontal scroll.
@@ -344,6 +376,26 @@ function Shell() {
     if (next !== "terminal") blurHerdrTerminal()
     else if (!window.matchMedia("(pointer: coarse)").matches)
       focusHerdrTerminal()
+  }, [])
+  // A pick from a view menu (the footer's or the phone picker) is focused once
+  // the menu has closed, not when it is made: Radix hands focus back to the
+  // menu's trigger on close, which would take it straight off the view just
+  // chosen. onCloseAutoFocus reads this, cancels that return and focuses the
+  // view instead.
+  const menuPickRef = React.useRef<LeftView | null>(null)
+  const pickViewFromMenu = React.useCallback(
+    (next: LeftView) => {
+      menuPickRef.current = next
+      selectLeftView(next)
+    },
+    [selectLeftView]
+  )
+  const focusMenuPick = React.useCallback((e: Event) => {
+    const picked = menuPickRef.current
+    menuPickRef.current = null
+    if (picked === null) return
+    e.preventDefault()
+    focusLeftViewSurface(picked)
   }, [])
   // The grid holds a composer per card, so entering it blurs the terminal for
   // the same reason the single chat does; leaving for the terminal refocuses.
@@ -966,7 +1018,7 @@ function Shell() {
     <>
       {MAIN_VIEWS.filter((v) => !(narrow && v.id === "agents")).map(
         ({ id, label, icon: Icon, shortcut }) => (
-          <DropdownMenuItem key={id} onSelect={() => selectLeftView(id)}>
+          <DropdownMenuItem key={id} onSelect={() => pickViewFromMenu(id)}>
             <Icon />
             {label}
             {leftView === id && <Check className="ml-1" />}
@@ -988,7 +1040,7 @@ function Shell() {
               <DropdownMenuItem
                 key={view.global_id}
                 title={`${plugin.name}: ${view.label}`}
-                onSelect={() => selectLeftView(view.global_id as LeftView)}
+                onSelect={() => pickViewFromMenu(view.global_id as LeftView)}
               >
                 <Icon />
                 <span className="truncate">{view.label}</span>
@@ -1091,8 +1143,10 @@ function Shell() {
                   the kept, invisible grid. */}
               {(leftView === "agents" || (leftView === "chat" && keepGrid)) && (
                 <div
+                  data-left-view="agents"
+                  tabIndex={-1}
                   className={cn(
-                    "chat-overlay absolute inset-0 z-20 flex",
+                    "chat-overlay absolute inset-0 z-20 flex outline-none",
                     // visibility, not display: a display:none box loses its
                     // scroll offset, which is the thing being kept.
                     leftView !== "agents" && "invisible"
@@ -1116,7 +1170,11 @@ function Shell() {
                   sight and reach while the chat's own composer is the way to
                   type. */}
               {leftView === "chat" && (
-                <div className="chat-overlay absolute inset-0 z-20 flex">
+                <div
+                  data-left-view="chat"
+                  tabIndex={-1}
+                  className="chat-overlay absolute inset-0 z-20 flex outline-none"
+                >
                   {/* The agent list TAKES width from the chat, not from the
                       terminal: the overlay is the only thing that grew, so the
                       iframe underneath keeps the size the shared pty was fitted
@@ -1135,8 +1193,10 @@ function Shell() {
                   visibility, not display, so a hidden one keeps its scroll. */}
               {botsMounted && (
                 <div
+                  data-left-view="bots"
+                  tabIndex={-1}
                   className={cn(
-                    "chat-overlay absolute inset-0 z-20 flex",
+                    "chat-overlay absolute inset-0 z-20 flex outline-none",
                     leftView !== "bots" && "invisible"
                   )}
                   aria-hidden={leftView !== "bots"}
@@ -1157,8 +1217,10 @@ function Shell() {
                 .map(({ plugin, view }) => (
                   <div
                     key={`${view.global_id}\u0000${view.src}`}
+                    data-left-view={view.global_id}
+                    tabIndex={-1}
                     className={cn(
-                      "chat-overlay absolute inset-0 z-20 flex bg-background",
+                      "chat-overlay absolute inset-0 z-20 flex bg-background outline-none",
                       leftView !== view.global_id && "invisible"
                     )}
                     aria-hidden={leftView !== view.global_id}
@@ -1228,6 +1290,7 @@ function Shell() {
                     }
                     align="end"
                     className="min-w-48"
+                    onCloseAutoFocus={focusMenuPick}
                   >
                     {viewMenuItems(true)}
                   </DropdownMenuContent>
@@ -1534,7 +1597,12 @@ function Shell() {
                 <ChevronUp className="opacity-60" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="end" className="min-w-48">
+            <DropdownMenuContent
+              side="top"
+              align="end"
+              className="min-w-48"
+              onCloseAutoFocus={focusMenuPick}
+            >
               {viewMenuItems(false)}
             </DropdownMenuContent>
           </DropdownMenu>
