@@ -99,20 +99,13 @@ With a per-host credential, tools that take an optional `host` default to the cr
 
 [`/herdr-mcp`](./herdr-mcp.md) takes `/mcp`'s credentials and applies the same host check to every call: with no `host` a call lands on the credential's own host, and a host outside its reach is refused with the same explanation `/mcp` gives. Its attached-client methods (`popup_close`, `server_live_handoff`, ...) always run on `local`, so they need a caller whose reach includes lasso's machine.
 
-## The shared browser follows the same scope
+## The browsers follow the same scope
 
-The [browser tools](./tools.md#browser) on `/mcp` and the two endpoints they hand out, [`/browser-mcp` and `/cdp`](./browser-mcp.md), drive a Chromium running on **lasso's own machine**, so all of them require a caller whose reach includes `local`. Plugin tools have the same requirement. A `self`-scoped credential for another host gets a tool error, and the same bearer token presented to `/browser-mcp` or `/cdp` directly is refused with 403: the check is on the endpoint, not only in the tool. Fleet scope, or a group or grant that brings in `local`, opens it.
+The [browser tools](./tools.md#browser) on `/mcp` (the `browser_*` tools, `list_browsers`, `open_browser_tab` and the rest) and the raw CDP endpoint they hand out, [`/cdp`](./browser.md#raw-cdp-for-playwright-and-other-clients), drive browsers running on **lasso's own machine**, so all of them require a caller whose reach includes `local`. Plugin tools have the same requirement. A `self`-scoped credential for another host gets a tool error, and the same bearer token presented to `/cdp` directly is refused with 403: the check is on the endpoint, not only in the tool. Fleet scope, or a group or grant that brings in `local`, opens it.
 
-`/browser-mcp` otherwise takes exactly what `/mcp` takes (a lasso bearer token, or the `UI_AUTH` basic credentials), so a host's existing credential works there unchanged:
+The browser tools need nothing beyond the credential a host already uses for `/mcp`. With `MCP_OAUTH` unset the reach check does not apply: the `browser_*` tools and `/cdp` are open, or need the `UI_AUTH` basic credentials when that is set. That last case is stricter than the rest of `/mcp`, which stays open under `UI_AUTH` alone, because the `browser_*` tools are a way into `/cdp` and take `/cdp`'s rule (see [Browser tools](./browser.md#authentication)). lasso's own chrome-devtools-mcp processes reach `/cdp` with an internal per-process token, not with the caller's credential. The caller's credential and reach are checked on every browser tool call, which is the only door those processes open.
 
-```bash
-claude mcp add --transport http --header "Authorization: Bearer <token>" \
-  lasso-browser https://lasso.example.com/browser-mcp
-```
-
-With `MCP_OAUTH` unset none of this applies: `/browser-mcp` and `/cdp` are open, or behind `UI_AUTH` basic when that is set. That last case is stricter than `/mcp`, which stays open under `UI_AUTH` alone, because `/browser-mcp` is a way into `/cdp` and takes `/cdp`'s rule. lasso's own chrome-devtools-mcp processes reach `/cdp` with an internal per-process token, not with the caller's credential. The caller's credential and scope are checked on every request to `/browser-mcp`, which is the only door those processes open.
-
-Reaching `local` here is a bigger grant than it reads: the browser acts with whatever its profiles are logged into, and `localhost` inside it is lasso's machine. Give it only to hosts you would let browse as you from there.
+Reaching `local` here is a bigger grant than it reads: a browser acts with whatever it is logged into, and `localhost` inside a browser lasso launches is lasso's machine. Give it only to hosts you would let browse as you from there.
 
 ## Installing on a host
 

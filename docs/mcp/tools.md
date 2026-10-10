@@ -16,7 +16,7 @@ Most tools take an optional `host`: `local` (the box lasso runs on) or an SSH-co
 - **Omitting `host` targets your own host.** For a caller with a [per-host credential](./agent-scope.md), that is the host the credential was issued for. For any other caller (no `MCP_OAUTH`, the `UI_AUTH` basic credentials, or the main `MCP_OAUTH` client) it is `local`. `whoami`, `close_agent` and `notify` handle an omitted host differently, as described under each.
 - **A host must be addressable.** lasso can address the local box and the hosts with a concrete alias in the SSH config it reads. Anything else is refused up front, rather than answered from stale records.
 - **A host must be within your reach.** A self-scoped credential reaches its own host plus whatever its [host groups](./agent-scope.md#groups-reach-between-hosts) add. A fleet-scoped credential, or an unidentified caller, reaches every addressable host. A refusal names the credential's host and reach and how to widen it.
-- **Browser tools and plugin tools need `local` in your reach**, because the shared browser and plugins run on lasso's own machine. A credential scoped to some other host gets a tool error.
+- **Browser tools and plugin tools need `local` in your reach**, because the browsers and plugins run on lasso's own machine. A credential scoped to some other host gets a tool error.
 
 Scope only applies when `MCP_OAUTH` is set. With it unset, every caller is unidentified and reaches every addressable host.
 
@@ -274,96 +274,101 @@ Returns `delivered` (the number of lasso tabs the request reached), `path` (the 
 
 ## Browser
 
-These tools manage the [shared browser](../concepts/shared-browser.md): which profiles exist, which pages are open, and which one the human is looking at. Driving a page (clicking, typing, reading it) is the job of [`/browser-mcp`](./browser-mcp.md) or raw CDP. All of them require a caller whose reach includes `local`, because the browsers run on lasso's machine.
+These tools manage lasso's [browsers](../concepts/shared-browser.md): which browsers exist, which pages are open, and which one the human is looking at. Each browser is separate: its own Chromium on lasso's machine with its own cookies and logins, or a remote browser lasso dials. Driving a page (clicking, typing, reading it) is the job of the `browser_*` tools (below) or raw CDP. All of them require a caller whose reach includes `local`, because the browsers run on lasso's machine.
 
-A `profile` argument takes a profile's id (e.g. `work`) or its display name; omitted means the default profile.
+A `browser` argument takes a browser's id (e.g. `work`) or its display name; omitted means the default browser. An unknown browser is an error listing the real ones.
+
+### `browser_*` tools
+
+chrome-devtools-mcp's tools, served on `/mcp` with a `browser_` prefix: `browser_new_page`, `browser_navigate_page`, `browser_click`, `browser_fill`, `browser_take_snapshot`, `browser_take_screenshot`, `browser_list_pages`, `browser_close_page` and the rest. Each takes chrome-devtools-mcp's own parameters plus an optional `browser`, and returns chrome-devtools-mcp's own result (screenshots as images). A `pageId` belongs to the browser it came from, so pass the same `browser` on every call about that page.
+
+They are present when chrome-devtools-mcp is installed on lasso's machine; [`shared_browser`](#shared_browser) says why when they are not. Besides `local` reach, a call needs what `/cdp` needs: no foreign `Origin`, and under `UI_AUTH` alone the `UI_AUTH` basic credentials on the connection. A call that falls short is a tool error. See [Browser tools](./browser.md) for the details.
 
 ### `shared_browser`
 
-Gets, and by default starts, the shared browser, and says where to connect.
+Gets, and by default starts, a browser, and returns its raw CDP endpoints. Driving a page needs none of this (the `browser_*` tools start the browser themselves); it is for Playwright and other CDP clients, and for finding out whether the browser tools can run.
 
 | parameter | type | | description |
 | --- | --- | --- | --- |
 | `start` | boolean | optional | Start the browser if it is not running. Defaults to true; false only reports its state. |
-| `profile` | string | optional | Browser profile. Omit for the default. |
+| `browser` | string | optional | Which browser. Omit for the default. |
 
 Returns:
 
 | field | meaning |
 | --- | --- |
-| `mcp_endpoint` | absolute `/browser-mcp` URL: add it as a streamable-HTTP MCP server (`claude mcp add --transport http lasso-browser <mcp_endpoint>`). It drives every profile. |
-| `mcp_available`, `mcp_reason` | whether `/browser-mcp` can serve, and why not (usually chrome-devtools-mcp not installed on lasso's machine) |
-| `ws_endpoint` | absolute CDP websocket URL for this profile (`/cdp`, or `/cdp/p/<id>`), e.g. for Playwright's `chromium.connectOverCDP()` |
+| `browser` | the browser these endpoints reach |
+| `ws_endpoint` | absolute CDP websocket URL for this browser (`/cdp`, or `/cdp/p/<id>`), e.g. for Playwright's `chromium.connectOverCDP()` |
 | `ws_path` | the path alone, to prefix with lasso's URL when `ws_endpoint` is empty |
 | `http_endpoint` | the CDP HTTP base (`…/json/list`, `…/json/version`) |
-| `profiles_url` | `GET` it for every profile and its own CDP endpoint (`/cdp/profiles`), the discovery path for a CDP client with no MCP server |
-| `available`, `running` | whether a Chromium is installed, and whether it is running |
+| `browsers_url` | `GET` it for every browser and its own CDP endpoint (`/cdp/browsers`), the discovery path for a CDP client with no MCP |
+| `browser_tools`, `browser_tools_reason` | whether this server's `browser_*` tools can run, and why not (usually chrome-devtools-mcp not installed on lasso's machine) |
+| `available`, `running` | whether a Chromium is installed (or the remote browser answers), and whether it is running |
 | `pages` | the pages open now (`id`, `url`, `title`) |
-| `profile` | the profile these endpoints drive |
-| `note` | why something is unavailable, and reminders such as which credentials `/browser-mcp` and `/cdp` need |
+| `note` | why something is unavailable, and reminders such as which credentials `/cdp` needs |
 
-### `list_browser_profiles`
+### `list_browsers`
 
-Lists the shared browser's profiles. Takes no parameters.
+Lists lasso's browsers. Takes no parameters.
 
-Returns `profiles`, each with `id`, `name`, `cdp_url` (for a remote browser), `default`, `running`, `tabs` (only while it runs), `mcp_endpoint` (the one `/browser-mcp` URL; pass this profile's `id` as `profile` to its tools), `ws_endpoint` (this profile's own CDP websocket) and `note`.
+Returns `browsers`, each with `id`, `name`, `cdp_url` (for a remote browser), `default`, `running`, `tabs` (only while it runs), `ws_endpoint` (this browser's own CDP websocket) and `note`. Pass an `id` as `browser` to the `browser_*` tools to drive it.
 
-### `create_browser_profile`
+### `create_browser`
 
-Creates a profile: a separate Chromium with its own persistent cookies and logins. It appears in the Browser tab's profile picker at once and starts on first use. The `/browser-mcp` server an agent already has drives it immediately, with no reconnect.
+Creates a browser: a separate Chromium with its own persistent cookies and logins. It appears in the Browser tab's browser picker at once and starts on first use. The `browser_*` tools drive it immediately, with no reconnect.
 
 | parameter | type | | description |
 | --- | --- | --- | --- |
 | `name` | string | | Display name, e.g. `"Work"` or `"US exit"`. |
-| `id` | string | optional | 1-32 lowercase letters, digits or dashes. Derived from the name when omitted. It is the `profile` value for `/browser-mcp` tools and appears in the CDP URL `/cdp/p/<id>`. |
-| `cdp_url` | string | optional | Makes the profile a remote browser lasso dials instead of launching: its DevTools HTTP base, `http://host:port` or `https://host[:port]`. |
+| `id` | string | optional | 1-32 lowercase letters, digits or dashes. Derived from the name when omitted. It is the `browser` value for the browser tools and appears in the CDP URL `/cdp/p/<id>`. |
+| `cdp_url` | string | optional | Makes it a remote browser lasso dials instead of launching: its DevTools HTTP base, `http://host:port` or `https://host[:port]`. |
 
-Returns the profile, in the same shape as a `list_browser_profiles` entry.
+Returns the browser, in the same shape as a `list_browsers` entry.
 
-### `update_browser_profile`
+### `update_browser`
 
-Renames a profile and/or changes its `cdp_url`. Pass only what changes.
+Renames a browser and/or changes its `cdp_url`. Pass only what changes.
 
 | parameter | type | | description |
 | --- | --- | --- | --- |
-| `profile` | string | | The profile to change. |
+| `browser` | string | | The browser to change. |
 | `name` | string | optional | New display name. |
 | `cdp_url` | string | optional | New remote browser address, or `""` for a browser lasso launches. Omit to leave it unchanged. |
 
-At least one of `name` or `cdp_url` is needed. A `cdp_url` change lets go of the browser the profile was using, so `/browser-mcp` page ids for that profile are gone (call `list_pages` again). The default profile can be renamed and pointed at a remote browser too. Returns the updated profile.
+At least one of `name` or `cdp_url` is needed. A `cdp_url` change lets go of the browser it was using, so its page ids are gone (call `browser_list_pages` again). The default browser can be renamed and pointed at a remote browser too. Returns the updated browser.
 
-### `delete_browser_profile`
+### `delete_browser`
 
-Deletes a profile: stops its Chromium (closing its tabs and any session driving it) and **deletes its profile directory**, with every cookie and login in it. This cannot be undone, so only do it when the human asked. The default profile cannot be deleted.
+Deletes a browser: stops its Chromium (closing its tabs and any session driving it) and **deletes its data directory**, with every cookie and login in it. This cannot be undone, so only do it when the human asked. The default browser cannot be deleted.
 
 | parameter | type | | description |
 | --- | --- | --- | --- |
-| `profile` | string | | The profile to delete. |
+| `browser` | string | | The browser to delete. |
 
 Returns `deleted`, the id that was removed.
 
 ### `list_browser_tabs`
 
-Lists open tabs, per profile.
+Lists open tabs, per browser.
 
 | parameter | type | | description |
 | --- | --- | --- | --- |
-| `profile` | string | optional | Only this profile. Starts nothing: a stopped profile has no tabs. Omit for every profile. |
+| `browser` | string | optional | Only this browser. Starts nothing: a stopped browser has no tabs. Omit for every browser. |
 
-Returns `profiles`, each with `profile` (the id), `name`, `running` and `tabs` (`id`, `url`, `title`). Tab ids are CDP target ids, usable with `show_browser_tab`, `close_browser_tab`, and as `targetId` over CDP.
+Returns `browsers`, each with `browser` (the id), `name`, `running` and `tabs` (`id`, `url`, `title`). Tab ids are CDP target ids, usable with `show_browser_tab`, `close_browser_tab`, and as `targetId` over CDP.
 
 ### `open_browser_tab`
 
-Opens a **new** tab and puts it on the human's screen: every visible lasso tab switches its Browser tab to that profile and page, opening the sidebar if needed. Use it when the human asks you to open a page for them, or in a particular profile. It starts the profile's browser if needed. The page loads from lasso's machine, through the profile's proxy if it has one, so `localhost` means lasso's machine.
+Opens a **new** tab and puts it on the human's screen: every visible lasso tab switches its Browser tab to that browser and page, opening the sidebar if needed. Use it when the human asks you to open a page for them, or in a particular browser. It starts the browser if needed. The page loads from that browser, which for a browser lasso launches is lasso's machine, so `localhost` means lasso's machine there.
 
 | parameter | type | | description |
 | --- | --- | --- | --- |
 | `url` | string | | A full `http(s)` URL. A bare `host[:port]` gets `https://` (`http://` for `localhost` and `127.x`). `about:blank` opens an empty tab. |
-| `profile` | string | optional | Profile to open it in. Omit for the default. |
+| `browser` | string | optional | Browser to open it in. Omit for the default. |
 | `show` | boolean | optional | Put the tab on the human's screen. Defaults to true; false opens it quietly. |
 | `pane_id` | string | optional | Your `$HERDR_PANE_ID`, used only to tell the human which agent opened it. |
 
-Returns `tab_id`, `profile`, `url`, `title`, `delivered`, `mcp_endpoint` and `detail`. `delivered: 0` means no lasso tab is open and the human did not see it (the tab is still open in the browser). To drive the page afterwards, use the `/browser-mcp` tools with the same `profile` (find the tab with `list_pages` by its URL). A profile's browser stops after lasso's idle timeout with nothing connected, and its tabs close with it, so keep a `/browser-mcp` or CDP session open while you still need the page.
+Returns `tab_id`, `browser`, `url`, `title`, `delivered`, `ws_endpoint` and `detail`. `delivered: 0` means no lasso tab is open and the human did not see it (the tab is still open in the browser). To drive the page afterwards, use the `browser_*` tools with the same `browser` (find the tab with `browser_list_pages` by its URL). A browser stops after lasso's idle timeout with nothing connected, and its tabs close with it.
 
 ### `show_browser_tab`
 
@@ -372,7 +377,7 @@ Puts an **existing** tab on the human's screen.
 | parameter | type | | description |
 | --- | --- | --- | --- |
 | `tab_id` | string | | The tab to show (from `list_browser_tabs` or `open_browser_tab`). |
-| `profile` | string | optional | The tab's profile. Omit for the default. |
+| `browser` | string | optional | The tab's browser. Omit for the default. |
 | `pane_id` | string | optional | Your `$HERDR_PANE_ID`, to tell the human who is showing it. |
 
 Returns the same shape as `open_browser_tab`. `delivered: 0` means nobody saw it.
@@ -384,9 +389,9 @@ Closes a tab. Close the tabs you opened when you are done; leave the human's and
 | parameter | type | | description |
 | --- | --- | --- | --- |
 | `tab_id` | string | | The tab to close. |
-| `profile` | string | optional | The tab's profile. Omit for the default. |
+| `browser` | string | optional | The tab's browser. Omit for the default. |
 
-Returns `closed` (the tab id) and `profile`.
+Returns `closed` (the tab id) and `browser`.
 
 ## Bots
 
@@ -467,7 +472,7 @@ Returns one key per section:
 | `repos` | Each repo under `host`'s repo roots with its `copy_files` and `setup`. |
 | `theme` | herdr's current theme, the selectable `themes`, `sync_agent_themes`, `theme_sync_off` and the installable `catalog`. |
 | `notifications` | Registered push `devices`, by id and label. Endpoints are never returned. |
-| `browser` | The shared browser's status. Profiles have their own tools. |
+| `browser` | The browsers' status. `list_browsers` and the other browser tools manage them. |
 | `plugins` | Each plugin's state, read-only. |
 
 A section that fails (an unreachable host, say) is listed under `errors` and the others are still returned.

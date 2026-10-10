@@ -15,7 +15,7 @@ Use it when an agent needs herdr's raw API (split a pane, send keys, read a pane
 claude mcp add --transport http lasso-herdr http://127.0.0.1:8090/herdr-mcp
 ```
 
-[`lasso connect`](../getting-started/connect-agents.md) registers it as `lasso-herdr` alongside `lasso` and `lasso-browser`, once lasso's `/herdr-mcp` lists herdr's tools. `-herdr=false` skips it. From a shell, `lasso mcp -herdr` lists and calls the same tools (`lasso mcp -herdr pane-list -host gigachad`).
+[`lasso connect`](../getting-started/connect-agents.md) registers it as `lasso-herdr` alongside `lasso`, once lasso's `/herdr-mcp` lists herdr's tools. `-herdr=false` skips it. From a shell, `lasso mcp -herdr` lists and calls the same tools (`lasso mcp -herdr pane-list -host gigachad`).
 
 ## The tools
 

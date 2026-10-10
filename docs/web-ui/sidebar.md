@@ -88,7 +88,7 @@ The **Browser** tab shows a web page beside the terminal, so you can watch a dev
 
 The mode you pick is saved on the server, so every device opens the same one. Without a Chromium on lasso's machine, the tab uses Iframe and says why.
 
-**Profiles.** In Agent mode, the bar along the bottom of the tab picks the **browser profile**. Each profile is its own Chromium with its own cookies and logins; a dot marks the ones running. The settings button beside it opens **Browser profiles**, where you can create, rename and delete profiles. See [Shared browser](../concepts/shared-browser.md).
+**Browsers.** In Agent mode, the **Browser** bar along the bottom of the tab picks which of lasso's browsers you see. Each is its own Chromium with its own cookies and logins; a dot marks the ones running. The settings button beside it opens **Browsers**, where you can create, rename and delete them. See [Shared browser](../concepts/shared-browser.md).
 
 **Links from the terminal.** A link clicked in the terminal opens here. It opens in Iframe mode, since a link you click is your own page rather than one to put in front of every agent; the exception is an `http://` link on an HTTPS lasso, which goes to the Agent browser (or a new tab if there is none). `Cmd`/`Ctrl`-click opens a new browser tab instead. The setting is **Settings → General → Terminal & browser → Open terminal links in the sidebar browser**.
 
@@ -152,7 +152,7 @@ Settings has two panes, **General** and **Themes**. Each pane is a list of colla
 - **Open terminal links in the sidebar browser** (on by default). See [Browser](#browser).
 - **Shared browser**: whether lasso's Chromium is running, its resource cap and open pages, with **Start**, **Restart** and **Stop**, the browser binary, and any problem that keeps it from running.
 - **Browser tab mode**: **Agent** or **Iframe**.
-- **Connect an agent**: the `/browser-mcp` URL, a ready-to-paste `claude mcp add` command and the raw CDP endpoint, each with a copy button. See [Browser MCP and CDP](../mcp/browser-mcp.md).
+- **Connect an agent**: lasso's `/mcp` URL (whose `browser_*` tools drive the browsers), a ready-to-paste `claude mcp add` command and the raw CDP endpoint, each with a copy button, and how many agents are using a browser. See [The browser tools](../mcp/browser.md).
 
 **Notifications**
 
