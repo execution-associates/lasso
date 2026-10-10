@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -927,5 +928,51 @@ func TestBotNotification(t *testing.T) {
 	n, ok := botNotification(r, view("idle", "agent", "t4"))
 	if !ok || n.Kind != notifBotMessage || n.URL != "/bots/news" || n.Icon != "/api/bots/news/avatar?v=7" || n.Tag != "bot:news" || n.Body != "NYT lead changed" {
 		t.Fatalf("got %v %+v", ok, n)
+	}
+}
+
+// In a narrow pane claude wraps its dialogs, so the phrase the task waits for
+// spans lines. The launch script must still answer the dev-channel menu.
+func TestBotTaskScriptAnswersWrappedDialog(t *testing.T) {
+	bin := t.TempDir()
+	keys := filepath.Join(bin, "keys.log")
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("herdr", `case "$1 $2" in
+"pane read") printf '  ❯ 1. I am using this for\n       local development\n    2. Exit\n' ;;
+"pane send-keys") echo "$4" >> `+keys+` ;;
+esac
+exit 0
+`)
+	write("claude", "sleep 4\n")
+	script := filepath.Join(bin, "bot.sh")
+	if err := os.WriteFile(script, []byte(botTaskScript(testBot(), bin, nil)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", script)
+	cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "HERDR_PANE_ID=w1:p1")
+	// Its own group: the script's dialog watchers outlive the exec of claude,
+	// and the test kills them all when it is done.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_ = cmd.Wait()
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		got, _ := os.ReadFile(keys)
+		if strings.Contains(string(got), "Enter") {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the wrapped dev-channel menu was not answered (keys: %q)", got)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
