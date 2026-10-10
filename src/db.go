@@ -170,6 +170,7 @@ func openDB() error {
 		`ALTER TABLE bots ADD COLUMN launch_task TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE bots ADD COLUMN channel_token TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE bots ADD COLUMN channel_seen_at TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE bots ADD COLUMN runtime TEXT NOT NULL DEFAULT 'claude'`,
 		`ALTER TABLE bot_jobs ADD COLUMN command TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE bot_jobs ADD COLUMN timeout INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE bot_jobs ADD COLUMN once_at TEXT NOT NULL DEFAULT ''`,

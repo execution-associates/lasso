@@ -116,6 +116,8 @@ func serveBots(w http.ResponseWriter, r *http.Request) {
 		serveBotOAuth(w, r, b, rec)
 	case "avatar":
 		serveBotAvatar(w, r, b, rec)
+	case "chat", "chat/send", "chat/stop", "chat/answer":
+		serveBotChat(w, r, b, rec, strings.TrimPrefix(strings.TrimPrefix(action, "chat"), "/"))
 	default:
 		http.NotFound(w, r)
 	}
@@ -139,7 +141,8 @@ func decodeBotInput(r *http.Request, base botRecord) (*botInput, error) {
 }
 
 func serveBotCreate(w http.ResponseWriter, r *http.Request) {
-	in, err := decodeBotInput(r, botRecord{KeepRunning: true, Notify: true})
+	// A new bot runs omp unless the body says claude.
+	in, err := decodeBotInput(r, botRecord{KeepRunning: true, Notify: true, Runtime: botRuntimeOmp})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -195,10 +198,11 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 			lassoMCP = url
 		}
 		writeJSON(w, map[string]any{
-			"bot":       v,
-			"dir_path":  dir,
-			"launch":    botTaskScript(rec, dir, botEnvKeys(b, dir)),
-			"claude_md": filepath.Join(dir, "CLAUDE.md"),
+			"bot":      v,
+			"dir_path": dir,
+			"launch":   botLaunchScript(rec, dir, botEnvKeys(b, dir)),
+			// The instructions file: CLAUDE.md for claude, AGENTS.md for omp.
+			"claude_md": filepath.Join(dir, botInstructionsFile(rec)),
 			"tasks":     tasks,
 			"lasso_mcp": lassoMCP,
 			// lasso's channel, shown as a read-only connection when the bot gets it.
@@ -219,6 +223,10 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if next.Runtime != rec.Runtime && botRunning(b, rec) {
+			http.Error(w, "stop the bot before changing its runtime", http.StatusConflict)
+			return
+		}
 		if err := botCheckLaunchTask(b, &next); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -232,7 +240,7 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 			return
 		}
 		if in.Restart {
-			if _, running := findBotPane(b, &next); running {
+			if botRunning(b, &next) {
 				if err := restartBot(b, &next, false); err != nil {
 					http.Error(w, err.Error(), http.StatusBadGateway)
 					return
@@ -244,7 +252,7 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 		// Delete works from any state: a running bot is stopped first (marked
 		// stopped before its pane closes, so keep-running cannot bring it back
 		// in between), and then the row goes.
-		if _, running := findBotPane(b, rec); running {
+		if botRunning(b, rec) {
 			if err := stopBot(b, rec); err != nil {
 				http.Error(w, "stop it before deleting: "+err.Error(), http.StatusBadGateway)
 				return
@@ -345,8 +353,79 @@ func serveBotEnv(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 
 // botRunning: an env change reaches a running bot only on its next start.
 func botRunning(b Backend, r *botRecord) bool {
+	if r.isOmp() {
+		return botOmpRunning(r)
+	}
 	_, ok := findBotPane(b, r)
 	return ok
+}
+
+// botLaunchScript is the generated launch task, as the Launch tab shows it.
+func botLaunchScript(r *botRecord, dir string, envKeys []string) string {
+	if r.isOmp() {
+		return botOmpTaskScript(r, dir, envKeys)
+	}
+	return botTaskScript(r, dir, envKeys)
+}
+
+// serveBotChat is an omp bot's chat: it has a session file and a socket but
+// no pane, so it cannot use /api/chat. A claude bot's chat stays there.
+func serveBotChat(w http.ResponseWriter, r *http.Request, b Backend, rec *botRecord, op string) {
+	if !rec.isOmp() {
+		http.Error(w, "a claude bot's chat is its pane's: /api/chat", http.StatusBadRequest)
+		return
+	}
+	if op == "" {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET", http.StatusMethodNotAllowed)
+			return
+		}
+		out := botOmpChat(b, rec, r.URL.Query().Get("before"))
+		out.PendingUI = ompBotFor(rec.Name).snapshot().pending
+		writeChat(w, out)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST", http.StatusMethodNotAllowed)
+		return
+	}
+	var in struct {
+		Text      string  `json:"text"`
+		ID        string  `json:"id"`
+		Value     *string `json:"value"`
+		Confirmed *bool   `json:"confirmed"`
+		Cancelled bool    `json:"cancelled"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, "bad body", http.StatusBadRequest)
+		return
+	}
+	var err error
+	switch op {
+	case "send":
+		if strings.TrimSpace(in.Text) == "" {
+			http.Error(w, "text is required", http.StatusBadRequest)
+			return
+		}
+		err = botOmpSend(rec.Name, in.Text, true)
+	case "stop":
+		if !ompBotFor(rec.Name).snapshot().streaming {
+			writeJSON(w, map[string]any{"outcome": "refused", "detail": "the bot is not working"})
+			return
+		}
+		err = botOmpAbort(rec.Name)
+	case "answer":
+		err = botOmpAnswer(rec.Name, in.ID, in.Value, in.Confirmed, in.Cancelled)
+	}
+	if err != nil {
+		writeJSON(w, map[string]any{"outcome": "refused", "detail": err.Error()})
+		return
+	}
+	outcome := "sent"
+	if op == "send" {
+		outcome = chatSent
+	}
+	writeJSON(w, map[string]any{"outcome": outcome})
 }
 
 // --- skills ------------------------------------------------------------------

@@ -95,6 +95,9 @@ func findBotPane(b Backend, r *botRecord) (pane, bool) {
 // workspace. It resumes the last session unless fresh, or unless that
 // session's transcript is gone (claude would exit on an unknown id).
 func startBot(b Backend, r *botRecord, fresh bool) error {
+	if r.isOmp() {
+		return botOmpStart(b, r, fresh)
+	}
 	if _, ok := findBotPane(b, r); ok {
 		return errBotRunning
 	}
@@ -158,6 +161,9 @@ func openBotTab(b Backend, r *botRecord, dir string) (string, error) {
 // it be. Closing the pane ends the claude process; the session stays on disk
 // and the next Start resumes it.
 func stopBot(b Backend, r *botRecord) error {
+	if r.isOmp() {
+		return botOmpStop(r)
+	}
 	if err := setBotStopped(r.Name, true); err != nil {
 		return err
 	}
@@ -178,6 +184,9 @@ func stopBot(b Backend, r *botRecord) error {
 
 // restartBot stops the bot, waits for its pane to go, and starts it again.
 func restartBot(b Backend, r *botRecord, fresh bool) error {
+	if r.isOmp() {
+		return botOmpRestart(b, r, fresh)
+	}
 	if err := stopBot(b, r); err != nil {
 		return err
 	}
@@ -208,6 +217,9 @@ type botView struct {
 }
 
 func botStatus(b Backend, r *botRecord, sessions []claudeSessionEntry) botView {
+	if r.isOmp() {
+		return botOmpStatus(b, r)
+	}
 	v := botView{botRecord: r, State: "stopped"}
 	p, ok := findBotPane(b, r)
 	if !ok {
@@ -301,6 +313,10 @@ func botStatuses(list []*botRecord) []botView {
 			out = append(out, botView{botRecord: r, State: "stopped", Error: err.Error()})
 			continue
 		}
+		if r.isOmp() {
+			out = append(out, botOmpStatus(b, r))
+			continue
+		}
 		if _, ok := sessions[r.Host]; !ok {
 			sessions[r.Host] = readClaudeSessions(b)
 		}
@@ -373,6 +389,10 @@ func botTick() {
 			continue
 		}
 		botOAuthTick(b, r)
+		if r.isOmp() {
+			botOmpTick(b, r, time.Now())
+			continue
+		}
 		p, ok := findBotPane(b, r)
 		if ok {
 			bots.mu.Lock()
@@ -427,7 +447,11 @@ func botSyncChannelFiles(list []*botRecord) {
 			continue
 		}
 		dir := expandTildeOn(b, r.Dir)
-		if _, err := b.Stat(botMCPPath(dir)); err != nil {
+		mcpPath := botMCPPath(dir)
+		if r.isOmp() {
+			mcpPath = botOmpMCPPath(dir)
+		}
+		if _, err := b.Stat(mcpPath); err != nil {
 			continue
 		}
 		if err := botWriteTask(b, r, dir); err != nil {

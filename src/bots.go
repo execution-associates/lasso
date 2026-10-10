@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS bots (
 	position        INTEGER NOT NULL DEFAULT 0,
 	avatar_image    TEXT NOT NULL DEFAULT '',
 	notify          INTEGER NOT NULL DEFAULT 1,
+	runtime         TEXT NOT NULL DEFAULT 'claude',
 	created_at      TEXT NOT NULL,
 	updated_at      TEXT NOT NULL
 );
@@ -78,9 +79,13 @@ type botMCPServer struct {
 }
 
 type botRecord struct {
-	ID             int64          `json:"id"`
-	Host           string         `json:"host"`
-	Name           string         `json:"name"`
+	ID   int64  `json:"id"`
+	Host string `json:"host"`
+	Name string `json:"name"`
+	// Runtime is what the bot runs: "omp" (omp in RPC mode under lasso's bot
+	// host, botomp.go) or "claude" (Claude Code in a herdr pane). Rows from
+	// before runtimes existed read "claude".
+	Runtime        string         `json:"runtime"`
 	Dir            string         `json:"dir"`
 	Workspace      string         `json:"workspace"`
 	Model          string         `json:"model"`
@@ -121,15 +126,25 @@ const botDefaultWorkspace = "Bots"
 var (
 	// The name is the herdr agent name, the --name, the tab label and the
 	// default folder, so it stays lowercase and path- and shell-safe.
-	botNameRE    = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
-	botModelRE   = regexp.MustCompile(`^[A-Za-z0-9._:\[\]-]{0,80}$`)
+	botNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
+	// omp's selectors are provider/model.
+	botModelRE   = regexp.MustCompile(`^[A-Za-z0-9._:/\[\]-]{0,80}$`)
 	botMCPNameRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 	botEnvKeyRE  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 	// A launch task travels in herdr's resume_argv and a typed command line,
 	// so it is a plain word.
 	botTaskRE      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_:.-]{0,63}$`)
 	botPermissions = []string{"", "acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"}
+	// omp's --approval-mode values; "" is omp's default, yolo.
+	botOmpApprovals = []string{"", "yolo", "write", "always-ask"}
 )
+
+const (
+	botRuntimeClaude = "claude"
+	botRuntimeOmp    = "omp"
+)
+
+func (r *botRecord) isOmp() bool { return r.Runtime == botRuntimeOmp }
 
 var errBotNotFound = errors.New("bot not found")
 
@@ -186,19 +201,35 @@ func (r *botRecord) normalize() error {
 	if !botModelRE.MatchString(r.Model) {
 		return fmt.Errorf("model %q is not a model name", r.Model)
 	}
+	switch r.Runtime {
+	case "":
+		r.Runtime = botRuntimeClaude
+	case botRuntimeClaude, botRuntimeOmp:
+	default:
+		return fmt.Errorf("runtime must be omp or claude")
+	}
+	// omp bots are driven over a unix socket on lasso's own machine (bot host,
+	// bothost.go), so they live there.
+	if r.isOmp() && r.Host != "local" {
+		return fmt.Errorf("an omp bot runs on lasso's own machine; use the claude runtime for a bot on %s", r.Host)
+	}
 	if e := strings.TrimSpace(r.Effort); e != "" {
-		if r.Effort = normalizeEffort("claude", e); r.Effort == "" {
-			return fmt.Errorf("effort %q is not a claude effort level", e)
+		if r.Effort = normalizeEffort(r.Runtime, e); r.Effort == "" {
+			return fmt.Errorf("effort %q is not a %s effort level", e, r.Runtime)
 		}
 	}
+	perms := botPermissions
+	if r.isOmp() {
+		perms = botOmpApprovals
+	}
 	okPerm := false
-	for _, p := range botPermissions {
+	for _, p := range perms {
 		if r.PermissionMode == p {
 			okPerm = true
 		}
 	}
 	if !okPerm {
-		return fmt.Errorf("permission mode %q is not one claude accepts", r.PermissionMode)
+		return fmt.Errorf("permission mode %q is not one %s accepts", r.PermissionMode, r.Runtime)
 	}
 	r.LaunchTask = strings.TrimSpace(r.LaunchTask)
 	if r.LaunchTask == "bot" {
@@ -281,6 +312,9 @@ func (r *botRecord) channels() []string {
 // channelGrants is every channel the launch grants: the bot's own, then
 // lasso's (jobs and webhooks) when it is in the bot's mcp.json.
 func (r *botRecord) channelGrants() []string {
+	if r.isOmp() {
+		return nil
+	}
 	out := r.channels()
 	if r.channelToken != "" {
 		if ok, _ := botChannelOffered(r); ok {
@@ -573,6 +607,9 @@ func validateResumeArgv(argv []string) error {
 // if there is none. It never overwrites CLAUDE.md, skills, fnox.toml or the
 // bot's own mise.toml.
 func botMaterialize(b Backend, r *botRecord) error {
+	if r.isOmp() {
+		return botOmpMaterialize(b, r)
+	}
 	dir := expandTildeOn(b, r.Dir)
 	for _, d := range []string{dir, filepath.Dir(botTaskPath(dir)), filepath.Dir(botMCPPath(dir))} {
 		if err := b.MkdirAll(d, 0o755); err != nil {
@@ -612,6 +649,9 @@ func botLoadChannelToken(r *botRecord) {
 // botWriteMCP regenerates .lasso/mcp.json when it changed. It holds the
 // channel token, so it is the owner's alone.
 func botWriteMCP(b Backend, r *botRecord, dir string) error {
+	if r.isOmp() {
+		return botOmpWriteMCP(b, r, dir)
+	}
 	botLoadChannelToken(r)
 	signedIn := map[string]bool{}
 	for name, row := range listBotOAuth(r.Name) {
@@ -634,6 +674,9 @@ func botWriteMCP(b Backend, r *botRecord, dir string) error {
 // defines now. Every env change calls it, or a new variable never reaches
 // the bot.
 func botWriteTask(b Backend, r *botRecord, dir string) error {
+	if r.isOmp() {
+		return botOmpWriteTask(b, r, dir)
+	}
 	botLoadChannelToken(r)
 	for path, body := range map[string]string{
 		botTaskPath(dir):    botTaskScript(r, dir, botEnvKeys(b, dir)),
@@ -652,7 +695,7 @@ func botWriteTask(b Backend, r *botRecord, dir string) error {
 
 // --- storage -----------------------------------------------------------------
 
-const botCols = `id, host, name, dir, workspace, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, created_at, updated_at, avatar_image, notify, launch_task`
+const botCols = `id, host, name, dir, workspace, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, created_at, updated_at, avatar_image, notify, launch_task, runtime`
 
 func scanBot(row interface{ Scan(...any) error }) (*botRecord, error) {
 	var r botRecord
@@ -660,7 +703,7 @@ func scanBot(row interface{ Scan(...any) error }) (*botRecord, error) {
 	var strict, keep, stopped, notify int
 	if err := row.Scan(&r.ID, &r.Host, &r.Name, &r.Dir, &r.Workspace, &r.Model, &r.Effort, &r.PermissionMode,
 		&mcp, &strict, &extra, &r.Avatar, &keep, &stopped, &r.LastSessionID, &r.CreatedAt, &r.UpdatedAt,
-		&r.AvatarImage, &notify, &r.LaunchTask); err != nil {
+		&r.AvatarImage, &notify, &r.LaunchTask, &r.Runtime); err != nil {
 		return nil, err
 	}
 	r.Notify = notify != 0
@@ -715,10 +758,10 @@ func insertBot(r *botRecord) error {
 	mcp, _ := json.Marshal(r.MCP)
 	extra, _ := json.Marshal(r.ExtraArgs)
 	// A new bot goes to the end of the list.
-	res, err := db.Exec(`INSERT INTO bots (host, name, dir, workspace, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, position, created_at, updated_at, notify, launch_task)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM bots), ?, ?, ?, ?)`,
+	res, err := db.Exec(`INSERT INTO bots (host, name, dir, workspace, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, position, created_at, updated_at, notify, launch_task, runtime)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM bots), ?, ?, ?, ?, ?)`,
 		r.Host, r.Name, r.Dir, r.Workspace, r.Model, r.Effort, r.PermissionMode, string(mcp), boolInt(r.StrictMCP),
-		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Stopped), r.LastSessionID, r.CreatedAt, r.UpdatedAt, boolInt(r.Notify), r.LaunchTask)
+		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Stopped), r.LastSessionID, r.CreatedAt, r.UpdatedAt, boolInt(r.Notify), r.LaunchTask, r.Runtime)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return fmt.Errorf("a bot named %q already exists", r.Name)
@@ -736,9 +779,9 @@ func updateBot(r *botRecord) error {
 	mcp, _ := json.Marshal(r.MCP)
 	extra, _ := json.Marshal(r.ExtraArgs)
 	_, err := db.Exec(`UPDATE bots SET dir = ?, workspace = ?, model = ?, effort = ?, permission_mode = ?, mcp = ?, strict_mcp = ?,
-		extra_args = ?, avatar = ?, keep_running = ?, notify = ?, launch_task = ?, updated_at = ? WHERE name = ?`,
+		extra_args = ?, avatar = ?, keep_running = ?, notify = ?, launch_task = ?, runtime = ?, updated_at = ? WHERE name = ?`,
 		r.Dir, r.Workspace, r.Model, r.Effort, r.PermissionMode, string(mcp), boolInt(r.StrictMCP),
-		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Notify), r.LaunchTask, r.UpdatedAt, r.Name)
+		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Notify), r.LaunchTask, r.Runtime, r.UpdatedAt, r.Name)
 	return err
 }
 

@@ -377,7 +377,7 @@ func TestBotsAPI(t *testing.T) {
 		serveBots(w, req)
 		return w
 	}
-	w := do("POST", "/api/bots", `{"name":"news","dir":"`+dir+`","model":"haiku","mcp":[{"name":"c","command":"x","channel":true}]}`)
+	w := do("POST", "/api/bots", `{"name":"news","runtime":"claude","dir":"`+dir+`","model":"haiku","mcp":[{"name":"c","command":"x","channel":true}]}`)
 	if w.Code != 200 {
 		t.Fatalf("create: %d %s", w.Code, w.Body)
 	}

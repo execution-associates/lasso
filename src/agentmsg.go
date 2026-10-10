@@ -302,6 +302,12 @@ func sendAgentTool(ctx context.Context, req *mcp.CallToolRequest, in sendAgentIn
 	if err := cs.requireHost(host); err != nil {
 		return nil, sendAgentOut{}, err
 	}
+	// An omp bot has no pane: its messages go over its bot host's socket.
+	if host == "local" {
+		if r, err := getBot(strings.TrimSpace(in.To)); err == nil && r.isOmp() {
+			return sendToOmpBot(ctx, cs, in, r)
+		}
+	}
 	t, b, err := resolveAgentTarget(host, in.To)
 	if err != nil {
 		return nil, sendAgentOut{}, err
@@ -359,6 +365,55 @@ func sendAgentTool(ctx context.Context, req *mcp.CallToolRequest, in sendAgentIn
 	out.Sent = true
 	if token != "" {
 		out.Next = "call get_replies with message_id " + out.MessageID + " (timeout_seconds to wait for it); read_agent shows its screen meanwhile"
+	}
+	return nil, out, nil
+}
+
+// sendToOmpBot is send_agent to an omp bot: the same message and reply
+// inbox, delivered as one prompt (a follow-up when the bot is mid-turn). omp
+// does not fence a long message as pasted content, so the request to answer
+// rides in the same prompt.
+func sendToOmpBot(ctx context.Context, cs mcpCaller, in sendAgentIn, r *botRecord) (*mcp.CallToolResult, sendAgentOut, error) {
+	snap := ompBotFor(r.Name).snapshot()
+	if !ompBotFor(r.Name).ensure() {
+		return nil, sendAgentOut{}, fmt.Errorf("NOT sent: the bot %s is not running", r.Name)
+	}
+	if len(snap.pending) > 0 {
+		return nil, sendAgentOut{}, fmt.Errorf("NOT sent: the bot %s is waiting on a question (%s); answer it in lasso's Bots view first", r.Name, snap.pending[0].Title)
+	}
+	out := sendAgentOut{MessageID: "m_" + randHex(6), Host: "local", To: r.Name}
+	sender := senderLabel(ctx, cs, in.From, in.FromPane)
+	var token, addr string
+	var port int
+	var inboxErr error
+	if in.ExpectReply == nil || *in.ExpectReply {
+		token = randHex(16)
+		addr, port, inboxErr = replyInbox.ensure(ctx)
+		out.ReplyVia = "tailcat"
+		if inboxErr != nil {
+			out.ReplyVia, out.InboxError = "mcp", inboxErr.Error()
+		}
+		if err := insertOutbox(outboxMsg{
+			ID: out.MessageID, SenderClient: callerClientKey(cs), Sender: sender, Host: "local",
+			Target: r.Name, Body: in.Text, CreatedAt: time.Now(),
+		}, token); err != nil {
+			return nil, sendAgentOut{}, fmt.Errorf("record message: %w", err)
+		}
+	}
+	ask := fmt.Sprintf("Please handle message %s above, which lasso relayed from %s.", out.MessageID, sender)
+	if token != "" {
+		ask = fmt.Sprintf("Please answer message %s above, which lasso relayed from %s, and send your answer back through lasso's reply channel as it describes.", out.MessageID, sender)
+	}
+	body := composeAgentMessage(out.MessageID, sender, in.Text, token, addr, port, inboxErr) + "\n\n" + ask
+	if err := botOmpSend(r.Name, body, false); err != nil {
+		if token != "" {
+			deleteOutbox(out.MessageID)
+		}
+		return nil, sendAgentOut{}, fmt.Errorf("NOT sent to %s: %w", r.Name, err)
+	}
+	out.Sent = true
+	if token != "" {
+		out.Next = "call get_replies with message_id " + out.MessageID + " (timeout_seconds to wait for it)"
 	}
 	return nil, out, nil
 }

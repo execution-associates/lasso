@@ -609,6 +609,11 @@ func botChannelOffered(r *botRecord) (bool, string) {
 	if r.Host != "local" {
 		return false, "jobs reach a bot through lasso's channel, which runs only for a bot on lasso's own machine"
 	}
+	// An omp bot's jobs are prompts lasso sends over the bot host's socket
+	// (botOmpDeliver): no channel process, no listen address to reach back to.
+	if r.isOmp() {
+		return true, ""
+	}
 	if _, ok := botLassoBase(); !ok {
 		return false, "lasso's listen address is not one a bot can reach"
 	}

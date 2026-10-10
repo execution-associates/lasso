@@ -97,6 +97,9 @@ func main() {
 		case "channel":
 			cliChannel(os.Args[2:])
 			return
+		case "bot-host":
+			cliBotHost(os.Args[2:])
+			return
 		case "plugin", "plugins":
 			cliPlugin(os.Args[2:])
 			return
