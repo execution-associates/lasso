@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -509,13 +510,19 @@ func itoa(i int) string {
 // list — which points into a temp directory that has already been removed, and
 // reads as "the transcript is not readable yet" in a test that never touched a
 // transcript. panefocus_test.go guards the same hazard the same way.
+//
+// It also stands in an empty fleet for the transcript search: a missing log
+// otherwise asks every host this machine's real config names, dialing real
+// ssh hosts from a unit test (and panicking on the nil app context there).
 func useFakeHost(t *testing.T, be Backend) {
 	t.Helper()
-	prev := defaultBackend()
+	prev, prevHosts := defaultBackend(), transcriptHostsFn
 	setDefaultBackend(be)
+	transcriptHostsFn = func(context.Context) []string { return nil }
 	invalidatePaneList(be.Name())
 	t.Cleanup(func() {
 		setDefaultBackend(prev)
+		transcriptHostsFn = prevHosts
 		invalidatePaneList(be.Name())
 	})
 }
@@ -1876,7 +1883,7 @@ func TestClaudePagesAcrossGiantImageRecord(t *testing.T) {
 		if pages > 10 {
 			t.Fatal("paging did not reach the top")
 		}
-		page := readLogPage(b, path, "claude", size, end)
+		page := readLogPage(b, path, "claude", size, end, false)
 		var got []string
 		for _, it := range page.items {
 			got = append(got, it.Text)

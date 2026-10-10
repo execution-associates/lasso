@@ -216,3 +216,23 @@ func asJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
+
+func TestClaudeIncomingChannelRows(t *testing.T) {
+	log := chatLog(
+		`{"type":"user","uuid":"c1","timestamp":"2026-10-10T01:00:00Z","isMeta":true,"origin":{"kind":"channel","server":"gmail-channel"},"message":{"role":"user","content":"<channel source=\"gmail-channel\" subject=\"Hi\">hello</channel>"}}`,
+		`{"type":"user","uuid":"m1","timestamp":"2026-10-10T01:00:01Z","isMeta":true,"message":{"role":"user","content":"<local-command-caveat>not a channel</local-command-caveat>"}}`,
+		`{"type":"assistant","uuid":"a1","timestamp":"2026-10-10T01:00:02Z","message":{"role":"assistant","content":[{"type":"text","text":"On it."}]}}`,
+	)
+	plain := parseTranscriptLines("claude", splitLogLines(log, 0), false)
+	if len(plain.items) != 1 || plain.items[0].Kind != "agent" {
+		t.Fatalf("lasso's chat = %+v; want only the agent row", plain.items)
+	}
+	with := parseTranscriptLines("claude", splitLogLines(log, 0), true)
+	if len(with.items) != 2 {
+		t.Fatalf("with incoming = %+v; want the channel row and the agent row", with.items)
+	}
+	in := with.items[0]
+	if in.Kind != "incoming" || in.Source != "gmail-channel" || !strings.Contains(in.Text, "hello") {
+		t.Errorf("incoming row = %+v", in)
+	}
+}

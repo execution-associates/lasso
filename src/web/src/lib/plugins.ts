@@ -411,7 +411,11 @@ export function attachPluginBridge(opts: BridgeOptions): PluginBridge {
         const before = p.before
         if (
           before !== undefined &&
-          !(typeof before === "number" && Number.isInteger(before) && before > 0)
+          !(
+            typeof before === "number" &&
+            Number.isInteger(before) &&
+            before > 0
+          )
         )
           throw new BridgeError("before must be a positive integer")
         return api.pluginChat(plugin, t, before as number | undefined)

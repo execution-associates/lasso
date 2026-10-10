@@ -62,7 +62,9 @@ const (
 // chatItem is one renderable row. Exactly one of Text / Tool / Marker carries
 // the content, keyed by Kind.
 type chatItem struct {
-	Kind string `json:"kind"` // user | agent | tool | marker
+	// user | agent | tool | marker, and "incoming" (a message a Claude Code
+	// channel delivered) only when the caller asked for those.
+	Kind string `json:"kind"`
 	ID   string `json:"id"`
 	At   string `json:"at,omitempty"`
 	// Text is the prose of a user or agent row.
@@ -76,6 +78,9 @@ type chatItem struct {
 	// hundred times is a chat nobody can read.
 	Count int       `json:"count,omitempty"`
 	Tool  *chatTool `json:"tool,omitempty"`
+	// Source is the channel server an incoming row came from
+	// ("gmail-channel"); its envelope is the row's Text.
+	Source string `json:"source,omitempty"`
 	// off is where in the transcript this row's record begins. Not on the wire:
 	// it is what makes paging exact (the oldest KEPT row is the cursor the next
 	// page is fetched before), and a row dropped by the per-read cap must not
@@ -766,13 +771,20 @@ func appendMarker(out *chatParse, it chatItem) {
 // The item model, the cards, paging and everything downstream are shared; only
 // the record reader differs.
 type claudeRecord struct {
-	Type        string         `json:"type"`
-	UUID        string         `json:"uuid"`
-	Timestamp   string         `json:"timestamp"`
-	AITitle     string         `json:"aiTitle"`
-	IsSidechain bool           `json:"isSidechain"`
-	IsMeta      bool           `json:"isMeta"`
-	Message     *claudeMessage `json:"message"`
+	Type        string `json:"type"`
+	UUID        string `json:"uuid"`
+	Timestamp   string `json:"timestamp"`
+	AITitle     string `json:"aiTitle"`
+	IsSidechain bool   `json:"isSidechain"`
+	IsMeta      bool   `json:"isMeta"`
+	// Origin says where a meta user turn came from. A Claude Code channel
+	// (mail, chat, a scheduler) delivers its messages as isMeta user turns
+	// with origin.kind "channel".
+	Origin struct {
+		Kind   string `json:"kind"`
+		Server string `json:"server"`
+	} `json:"origin"`
+	Message *claudeMessage `json:"message"`
 	// ToolUseResult is the record-level payload claude writes beside a tool
 	// result. For an ask it is where the ANSWERS live: the tool_result block
 	// itself carries only a sentence of prose ("Your questions have been
@@ -825,6 +837,18 @@ func claudeBlocks(raw json.RawMessage) []claudeBlock {
 	return blocks
 }
 
+// claudeUserText is a user message's text blocks joined: a channel delivery is
+// one text block, the <channel …>…</channel> envelope.
+func claudeUserText(raw json.RawMessage) string {
+	var parts []string
+	for _, b := range claudeBlocks(raw) {
+		if b.Type == "text" && strings.TrimSpace(b.Text) != "" {
+			parts = append(parts, strings.TrimSpace(b.Text))
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
 // claudeResultBody reads a tool_result's content, which is a string for text and
 // an array when the tool returned images alongside it.
 func claudeResultBody(raw json.RawMessage) (body string, images int) {
@@ -859,12 +883,17 @@ func claudeResultBody(raw json.RawMessage) (body string, images int) {
 // card still carries the call and its result, which is the part the parent's
 // conversation is actually about.
 func parseClaudeTranscript(data []byte, base int64) chatParse {
-	return parseClaudeLines(splitLogLines(data, base))
+	return parseClaudeLines(splitLogLines(data, base), false)
 }
 
 // parseClaudeLines is parseClaudeTranscript over lines the log reader has
 // already split and compacted, each carrying its own file offset.
-func parseClaudeLines(lines []jsonlLine) chatParse {
+//
+// withIncoming also emits the messages Claude Code channels delivered, as
+// "incoming" rows (see chatItem). lasso's own chat leaves them out; a plugin's
+// agent grant asks for them (pluginchat.go), since for an assistant they are
+// most of what it is answering.
+func parseClaudeLines(lines []jsonlLine, withIncoming bool) chatParse {
 	var out chatParse
 	byCall := map[string]*chatTool{}
 	type pendingResult struct {
@@ -898,7 +927,18 @@ func parseClaudeLines(lines []jsonlLine) chatParse {
 		if rec.Type != "user" && rec.Type != "assistant" {
 			continue
 		}
-		if rec.IsSidechain || rec.IsMeta || rec.Message == nil {
+		if rec.IsSidechain || rec.Message == nil {
+			continue
+		}
+		if rec.IsMeta {
+			if withIncoming && rec.Type == "user" && rec.Origin.Kind == "channel" {
+				if text := claudeUserText(rec.Message.Content); text != "" {
+					out.items = append(out.items, chatItem{
+						Kind: "incoming", ID: rowID(rec.UUID, 0), At: rec.Timestamp,
+						Text: text, Source: rec.Origin.Server, off: lineStart,
+					})
+				}
+			}
 			continue
 		}
 		first := len(out.items)
@@ -1053,15 +1093,15 @@ func claudeTool(b claudeBlock) *chatTool {
 // log that cannot be parsed is reported as such instead of being read as some
 // other harness's format.
 func parseTranscript(harness string, data []byte, base int64) chatParse {
-	return parseTranscriptLines(harness, splitLogLines(data, base))
+	return parseTranscriptLines(harness, splitLogLines(data, base), false)
 }
 
 // parseTranscriptLines dispatches already-split log lines to the harness's
 // parser. Every harness is read this way (readLogPage), because every one of
 // them can inline an image into a record far bigger than any byte window.
-func parseTranscriptLines(harness string, lines []jsonlLine) chatParse {
+func parseTranscriptLines(harness string, lines []jsonlLine, withIncoming bool) chatParse {
 	if strings.ToLower(strings.TrimSpace(harness)) == "claude" {
-		return parseClaudeLines(lines)
+		return parseClaudeLines(lines, withIncoming)
 	}
 	if isCodex(harness) {
 		return parseCodexLines(lines)
@@ -1800,14 +1840,15 @@ func serveChat(w http.ResponseWriter, r *http.Request) {
 	// pane listing, the records and the stat come from one host. The one
 	// exception is a pane whose host does not have its log at all, which
 	// resolvePaneLog finds on another host and reports as served_by.
-	writeChat(w, buildChatPayload(scr.be, scr.pane, r.URL.Query().Get("before")))
+	writeChat(w, buildChatPayload(scr.be, scr.pane, r.URL.Query().Get("before"), false))
 }
 
 // buildChatPayload reads one pane's session as chat rows: the page ending at
 // `before` (a transcript offset; "" or out of range = the tail). Shared by the
 // tab's own chat and a plugin's agent grant (pluginchat.go), so both read a
-// pane exactly the same way.
-func buildChatPayload(be Backend, p pane, before string) chatPayload {
+// pane exactly the same way. withIncoming adds channel-delivered messages as
+// "incoming" rows (parseClaudeLines).
+func buildChatPayload(be Backend, p pane, before string, withIncoming bool) chatPayload {
 	// herdr's own view of the pane is what answers "is it generating right now",
 	// and it answers BEFORE the transcript can. Both harnesses write a COMPLETE
 	// assistant message, so the first seconds of every turn have no record at
@@ -1874,7 +1915,7 @@ func buildChatPayload(be Backend, p pane, before string) chatPayload {
 			end = n
 		}
 	}
-	parsed := readLogPage(src, path, tx.Harness, info.Size(), end)
+	parsed := readLogPage(src, path, tx.Harness, info.Size(), end, withIncoming)
 	out.Items = parsed.items
 	out.Model = parsed.model
 	out.Tokens = parsed.tokens
@@ -2464,11 +2505,11 @@ func shortPath(p string) string {
 // 1.3 MB. A byte window that lands inside one parses to nothing, and a page
 // with nothing in it read as the top of the conversation, so scrolling back
 // stopped one page up.
-func readLogPage(b Backend, path, harness string, size, end int64) chatParse {
+func readLogPage(b Backend, path, harness string, size, end int64, withIncoming bool) chatParse {
 	var parsed chatParse
 	for tries := 0; ; tries++ {
 		lines := logLinesBefore(b, path, size, end, chatReadBytes*(tries+1))
-		parsed = parseTranscriptLines(harness, lines)
+		parsed = parseTranscriptLines(harness, lines, withIncoming)
 		// A page the scan bound cut short inside a run of image records has no
 		// rows, and a page with no rows would otherwise report the top of the
 		// conversation. Its lines still say how far it got.
