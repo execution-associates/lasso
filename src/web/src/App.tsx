@@ -86,6 +86,7 @@ import {
   isBuiltinTab,
   resolveSidebarTabs,
 } from "@/lib/sidebar-tabs"
+import { isStandalone } from "@/lib/standalone"
 import {
   blurHerdrTerminal,
   focusHerdrTerminal,
@@ -123,7 +124,7 @@ const MAIN_VIEWS: {
   { id: "terminal", label: "Terminal", icon: SquareTerminal },
   { id: "chat", label: "Chat", icon: MessageSquare, shortcut: "⌘J" },
   { id: "agents", label: "Grid", icon: Users, shortcut: "⌘E" },
-  { id: "bots", label: "Bots", icon: Bot },
+  { id: "bots", label: "Bots", icon: Bot, shortcut: "⌘." },
 ]
 
 // Shared tab-strip styling: a full-width underline strip, matching the original
@@ -237,9 +238,31 @@ function Pane({
 export function App() {
   return (
     <AppProvider>
-      <Shell />
+      {botsApp ? <BotsApp /> : <Shell />}
       <Toaster />
     </AppProvider>
+  )
+}
+
+// The Bots app: lasso installed from /bots (manifest-bots.json, start_url
+// /bots?app=bots) is its own home-screen app holding only the Bots view, so a
+// phone opens straight into its bots and gets their notifications on their
+// own icon. Decided once at boot, from where the window was opened.
+const botsApp =
+  window.location.pathname.startsWith("/bots") &&
+  (isStandalone() ||
+    new URLSearchParams(window.location.search).get("app") === "bots")
+
+function BotsApp() {
+  return (
+    <div className="chat-overlay fixed inset-0 flex flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+      <BotsView
+        active
+        // Opening a bot's terminal leaves the Bots app for lasso itself.
+        onShowTerminal={() => window.location.assign("/")}
+        className="min-h-0 flex-1"
+      />
+    </div>
   )
 }
 
@@ -323,6 +346,13 @@ function Shell() {
     const next = leftView === "agents" ? "terminal" : "agents"
     setLeftView(next)
     if (next === "agents") blurHerdrTerminal()
+    else if (!window.matchMedia("(pointer: coarse)").matches)
+      focusHerdrTerminal()
+  }, [leftView])
+  const toggleBotsView = React.useCallback(() => {
+    const next = leftView === "bots" ? "terminal" : "bots"
+    setLeftView(next)
+    if (next === "bots") blurHerdrTerminal()
     else if (!window.matchMedia("(pointer: coarse)").matches)
       focusHerdrTerminal()
   }, [leftView])
@@ -629,7 +659,10 @@ function Shell() {
   }, [selectRightView, openSidebar])
   const prepareTour = React.useCallback(
     (what: TourPrepare) => {
-      if (what === "terminal") {
+      if (what === "bots") {
+        setLeftView("bots")
+        blurHerdrTerminal()
+      } else if (what === "terminal") {
         setLeftView("terminal")
         blurHerdrTerminal()
         if (
@@ -825,6 +858,9 @@ function Shell() {
       } else if (k === "e") {
         e.preventDefault()
         toggleAgentsView()
+      } else if (k === ".") {
+        e.preventDefault()
+        toggleBotsView()
       } else if (k === "b") {
         e.preventDefault()
         // Same rule as the footer button, which is disabled in the grid and a
@@ -840,6 +876,7 @@ function Shell() {
     openSidebar,
     toggleLeftView,
     toggleAgentsView,
+    toggleBotsView,
     toggleLeftSidebar,
     leftView,
     noLeftSidebar,

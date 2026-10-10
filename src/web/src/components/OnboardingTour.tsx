@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils"
 // actually there to point at: "terminal" puts the left column back on the
 // terminal (the chat and grid overlays cover it), "sidebar" opens the right
 // sidebar on its Files tab.
-export type TourPrepare = "terminal" | "sidebar"
+export type TourPrepare = "terminal" | "sidebar" | "bots"
 
 export interface TourStep {
   id: string
@@ -83,8 +83,24 @@ export const TOUR_STEPS: TourStep[] = [
         The view menu switches what fills this window. Chat shows the focused
         agent&apos;s session as messages, with a composer to reply (
         <Kbd>⌘J</Kbd>). Grid lays out every agent as its own card, grouped by
-        machine (<Kbd>⌘E</Kbd>). Plugins can add views of their own. Try it now:
-        open the menu and pick one, then come back to Terminal.
+        machine (<Kbd>⌘E</Kbd>). Bots is next. Plugins can add views of their
+        own. Try it now: open the menu and pick one, then come back to Terminal.
+      </>
+    ),
+  },
+  {
+    id: "bots",
+    title: "Bots",
+    target: "bots-list",
+    prepare: "bots",
+    body: (
+      <>
+        A bot is a Claude Code session lasso keeps running: its own folder,
+        instructions, skills, MCP servers and secrets, back on its own after a
+        restart. Talk to each one like a messaging app, drag the list into your
+        order, and press the bell to be notified when a bot answers. Ask a bot
+        to change its own settings and it can. Open them with <Kbd>⌘.</Kbd>, or
+        install them as their own app on your phone from this page.
       </>
     ),
   },
@@ -92,6 +108,7 @@ export const TOUR_STEPS: TourStep[] = [
     id: "host",
     title: "Other machines",
     target: "host",
+    prepare: "terminal",
     only: "desktop",
     body: (
       <>

@@ -1,4 +1,8 @@
+import { useQuery } from "@tanstack/react-query"
 import {
+  Bell,
+  BellOff,
+  ChevronDown,
   ChevronLeft,
   GripVertical,
   LayoutGrid,
@@ -15,6 +19,13 @@ import { BotSettings } from "@/components/BotSettings"
 import { BotsManage } from "@/components/BotsManage"
 import { ChatView } from "@/components/ChatView"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Orb } from "@/components/ui/orb"
 import { api, type BotView } from "@/lib/api"
 import { moveTabToHost } from "@/lib/app-store"
@@ -28,7 +39,14 @@ import {
   useBotsSeen,
   useMinuteClock,
 } from "@/lib/bots"
-import { queryClient } from "@/lib/query"
+import {
+  disablePush,
+  enablePush,
+  type PushState,
+  pushSupport,
+  readPushState,
+} from "@/lib/push"
+import { qk, queryClient } from "@/lib/query"
 import {
   type BotsRoute,
   botsRouteNow,
@@ -219,6 +237,154 @@ function SettingsButton({ onClick }: { onClick: () => void }) {
 }
 
 // The phone's way back to the list, at the left of every page's header.
+// BotSwitcher is the chat header's title when the view is too narrow for the
+// list beside it: the bot's name, opening every bot to switch to, plus the
+// list's own destinations.
+function BotSwitcher({
+  current,
+  bots,
+  onPick,
+  onAll,
+  onManage,
+  onNew,
+}: {
+  current: BotView
+  bots: BotView[]
+  onPick: (name: string) => void
+  onAll: () => void
+  onManage: () => void
+  onNew: () => void
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className="-ml-1 flex min-w-0 items-center gap-1.5 rounded-lg px-1 py-0.5 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        aria-label={`${current.name}: switch bot`}
+      >
+        <BotAvatar bot={current} size={20} />
+        <span className="min-w-0 truncate font-medium text-[13px] text-foreground">
+          {current.name}
+        </span>
+        <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-56">
+        {bots.map((b) => (
+          <DropdownMenuItem
+            key={b.name}
+            onSelect={() => onPick(b.name)}
+            className={cn("gap-2", b.name === current.name && "bg-accent/60")}
+          >
+            <BotAvatar bot={b} size={20} />
+            <span className="min-w-0 flex-1 truncate">{b.name}</span>
+            <BotStateMark bot={b} />
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={onAll}>
+          <ChevronLeft />
+          All bots
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onManage}>
+          <ListChecks />
+          Manage bots
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onNew}>
+          <Plus />
+          New bot
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+// NotifyBell turns notifications on or off for THIS device, right where bots
+// are read. An installed Bots app is its own device to the browser (its own
+// permission and subscription), so it needs a switch of its own rather than
+// only lasso's Settings, which it never shows.
+function NotifyBell({ active }: { active: boolean }) {
+  const config = useQuery({
+    queryKey: qk.push,
+    queryFn: () => api.pushConfig(),
+    enabled: active,
+  })
+  const [state, setState] = React.useState<PushState | null>(null)
+  const [busy, setBusy] = React.useState(false)
+  React.useEffect(() => {
+    if (active) void readPushState().then(setState)
+  }, [active])
+  const on = state?.subscribed === true && state?.permission === "granted"
+  const toggle = async () => {
+    const support = pushSupport()
+    if (support === "needs-home-screen") {
+      toast("Add Bots to your Home Screen first", {
+        description:
+          "In Safari: Share → Add to Home Screen. Open it from there and press the bell again.",
+      })
+      return
+    }
+    if (support === "unsupported" || !config.data?.public_key) {
+      toast.error("This browser can't receive notifications from lasso")
+      return
+    }
+    setBusy(true)
+    try {
+      // enablePush must run inside the click: Safari honors requestPermission
+      // only from a user gesture.
+      const next = on
+        ? await disablePush()
+        : await enablePush(config.data.public_key)
+      setState(next)
+      if (!on && next.subscribed)
+        toast.success("Notifications on for this device")
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => void toggle()}
+      disabled={busy}
+      title={
+        on ? "Notifications on for this device" : "Notify me when bots answer"
+      }
+      aria-label={
+        on
+          ? "Turn notifications off for this device"
+          : "Turn on notifications for this device"
+      }
+      aria-pressed={on}
+      className={cn(
+        "flex size-7 items-center justify-center rounded-lg hover:bg-accent hover:text-foreground",
+        on ? "text-primary" : "text-muted-foreground"
+      )}
+    >
+      {on ? <Bell className="size-4" /> : <BellOff className="size-4" />}
+    </button>
+  )
+}
+
+// The width below which the list folds away and the chat's title becomes the
+// switcher: the view's OWN width, so a wide sidebar beside it counts too.
+const COMPACT_BELOW = 760
+
+function useCompact(ref: React.RefObject<HTMLElement | null>): boolean {
+  const [compact, setCompact] = React.useState(false)
+  React.useLayoutEffect(() => {
+    const el = ref.current
+    if (!el || typeof ResizeObserver === "undefined") return
+    const ro = new ResizeObserver(() =>
+      setCompact(el.clientWidth < COMPACT_BELOW)
+    )
+    ro.observe(el)
+    setCompact(el.clientWidth < COMPACT_BELOW)
+    return () => ro.disconnect()
+  }, [ref])
+  return compact
+}
+
 function BackToList({ onClick }: { onClick: () => void }) {
   return (
     <button
@@ -226,7 +392,7 @@ function BackToList({ onClick }: { onClick: () => void }) {
       onClick={onClick}
       title="Back to bots"
       aria-label="Back to bots"
-      className="-ml-1 flex h-7 shrink-0 items-center rounded-lg pr-1.5 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground md:hidden"
+      className="-ml-1 flex h-7 shrink-0 items-center rounded-lg pr-1.5 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
     >
       <ChevronLeft className="size-4" />
       Bots
@@ -328,8 +494,8 @@ export function BotsView({
   // Switch the left column to the terminal (Settings → Open terminal).
   onShowTerminal: () => void
   // The phone's view picker (App's), since this view covers the input dial
-  // that otherwise opens it.
-  onOpenViews: () => void
+  // that otherwise opens it. Absent in the Bots app, which has no other view.
+  onOpenViews?: () => void
   className?: string
 }) {
   const [route, setRoute] = React.useState<BotsRoute>(botsRouteNow)
@@ -390,8 +556,11 @@ export function BotsView({
     [onShowTerminal]
   )
 
+  const root = React.useRef<HTMLDivElement>(null)
+  const compact = useCompact(root)
   const toList = () => go({ page: "list" })
-  const back = <BackToList onClick={toList} />
+  // Back to the list exists only where the list is folded away.
+  const back = compact ? <BackToList onClick={toList} /> : null
   const listScreen = route.page === "list"
 
   let page: React.ReactNode
@@ -437,9 +606,21 @@ export function BotsView({
           incoming
           variant="bot"
           active={active}
-          title={current.name}
+          title={
+            compact ? (
+              <BotSwitcher
+                current={current}
+                bots={bots}
+                onPick={(name) => go({ page: "chat", name })}
+                onAll={toList}
+                onManage={() => go({ page: "manage" })}
+                onNew={() => go({ page: "new" })}
+              />
+            ) : (
+              current.name
+            )
+          }
           placeholder={`Message ${current.name}…`}
-          headerLead={back}
           headerExtra={
             <>
               <BotStateMark bot={current} words />
@@ -483,6 +664,7 @@ export function BotsView({
 
   return (
     <div
+      ref={root}
       className={cn(
         "vsurface flex h-full min-h-0 w-full bg-background",
         className
@@ -492,14 +674,17 @@ export function BotsView({
           the list page. */}
       <nav
         aria-label="Bots"
+        data-tour="bots-list"
         className={cn(
-          "fx-ground flex min-h-0 w-full flex-none flex-col border-border bg-card md:w-72 md:border-r",
-          !listScreen && "max-md:hidden"
+          "fx-ground flex min-h-0 flex-none flex-col border-border bg-card",
+          compact ? "w-full" : "w-72 border-r",
+          compact && !listScreen && "hidden"
         )}
       >
         <div className="fx-headline flex flex-none items-center gap-1 border-border border-b px-2.5 py-1.5">
           <span className="font-medium text-[13px] text-foreground">Bots</span>
           <span className="ml-auto" />
+          <NotifyBell active={active} />
           <button
             type="button"
             onClick={() => go({ page: "new" })}
@@ -511,15 +696,17 @@ export function BotsView({
           </button>
           {/* The view picker, which a phone reaches from the input dial
               everywhere else — and the dial is under this view. */}
-          <button
-            type="button"
-            onClick={onOpenViews}
-            title="Switch view"
-            aria-label="Switch view"
-            className="flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground md:hidden"
-          >
-            <LayoutGrid className="size-4" />
-          </button>
+          {onOpenViews && (
+            <button
+              type="button"
+              onClick={onOpenViews}
+              title="Switch view"
+              aria-label="Switch view"
+              className="flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground md:hidden"
+            >
+              <LayoutGrid className="size-4" />
+            </button>
+          )}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1">
           {error && (
@@ -564,7 +751,7 @@ export function BotsView({
       <div
         className={cn(
           "flex min-h-0 min-w-0 flex-1 flex-col",
-          listScreen && "max-md:hidden"
+          compact && listScreen && "hidden"
         )}
       >
         {page}

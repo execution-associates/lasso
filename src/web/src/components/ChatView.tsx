@@ -1506,8 +1506,9 @@ export function ChatView({
   // its own chrome — so the header drops the pin, End agent and the phone's
   // New/Terminal/Sidebar trio, and the title is not a rename.
   variant?: "default" | "bot"
-  // A fixed title (the bot's name) instead of herdr's workspace label.
-  title?: string
+  // A fixed title instead of herdr's workspace label: the bot's name, or the
+  // Bots view's bot switcher when it is too narrow for its list.
+  title?: React.ReactNode
   // Header slots: before the title (a phone's Back) and at the right end.
   headerLead?: React.ReactNode
   headerExtra?: React.ReactNode
