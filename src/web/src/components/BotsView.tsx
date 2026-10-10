@@ -213,14 +213,34 @@ async function restartBot(name: string) {
 
 // What the right side shows for a bot that is not running: there is no pane,
 // so no conversation to read, and the one useful thing is to start it.
+// The phone's view picker (App's), which a phone reaches from the input dial
+// everywhere else, and the dial is under this view. On the list header and on
+// a bot's own header, so no page of the view strands it. Below md only.
+function ViewsButton({ onOpen }: { onOpen?: () => void }) {
+  if (!onOpen) return null
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title="Switch view"
+      aria-label="Switch view"
+      className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground md:hidden"
+    >
+      <LayoutGrid className="size-4" />
+    </button>
+  )
+}
+
 function StoppedBot({
   bot,
   lead,
   onSettings,
+  onOpenViews,
 }: {
   bot: BotView
   lead: React.ReactNode
   onSettings: () => void
+  onOpenViews?: () => void
 }) {
   const [busy, setBusy] = React.useState(false)
   const start = async (fresh: boolean) => {
@@ -239,6 +259,7 @@ function StoppedBot({
         <span className="ml-auto" />
         <BotStateMark bot={bot} words />
         <SettingsButton onClick={onSettings} />
+        <ViewsButton onOpen={onOpenViews} />
       </div>
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
         <BotAvatar bot={bot} size={64} />
@@ -689,6 +710,7 @@ export function BotsView({
               <SettingsButton
                 onClick={() => go({ page: "settings", name: current.name })}
               />
+              <ViewsButton onOpen={onOpenViews} />
             </>
           }
           className="min-w-0 flex-1"
@@ -698,6 +720,7 @@ export function BotsView({
           bot={current}
           lead={back}
           onSettings={() => go({ page: "settings", name: current.name })}
+          onOpenViews={onOpenViews}
         />
       )
   } else {
@@ -756,19 +779,7 @@ export function BotsView({
           >
             <Plus className="size-4" />
           </button>
-          {/* The view picker, which a phone reaches from the input dial
-              everywhere else — and the dial is under this view. */}
-          {onOpenViews && (
-            <button
-              type="button"
-              onClick={onOpenViews}
-              title="Switch view"
-              aria-label="Switch view"
-              className="flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground md:hidden"
-            >
-              <LayoutGrid className="size-4" />
-            </button>
-          )}
+          <ViewsButton onOpen={onOpenViews} />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1">
           {error && (
