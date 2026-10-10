@@ -43,6 +43,10 @@ you**.
   the machine that pane is actually working on.
 - **A browser you and your agents share.** A real Chromium you watch and click
   in while an agent drives it.
+- **Bots that stay up.** Long-lived Claude Code sessions with their own
+  folder, MCP servers, channels and encrypted secrets, read like a messaging
+  app, with a push when one answers and an installable Bots app. Ask a bot to
+  change its own settings and it can.
 - **Agents orchestrating agents.** An MCP server lets one agent spawn, list,
   inspect and close the others, across the fleet, and `/herdr-mcp` serves
   herdr's own API as MCP tools on any host (no separate herdr-mcp to run).

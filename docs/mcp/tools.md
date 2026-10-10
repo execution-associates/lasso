@@ -388,6 +388,62 @@ Closes a tab. Close the tabs you opened when you are done; leave the human's and
 
 Returns `closed` (the tab id) and `profile`.
 
+## Bots
+
+These manage lasso's [bots](../web-ui/bots.md): long-lived Claude Code sessions lasso launches in herdr and keeps running. A bot is named by `name`, as `list_bots` shows it. A bot on a host outside your reach is answered as if it did not exist. Every bot on lasso's own machine has these tools through an MCP server named `lasso`, so a bot can change its own settings when its human asks. Creating and deleting a bot, and signing one in to an OAuth server, stay in the Bots view. Design: [bots.md](../design/bots.md).
+
+To talk to a running bot, use [`send_agent`](#send_agent) with its name as `to`.
+
+### `list_bots`
+
+Lists the bots on hosts within your reach. No parameters. Each entry has `name`, `host`, `dir`, `workspace`, `model`, `state` (`stopped`, `starting`, `idle`, `working` or `blocked`), `waiting_for` (why a blocked bot waits), `pane_id`, `keep_running`, `channels`, and its conversation's newest line as `last_text` and `last_at`.
+
+### `get_bot`
+
+One bot's whole configuration: `bot` (the `list_bots` entry), `config` (its stored record: model, effort, permission mode, MCP servers and which are channels, strict MCP, extra args, avatar, picture, keep running, notify), `folder`, `env` (a secret's value is never shown), `skills` (its project skills) and `oauth` (each OAuth server's sign-in status). Takes `name`.
+
+### `update_bot`
+
+Changes a bot's settings. Only the fields you pass change.
+
+| parameter | type | | description |
+| --- | --- | --- | --- |
+| `name` | string | | The bot. |
+| `model` | string | optional | Claude model, alias or full name. `""` for Claude Code's default. |
+| `effort` | string | optional | `low`, `medium`, `high`, `xhigh` or `max`. `""` for the default. |
+| `permission_mode` | string | optional | `acceptEdits`, `auto`, `bypassPermissions`, `manual`, `dontAsk` or `plan`. `""` for the default. |
+| `mcp` | array | optional | The **complete** list of MCP servers. It replaces the current one, so read it with `get_bot` first. `channel: true` makes a server a channel; a server that needs OAuth takes `oauth: true` and the human signs in from the Bots view. |
+| `strict_mcp` | boolean | optional | Only these MCP servers, without claude.ai connectors or user-level servers. |
+| `extra_args` | array | optional | Extra `claude` arguments, one element per argument. |
+| `keep_running` | boolean | optional | Relaunch the bot when it stops unexpectedly. |
+| `notify` | boolean | optional | Push a notification to the human's devices each time the bot finishes a reply. |
+| `avatar` | string | optional | Up to 8 characters (an emoji or initials). |
+| `workspace` | string | optional | The herdr workspace it opens in, from its next start. |
+
+lasso rewrites the bot's launch script and MCP config. Returns `ok` and `restart_needed`, true when the bot is running and reads the change only at launch. A bot restarting itself runs `mise run restart` in its folder. Its `CLAUDE.md` and skills are files in its folder, edited directly rather than through this tool.
+
+### `set_bot_env`
+
+Sets one of a bot's environment variables: `name`, `key`, `value`, and `secret: true` to store it encrypted by fnox (the value never comes back). `LASSO_OAUTH_*` keys are lasso's own OAuth credentials and are refused. Returns `ok` and `restart_needed`. A secret is better typed into the Bots view by the human than passed through a conversation.
+
+### `unset_bot_env`
+
+Removes one of a bot's environment variables: `name` and `key`. `LASSO_OAUTH_*` keys are refused. Returns `ok` and `restart_needed`.
+
+### `set_bot_avatar`
+
+Sets a bot's picture, shown in the Bots view and on its notifications, from an image file on the bot's host. No restart is needed.
+
+| parameter | type | | description |
+| --- | --- | --- | --- |
+| `name` | string | | The bot. |
+| `path` | string | optional | An absolute or `~/` path to a PNG, JPEG, WebP or GIF of at most 2 MB. The type is read from the file's content. |
+| `clear` | boolean | optional | Remove the picture, back to the text avatar. |
+
+### `start_bot`, `stop_bot`, `restart_bot`
+
+Each takes `name`. `start_bot` and `restart_bot` resume the bot's last conversation unless `fresh` is true. `stop_bot` closes its pane and keeps it stopped (keep-running leaves it alone) until it is started again; the conversation stays on disk. Each returns `bot`, the bot's `list_bots` entry after the change.
+
 ## Settings
 
 These tools read and change what lasso's Settings tab shows. Each write runs through the same handler the Settings tab calls, so the validation is the same and every open lasso tab updates live. Both require a caller whose reach includes `local`, because the settings live in lasso's own database; `agents` and `repos` also need the `host` they name.

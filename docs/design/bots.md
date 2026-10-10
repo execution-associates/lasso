@@ -10,13 +10,14 @@ Code:
 - `claudesessions.go`: Claude Code's session registry.
 - `botruntime.go`: launch, stop, status and the loop.
 - `botsapi.go`: `/api/bots`.
-- `mcp_bots.go`: `list_bots`, `start_bot`, `stop_bot` and `restart_bot`.
+- `botavatar.go`: the bot's picture.
+- `mcp_bots.go`: `list_bots`, `get_bot`, `update_bot`, `set_bot_env`, `unset_bot_env`, `set_bot_avatar`, `start_bot`, `stop_bot` and `restart_bot`.
 
-The frontend is `BotsView.tsx`, `BotSettings.tsx`, `BotsManage.tsx` and `BotParts.tsx`, with `lib/bots.ts` (the list poll, unread) and the `/bots/…` routes in `lib/url.ts`.
+The frontend is `BotsView.tsx`, `BotSettings.tsx`, `BotsManage.tsx` and `BotParts.tsx`, with `lib/bots.ts` (the list poll, unread) and the `/bots/…` routes in `lib/url.ts`. The Bots app is `public/manifest-bots.json`, the manifest swap in `main.tsx` and `BotsApp` in `App.tsx`. Notifications ride the shared Web Push path (`notifications.md`), with `sw.js` honouring the payload's `url` and `icon`.
 
 ## What a bot is
 
-**A row in `lasso.db`.** The `bots` table holds the name, host, folder, herdr workspace, model, effort, permission mode, MCP servers, extra args, avatar, keep-running, stopped and the last session id.
+**A row in `lasso.db`.** The `bots` table holds the name, host, folder, herdr workspace, model, effort, permission mode, MCP servers, extra args, avatar, the picture (`avatar_image`), notify, keep-running, stopped and the last session id.
 
 **A folder on its host,** default `~/bots/<name>`, where claude runs:
 
@@ -28,7 +29,8 @@ The frontend is `BotsView.tsx`, `BotSettings.tsx`, `BotsManage.tsx` and `BotPart
 | `.mise/config.toml` | lasso | `min_version`, experimental mode and `[secrets.fnox]`, rewritten on every save |
 | `.mise/tasks/bot` | lasso | the launch script, regenerated from the row on every save and on every env change |
 | `mise.toml` | the human | optional (tools, say). Lasso never writes or trusts it |
-| `.lasso/mcp.json` | lasso | the MCP servers, regenerated on every save |
+| `.lasso/mcp.json` | lasso | the MCP servers, plus lasso's own as `lasso` (below), regenerated on every save |
+| `.lasso/avatar.<ext>` | lasso | the picture, written by `storeBotAvatar` only |
 
 The whole launch is `mise run bot` in the folder. mise asks fnox for the variables the task lists (`#MISE secrets=[…]`) and hands them to that task alone, and the task execs claude with these flags:
 
@@ -76,9 +78,22 @@ The whole launch is `mise run bot` in the folder. mise asks fnox for the variabl
   - **Secrets:** the access token, refresh token and client secret go to the bot's fnox under `LASSO_OAUTH_<SERVER>_*`. `bot_mcp_oauth` in `lasso.db` holds only what is not secret: client id, endpoints, expiry and status.
   - **How claude gets the token:** the server's `headersHelper` runs `fnox get` on the access token. Claude Code runs it on every connection and again after a 401, and the bot loop refreshes tokens within 5 minutes of expiry. The `LASSO_OAUTH_` keys are kept out of the task's `secrets` grant, so the refresh token never reaches claude's environment, and the Environment tab hides them.
   - **Token check:** a token with a quote, backslash, space or non-ASCII character is refused, because the helper prints it inside JSON.
-- **Every bot is told how it runs.** lasso always passes `--append-system-prompt` with a short note. It covers who the bot is, that it runs via `mise run bot` in a herdr pane and comes back after restarts, which files lasso regenerates, where its env comes from, and how to restart itself. A human's own `--append-system-prompt` in the extra args is joined onto it, since claude takes only one. The note says outright that restarting is safe and supported: without that, a bot under a user CLAUDE.md that forbids killing processes declined to do it.
+- **Every bot is told how it runs.** lasso always passes `--append-system-prompt` with a short note. It covers who the bot is, that it runs via `mise run bot` in a herdr pane and comes back after restarts, which files lasso regenerates, where its env comes from, how to configure itself, and how to restart itself. A human's own `--append-system-prompt` in the extra args is joined onto it, since claude takes only one. The note says outright that restarting is safe and supported: without that, a bot under a user CLAUDE.md that forbids killing processes declined to do it.
 - **A bot restarts itself without a helper process.** Claude Code reaps everything a tool call starts, `setsid` included, so nothing spawned from inside the bot can outlive it to relaunch it. So:
   - **The task waits instead of exec'ing.** `.mise/tasks/bot` runs claude and waits for it.
   - **`mise run restart`** (`.mise/tasks/restart`) touches `.lasso/restart` and types `/exit`, which queues behind the current turn.
   - **On exit with the marker present,** the task re-runs `mise run bot -- --continue`: the whole task, so new env, MCP servers and settings take effect. A plain exit ends the task as before.
-- **Creating and editing stay human-only.** The MCP tools can list, start, stop and restart a bot. Its MCP servers, env, secrets and CLAUDE.md decide what it can reach, so those are edited only in the Bots view, as plugin approval is.
+- **A bot configures itself through lasso's MCP.** A human asks the bot in its chat ("switch to Opus", "add this server") rather than opening its settings, so the bot needs a way in:
+  - **The tools:** `get_bot` reads the whole configuration (env keys without secret values, project skills, OAuth status). `update_bot` changes only the fields passed (model, effort, permission mode, MCP servers, strict MCP, extra args, keep-running, notifications, avatar, workspace), with `mcp` the complete list that replaces the current one, and answers `restart_needed`. `set_bot_env`/`unset_bot_env` go through the same fnox path as the Environment tab and refuse `LASSO_OAUTH_*`. `set_bot_avatar` takes a file on the bot's host. Every tool resolves the bot through `callerFrom(req).requireHost`, and a bot out of reach reads exactly like a missing one.
+  - **The injected server:** `botMCPJSON` adds `lasso`, an http server at this lasso's own listen address + `/mcp` (`botLassoMCP`, a wildcard bind rewritten to `127.0.0.1`). It is added only for a bot on `local`, since loopback on another host is somewhere else, and never while `MCP_OAUTH` gates `/mcp`, since a bot has no credential to present. A server the human named `lasso` wins.
+  - **The system prompt** names the tools and the bot's own name to pass. It says that `CLAUDE.md` and `.claude/skills/` are files it edits directly, that an OAuth sign-in is the human's in the Bots view, and that settings, servers and variables take effect after `mise run restart`.
+  - **Creating and deleting stay human-only.** A new bot's host, folder and first grants decide what it can reach, and deleting forgets it. Those are approvals, as a plugin's are, so no tool does them, and OAuth sign-in needs the human's browser anyway.
+- **A picture is raster only, told by its bytes** (`botavatar.go`). PNG, JPEG, WebP or GIF, at most 2 MB, typed by `http.DetectContentType` rather than by name or the client's header, and never SVG. An SVG is a document that can carry script, and `/api/bots/<name>/avatar` serves it from lasso's own origin. GET re-sniffs before serving and sends `nosniff` and `default-src 'none'`. PUT takes the raw image as the body and DELETE clears it. The file is `.lasso/avatar.<ext>` in the bot's folder, with any other extension removed. The row's `avatar_image` holds the file name plus a `?v=` revision, so the URL can be cached as immutable. The text avatar stays as the fallback.
+- **A settings save decodes over the current row.** `PUT /api/bots/<name>` decodes into a copy of the stored record, so a field the body omits keeps its value, and a client that predates a field cannot reset it. Identity, runtime state and `avatar_image` are copied back from the stored row whatever the body says. A create decodes over the defaults (keep-running and notify on).
+- **A bot's answer is a notification** (`botNotifyCheck`, from the bot loop). It fires when a bot with `notify` on is idle and its newest prose row is its own, with a timestamp newer than the last one told about.
+  - **Baseline:** the first sighting of each bot after lasso starts only records that timestamp, so a restart does not replay every bot's last answer.
+  - **Payload:** kind `bot_message`, title the bot's name, body the message preview, tag `bot:<name>` so a run of answers leaves the newest, `url` `/bots/<name>`, and `icon` the picture's URL when there is one.
+  - **Delivery:** it goes to every registered device, through the same path as a blocked agent. Since only one lasso runs the loop, it is sent once.
+  - **Skip:** the service worker drops one whose chat is focused and visible in some window, except on iOS, where a push that shows nothing costs the origin its permission.
+- **The Bots app is a second manifest for the same origin.** Under `/bots`, `main.tsx` points the manifest link at `/manifest-bots.json` (id and scope `/bots`, start URL `/bots?app=bots`, name "Lasso Bots") and the iOS title at "Bots" before render. It is done client-side so it works under Vite as well as from the embedded bundle, and is in place before a browser reads it at install time. App mode is decided once at boot: a `/bots` path in a standalone window, or `?app=bots`, renders `BotsApp`, the Bots view alone with no Shell, footer or terminal. An installed app is its own device to the browser, with its own permission and push subscription, so the list header carries a bell (`NotifyBell`) that runs `enablePush`/`disablePush` from the click.
+- **The compact layout follows the view's own width.** `BotsView` measures itself with a `ResizeObserver` and folds the list away below 760 px. A wide right sidebar or a narrow window then gets the phone layout as well, which a viewport query would miss. Folded, the list is its own page, the other pages carry **‹ Bots**, and the chat's title becomes `BotSwitcher`: every bot with its state, then All bots, Manage bots and New bot.
