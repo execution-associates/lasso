@@ -38,6 +38,7 @@ import {
   api,
   type BotFields,
   type BotMCPServer,
+  type BotOAuthStatus,
   type BotView,
   type HostInfo,
 } from "@/lib/api"
@@ -94,6 +95,10 @@ type DraftServer = {
   env: KV[]
   headers: KV[]
   channel: boolean
+  oauth: boolean
+  oauth_client_id: string
+  oauth_redirect: string
+  oauth_scope: string
 }
 
 type Draft = {
@@ -158,6 +163,10 @@ function draftOf(b?: BotView): Draft {
       env: toKV(s.env),
       headers: toKV(s.headers),
       channel: !!s.channel,
+      oauth: !!s.oauth,
+      oauth_client_id: s.oauth_client_id ?? "",
+      oauth_redirect: s.oauth_redirect ?? "",
+      oauth_scope: s.oauth_scope ?? "",
     })),
   }
 }
@@ -182,7 +191,15 @@ function fieldsOf(d: Draft): BotFields {
             args: lines(s.args),
             env: fromKV(s.env),
           }
-        : { ...base, url: s.url.trim(), headers: fromKV(s.headers) }
+        : {
+            ...base,
+            url: s.url.trim(),
+            headers: fromKV(s.headers),
+            oauth: s.oauth,
+            oauth_client_id: s.oauth_client_id.trim() || undefined,
+            oauth_redirect: s.oauth_redirect.trim() || undefined,
+            oauth_scope: s.oauth_scope.trim() || undefined,
+          }
     }),
   }
 }
@@ -550,13 +567,193 @@ function GeneralTab({
 // ---------------------------------------------------------------------------
 // Connections
 
+// OAuthPanel signs a saved bot in to one of its http/sse servers. The
+// authorization server's page opens in a new tab; it normally sends the
+// browser back to lasso, which finishes on its own. When it cannot (a server
+// that only allows a localhost redirect, which on a VPS goes nowhere), the
+// address that tab ended on is pasted here instead: it carries the code.
+function OAuthPanel({
+  bot,
+  server,
+  status,
+  onChanged,
+}: {
+  bot: BotView
+  server: string
+  status?: BotOAuthStatus
+  onChanged: () => void
+}) {
+  const [waiting, setWaiting] = React.useState<{ localhost: boolean } | null>(
+    null
+  )
+  const [pasted, setPasted] = React.useState("")
+  const [busy, setBusy] = React.useState(false)
+
+  // The callback page tells its opener it finished.
+  React.useEffect(() => {
+    if (!waiting) return
+    const onMsg = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return
+      if (e.data && typeof e.data.lassoBotOAuth === "boolean") {
+        setWaiting(null)
+        onChanged()
+      }
+    }
+    window.addEventListener("message", onMsg)
+    const poll = setInterval(onChanged, 3000)
+    return () => {
+      window.removeEventListener("message", onMsg)
+      clearInterval(poll)
+    }
+  }, [waiting, onChanged])
+  // Signed in while waiting (the callback landed, or another tab finished).
+  const connectedAt = status?.status === "connected" ? status.expires_at : -1
+  const startedAt = React.useRef(-1)
+  React.useEffect(() => {
+    if (waiting && connectedAt !== startedAt.current && connectedAt !== -1) {
+      setWaiting(null)
+    }
+  }, [waiting, connectedAt])
+
+  const signIn = async () => {
+    // Opened inside the click, before any await, or a popup blocker eats it.
+    const tab = window.open("about:blank", "_blank")
+    setBusy(true)
+    try {
+      startedAt.current = connectedAt
+      const res = await api.bots.oauthStart(bot.name, server)
+      if (tab) tab.location.href = res.authorize_url
+      else window.open(res.authorize_url, "_blank", "noopener")
+      setWaiting({ localhost: res.localhost })
+      setPasted("")
+    } catch (e) {
+      tab?.close()
+      toast.error(`could not start signing in: ${(e as Error).message}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const finish = async () => {
+    setBusy(true)
+    try {
+      await api.bots.oauthFinish(pasted.trim())
+      setWaiting(null)
+      onChanged()
+      toast.success(`${server} is connected`)
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const signOut = async () => {
+    setBusy(true)
+    try {
+      await api.bots.oauthSignOut(bot.name, server)
+      onChanged()
+    } catch (e) {
+      toast.error(`could not sign out: ${(e as Error).message}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const connected = status?.status === "connected"
+  return (
+    <div className="flex flex-col gap-2 rounded-lg bg-muted/60 px-3 py-2 text-[12px]">
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={cn(
+            "min-w-0 flex-1",
+            status?.status === "error"
+              ? "text-destructive"
+              : "text-muted-foreground"
+          )}
+        >
+          {connected
+            ? `Signed in${status?.issuer ? ` at ${new URL(status.issuer).host}` : ""}. lasso refreshes the token before it expires.`
+            : status?.status === "error"
+              ? `Needs signing in again: ${status.error ?? "the token could not be refreshed"}`
+              : "Not signed in."}
+        </span>
+        <Button
+          size="sm"
+          variant={connected ? "outline" : "default"}
+          disabled={busy}
+          onClick={() => void signIn()}
+        >
+          <KeyRound />
+          {connected || status?.status === "error"
+            ? "Sign in again"
+            : "Sign in"}
+        </Button>
+        {status?.status && (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => void signOut()}
+          >
+            Sign out
+          </Button>
+        )}
+      </div>
+      {waiting && (
+        <div className="flex flex-col gap-1.5 border-border border-t pt-2">
+          <p className="text-muted-foreground">
+            {waiting.localhost
+              ? "This server only sends you back to localhost, which won't load from here. Finish signing in in the new tab, then copy the address from that tab's address bar and paste it below."
+              : "Finish signing in in the new tab; this updates by itself. If that tab ends on a page that won't load, copy its address and paste it below."}
+          </p>
+          <div className="flex gap-1.5">
+            <input
+              {...NO_AUTOCORRECT}
+              value={pasted}
+              onChange={(e) => setPasted(e.target.value)}
+              placeholder="http://localhost:…/callback?code=…&state=…"
+              aria-label="The address the sign-in ended on"
+              className={cn(fieldClass, "min-w-0 flex-1 font-mono")}
+            />
+            <Button
+              size="sm"
+              disabled={busy || !pasted.includes("state=")}
+              onClick={() => void finish()}
+            >
+              Finish
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ConnectionsTab({
   draft,
   set,
+  bot,
 }: {
   draft: Draft
   set: (patch: Partial<Draft>) => void
+  // The saved bot; signing in needs the server saved first.
+  bot?: BotView
 }) {
+  const oauthKey = ["bot-oauth", bot?.name ?? ""]
+  const oauth = useQuery({
+    queryKey: oauthKey,
+    queryFn: () => api.bots.oauth(bot?.name ?? ""),
+    enabled: !!bot,
+  })
+  const queryClient = useQueryClient()
+  const refreshOAuth = React.useCallback(
+    () =>
+      void queryClient.invalidateQueries({
+        queryKey: ["bot-oauth", bot?.name ?? ""],
+      }),
+    [queryClient, bot?.name]
+  )
   const setServer = (id: number, patch: Partial<DraftServer>) =>
     set({ mcp: draft.mcp.map((s) => (s.id === id ? { ...s, ...patch } : s)) })
   return (
@@ -689,6 +886,82 @@ function ConnectionsTab({
                   addLabel="Add header"
                 />
               </div>
+              <Check
+                id={`mcp-oauth-${s.id}`}
+                checked={s.oauth}
+                onChange={(oauth) => setServer(s.id, { oauth })}
+              >
+                Sign in with OAuth
+                <span className="block text-[11.5px] text-muted-foreground">
+                  For servers that ask you to log in. lasso keeps the tokens in
+                  the bot's fnox.toml and refreshes them.
+                </span>
+              </Check>
+              {s.oauth &&
+                (bot?.mcp.some((m) => m.name === s.name && m.oauth) ? (
+                  <OAuthPanel
+                    bot={bot}
+                    server={s.name}
+                    status={oauth.data?.servers[s.name]}
+                    onChanged={refreshOAuth}
+                  />
+                ) : (
+                  <p className="text-[12px] text-muted-foreground">
+                    Save, then sign in here.
+                  </p>
+                ))}
+              {s.oauth && (
+                <details className="text-[12px]">
+                  <summary className="cursor-pointer text-muted-foreground">
+                    Server without automatic client registration
+                  </summary>
+                  <div className="mt-2 flex flex-col gap-2">
+                    <Field
+                      label="Client ID"
+                      htmlFor={`mcp-cid-${s.id}`}
+                      hint="Leave empty when the server registers clients itself."
+                    >
+                      <input
+                        {...NO_AUTOCORRECT}
+                        id={`mcp-cid-${s.id}`}
+                        value={s.oauth_client_id}
+                        onChange={(e) =>
+                          setServer(s.id, { oauth_client_id: e.target.value })
+                        }
+                        className={cn(fieldClass, "font-mono")}
+                      />
+                    </Field>
+                    <Field
+                      label="Redirect URI it was registered with"
+                      htmlFor={`mcp-redir-${s.id}`}
+                      hint="Default: this lasso's own /api/bots/oauth/callback. A localhost one works too: you paste where the browser lands."
+                    >
+                      <input
+                        {...NO_AUTOCORRECT}
+                        id={`mcp-redir-${s.id}`}
+                        value={s.oauth_redirect}
+                        onChange={(e) =>
+                          setServer(s.id, { oauth_redirect: e.target.value })
+                        }
+                        placeholder={`${window.location.origin}/api/bots/oauth/callback`}
+                        className={cn(fieldClass, "font-mono")}
+                      />
+                    </Field>
+                    <Field label="Scope" htmlFor={`mcp-scope-${s.id}`}>
+                      <input
+                        {...NO_AUTOCORRECT}
+                        id={`mcp-scope-${s.id}`}
+                        value={s.oauth_scope}
+                        onChange={(e) =>
+                          setServer(s.id, { oauth_scope: e.target.value })
+                        }
+                        placeholder="what the server advertises"
+                        className={cn(fieldClass, "font-mono")}
+                      />
+                    </Field>
+                  </div>
+                </details>
+              )}
             </>
           )}
           <Check
@@ -720,6 +993,10 @@ function ConnectionsTab({
                 env: [],
                 headers: [],
                 channel: false,
+                oauth: false,
+                oauth_client_id: "",
+                oauth_redirect: "",
+                oauth_scope: "",
               },
             ],
           })
@@ -1460,7 +1737,7 @@ export function BotSettings({
           ) : tab === "general" ? (
             <GeneralTab draft={draft} set={set} creating={creating} />
           ) : tab === "connections" ? (
-            <ConnectionsTab draft={draft} set={set} />
+            <ConnectionsTab draft={draft} set={set} bot={bot} />
           ) : !bot || !detail.data ? null : tab === "skills" ? (
             <SkillsTab bot={bot} />
           ) : tab === "instructions" ? (

@@ -65,6 +65,14 @@ type botMCPServer struct {
 	URL     string            `json:"url,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
 	Channel bool              `json:"channel,omitempty"`
+	// OAuth: lasso signs the bot in (botoauth.go) and claude reads the token
+	// through headersHelper. The rest are for servers without dynamic client
+	// registration: a pre-registered client id, the redirect it was registered
+	// with, and the scope to ask for.
+	OAuth         bool   `json:"oauth,omitempty"`
+	OAuthClientID string `json:"oauth_client_id,omitempty"`
+	OAuthRedirect string `json:"oauth_redirect,omitempty"`
+	OAuthScope    string `json:"oauth_scope,omitempty"`
 }
 
 type botRecord struct {
@@ -123,7 +131,7 @@ func (r *botRecord) normalize() error {
 	// Words the API and the view's URLs use for themselves (/api/bots/order,
 	// /bots/manage).
 	switch r.Name {
-	case "order", "skill-library", "manage", "new":
+	case "order", "skill-library", "manage", "new", "oauth":
 		return fmt.Errorf("%q is reserved; pick another name", r.Name)
 	}
 	if r.Host == "" {
@@ -203,6 +211,12 @@ func (r *botRecord) normalize() error {
 				return fmt.Errorf("MCP server %q needs an http(s) URL", s.Name)
 			}
 			s.Command, s.Args, s.Env = "", nil, nil
+			if hasControl(s.OAuthClientID+s.OAuthRedirect+s.OAuthScope) || len(s.OAuthClientID) > 256 || len(s.OAuthScope) > 1024 {
+				return fmt.Errorf("MCP server %q: bad OAuth settings", s.Name)
+			}
+			if s.OAuthRedirect != "" && !strings.HasPrefix(s.OAuthRedirect, "https://") && !strings.HasPrefix(s.OAuthRedirect, "http://") {
+				return fmt.Errorf("MCP server %q: the OAuth redirect must be an http(s) URL", s.Name)
+			}
 		default:
 			return fmt.Errorf("MCP server %q: type must be stdio, http or sse", s.Name)
 		}
@@ -237,7 +251,10 @@ func botMCPPath(dir string) string  { return filepath.Join(dir, ".lasso", "mcp.j
 // botMCPJSON renders .lasso/mcp.json. Secrets never belong in it: a server that
 // needs one names it as ${VAR}, which Claude Code expands from its own env —
 // the env mise loaded from the bot's mise.toml.
-func botMCPJSON(r *botRecord) []byte {
+//
+// signedIn names the servers lasso holds OAuth tokens for: those get a
+// headersHelper that prints the current access token (botOAuthHelper).
+func botMCPJSON(r *botRecord, dir string, signedIn map[string]bool) []byte {
 	servers := map[string]any{}
 	for _, s := range r.MCP {
 		e := map[string]any{"type": s.Type}
@@ -251,6 +268,9 @@ func botMCPJSON(r *botRecord) []byte {
 			e["url"] = s.URL
 			if len(s.Headers) > 0 {
 				e["headers"] = s.Headers
+			}
+			if s.OAuth && signedIn[s.Name] {
+				e["headersHelper"] = botOAuthHelper(dir, s.Name)
 			}
 		}
 		servers[s.Name] = e
@@ -415,7 +435,11 @@ func botMaterialize(b Backend, r *botRecord) error {
 	if err := botWriteTask(b, r, dir); err != nil {
 		return err
 	}
-	if err := b.WriteFile(botMCPPath(dir), botMCPJSON(r), 0o644); err != nil {
+	signedIn := map[string]bool{}
+	for name, row := range listBotOAuth(r.Name) {
+		signedIn[name] = row.Status != ""
+	}
+	if err := b.WriteFile(botMCPPath(dir), botMCPJSON(r, dir, signedIn), 0o644); err != nil {
 		return fmt.Errorf("write mcp.json: %w", err)
 	}
 	md := filepath.Join(dir, "CLAUDE.md")
@@ -563,6 +587,7 @@ func reorderBots(names []string) error {
 }
 
 func deleteBot(name string) error {
+	_, _ = db.Exec(`DELETE FROM bot_mcp_oauth WHERE bot = ?`, name)
 	_, err := db.Exec(`DELETE FROM bots WHERE name = ?`, name)
 	return err
 }

@@ -2,9 +2,13 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -99,7 +103,7 @@ func TestBotMCPJSON(t *testing.T) {
 	var got struct {
 		MCPServers map[string]map[string]any `json:"mcpServers"`
 	}
-	if err := json.Unmarshal(botMCPJSON(testBot()), &got); err != nil {
+	if err := json.Unmarshal(botMCPJSON(testBot(), "/d", nil), &got); err != nil {
 		t.Fatal(err)
 	}
 	g := got.MCPServers["gmail-channel"]
@@ -134,6 +138,9 @@ func TestValidateResumeArgv(t *testing.T) {
 	}
 }
 
+// fnoxStore is the fake fnox's secrets, by key.
+var fnoxStore map[string]string
+
 type toolCall struct {
 	dir   string
 	tool  string
@@ -147,6 +154,7 @@ func recordTools(t *testing.T, listOut string) *[]toolCall {
 	t.Helper()
 	var mu sync.Mutex
 	calls := &[]toolCall{}
+	fnoxStore = map[string]string{}
 	prev := botRun
 	botRun = func(b Backend, dir, tool string, args []string, stdin []byte) ([]byte, error) {
 		mu.Lock()
@@ -159,6 +167,15 @@ func recordTools(t *testing.T, listOut string) *[]toolCall {
 			return []byte("fnox 1.39.0"), nil
 		case tool == "fnox" && args[0] == "list":
 			return []byte(listOut), nil
+		case tool == "fnox" && args[0] == "set":
+			fnoxStore[args[1]] = string(stdin)
+		case tool == "fnox" && args[0] == "get":
+			if v, ok := fnoxStore[args[1]]; ok {
+				return []byte(v + "\n"), nil
+			}
+			return nil, fmt.Errorf("no such secret")
+		case tool == "fnox" && args[0] == "remove":
+			delete(fnoxStore, args[1])
 		}
 		return nil, nil
 	}
@@ -452,5 +469,153 @@ func TestBotTickRelaunchesAfterGrace(t *testing.T) {
 	botTick()
 	if len(relaunched) != 1 || relaunched[0] != "keep" {
 		t.Fatalf("relaunched = %v, want only keep", relaunched)
+	}
+}
+
+// fakeOAuthMCP is an MCP server that wants OAuth, with its own authorization
+// server: the 401 names the resource metadata, which names the issuer.
+func fakeOAuthMCP(t *testing.T) (*httptest.Server, *sync.Map) {
+	t.Helper()
+	seen := &sync.Map{}
+	var srv *httptest.Server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+srv.URL+`/.well-known/oauth-protected-resource/mcp", scope="read write"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+	mux.HandleFunc("/.well-known/oauth-protected-resource/mcp", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"resource": srv.URL + "/mcp", "authorization_servers": []string{srv.URL}})
+	})
+	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"issuer": srv.URL, "authorization_endpoint": srv.URL + "/authorize",
+			"token_endpoint": srv.URL + "/token", "registration_endpoint": srv.URL + "/register",
+		})
+	})
+	mux.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
+		var in map[string]any
+		json.NewDecoder(r.Body).Decode(&in)
+		seen.Store("redirect", in["redirect_uris"].([]any)[0])
+		json.NewEncoder(w).Encode(map[string]any{"client_id": "cid", "token_endpoint_auth_method": "none"})
+	})
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		switch r.Form.Get("grant_type") {
+		case "authorization_code":
+			ch, _ := seen.Load("challenge")
+			sum := sha256.Sum256([]byte(r.Form.Get("code_verifier")))
+			if r.Form.Get("code") != "the-code" || base64.RawURLEncoding.EncodeToString(sum[:]) != ch || r.Form.Get("client_id") != "cid" {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]any{"error": "invalid_grant"})
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"access_token": "at1", "refresh_token": "rt1", "expires_in": 60})
+		case "refresh_token":
+			if r.Form.Get("refresh_token") != "rt1" {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]any{"error": "invalid_grant"})
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"access_token": "at2", "refresh_token": "rt2", "expires_in": 3600})
+		}
+	})
+	srv = httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv, seen
+}
+
+func TestBotOAuthSignInAndRefresh(t *testing.T) {
+	b := useBotTestEnv(t)
+	srv, seen := fakeOAuthMCP(t)
+	dir := t.TempDir()
+	rec := &botRecord{Name: "oauthy", Dir: dir, MCP: []botMCPServer{{Name: "docs", Type: "http", URL: srv.URL + "/mcp", OAuth: true}}}
+	if err := rec.normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if err := insertBot(rec); err != nil {
+		t.Fatal(err)
+	}
+
+	start, err := startBotOAuth(rec, "docs", "https://lasso.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if start.Localhost || start.Redirect != "https://lasso.example/api/bots/oauth/callback" {
+		t.Errorf("redirect = %+v", start)
+	}
+	if r, _ := seen.Load("redirect"); r != start.Redirect {
+		t.Errorf("registered redirect = %v", r)
+	}
+	au, _ := url.Parse(start.AuthorizeURL)
+	q := au.Query()
+	if q.Get("client_id") != "cid" || q.Get("code_challenge_method") != "S256" || q.Get("resource") != srv.URL+"/mcp" || q.Get("scope") != "read write" {
+		t.Errorf("authorize query = %v", q)
+	}
+	seen.Store("challenge", q.Get("code_challenge"))
+
+	// The human lands on the redirect; a pasted address works the same way.
+	req := httptest.NewRequest("POST", "/api/bots/oauth/finish",
+		strings.NewReader(`{"url":"https://lasso.example/api/bots/oauth/callback?code=the-code&state=`+q.Get("state")+`"}`))
+	w := httptest.NewRecorder()
+	serveBots(w, req)
+	if w.Code != 200 {
+		t.Fatalf("finish: %d %s", w.Code, w.Body)
+	}
+	if fnoxStore[botOAuthKey("docs", "ACCESS")] != "at1" || fnoxStore[botOAuthKey("docs", "REFRESH")] != "rt1" {
+		t.Fatalf("stored = %v", fnoxStore)
+	}
+	mcp, _ := os.ReadFile(botMCPPath(dir))
+	if !bytes.Contains(mcp, []byte(`"headersHelper"`)) || !bytes.Contains(mcp, []byte("LASSO_OAUTH_DOCS_ACCESS")) {
+		t.Errorf("mcp.json has no headersHelper:\n%s", mcp)
+	}
+	// A state is single-use.
+	w = httptest.NewRecorder()
+	serveBots(w, httptest.NewRequest("POST", "/api/bots/oauth/finish",
+		strings.NewReader(`{"url":"https://x/?code=the-code&state=`+q.Get("state")+`"}`)))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("replayed state: %d", w.Code)
+	}
+
+	// Expiring within five minutes: the tick refreshes it.
+	botOAuthTick(b, rec)
+	if fnoxStore[botOAuthKey("docs", "ACCESS")] != "at2" || fnoxStore[botOAuthKey("docs", "REFRESH")] != "rt2" {
+		t.Fatalf("after refresh = %v", fnoxStore)
+	}
+	row, _ := getBotOAuth("oauthy", "docs")
+	if row.Status != "connected" || time.Until(time.Unix(row.ExpiresAt, 0)) < 50*time.Minute {
+		t.Errorf("row = %+v", row)
+	}
+
+	// The helper's command prints the header JSON.
+	helper := botOAuthHelper(dir, "docs")
+	if !strings.Contains(helper, "fnox -c '"+botFnoxFile(dir)+"' get LASSO_OAUTH_DOCS_ACCESS") {
+		t.Errorf("helper = %s", helper)
+	}
+
+	if err := signOutBotOAuth(b, rec, "docs"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := fnoxStore[botOAuthKey("docs", "ACCESS")]; ok {
+		t.Error("sign out left the token")
+	}
+	if mcp, _ := os.ReadFile(botMCPPath(dir)); bytes.Contains(mcp, []byte("headersHelper")) {
+		t.Error("sign out left the headersHelper")
+	}
+}
+
+func TestBotOAuthKeysStayOutOfTheTask(t *testing.T) {
+	dir := t.TempDir()
+	file := botFnoxFile(dir)
+	os.WriteFile(file, nil, 0o644)
+	pad := func(s string, n int) string { return s + strings.Repeat(" ", n-len(s)) }
+	row := func(k, ty, src, pk string) string {
+		return " " + pad(k, 30) + pad(ty, 18) + pad(src, len(file)+2) + pad(pk, 20) + "\n"
+	}
+	out := strings.TrimSuffix(row("Key", "Type", "Source File", "Provider Key"), "\n") + "Description\n"
+	out += row("API_KEY", "provider (lasso)", file, "x")
+	out += row("LASSO_OAUTH_DOCS_ACCESS", "provider (lasso)", file, "y")
+	recordTools(t, out)
+	if got := botEnvKeys(&localBackend{}, dir); len(got) != 1 || got[0] != "API_KEY" {
+		t.Errorf("task keys = %v", got)
 	}
 }

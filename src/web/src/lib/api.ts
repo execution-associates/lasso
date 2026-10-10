@@ -797,6 +797,24 @@ export interface BotMCPServer {
   headers?: Record<string, string>
   // Also a Claude Code channel: messages it delivers reach the bot unprompted.
   channel?: boolean
+  // http/sse only: lasso signs the bot in with OAuth and hands claude the
+  // token. The rest are for servers without dynamic client registration.
+  oauth?: boolean
+  oauth_client_id?: string
+  oauth_redirect?: string
+  oauth_scope?: string
+}
+
+// One server's sign-in, as lasso holds it (tokens stay on the bot's host).
+export interface BotOAuthStatus {
+  server: string
+  issuer: string
+  client_id: string
+  scope: string
+  // Unix seconds; 0 when the server gave no expiry.
+  expires_at: number
+  status: "connected" | "error" | ""
+  error?: string
 }
 
 export type BotState = "stopped" | "starting" | "idle" | "working" | "blocked"
@@ -1853,6 +1871,29 @@ export const api = {
       sendJSON<{ ok: boolean; restart_needed?: boolean }>(
         "DELETE",
         botURL(name, `/env?key=${encodeURIComponent(key)}`)
+      ),
+    oauth: (name: string) =>
+      getJSON<{ servers: Record<string, BotOAuthStatus> }>(
+        botURL(name, "/oauth")
+      ),
+    // Begins a sign-in; the authorization server sends the browser back to
+    // lasso at `origin`, or — `localhost` — to an address the human pastes.
+    oauthStart: (name: string, server: string) =>
+      postJSON<{
+        authorize_url: string
+        state: string
+        redirect_uri: string
+        localhost: boolean
+      }>(botURL(name, "/oauth"), { server, origin: window.location.origin }),
+    oauthFinish: (url: string) =>
+      postJSON<{ ok: boolean; bot: string; server: string }>(
+        "/api/bots/oauth/finish",
+        { url }
+      ),
+    oauthSignOut: (name: string, server: string) =>
+      sendJSON<{ ok: boolean; restart_needed?: boolean }>(
+        "DELETE",
+        botURL(name, `/oauth?server=${encodeURIComponent(server)}`)
       ),
     skills: (name: string) =>
       getJSON<{ skills: BotSkill[] }>(botURL(name, "/skills")),

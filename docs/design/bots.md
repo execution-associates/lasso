@@ -65,4 +65,14 @@ The whole launch is `mise run bot` in the folder. mise asks fnox for the variabl
 - **Bots are not agent records.** They live in their own table, so the agent reaper, which tombstones by pane id, never touches them.
 - **Keep-running waits a minute.** A keep-running bot is relaunched only after its pane has been missing for 6 consecutive ticks (10s each), and never within 90s of lasso launching it. That gives herdr's own restore the first chance, rather than racing it with a second copy. **Stop** sets `stopped` and closes the pane, and keep-running leaves a stopped bot alone until Start.
 - **One lasso runs the loop.** Two lassos on one `lasso.db` (titan's dev and production) would both relaunch the same bot, so the loop belongs to whoever holds the flock on `<lassoDir>/bots.runner.lock`. Interactive Start and Stop work from either.
+- **MCP OAuth: lasso is the client, Claude Code only reads the token** (`botoauth.go`). Claude Code's own sign-in keeps tokens in one credentials file keyed by server URL, so every session on a host would share one account per service. Instead, lasso runs the MCP authorization flow:
+  - the steps: the 401's `resource_metadata`, then the well-known protected-resource document, then RFC 8414 metadata, then dynamic registration, then PKCE S256 with a `resource` indicator
+  - the redirect: back to lasso's own `/api/bots/oauth/callback`, on the origin the browser sent (`location.origin`, since behind a proxy the server cannot tell)
+
+  **Fallbacks and storage:**
+  - **Localhost-only servers:** when registration refuses lasso's redirect, it registers `http://localhost:53682/callback` instead, and the human pastes the address the browser failed to load into `POST /api/bots/oauth/finish`.
+  - **State:** a pending sign-in is single-use, held in memory and expires after 15 minutes.
+  - **Secrets:** the access token, refresh token and client secret go to the bot's fnox under `LASSO_OAUTH_<SERVER>_*`. `bot_mcp_oauth` in `lasso.db` holds only what is not secret: client id, endpoints, expiry and status.
+  - **How claude gets the token:** the server's `headersHelper` runs `fnox get` on the access token. Claude Code runs it on every connection and again after a 401, and the bot loop refreshes tokens within 5 minutes of expiry. The `LASSO_OAUTH_` keys are kept out of the task's `secrets` grant, so the refresh token never reaches claude's environment, and the Environment tab hides them.
+  - **Token check:** a token with a quote, backslash, space or non-ASCII character is refused, because the helper prints it inside JSON.
 - **Creating and editing stay human-only.** The MCP tools can list, start, stop and restart a bot. Its MCP servers, env, secrets and CLAUDE.md decide what it can reach, so those are edited only in the Bots view, as plugin approval is.
