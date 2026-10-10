@@ -242,7 +242,12 @@ export function JobsTab({ bot }: { bot: BotView }) {
           {(jobs.error as Error).message}
         </p>
       )}
-      {jobs.data && (
+      {jobs.data && list.length === 0 && channel?.available && (
+        <p className="rounded-lg border border-border border-dashed px-3 py-6 text-center text-[12.5px] text-muted-foreground">
+          No jobs yet. New job adds a scheduled prompt or a webhook.
+        </p>
+      )}
+      {jobs.data && list.length > 0 && (
         <div>
           {/* Square cards, as many to a row as fit at 12rem or more. */}
           <div className="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-2.5">
@@ -257,19 +262,6 @@ export function JobsTab({ bot }: { bot: BotView }) {
                 onDelete={() => setDeleting(j)}
               />
             ))}
-            {channel?.available && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSeed(null)
-                  setEditing("")
-                }}
-                className="flex aspect-square flex-col items-center justify-center gap-1 rounded-lg border border-border border-dashed bg-card/40 p-3 text-[12.5px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
-              >
-                <Plus className="size-4" />
-                New job
-              </button>
-            )}
           </div>
         </div>
       )}
