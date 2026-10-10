@@ -243,8 +243,9 @@ export function JobsTab({ bot }: { bot: BotView }) {
         </p>
       )}
       {jobs.data && (
-        <div className="@container">
-          <div className="grid @min-[560px]:grid-cols-2 @min-[900px]:grid-cols-3 grid-cols-1 gap-2.5">
+        <div>
+          {/* Square cards, as many to a row as fit at 12rem or more. */}
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-2.5">
             {sortJobs(list).map((j) => (
               <JobCard
                 key={j.id}
@@ -263,7 +264,7 @@ export function JobsTab({ bot }: { bot: BotView }) {
                   setSeed(null)
                   setEditing("")
                 }}
-                className="flex @min-[560px]:aspect-square min-h-24 flex-col items-center justify-center gap-1 rounded-lg border border-border border-dashed bg-card/40 p-3 text-[12.5px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                className="flex aspect-square flex-col items-center justify-center gap-1 rounded-lg border border-border border-dashed bg-card/40 p-3 text-[12.5px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
               >
                 <Plus className="size-4" />
                 New job
@@ -399,7 +400,6 @@ function JobCard({
 }) {
   const now = useMinuteClock()
   const long = scheduleText(j)
-  const short = scheduleText(j, true)
   const stop = (e: React.SyntheticEvent) => e.stopPropagation()
   return (
     // biome-ignore lint/a11y/useSemanticElements: the card holds its own buttons, which a <button> cannot.
@@ -417,7 +417,7 @@ function JobCard({
         }
       }}
       className={cn(
-        "fx-plate flex @min-[560px]:aspect-square min-w-0 cursor-pointer flex-col gap-2 overflow-hidden rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+        "fx-plate flex aspect-square min-w-0 cursor-pointer flex-col gap-2 overflow-hidden rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
         !j.enabled && "opacity-80"
       )}
     >
@@ -496,10 +496,7 @@ function JobCard({
 
       <div className="text-[13px] text-foreground leading-snug">
         {long ? (
-          <>
-            <span className="@min-[560px]:hidden">{short}</span>
-            <span className="@min-[560px]:inline hidden">{long}</span>
-          </>
+          long
         ) : (
           <>
             No schedule
@@ -510,13 +507,13 @@ function JobCard({
         )}
       </div>
 
-      <dl className="grid grid-cols-[auto_1fr] gap-x-2 @min-[560px]:gap-y-0.5 text-[11.5px] text-muted-foreground">
-        <dt className="@min-[560px]:block hidden">Next</dt>
-        <dd className="@min-[560px]:block hidden truncate">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[11.5px] text-muted-foreground">
+        <dt>Next</dt>
+        <dd className="truncate">
           {j.next_at ? whenText(j.next_at, now) : "—"}
         </dd>
-        <dt className="@min-[560px]:block hidden">Last</dt>
-        <dd className="@min-[560px]:block hidden truncate">
+        <dt>Last</dt>
+        <dd className="truncate">
           {j.last ? (
             <>
               {whenText(j.last.fired_at, now)} <LastMark ev={j.last} />
@@ -525,24 +522,15 @@ function JobCard({
             "never"
           )}
         </dd>
-        <dd className="col-span-2 @min-[560px]:hidden truncate">
-          {j.next_at ? `Next ${whenText(j.next_at, now)}` : "No next run"}
-          {j.last && (
-            <>
-              {" · last "}
-              {whenText(j.last.fired_at, now)} <LastMark ev={j.last} />
-            </>
-          )}
-        </dd>
       </dl>
 
       {j.message && (
-        <p className="@min-[560px]:block hidden min-h-0 flex-1 overflow-hidden text-[12px] text-muted-foreground leading-snug [mask-image:linear-gradient(to_bottom,black_70%,transparent)]">
+        <p className="min-h-0 flex-1 overflow-hidden text-[12px] text-muted-foreground leading-snug [mask-image:linear-gradient(to_bottom,black_70%,transparent)]">
           {j.message}
         </p>
       )}
 
-      <div className="mt-auto flex items-center gap-1.5 border-border/60 @min-[560px]:border-t @min-[560px]:pt-2 pt-1">
+      <div className="mt-auto flex items-center gap-1.5 border-border/60 border-t pt-2">
         <Button
           size="xs"
           variant="outline"
