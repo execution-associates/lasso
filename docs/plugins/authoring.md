@@ -196,12 +196,41 @@ The parent answers only the frame the message came from, and routes each request
 | method | params | result |
 |---|---|---|
 | `context.get` | | `{ host, cwd, cwd_host, pane_id, agent, plugin, tab, placement }`, the focused pane. `tab` is the tab's or view's id, `placement` is `"sidebar"` or `"main"`. |
-| `theme.get` | | `{ dark, colors: { background, foreground, ... } }` |
+| `theme.get` | | `{ dark, colors, tokens, fonts_key }`. `colors` is the terminal palette's hexes (`background`, `foreground`, `red`, ...). `tokens` is lasso's design tokens by their CSS custom property names (`--background`, `--primary`, `--font-sans`, `--radius`, `--chat-size`, ...). `fonts_key` changes when the fonts in use do. |
+| `fonts.get` | | `{ faces: [{ family, weight, style, unicode_range?, data }] }`, the font files behind lasso's font stacks as `ArrayBuffer`s, Latin faces only, at most 6 MB. Register them with `new FontFace(family, data, { weight, style, unicodeRange })`. |
 | `file.open` | `{ path, line?, host? }` | Opens the file in the Files viewer, the same way an agent's `open_file` does. Unsaved edits are protected. `host` defaults to `cwd_host`. |
 | `tool.call` | `{ tool, arguments }` | Calls one of **this plugin's own** MCP tools and returns its `CallToolResult`. `tool` may be un-prefixed (`greet`) or prefixed (`hello__greet`). Another plugin's tool is refused. |
 | `toast` | `{ message }` | A short toast, prefixed with the plugin's name. |
 
 Any other method answers `error: "unknown method"`.
+
+The `theme` push goes out on load and again whenever lasso's appearance changes (palette, light or dark, typography, chat text), only when what it carries actually moved.
+
+### Matching lasso's look: the SDK
+
+Lasso serves a small SDK to every plugin page. Two lines make a page wear lasso's theme and follow it live:
+
+```html
+<link rel="stylesheet" href="/plugins/_sdk/lasso.css">
+<script src="/plugins/_sdk/lasso.js"></script>
+```
+
+`lasso.js` applies every `theme` push to the page: lasso's tokens as CSS custom properties under the same names lasso uses (`var(--background)`, `var(--primary)`, `var(--font-sans)`, `var(--radius)`), the terminal palette as `--term-<name>` (`--term-bright-blue`), the `dark` class and `color-scheme` on `<html>`, and lasso's fonts, fetched with `fonts.get` and registered with `FontFace`. Your page cannot load lasso's font files itself: fonts load in CORS mode, your page's origin is opaque, and the files are behind lasso's login.
+
+`lasso.css` gives the page lasso's background, text color and type, plus opt-in classes for common controls: `lasso-card`, `lasso-button` (add `primary` for the accent), `lasso-input`, `lasso-label`, `lasso-muted`, and `lasso-chat` (the chat view's text settings). Your own CSS wins over it.
+
+It also wraps the bridge:
+
+```js
+await lasso.getContext()              // context.get
+await lasso.tool("greet", { name })   // tool.call, this plugin's own tools
+await lasso.openFile("/etc/hosts", { line: 3 })
+await lasso.toast("done")
+lasso.on("context", (c) => { ... })   // also "theme"; returns an unsubscribe
+lasso.call("theme.get")               // any method by name
+```
+
+Every call rejects after 15 seconds with no answer, which is what happens on a page that is not framed by lasso (a `url` tab, or the file opened directly).
 
 ## Themes
 
