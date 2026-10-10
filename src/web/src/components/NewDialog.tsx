@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { EditableCombobox } from "@/components/ui/editable-combobox"
+import { Field, fieldClass } from "@/components/ui/field"
 import { Input, NO_AUTOCORRECT } from "@/components/ui/input"
 import { Orb } from "@/components/ui/orb"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -255,34 +256,6 @@ function promptTitle(text: string): string {
     if (t) return t
   }
   return ""
-}
-
-// Native textarea/select styled to match the shadcn <Input> (same border,
-// radius, and background) so every field in the form reads as one set. Fields
-// use bg-background (not transparent) so they contrast against the dialog's
-// bg-popover surface. Keep mobile controls at 16px: the radial New action
-// focuses the prompt immediately, and iOS zooms the page for smaller fields.
-const fieldClass =
-  "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-base shadow-well outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm"
-const labelClass = "font-medium text-muted-foreground text-xs"
-
-function Field({
-  label,
-  htmlFor,
-  children,
-}: {
-  label: string
-  htmlFor?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <label className={labelClass} htmlFor={htmlFor}>
-        {label}
-      </label>
-      {children}
-    </div>
-  )
 }
 
 function extractImagePaths(text: string): string[] {

@@ -298,8 +298,13 @@ export interface ChatDiffLine {
 }
 
 export interface ChatItem {
-  kind: "user" | "agent" | "tool" | "marker"
+  // "incoming" is a message a Claude Code channel delivered (mail, a text, a
+  // scheduled loop), returned only when the reader asks for them (api.chat's
+  // `incoming`): its text is the `<channel …>` envelope.
+  kind: "user" | "agent" | "tool" | "marker" | "incoming"
   id: string
+  // The channel server an incoming row came from ("gmail-channel").
+  source?: string
   at?: string
   text?: string
   // Agent prose the model wrote to itself; folded behind a disclosure.
@@ -365,6 +370,14 @@ export interface ChatPayload {
 // on its own.
 export interface ChatSendResult {
   outcome: "confirmed" | "refused" | "uncertain"
+  detail?: string
+}
+
+// What became of a Stop pressed in the chat: one Escape typed into the pane.
+// `refused` means nothing was typed (the agent was not working); `uncertain`
+// that the key went out and the pane did not show it settling.
+export interface ChatStopResult {
+  outcome: "sent" | "refused" | "uncertain"
   detail?: string
 }
 
@@ -767,6 +780,104 @@ function jsonErrorMessage(r: Response, body: string): string | null {
     /* not JSON after all: fall back to the raw body */
   }
   return null
+}
+
+// ---------------------------------------------------------------------------
+// Bots (botsapi.go): long-lived Claude Code sessions lasso launches and keeps
+// running, each with its own folder, model, MCP servers and env.
+// ---------------------------------------------------------------------------
+
+export interface BotMCPServer {
+  name: string
+  type: "stdio" | "http" | "sse"
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  url?: string
+  headers?: Record<string, string>
+  // Also a Claude Code channel: messages it delivers reach the bot unprompted.
+  channel?: boolean
+}
+
+export type BotState = "stopped" | "starting" | "idle" | "working" | "blocked"
+
+// The editable half of a bot: what POST creates and PUT saves.
+export interface BotFields {
+  dir: string
+  workspace: string
+  model: string
+  effort: string
+  permission_mode: string
+  mcp: BotMCPServer[]
+  strict_mcp: boolean
+  extra_args: string[]
+  avatar: string
+  keep_running: boolean
+}
+
+export interface BotView extends BotFields {
+  id: number
+  host: string
+  name: string
+  stopped: boolean
+  last_session_id: string
+  created_at: string
+  updated_at: string
+  state: BotState
+  pane_id?: string
+  session_id?: string
+  // What a blocked bot is waiting on, as herdr reports it.
+  waiting_for?: string
+  // The newest row of its conversation, for the list's preview line.
+  last_text?: string
+  last_kind?: "agent" | "user" | "incoming"
+  last_at?: string
+  error?: string
+}
+
+export interface BotDetail {
+  bot: BotView
+  // The folder with ~ expanded on the bot's host.
+  dir_path: string
+  // The generated launch script (.mise/tasks/bot), read-only.
+  launch: string
+  // Absolute path of the bot's CLAUDE.md on its host.
+  claude_md: string
+}
+
+export interface BotEnvVar {
+  key: string
+  // Plain values only; a secret's value never leaves the host.
+  value?: string
+  secret: boolean
+}
+
+export interface BotSkill {
+  name: string
+  description?: string
+  path: string
+}
+
+function botURL(name: string, rest = ""): string {
+  return `/api/bots/${encodeURIComponent(name)}${rest}`
+}
+
+async function sendJSON<T>(
+  method: "PUT" | "DELETE",
+  url: string,
+  body?: unknown
+): Promise<T> {
+  const r = await hostFetch(url, {
+    method,
+    ...(body === undefined
+      ? {}
+      : {
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+  })
+  if (!r.ok) throw await httpError(r)
+  return (await r.json()) as T
 }
 
 // ---------------------------------------------------------------------------
@@ -1628,9 +1739,14 @@ export const api = {
   // terminal. Server-side (chatview.go), because the transcript is a file on
   // the pane's host and the host is the tab's. Read-only: input still goes to
   // the real TUI, so a tool approval is answered where the agent asked for it.
-  chat: (pane?: string, before?: number, host?: string) => {
+  //
+  // `incoming` also returns what Claude Code channels delivered (mail, texts,
+  // scheduled loops) as kind "incoming" rows: the Bots view reads a bot's
+  // conversation with them, the terminal's own chat leaves them out.
+  chat: (pane?: string, before?: number, host?: string, incoming?: boolean) => {
     const q = new URLSearchParams()
     if (pane) q.set("pane", pane)
+    if (incoming) q.set("incoming", "1")
     // `before` asks for the window ENDING at that transcript offset — the page
     // above the one on screen. Absent means the tail, which is what a view
     // opens on.
@@ -1683,6 +1799,73 @@ export const api = {
       labels,
       answers,
     }),
+  // Interrupt the agent in one ADDRESSED pane (one Escape, refused unless it is
+  // working), host and pane explicit for chatSend's reason.
+  chatStop: (host: string, pane: string) =>
+    postJSON<ChatStopResult>(withHost("/api/chat/stop", host), {
+      pane_id: pane,
+    }),
+
+  // Bots. Server-level like plugins: the list is lasso's own, each bot names
+  // the host it runs on, and every call about one bot is addressed by name.
+  bots: {
+    list: () => getJSON<{ bots: BotView[] }>("/api/bots"),
+    get: (name: string) => getJSON<BotDetail>(botURL(name)),
+    // A 200 can still carry `error`: the row was created but its folder could
+    // not be written (or it would not start), which Settings is where to fix.
+    create: (
+      body: Partial<BotFields> & {
+        name: string
+        host?: string
+        start?: boolean
+      }
+    ) => postJSON<{ bot: BotView; error?: string }>("/api/bots", body),
+    update: (name: string, body: BotFields & { restart?: boolean }) =>
+      sendJSON<{ bot: BotView }>("PUT", botURL(name), body),
+    // Forgets the bot; its folder stays on the host.
+    delete: (name: string) =>
+      sendJSON<{ ok: boolean; dir: string }>("DELETE", botURL(name)),
+    start: (name: string, fresh = false) =>
+      postJSON<{ bot: BotView }>(botURL(name, "/start"), { fresh }),
+    stop: (name: string) =>
+      postJSON<{ bot: BotView }>(botURL(name, "/stop"), {}),
+    restart: (name: string, fresh = false) =>
+      postJSON<{ bot: BotView }>(botURL(name, "/restart"), { fresh }),
+    env: (name: string) =>
+      getJSON<{ vars: BotEnvVar[]; age_key: boolean }>(botURL(name, "/env")),
+    // 412 for a secret while the host has no mise age key.
+    envSet: (name: string, key: string, value: string, secret: boolean) =>
+      sendJSON<{ ok: boolean }>("PUT", botURL(name, "/env"), {
+        key,
+        value,
+        secret,
+      }),
+    envUnset: (name: string, key: string) =>
+      sendJSON<{ ok: boolean }>(
+        "DELETE",
+        botURL(name, `/env?key=${encodeURIComponent(key)}`)
+      ),
+    // Creates the bot's HOST's mise age key, which every secret there is
+    // encrypted to. Only ever on an explicit, confirmed click.
+    ageKey: (name: string) =>
+      postJSON<{ ok: boolean }>(botURL(name, "/age-key"), {}),
+    skills: (name: string) =>
+      getJSON<{ skills: BotSkill[] }>(botURL(name, "/skills")),
+    // `from` is a skill directory on the bot's host (absolute or ~/…).
+    skillAdd: (name: string, from: string) =>
+      postJSON<{ skills: BotSkill[] }>(botURL(name, "/skills"), { from }),
+    skillRemove: (name: string, skill: string) =>
+      sendJSON<{ skills: BotSkill[] }>(
+        "DELETE",
+        botURL(name, `/skills?name=${encodeURIComponent(skill)}`)
+      ),
+    // The host's own ~/.claude/skills, to pick from.
+    skillLibrary: (host: string) =>
+      getJSON<{ skills: BotSkill[] }>(
+        `/api/bots/skill-library?host=${encodeURIComponent(host)}`
+      ),
+  },
+
   // Persisted UI preferences (sidebar layout, Files tab, and usage footer).
   uiState: () => getJSON<UIState>("/api/ui-state"),
   // Patch semantics: send only the changed fields; the server merges into the

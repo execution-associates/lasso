@@ -75,7 +75,7 @@ lasso never belongs on a public interface.
 | --- | --- |
 | [Getting started](docs/getting-started/index.md) | Install, first run, connecting agents, the phone app |
 | [Concepts](docs/concepts/index.md) | Hosts, agents and worktrees, the shared browser, notifications |
-| [Web UI](docs/web-ui/index.md) | The terminal, the sidebar, the New dialog, theming |
+| [Web UI](docs/web-ui/index.md) | The terminal, the sidebar, the New dialog, theming, bots |
 | [MCP server](docs/mcp/index.md) | Tools, the browser and herdr MCPs, the CLI, OAuth, agent scope |
 | [Plugins](docs/plugins/index.md) | Installing plugins, and [writing one](docs/plugins/authoring.md) |
 | [Deployment](docs/deployment/index.md) | systemd, Cloudflare Tunnel and Access, tailnet, updating |
