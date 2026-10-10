@@ -4,11 +4,13 @@ import {
   KeyRound,
   Play,
   Plus,
+  Radio,
   RotateCcw,
   Save,
   Square,
   SquareTerminal,
   Trash2,
+  Wrench,
   X,
 } from "lucide-react"
 import * as React from "react"
@@ -32,6 +34,14 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { EditableCombobox } from "@/components/ui/editable-combobox"
 import { Field, fieldClass, labelClass } from "@/components/ui/field"
 import { NO_AUTOCORRECT } from "@/components/ui/input"
@@ -188,26 +198,48 @@ function fieldsOf(d: Draft): BotFields {
     avatar: d.avatar.trim(),
     extra_args: lines(d.extra_args),
     strict_mcp: d.strict_mcp,
-    mcp: d.mcp.map((s): BotMCPServer => {
-      const base = { name: s.name.trim(), type: s.type, channel: s.channel }
-      return s.type === "stdio"
-        ? {
-            ...base,
-            command: s.command.trim(),
-            args: lines(s.args),
-            env: fromKV(s.env),
-          }
-        : {
-            ...base,
-            url: s.url.trim(),
-            headers: fromKV(s.headers),
-            oauth: s.oauth,
-            oauth_client_id: s.oauth_client_id.trim() || undefined,
-            oauth_redirect: s.oauth_redirect.trim() || undefined,
-            oauth_scope: s.oauth_scope.trim() || undefined,
-          }
-    }),
+    mcp: d.mcp.map(serverOf),
   }
+}
+
+function serverOf(s: DraftServer): BotMCPServer {
+  const base = { name: s.name.trim(), type: s.type, channel: s.channel }
+  return s.type === "stdio"
+    ? {
+        ...base,
+        command: s.command.trim(),
+        args: lines(s.args),
+        env: fromKV(s.env),
+      }
+    : {
+        ...base,
+        url: s.url.trim(),
+        headers: fromKV(s.headers),
+        oauth: s.oauth,
+        oauth_client_id: s.oauth_client_id.trim() || undefined,
+        oauth_redirect: s.oauth_redirect.trim() || undefined,
+        oauth_scope: s.oauth_scope.trim() || undefined,
+      }
+}
+
+// serverKey is a server's settings in one comparable string, the same for the
+// saved row and an unchanged draft, so a card can tell it has unsaved edits.
+function serverKey(m: BotMCPServer): string {
+  const sorted = (r?: Record<string, string>) =>
+    Object.entries(r ?? {}).sort(([a], [b]) => a.localeCompare(b))
+  const stdio = (m.type || "stdio") === "stdio"
+  return JSON.stringify([
+    m.name,
+    m.type || "stdio",
+    !!m.channel,
+    stdio ? (m.command ?? "") : (m.url ?? ""),
+    stdio ? (m.args ?? []) : [],
+    sorted(stdio ? m.env : m.headers),
+    !stdio && !!m.oauth,
+    stdio ? "" : (m.oauth_client_id ?? ""),
+    stdio ? "" : (m.oauth_redirect ?? ""),
+    stdio ? "" : (m.oauth_scope ?? ""),
+  ])
 }
 
 // ---------------------------------------------------------------------------
@@ -834,15 +866,71 @@ function OAuthPanel({
   )
 }
 
+type ConnFilter = "all" | "channels" | "tools"
+const CONN_FILTER_KEY = "lasso.bots.connections-filter"
+
+function readConnFilter(): ConnFilter {
+  try {
+    const v = localStorage.getItem(CONN_FILTER_KEY)
+    return v === "channels" || v === "tools" ? v : "all"
+  } catch {
+    return "all"
+  }
+}
+
+function blankServer(channel: boolean): DraftServer {
+  return {
+    id: nextID(),
+    name: "",
+    type: "stdio",
+    command: "",
+    args: "",
+    url: "",
+    env: [],
+    headers: [],
+    channel,
+    oauth: false,
+    oauth_client_id: "",
+    oauth_redirect: "",
+    oauth_scope: "",
+  }
+}
+
+// The card's second line: the command and its arguments with paths cut to
+// their last segment, or the URL's host and path.
+function serverSummary(s: DraftServer): string {
+  if (s.type === "stdio") {
+    const short = (a: string) =>
+      a.includes("/") ? `…/${a.split("/").pop()}` : a
+    const words = [s.command.trim(), ...lines(s.args)]
+      .filter(Boolean)
+      .map(short)
+    return words.join(" ") || "no command yet"
+  }
+  try {
+    const u = new URL(s.url.trim())
+    return u.host + (u.pathname === "/" ? "" : u.pathname)
+  } catch {
+    return s.url.trim() || "no URL yet"
+  }
+}
+
+function plural(n: number, one: string) {
+  return `${n} ${one}${n === 1 ? "" : "s"}`
+}
+
 function ConnectionsTab({
   draft,
   set,
   bot,
+  lassoMCP,
 }: {
   draft: Draft
   set: (patch: Partial<Draft>) => void
   // The saved bot; signing in needs the server saved first.
   bot?: BotView
+  // The server lasso adds for the bot's own settings tools, or "".
+  lassoMCP?: string
 }) {
   const oauthKey = ["bot-oauth", bot?.name ?? ""]
   const oauth = useQuery({
@@ -858,14 +946,53 @@ function ConnectionsTab({
       }),
     [queryClient, bot?.name]
   )
+  const [filter, setFilterState] = React.useState<ConnFilter>(readConnFilter)
+  const setFilter = (f: ConnFilter) => {
+    setFilterState(f)
+    try {
+      localStorage.setItem(CONN_FILTER_KEY, f)
+    } catch {}
+  }
+  const [editing, setEditing] = React.useState<number | null>(null)
   const setServer = (id: number, patch: Partial<DraftServer>) =>
     set({ mcp: draft.mcp.map((s) => (s.id === id ? { ...s, ...patch } : s)) })
+  const saved = new Set((bot?.mcp ?? []).map(serverKey))
+  const channels = draft.mcp.filter((s) => s.channel)
+  const lassoCard = !!lassoMCP
+  const counts = {
+    all: draft.mcp.length + (lassoCard ? 1 : 0),
+    channels: channels.length,
+    tools: draft.mcp.length - channels.length + (lassoCard ? 1 : 0),
+  }
+  const shown = draft.mcp.filter((s) =>
+    filter === "all" ? true : filter === "channels" ? s.channel : !s.channel
+  )
+  const showLasso = lassoCard && filter !== "channels"
+  const add = () => {
+    const s = blankServer(filter === "channels")
+    set({ mcp: [...draft.mcp, s] })
+    setEditing(s.id)
+  }
+  // Closing the editor on a server never filled in drops it: Add then Done
+  // must not leave an empty card behind.
+  const close = () => {
+    const s = draft.mcp.find((x) => x.id === editing)
+    if (s && !s.name.trim() && !s.command.trim() && !s.url.trim())
+      set({ mcp: draft.mcp.filter((x) => x.id !== s.id) })
+    setEditing(null)
+  }
+  const current = draft.mcp.find((x) => x.id === editing)
+  const chips: { id: ConnFilter; label: string }[] = [
+    { id: "all", label: "All" },
+    { id: "channels", label: "Channels" },
+    { id: "tools", label: "Tools" },
+  ]
   return (
     <div className="flex flex-col gap-4">
       <p className="text-[12.5px] text-muted-foreground leading-relaxed">
-        The MCP servers this bot gets. Mark one as a <b>channel</b> when it also
-        delivers messages (mail, chat, a schedule) that the bot should answer
-        without being asked. Keep secrets out of this page: write{" "}
+        The MCP servers this bot gets. A <b>channel</b> also delivers messages
+        (mail, chat, a schedule) that the bot answers without being asked. Keep
+        secrets out of this page: write{" "}
         <code className="rounded bg-muted px-1 font-mono text-[11.5px]">
           ${"{VAR}"}
         </code>{" "}
@@ -875,240 +1002,398 @@ function ConnectionsTab({
         </code>{" "}
         under Environment, where it is stored encrypted.
       </p>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {chips.map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            aria-pressed={filter === c.id}
+            onClick={() => setFilter(c.id)}
+            className={cn(
+              "rounded-full border px-3 py-1 text-[12px] transition-colors",
+              filter === c.id
+                ? "border-primary/50 bg-primary/15 text-foreground"
+                : "border-border text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {c.label}{" "}
+            <span className="text-muted-foreground tabular-nums">
+              {counts[c.id]}
+            </span>
+          </button>
+        ))}
+        <Button variant="outline" size="sm" className="ml-auto" onClick={add}>
+          <Plus />
+          Add connection
+        </Button>
+      </div>
+      {shown.length === 0 && !showLasso ? (
+        <p className="rounded-lg border border-border border-dashed px-3 py-6 text-center text-[12.5px] text-muted-foreground">
+          {filter === "channels"
+            ? "No channels yet. A channel is an MCP server that delivers messages to the bot."
+            : filter === "tools"
+              ? "No tool servers yet."
+              : "No connections yet."}
+        </p>
+      ) : (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-2">
+          {shown.map((s) => (
+            <ServerCard
+              key={s.id}
+              server={s}
+              status={oauth.data?.servers[s.name.trim()]}
+              dirty={!!bot && !saved.has(serverKey(serverOf(s)))}
+              onOpen={() => setEditing(s.id)}
+            />
+          ))}
+          {showLasso && <LassoCard url={lassoMCP ?? ""} />}
+        </div>
+      )}
       <Check
         id="bot-strict"
         checked={draft.strict_mcp}
         onChange={(strict_mcp) => set({ strict_mcp })}
       >
-        Only these servers (no claude.ai connectors)
+        Only these servers (strict)
         <span className="block text-[11.5px] text-muted-foreground">
-          Ignore every other MCP configuration, including your account's
-          connectors and user-level servers.
+          Off, it also gets your claude.ai connectors and user-level MCP
+          servers.
         </span>
       </Check>
-      {draft.mcp.map((s) => (
-        <div
-          key={s.id}
-          className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3"
-        >
-          <div className="flex items-end gap-2">
-            <Field label="Name" htmlFor={`mcp-name-${s.id}`}>
-              <input
-                {...NO_AUTOCORRECT}
-                id={`mcp-name-${s.id}`}
-                value={s.name}
-                onChange={(e) => setServer(s.id, { name: e.target.value })}
-                placeholder="gmail-channel"
-                className={cn(fieldClass, "font-mono")}
-              />
-            </Field>
-            <Field label="Type" htmlFor={`mcp-type-${s.id}`}>
-              <select
-                id={`mcp-type-${s.id}`}
-                className={cn(fieldClass, "w-24")}
-                value={s.type}
-                onChange={(e) =>
-                  setServer(s.id, {
-                    type: e.target.value as DraftServer["type"],
-                  })
-                }
+      <Dialog open={!!current} onOpenChange={(o) => !o && close()}>
+        {current && (
+          <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">
+            <DialogHeader>
+              <DialogTitle className="font-mono">
+                {current.name.trim() || "New connection"}
+              </DialogTitle>
+              <DialogDescription>
+                Changes apply when you save the bot.
+              </DialogDescription>
+            </DialogHeader>
+            <ServerFields
+              s={current}
+              setServer={setServer}
+              bot={bot}
+              status={oauth.data?.servers[current.name.trim()]}
+              refreshOAuth={refreshOAuth}
+            />
+            <DialogFooter className="sm:justify-between">
+              <Button
+                variant="ghost"
+                className="text-muted-foreground hover:text-destructive"
+                onClick={() => {
+                  set({ mcp: draft.mcp.filter((x) => x.id !== current.id) })
+                  setEditing(null)
+                }}
               >
-                <option value="stdio">stdio</option>
-                <option value="http">http</option>
-                <option value="sse">sse</option>
-              </select>
-            </Field>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="ml-auto"
-              title="Remove this server"
-              aria-label={`Remove ${s.name || "server"}`}
-              onClick={() =>
-                set({ mcp: draft.mcp.filter((x) => x.id !== s.id) })
-              }
-            >
-              <Trash2 />
-            </Button>
-          </div>
-          {s.type === "stdio" ? (
-            <>
-              <Field label="Command" htmlFor={`mcp-cmd-${s.id}`}>
-                <input
-                  {...NO_AUTOCORRECT}
-                  id={`mcp-cmd-${s.id}`}
-                  value={s.command}
-                  onChange={(e) => setServer(s.id, { command: e.target.value })}
-                  placeholder="npx"
-                  className={cn(fieldClass, "font-mono")}
-                />
-              </Field>
-              <Field
-                label="Arguments"
-                htmlFor={`mcp-args-${s.id}`}
-                hint="One per line."
-              >
-                <textarea
-                  {...NO_AUTOCORRECT}
-                  id={`mcp-args-${s.id}`}
-                  rows={2}
-                  value={s.args}
-                  onChange={(e) => setServer(s.id, { args: e.target.value })}
-                  className={cn(fieldClass, "resize-y font-mono")}
-                />
-              </Field>
-              <div className="flex flex-col gap-1">
-                <span className={labelClass}>Environment</span>
-                <KVEditor
-                  rows={s.env}
-                  onChange={(env) => setServer(s.id, { env })}
-                  keyPlaceholder="API_KEY"
-                  valuePlaceholder="${API_KEY}"
-                  addLabel="Add variable"
-                />
-              </div>
-            </>
-          ) : (
-            <>
-              <Field label="URL" htmlFor={`mcp-url-${s.id}`}>
-                <input
-                  {...NO_AUTOCORRECT}
-                  id={`mcp-url-${s.id}`}
-                  value={s.url}
-                  onChange={(e) => setServer(s.id, { url: e.target.value })}
-                  placeholder="https://example.com/mcp"
-                  className={cn(fieldClass, "font-mono")}
-                />
-              </Field>
-              <div className="flex flex-col gap-1">
-                <span className={labelClass}>Headers</span>
-                <KVEditor
-                  rows={s.headers}
-                  onChange={(headers) => setServer(s.id, { headers })}
-                  keyPlaceholder="Authorization"
-                  valuePlaceholder="Bearer ${TOKEN}"
-                  addLabel="Add header"
-                />
-              </div>
-              <Check
-                id={`mcp-oauth-${s.id}`}
-                checked={s.oauth}
-                onChange={(oauth) => setServer(s.id, { oauth })}
-              >
-                Sign in with OAuth
-                <span className="block text-[11.5px] text-muted-foreground">
-                  For servers that ask you to log in. lasso keeps the tokens in
-                  the bot's fnox.toml and refreshes them.
-                </span>
-              </Check>
-              {s.oauth &&
-                (bot?.mcp.some((m) => m.name === s.name && m.oauth) ? (
-                  <OAuthPanel
-                    bot={bot}
-                    server={s.name}
-                    status={oauth.data?.servers[s.name]}
-                    onChanged={refreshOAuth}
-                  />
-                ) : (
-                  <p className="text-[12px] text-muted-foreground">
-                    Save, then sign in here.
-                  </p>
-                ))}
-              {s.oauth && (
-                <details className="text-[12px]">
-                  <summary className="cursor-pointer text-muted-foreground">
-                    Server without automatic client registration
-                  </summary>
-                  <div className="mt-2 flex flex-col gap-2">
-                    <Field
-                      label="Client ID"
-                      htmlFor={`mcp-cid-${s.id}`}
-                      hint="Leave empty when the server registers clients itself."
-                    >
-                      <input
-                        {...NO_AUTOCORRECT}
-                        id={`mcp-cid-${s.id}`}
-                        value={s.oauth_client_id}
-                        onChange={(e) =>
-                          setServer(s.id, { oauth_client_id: e.target.value })
-                        }
-                        className={cn(fieldClass, "font-mono")}
-                      />
-                    </Field>
-                    <Field
-                      label="Redirect URI it was registered with"
-                      htmlFor={`mcp-redir-${s.id}`}
-                      hint="Default: this lasso's own /api/bots/oauth/callback. A localhost one works too: you paste where the browser lands."
-                    >
-                      <input
-                        {...NO_AUTOCORRECT}
-                        id={`mcp-redir-${s.id}`}
-                        value={s.oauth_redirect}
-                        onChange={(e) =>
-                          setServer(s.id, { oauth_redirect: e.target.value })
-                        }
-                        placeholder={`${window.location.origin}/api/bots/oauth/callback`}
-                        className={cn(fieldClass, "font-mono")}
-                      />
-                    </Field>
-                    <Field label="Scope" htmlFor={`mcp-scope-${s.id}`}>
-                      <input
-                        {...NO_AUTOCORRECT}
-                        id={`mcp-scope-${s.id}`}
-                        value={s.oauth_scope}
-                        onChange={(e) =>
-                          setServer(s.id, { oauth_scope: e.target.value })
-                        }
-                        placeholder="what the server advertises"
-                        className={cn(fieldClass, "font-mono")}
-                      />
-                    </Field>
-                  </div>
-                </details>
-              )}
-            </>
+                <Trash2 />
+                Remove connection
+              </Button>
+              <Button onClick={close}>Done</Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
+    </div>
+  )
+}
+
+function ServerCard({
+  server: s,
+  status,
+  dirty,
+  onOpen,
+}: {
+  server: DraftServer
+  status?: BotOAuthStatus
+  dirty: boolean
+  onOpen: () => void
+}) {
+  const stdio = s.type === "stdio"
+  const vars = (stdio ? s.env : s.headers).filter((r) => r.key.trim()).length
+  const detail =
+    !stdio && s.oauth
+      ? status?.status === "connected"
+        ? "Signed in"
+        : status?.status === "error"
+          ? "Sign-in failed"
+          : "Sign in needed"
+      : vars > 0
+        ? plural(vars, stdio ? "env var" : "header")
+        : ""
+  const Icon = s.channel ? Radio : Wrench
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="fx-plate flex min-w-0 flex-col gap-1 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary/40"
+    >
+      <span className="flex min-w-0 items-center gap-1.5">
+        <Icon
+          className={cn(
+            "size-3.5 shrink-0",
+            s.channel ? "text-primary" : "text-muted-foreground"
           )}
-          <Check
-            id={`mcp-channel-${s.id}`}
-            checked={s.channel}
-            onChange={(channel) => setServer(s.id, { channel })}
+        />
+        <span className="min-w-0 truncate font-medium font-mono text-[12.5px] text-foreground">
+          {s.name.trim() || "unnamed"}
+        </span>
+        {dirty && (
+          <span
+            role="img"
+            aria-label="Unsaved changes"
+            title="Unsaved changes"
+            className="size-1.5 shrink-0 rounded-full bg-primary"
+          />
+        )}
+        <span
+          className={cn(
+            "ml-auto shrink-0 rounded px-1.5 py-px font-medium text-[10px] uppercase tracking-wide",
+            s.channel
+              ? "bg-primary/15 text-primary"
+              : "bg-muted text-muted-foreground"
+          )}
+        >
+          {s.channel ? "channel" : s.type}
+        </span>
+      </span>
+      <span className="truncate font-mono text-[11.5px] text-muted-foreground">
+        {s.channel ? `${s.type} · ` : ""}
+        {serverSummary(s)}
+      </span>
+      {detail && (
+        <span
+          className={cn(
+            "text-[11.5px]",
+            detail === "Sign in needed" || detail === "Sign-in failed"
+              ? "text-amber-500"
+              : "text-muted-foreground"
+          )}
+        >
+          {detail}
+        </span>
+      )}
+    </button>
+  )
+}
+
+// lasso's own server for the bot, shown so the grid is the whole picture, but
+// not editable: lasso writes it into the bot's mcp.json on every start.
+function LassoCard({ url }: { url: string }) {
+  return (
+    <div
+      className="flex min-w-0 flex-col gap-1 rounded-lg border border-border border-dashed p-3"
+      title={url}
+    >
+      <span className="flex min-w-0 items-center gap-1.5">
+        <Wrench className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 truncate font-medium font-mono text-[12.5px] text-foreground">
+          lasso
+        </span>
+        <span className="ml-auto shrink-0 text-[10.5px] text-muted-foreground">
+          added by lasso
+        </span>
+      </span>
+      <span className="text-[11.5px] text-muted-foreground leading-snug">
+        Its own settings tools: get_bot, update_bot, set_bot_env, set_bot_avatar
+        and more.
+      </span>
+    </div>
+  )
+}
+
+// One server's settings, edited in the Connections dialog.
+function ServerFields({
+  s,
+  setServer,
+  bot,
+  status,
+  refreshOAuth,
+}: {
+  s: DraftServer
+  setServer: (id: number, patch: Partial<DraftServer>) => void
+  bot?: BotView
+  status?: BotOAuthStatus
+  refreshOAuth: () => void
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-end gap-2">
+        <Field label="Name" htmlFor={`mcp-name-${s.id}`}>
+          <input
+            {...NO_AUTOCORRECT}
+            id={`mcp-name-${s.id}`}
+            value={s.name}
+            onChange={(e) => setServer(s.id, { name: e.target.value })}
+            placeholder="gmail-channel"
+            className={cn(fieldClass, "font-mono")}
+          />
+        </Field>
+        <Field label="Type" htmlFor={`mcp-type-${s.id}`}>
+          <select
+            id={`mcp-type-${s.id}`}
+            className={cn(fieldClass, "w-24")}
+            value={s.type}
+            onChange={(e) =>
+              setServer(s.id, {
+                type: e.target.value as DraftServer["type"],
+              })
+            }
           >
-            Channel
+            <option value="stdio">stdio</option>
+            <option value="http">http</option>
+            <option value="sse">sse</option>
+          </select>
+        </Field>
+      </div>
+      {s.type === "stdio" ? (
+        <>
+          <Field label="Command" htmlFor={`mcp-cmd-${s.id}`}>
+            <input
+              {...NO_AUTOCORRECT}
+              id={`mcp-cmd-${s.id}`}
+              value={s.command}
+              onChange={(e) => setServer(s.id, { command: e.target.value })}
+              placeholder="npx"
+              className={cn(fieldClass, "font-mono")}
+            />
+          </Field>
+          <Field
+            label="Arguments"
+            htmlFor={`mcp-args-${s.id}`}
+            hint="One per line."
+          >
+            <textarea
+              {...NO_AUTOCORRECT}
+              id={`mcp-args-${s.id}`}
+              rows={2}
+              value={s.args}
+              onChange={(e) => setServer(s.id, { args: e.target.value })}
+              className={cn(fieldClass, "resize-y font-mono")}
+            />
+          </Field>
+          <div className="flex flex-col gap-1">
+            <span className={labelClass}>Environment</span>
+            <KVEditor
+              rows={s.env}
+              onChange={(env) => setServer(s.id, { env })}
+              keyPlaceholder="API_KEY"
+              valuePlaceholder="${API_KEY}"
+              addLabel="Add variable"
+            />
+          </div>
+        </>
+      ) : (
+        <>
+          <Field label="URL" htmlFor={`mcp-url-${s.id}`}>
+            <input
+              {...NO_AUTOCORRECT}
+              id={`mcp-url-${s.id}`}
+              value={s.url}
+              onChange={(e) => setServer(s.id, { url: e.target.value })}
+              placeholder="https://example.com/mcp"
+              className={cn(fieldClass, "font-mono")}
+            />
+          </Field>
+          <div className="flex flex-col gap-1">
+            <span className={labelClass}>Headers</span>
+            <KVEditor
+              rows={s.headers}
+              onChange={(headers) => setServer(s.id, { headers })}
+              keyPlaceholder="Authorization"
+              valuePlaceholder="Bearer ${TOKEN}"
+              addLabel="Add header"
+            />
+          </div>
+          <Check
+            id={`mcp-oauth-${s.id}`}
+            checked={s.oauth}
+            onChange={(oauth) => setServer(s.id, { oauth })}
+          >
+            Sign in with OAuth
             <span className="block text-[11.5px] text-muted-foreground">
-              Messages it delivers reach the bot as incoming messages.
+              For servers that ask you to log in. lasso keeps the tokens in the
+              bot's fnox.toml and refreshes them.
             </span>
           </Check>
-        </div>
-      ))}
-      <Button
-        variant="outline"
-        className="self-start"
-        onClick={() =>
-          set({
-            mcp: [
-              ...draft.mcp,
-              {
-                id: nextID(),
-                name: "",
-                type: "stdio",
-                command: "",
-                args: "",
-                url: "",
-                env: [],
-                headers: [],
-                channel: false,
-                oauth: false,
-                oauth_client_id: "",
-                oauth_redirect: "",
-                oauth_scope: "",
-              },
-            ],
-          })
-        }
+          {s.oauth &&
+            (bot?.mcp.some((m) => m.name === s.name && m.oauth) ? (
+              <OAuthPanel
+                bot={bot}
+                server={s.name}
+                status={status}
+                onChanged={refreshOAuth}
+              />
+            ) : (
+              <p className="text-[12px] text-muted-foreground">
+                Save, then sign in here.
+              </p>
+            ))}
+          {s.oauth && (
+            <details className="text-[12px]">
+              <summary className="cursor-pointer text-muted-foreground">
+                Server without automatic client registration
+              </summary>
+              <div className="mt-2 flex flex-col gap-2">
+                <Field
+                  label="Client ID"
+                  htmlFor={`mcp-cid-${s.id}`}
+                  hint="Leave empty when the server registers clients itself."
+                >
+                  <input
+                    {...NO_AUTOCORRECT}
+                    id={`mcp-cid-${s.id}`}
+                    value={s.oauth_client_id}
+                    onChange={(e) =>
+                      setServer(s.id, { oauth_client_id: e.target.value })
+                    }
+                    className={cn(fieldClass, "font-mono")}
+                  />
+                </Field>
+                <Field
+                  label="Redirect URI it was registered with"
+                  htmlFor={`mcp-redir-${s.id}`}
+                  hint="Default: this lasso's own /api/bots/oauth/callback. A localhost one works too: you paste where the browser lands."
+                >
+                  <input
+                    {...NO_AUTOCORRECT}
+                    id={`mcp-redir-${s.id}`}
+                    value={s.oauth_redirect}
+                    onChange={(e) =>
+                      setServer(s.id, { oauth_redirect: e.target.value })
+                    }
+                    placeholder={`${window.location.origin}/api/bots/oauth/callback`}
+                    className={cn(fieldClass, "font-mono")}
+                  />
+                </Field>
+                <Field label="Scope" htmlFor={`mcp-scope-${s.id}`}>
+                  <input
+                    {...NO_AUTOCORRECT}
+                    id={`mcp-scope-${s.id}`}
+                    value={s.oauth_scope}
+                    onChange={(e) =>
+                      setServer(s.id, { oauth_scope: e.target.value })
+                    }
+                    placeholder="what the server advertises"
+                    className={cn(fieldClass, "font-mono")}
+                  />
+                </Field>
+              </div>
+            </details>
+          )}
+        </>
+      )}
+      <Check
+        id={`mcp-channel-${s.id}`}
+        checked={s.channel}
+        onChange={(channel) => setServer(s.id, { channel })}
       >
-        <Plus />
-        Add server
-      </Button>
+        Channel
+        <span className="block text-[11.5px] text-muted-foreground">
+          Messages it delivers reach the bot as incoming messages.
+        </span>
+      </Check>
     </div>
   )
 }
@@ -1949,7 +2234,12 @@ export function BotSettings({
           ) : tab === "general" ? (
             <GeneralTab draft={draft} set={set} creating={creating} bot={bot} />
           ) : tab === "connections" ? (
-            <ConnectionsTab draft={draft} set={set} bot={bot} />
+            <ConnectionsTab
+              draft={draft}
+              set={set}
+              bot={bot}
+              lassoMCP={detail.data?.lasso_mcp}
+            />
           ) : !bot || !detail.data ? null : tab === "skills" ? (
             <SkillsTab bot={bot} />
           ) : tab === "instructions" ? (
