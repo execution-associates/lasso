@@ -2259,11 +2259,12 @@ function SharedBrowserSettings({ active }: { active: boolean }) {
   })
 
   const endpoint = cdpURL()
-  // /browser-mcp is lasso's origin, like /cdp: there is one shared browser per
-  // lasso whatever host this tab is driving.
-  const mcpEndpoint = `${location.origin}/browser-mcp`
-  const mcpAdd = `claude mcp add --transport http lasso-browser ${mcpEndpoint}`
-  const mcpSessions = st?.mcp_sessions ?? 0
+  // The browser tools are on lasso's own MCP server, at lasso's origin like
+  // /cdp: there is one set of browsers per lasso whatever host this tab is
+  // driving.
+  const mcpEndpoint = `${location.origin}/mcp`
+  const mcpAdd = `claude mcp add --transport http lasso ${mcpEndpoint}`
+  const toolSessions = st?.tools_sessions ?? 0
   const busy = action.isPending
 
   let state: React.ReactNode
@@ -2382,32 +2383,38 @@ function SharedBrowserSettings({ active }: { active: boolean }) {
 
       <div className="mt-1 flex flex-wrap items-center gap-1.5">
         <span className={labelClass}>Connect an agent</span>
-        {mcpSessions > 0 && (
+        {toolSessions > 0 && (
           <Pill tone="good">
-            {mcpSessions} {mcpSessions === 1 ? "agent" : "agents"} using it
+            {toolSessions} {toolSessions === 1 ? "agent" : "agents"} using it
           </Pill>
         )}
       </div>
-      {st && !st.mcp_available && st.mcp_reason && (
+      {st && !st.tools_available && st.tools_reason && (
         <p className="text-[11px] text-warn [overflow-wrap:anywhere]">
-          {st.mcp_reason}
+          {st.tools_reason}
         </p>
       )}
-      <CopyLine label="browser MCP URL" text={mcpEndpoint} />
+      <CopyLine label="lasso MCP URL" text={mcpEndpoint} />
       <CopyLine label="claude mcp add command" text={mcpAdd} />
       <p className="text-[11px] text-muted-foreground">
-        Gives an agent chrome-devtools-mcp's tools, already pointed at this
-        browser, with nothing to install on its machine. Other agents (Codex,
-        OpenCode, …) add the same URL as a streamable-HTTP MCP server. Behind
-        UI_AUTH or MCP_OAUTH a remote agent sends an Authorization header (a
-        token from <code className="font-mono">lasso mcp-client token</code>, or
-        Basic credentials for UI_AUTH). This one URL drives every browser
-        profile: each tool takes an optional{" "}
-        <code className="font-mono">profile</code> (id or name; omitted = the
-        default), so a new profile needs no new MCP server. Connecting is free;
-        a chrome-devtools-mcp process starts only when an agent first uses a
-        profile. Profiles are managed from the bar along the bottom of the
-        Browser tab; the CDP endpoint below is the default profile's.
+        lasso's own MCP server carries the browser: its{" "}
+        <code className="font-mono">browser_*</code> tools (
+        <code className="font-mono">browser_new_page</code>,{" "}
+        <code className="font-mono">browser_click</code>,{" "}
+        <code className="font-mono">browser_take_screenshot</code>, …) are
+        chrome-devtools-mcp's, already pointed at these browsers, with nothing
+        to install on the agent's machine.{" "}
+        <code className="font-mono">lasso connect</code> registers it with the
+        agent CLIs on a machine; other agents add the URL as a streamable-HTTP
+        MCP server. Each browser tool takes an optional{" "}
+        <code className="font-mono">browser</code> (id or name; omitted = the
+        default), so a new browser needs no reconnect. Behind UI_AUTH the
+        browser tools need its Basic credentials on the agent's connection;
+        behind MCP_OAUTH, a token from{" "}
+        <code className="font-mono">lasso mcp-client token</code> that reaches
+        this machine. A chrome-devtools-mcp process starts only when an agent
+        first uses a browser. Browsers are managed from the bar along the bottom
+        of the Browser tab; the CDP endpoint below is the default browser's.
       </p>
       <CopyLine label="CDP endpoint" text={endpoint} />
       <p className="text-[11px] text-muted-foreground">

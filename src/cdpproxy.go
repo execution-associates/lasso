@@ -27,17 +27,17 @@ import (
 //	/cdp/devtools/...    passthrough (page and browser targets)
 //	/cdp/json[/...]      passthrough, with every websocket URL in the answer
 //	                     rewritten to point back through /cdp
-//	/cdp/profiles        lasso's own: GET the browser profile list and each
-//	                     one's CDP address — discovery with no MCP in the loop
+//	/cdp/browsers        lasso's own: GET the list of browsers and each one's
+//	                     CDP address — discovery with no MCP in the loop
+//	                     (/cdp/profiles: the same list under a "profiles" key)
 //
 // /cdp itself is the stable address: Chromium's browser id changes on every
 // launch (an idle stop, a proxy change), and an agent configured with
 // --wsEndpoint ws://<lasso>/cdp keeps working across all of them.
 //
-// Every other browser profile (browserprofiles.go) is its own Chromium, served
-// the same way one level down: /cdp/p/<id>, /cdp/p/<id>/devtools/...,
-// /cdp/p/<id>/json/.... Bare /cdp stays the default profile's, so nothing that
-// was configured before profiles existed changes meaning.
+// Every other browser (browserprofiles.go) is its own Chromium, served the
+// same way one level down: /cdp/p/<id>, /cdp/p/<id>/devtools/...,
+// /cdp/p/<id>/json/.... Bare /cdp is the default browser's.
 
 // cdpProfilePrefix is the /cdp prefix a request path names and the profile it
 // belongs to: "/cdp" for the default profile, "/cdp/p/<id>" for another.
@@ -62,27 +62,38 @@ func cdpPathFor(profile string) string {
 	return "/cdp/p/" + profile
 }
 
-// cdpProfilesPath is the CDP surface's discovery endpoint. GET /cdp/profiles
-// answers every browser profile and the address to connect to each one, so a
-// client that speaks only CDP — Playwright, chrome-devtools-mcp, curl — can
-// learn that a second profile exists without adding an MCP server. It is
-// served under the same auth gate and Origin guard as the rest of /cdp.
-const cdpProfilesPath = "/cdp/profiles"
+// cdpBrowsersPath is the CDP surface's discovery endpoint. GET /cdp/browsers
+// answers every browser and the address to connect to each one, so a client
+// that speaks only CDP — Playwright, chrome-devtools-mcp, curl — can learn
+// that a second browser exists without speaking MCP. It is served under the
+// same auth gate and Origin guard as the rest of /cdp. /cdp/profiles answers
+// the same list under a "profiles" key, for clients that ask by that name.
+const (
+	cdpBrowsersPath = "/cdp/browsers"
+	cdpProfilesPath = "/cdp/profiles"
+)
 
-// cdpProfilesRequest reports whether p asks for that listing: the bare
-// /cdp/profiles, or any profile's /cdp/p/<id>/profiles. The listing is lasso's,
-// not one browser's, so every prefix answers the same content.
-func cdpProfilesRequest(p string) bool {
+// cdpListingRequest reports whether p asks for that listing, and under which
+// key: the bare /cdp/browsers (or /cdp/profiles), or the same under any
+// browser's /cdp/p/<id>/. The listing is lasso's, not one browser's, so every
+// prefix answers the same content.
+func cdpListingRequest(p string) (key string, ok bool) {
 	p = strings.TrimSuffix(p, "/")
-	if p == cdpProfilesPath {
-		return true
+	switch p {
+	case cdpBrowsersPath:
+		return "browsers", true
+	case cdpProfilesPath:
+		return "profiles", true
 	}
-	rest, ok := strings.CutPrefix(p, "/cdp/p/")
-	if !ok {
-		return false
+	rest, found := strings.CutPrefix(p, "/cdp/p/")
+	if !found {
+		return "", false
 	}
 	id, sub, found := strings.Cut(rest, "/")
-	return found && id != "" && sub == "profiles"
+	if !found || id == "" || (sub != "browsers" && sub != "profiles") {
+		return "", false
+	}
+	return sub, true
 }
 
 // cdpUpstreamPath maps an inbound /cdp path onto Chromium's own. ok=false is a
@@ -304,8 +315,8 @@ func serveCDPRouted(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cross-origin request to /cdp refused", http.StatusForbidden)
 		return
 	}
-	if cdpProfilesRequest(r.URL.Path) {
-		serveCDPProfiles(w, r)
+	if key, ok := cdpListingRequest(r.URL.Path); ok {
+		serveCDPBrowsers(w, r, key)
 		return
 	}
 	prefix, profile, ok := cdpProfilePrefix(r.URL.Path)
@@ -321,8 +332,8 @@ func serveCDPRouted(w http.ResponseWriter, r *http.Request) {
 	m.serveCDPAt(w, r, prefix)
 }
 
-// cdpProfileEntry is one profile in that listing.
-type cdpProfileEntry struct {
+// cdpBrowserEntry is one browser in that listing.
+type cdpBrowserEntry struct {
 	ID       string        `json:"id"`
 	Name     string        `json:"name"`
 	Default  bool          `json:"default"`
@@ -336,26 +347,21 @@ type cdpProfileEntry struct {
 	Note     string        `json:"note,omitempty"`
 }
 
-// cdpProfilesOut is the listing's body.
-type cdpProfilesOut struct {
-	Profiles []cdpProfileEntry `json:"profiles"`
-}
-
-// serveCDPProfiles answers GET /cdp/profiles: every browser profile, the
-// default first, each with its CDP address. This is the discovery path for a
-// client with no MCP server of its own — the answer to "which browsers can I
-// drive here" is a plain GET, not a tool call. It never starts a browser: a
-// profile that has never run is listed stopped, with no manager created for it.
-func serveCDPProfiles(w http.ResponseWriter, r *http.Request) {
+// serveCDPBrowsers answers GET /cdp/browsers: every browser, the default
+// first, each with its CDP address, as {key: [...]}. This is the discovery
+// path for a client with no MCP of its own — the answer to "which browsers can
+// I drive here" is a plain GET, not a tool call. It never starts a browser: one
+// that has never run is listed stopped, with no manager created for it.
+func serveCDPBrowsers(w http.ResponseWriter, r *http.Request, key string) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET")
-		http.Error(w, "the profile listing is GET", http.StatusMethodNotAllowed)
+		http.Error(w, "the browser listing is GET", http.StatusMethodNotAllowed)
 		return
 	}
 	httpBase, wsBase := cdpHTTPBase(r), cdpWSBase(r)
-	out := cdpProfilesOut{Profiles: []cdpProfileEntry{}}
+	list := []cdpBrowserEntry{}
 	for _, st := range sharedBrowsers.statuses() {
-		e := cdpProfileEntry{
+		e := cdpBrowserEntry{
 			ID: st.ID, Name: st.Name, Default: st.Default,
 			Running: st.Running, Started: st.StartedAt, Tabs: st.Pages,
 			WSPath: st.WSPath, WSURL: wsBase + st.WSPath,
@@ -367,12 +373,12 @@ func serveCDPProfiles(w http.ResponseWriter, r *http.Request) {
 		if !st.Running && st.Reason != "" {
 			e.Note = st.Reason
 		}
-		out.Profiles = append(out.Profiles, e)
+		list = append(list, e)
 	}
-	// The list moves as profiles are created, renamed and deleted; a cached
-	// copy would hide a new profile from exactly the client it is meant for.
+	// The list moves as browsers are created, renamed and deleted; a cached
+	// copy would hide a new browser from exactly the client it is meant for.
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, out)
+	writeJSON(w, map[string][]cdpBrowserEntry{key: list})
 }
 
 // serveCDP is the default profile's /cdp handler.
@@ -497,7 +503,7 @@ const internalCDPHeader = "X-Lasso-Internal"
 // internalCDPToken is minted once per process from crypto/rand and lives only
 // in memory and in the argv of the children it is handed to — never logged,
 // never stored, never sent to a client. A child needs it because the agent's
-// credential stops at /browser-mcp: the child is lasso's process, dialing
+// credential stops at /mcp: the child is lasso's process, dialing
 // lasso's loopback, and has nothing of its own to present to /cdp's gate.
 var internalCDPToken = newInternalCDPToken()
 
@@ -540,8 +546,8 @@ func withInternalCDP(outer, cdp http.Handler) http.Handler {
 }
 
 // cdpScopeCheck refuses a bearer token whose host scope does not include lasso's
-// own machine. The shared_browser tool refuses such a caller too; without this
-// the same credential could skip the tool and dial /cdp directly.
+// own machine. The browser tools refuse such a caller too; without this the
+// same credential could skip the tools and dial /cdp directly.
 func cdpScopeCheck(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if ti := auth.TokenInfoFromContext(r.Context()); ti != nil {

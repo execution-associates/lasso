@@ -17,13 +17,16 @@ import (
 	"time"
 )
 
-// Browser profiles: named shared browsers, each with its own cookies and
-// logins. The default profile is the one lasso always had (its profile dir,
-// bare /cdp and /browser-mcp); every other profile lives at /cdp/p/<id> and
-// /browser-mcp/<id>.
+// Browsers: lasso's named shared browsers, each with its own cookies and
+// logins. The default browser lives in <lassoDir>/browser-profile and at bare
+// /cdp; every other one lives at /cdp/p/<id>. The browser_* tools on /mcp reach
+// any of them by their `browser` argument. In the code and in storage a
+// browser is still a "profile" (browser_profiles, browserProfile), because the
+// stored data is keyed that way; everything an agent or a human reads says
+// "browser".
 //
-// A profile is its own Chromium PROCESS, not a browser context inside one: a
-// context is exactly what a profile must not be. Target.createBrowserContext
+// A browser is its own Chromium PROCESS, not a browser context inside one: a
+// context is exactly what a browser here must not be. Target.createBrowserContext
 // contexts are incognito-like, so cookies, localStorage and IndexedDB would
 // die with every idle stop. A user-data-dir per profile is
 // the one thing that persists all of it. The cost is a process (and a resource
@@ -64,7 +67,7 @@ var browserProfileID = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
 
 func validBrowserProfileID(id string) error {
 	if !browserProfileID.MatchString(id) {
-		return fmt.Errorf("profile id %q must be 1-32 lowercase letters, digits or dashes, starting with a letter or digit", id)
+		return fmt.Errorf("browser id %q must be 1-32 lowercase letters, digits or dashes, starting with a letter or digit", id)
 	}
 	return nil
 }
@@ -96,10 +99,10 @@ func slugProfileID(name string) string {
 func cleanProfileName(name string) (string, error) {
 	n := strings.Join(strings.Fields(name), " ")
 	if n == "" {
-		return "", errors.New("a profile needs a name")
+		return "", errors.New("a browser needs a name")
 	}
 	if len([]rune(n)) > 64 {
-		return "", errors.New("profile names are at most 64 characters")
+		return "", errors.New("browser names are at most 64 characters")
 	}
 	return n, nil
 }
@@ -157,8 +160,8 @@ func allBrowserProfiles() []browserProfile {
 // manager is sharedBrowser, as it always was (tests swap it in directly).
 type browserFleet struct {
 	cfg browserConfig
-	// onStop is told which profile's browser went away; the /browser-mcp
-	// bridge closes that profile's sessions.
+	// onStop is told which browser went away; the browser tools' bridge stops
+	// every session's child for it.
 	onStop func(profile, why string)
 
 	mu   sync.Mutex // guards mgrs and every write to the stored profile list
@@ -182,7 +185,7 @@ func browserFor(profile string) (*browserManager, error) {
 		return sharedBrowser, nil
 	}
 	if sharedBrowsers == nil {
-		return nil, fmt.Errorf("no browser profile %q", profile)
+		return nil, fmt.Errorf("no browser %q", profile)
 	}
 	return sharedBrowsers.manager(profile)
 }
@@ -199,7 +202,7 @@ func (f *browserFleet) manager(id string) (*browserManager, error) {
 			return f.newManagerLocked(id), nil
 		}
 	}
-	return nil, fmt.Errorf("no browser profile %q", id)
+	return nil, fmt.Errorf("no browser %q", id)
 }
 
 func (f *browserFleet) profileDir(id string) string {
@@ -298,7 +301,7 @@ func (f *browserFleet) create(name, id, cdpURL string) (browserProfile, error) {
 	defer f.mu.Unlock()
 	ps := loadExtraProfiles()
 	if len(ps)+1 >= browserProfileMax {
-		return browserProfile{}, fmt.Errorf("lasso allows at most %d browser profiles; delete one first", browserProfileMax)
+		return browserProfile{}, fmt.Errorf("lasso allows at most %d browsers; delete one first", browserProfileMax)
 	}
 	taken := func(c string) bool {
 		if c == defaultBrowserProfile {
@@ -313,7 +316,7 @@ func (f *browserFleet) create(name, id, cdpURL string) (browserProfile, error) {
 	}
 	if taken(id) {
 		if explicit {
-			return browserProfile{}, fmt.Errorf("a browser profile with id %q already exists", id)
+			return browserProfile{}, fmt.Errorf("a browser with id %q already exists", id)
 		}
 		base := id
 		for n := 2; taken(id); n++ {
@@ -322,11 +325,11 @@ func (f *browserFleet) create(name, id, cdpURL string) (browserProfile, error) {
 	}
 	for _, p := range ps {
 		if strings.EqualFold(p.Name, name) {
-			return browserProfile{}, fmt.Errorf("a browser profile named %q already exists", name)
+			return browserProfile{}, fmt.Errorf("a browser named %q already exists", name)
 		}
 	}
 	if strings.EqualFold(defaultProfileName(), name) {
-		return browserProfile{}, fmt.Errorf("a browser profile named %q already exists", name)
+		return browserProfile{}, fmt.Errorf("a browser named %q already exists", name)
 	}
 	p := browserProfile{ID: id, Name: name, CDPURL: cdpURL, CreatedAt: time.Now().UTC().Format(time.RFC3339)}
 	// A directory left by an earlier profile with the same id would hand the
@@ -367,7 +370,7 @@ func (f *browserFleet) update(id string, name, cdpURL *string) (browserProfile, 
 			}
 		}
 		if clash {
-			return browserProfile{}, fmt.Errorf("a browser profile named %q already exists", *name)
+			return browserProfile{}, fmt.Errorf("a browser named %q already exists", *name)
 		}
 	}
 	if id == defaultBrowserProfile {
@@ -404,14 +407,14 @@ func (f *browserFleet) update(id string, name, cdpURL *string) (browserProfile, 
 		}
 		return ps[i], nil
 	}
-	return browserProfile{}, fmt.Errorf("no browser profile %q", id)
+	return browserProfile{}, fmt.Errorf("no browser %q", id)
 }
 
 // remove deletes a profile: its browser stops, it leaves the list, and its
 // profile directory — every cookie and login in it — is deleted.
 func (f *browserFleet) remove(ctx context.Context, id string) error {
 	if id == defaultBrowserProfile {
-		return errors.New("the default browser profile cannot be deleted")
+		return errors.New("the default browser cannot be deleted")
 	}
 	f.mu.Lock()
 	ps := loadExtraProfiles()
@@ -423,7 +426,7 @@ func (f *browserFleet) remove(ctx context.Context, id string) error {
 	}
 	if idx < 0 {
 		f.mu.Unlock()
-		return fmt.Errorf("no browser profile %q", id)
+		return fmt.Errorf("no browser %q", id)
 	}
 	m := f.mgrs[id]
 	delete(f.mgrs, id)
@@ -471,7 +474,7 @@ func (f *browserFleet) statusOf(p browserProfile) browserProfileStatus {
 		st = m.profileStatus()
 	} else {
 		st = browserProfileStatus{ID: p.ID, Default: p.ID == defaultBrowserProfile, Pages: []browserPage{},
-			WSPath: cdpPathFor(p.ID), MCPPath: browserMCPPathFor(p.ID)}
+			WSPath: cdpPathFor(p.ID)}
 	}
 	st.Name, st.CDPURL = p.Name, p.CDPURL
 	return st
@@ -484,7 +487,7 @@ func (f *browserFleet) profileStatus(id string) (browserProfileStatus, error) {
 			return f.statusOf(p), nil
 		}
 	}
-	return browserProfileStatus{}, fmt.Errorf("no browser profile %q", id)
+	return browserProfileStatus{}, fmt.Errorf("no browser %q", id)
 }
 
 // resolveProfile maps what an agent or a request names — an id, or a display
@@ -509,7 +512,7 @@ func resolveProfile(arg string) (string, error) {
 	for _, p := range ps {
 		names = append(names, fmt.Sprintf("%s (%q)", p.ID, p.Name))
 	}
-	return "", fmt.Errorf("no browser profile %q; profiles: %s", a, strings.Join(names, ", "))
+	return "", fmt.Errorf("no browser %q; browsers: %s", a, strings.Join(names, ", "))
 }
 
 // browserProfilesChanged tells every connected tab to refetch the profile list:
@@ -688,7 +691,7 @@ func (f *browserFleet) edit(ctx context.Context, id string, name, cdpURL *string
 
 func profileErrStatus(err error) int {
 	switch {
-	case strings.HasPrefix(err.Error(), "no browser profile"):
+	case strings.HasPrefix(err.Error(), `no browser "`):
 		return http.StatusNotFound
 	case strings.HasPrefix(err.Error(), "save: "):
 		return http.StatusInternalServerError

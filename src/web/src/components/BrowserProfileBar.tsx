@@ -27,10 +27,10 @@ import { qk } from "@/lib/query"
 import { cn } from "@/lib/utils"
 
 // BrowserProfileBar is the strip along the bottom of the Agent browser: which
-// profile this tab is looking at, and (on a server that has profiles) the way
-// into creating, editing and deleting them. Each profile is a separate
-// Chromium with its own cookies and logins, so switching is a reconnect, not
-// a filter over one browser's pages.
+// of lasso's browsers this tab is looking at, and (on a server that can) the
+// way into creating, editing and deleting them. Each is a separate Chromium
+// with its own cookies and logins, so switching is a reconnect, not a filter
+// over one browser's pages. (The server stores a browser as a "profile".)
 
 export function BrowserProfileBar({
   profiles,
@@ -48,9 +48,9 @@ export function BrowserProfileBar({
   const [open, setOpen] = React.useState(false)
   return (
     <div className="flex flex-shrink-0 items-center gap-1.5 border-border border-t bg-background px-2 py-1 text-[12px]">
-      <span className="text-muted-foreground">Profile</span>
+      <span className="text-muted-foreground">Browser</span>
       <select
-        aria-label="Browser profile"
+        aria-label="Browser"
         className="h-6 min-w-0 max-w-48 flex-shrink rounded-md border border-border bg-background px-1.5 text-[12px] text-foreground"
         value={current}
         disabled={profiles.length < 2}
@@ -68,8 +68,8 @@ export function BrowserProfileBar({
           variant="ghost"
           size="icon"
           className="ml-auto size-6"
-          title="Manage profiles"
-          aria-label="Manage profiles"
+          title="Manage browsers"
+          aria-label="Manage browsers"
           onClick={() => setOpen(true)}
         >
           <Settings2 className="size-3.5" />
@@ -140,7 +140,7 @@ function ProfilesDialog({
 
   const save = useMutation({
     mutationFn: () => {
-      if (!editing) throw new Error("no profile selected")
+      if (!editing) throw new Error("no browser selected")
       return api.updateBrowserProfile(editing.id, { name: name.trim() })
     },
     onSuccess: (p) => {
@@ -157,7 +157,7 @@ function ProfilesDialog({
     onSuccess: (p) => {
       setCreateErr("")
       setNewName("")
-      toast.success(`Created profile ${p.name}`)
+      toast.success(`Created browser ${p.name}`)
       onPick(p.id)
       setEditID(p.id)
       setTab("manage")
@@ -169,7 +169,7 @@ function ProfilesDialog({
   const remove = useMutation({
     mutationFn: (p: BrowserProfileStatus) => api.deleteBrowserProfile(p.id),
     onSuccess: (_, p) => {
-      toast.success(`Deleted profile ${p.name}`)
+      toast.success(`Deleted browser ${p.name}`)
       if (p.id === current) onPick("default")
       setEditID("default")
     },
@@ -184,10 +184,10 @@ function ProfilesDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Browser profiles</DialogTitle>
+            <DialogTitle>Browsers</DialogTitle>
             <DialogDescription>
-              Each profile is its own browser with its own cookies and logins,
-              kept between restarts.
+              Each is its own browser with its own cookies and logins, kept
+              between restarts. Agents pick one by name.
             </DialogDescription>
           </DialogHeader>
 
@@ -203,7 +203,7 @@ function ProfilesDialog({
             <TabsContent value="manage" className="flex flex-col gap-3">
               <div
                 role="listbox"
-                aria-label="Profile to edit"
+                aria-label="Browser to edit"
                 className="flex max-h-44 flex-col overflow-y-auto rounded-lg border border-border p-1"
               >
                 {profiles.map((p) => (
@@ -251,7 +251,7 @@ function ProfilesDialog({
                     Name
                     {editing.default && (
                       <span className="ml-1 font-normal">
-                        (default profile)
+                        (default browser)
                       </span>
                     )}
                   </label>

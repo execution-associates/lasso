@@ -34,10 +34,9 @@ import (
 // credential exactly like /mcp (callerscope.go). `machine` is accepted as an
 // alias of `host` so a herdr-mcp caller's arguments still route.
 //
-// It is its own endpoint rather than more tools on /mcp for the reason
-// /browser-mcp is: ninety-odd raw socket methods are a different job from
-// orchestrating agents, and an agent registered for one should not be handed
-// the other's tool list.
+// It is its own endpoint rather than more tools on /mcp because ninety-odd raw
+// socket methods are a different job from orchestrating agents, and an agent
+// registered for one should not be handed the other's tool list.
 //
 // Nothing here queues. herdr-mcp parks calls through a herdr outage because it
 // holds one socket client per machine; lasso dials a fresh connection per call

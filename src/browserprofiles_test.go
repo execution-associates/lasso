@@ -112,8 +112,8 @@ func TestBrowserProfileCRUD(t *testing.T) {
 	if id, err := resolveProfile("WORK"); err != nil || id != "work" {
 		t.Errorf("resolve by name = %q, %v", id, err)
 	}
-	if _, err := resolveProfile("nope"); err == nil || !strings.Contains(err.Error(), "work") {
-		t.Errorf("unknown profile error should list the profiles: %v", err)
+	if _, err := resolveProfile("nope"); err == nil || !strings.Contains(err.Error(), `no browser "nope"; browsers: `) || !strings.Contains(err.Error(), "work") {
+		t.Errorf("unknown browser error should list the browsers: %v", err)
 	}
 
 	name := "Job"
@@ -161,7 +161,7 @@ func TestBrowserProfileHTTP(t *testing.T) {
 		f.serveProfiles(w, httptest.NewRequest(method, path, strings.NewReader(body)))
 		return w.Code, w.Body.String()
 	}
-	if code, body := do("POST", "/api/browser/profiles", `{"name":"US"}`); code != 200 || !strings.Contains(body, `"ws_path":"/cdp/p/us"`) || !strings.Contains(body, `"mcp_path":"/browser-mcp"`) {
+	if code, body := do("POST", "/api/browser/profiles", `{"name":"US"}`); code != 200 || !strings.Contains(body, `"ws_path":"/cdp/p/us"`) || strings.Contains(body, "mcp_path") {
 		t.Fatalf("create: %d %s", code, body)
 	}
 	if code, body := do("POST", "/api/browser/profiles", `{"name":"Bad","cdp_url":"http://u:p@h:9222"}`); code != 400 || !strings.Contains(body, "credentials") {
@@ -222,39 +222,31 @@ func TestCDPProfileRouting(t *testing.T) {
 			t.Errorf("cdpUpstreamPathAt(%q) = %q %v, want %q", in, got, ok, want)
 		}
 	}
-	for in, want := range map[string]string{
-		"/browser-mcp":       "default",
-		"/browser-mcp/":      "default",
-		"/browser-mcp/work":  "work",
-		"/browser-mcp/work/": "work",
+	for p, want := range map[string]string{
+		"/cdp/browsers":         "browsers",
+		"/cdp/browsers/":        "browsers",
+		"/cdp/p/work/browsers":  "browsers",
+		"/cdp/profiles":         "profiles",
+		"/cdp/profiles/":        "profiles",
+		"/cdp/p/work/profiles":  "profiles",
+		"/cdp/p/work/profiles/": "profiles",
+		"/cdp/p/profiles":       "", // the browser target of a browser named "profiles"
+		"/cdp/p/browsers":       "", // and of one named "browsers"
+		"/cdp/p/":               "",
+		"/cdp/json/list":        "",
+		"/cdp":                  "",
 	} {
-		if got, ok := browserMCPProfile(in); !ok || got != want {
-			t.Errorf("browserMCPProfile(%q) = %q %v", in, got, ok)
-		}
-	}
-	if _, ok := browserMCPProfile("/browser-mcp/a/b"); ok {
-		t.Error("a nested /browser-mcp path routed")
-	}
-	for p, want := range map[string]bool{
-		"/cdp/profiles":         true,
-		"/cdp/profiles/":        true,
-		"/cdp/p/work/profiles":  true,
-		"/cdp/p/work/profiles/": true,
-		"/cdp/p/profiles":       false, // the browser target of a profile named "profiles"
-		"/cdp/p/":               false,
-		"/cdp/json/list":        false,
-		"/cdp":                  false,
-	} {
-		if got := cdpProfilesRequest(p); got != want {
-			t.Errorf("cdpProfilesRequest(%q) = %v, want %v", p, got, want)
+		if got, ok := cdpListingRequest(p); got != want || ok != (want != "") {
+			t.Errorf("cdpListingRequest(%q) = %q %v, want %q", p, got, ok, want)
 		}
 	}
 }
 
-// /cdp/profiles is the CDP-only discovery path: every profile, the default
+// /cdp/browsers is the CDP-only discovery path: every browser, the default
 // first, each with the address to connect to it — served behind the same Origin
-// guard as the rest of /cdp, and without starting a browser.
-func TestCDPProfilesListing(t *testing.T) {
+// guard as the rest of /cdp, and without starting a browser. /cdp/profiles is
+// the same list under a "profiles" key.
+func TestCDPBrowsersListing(t *testing.T) {
 	f := testFleet(t)
 	if _, err := f.create("Work", "", ""); err != nil {
 		t.Fatal(err)
@@ -265,7 +257,7 @@ func TestCDPProfilesListing(t *testing.T) {
 	defer lasso.Close()
 	lu, _ := url.Parse(lasso.URL)
 
-	for _, path := range []string{"/cdp/profiles", "/cdp/p/work/profiles"} {
+	for _, path := range []string{"/cdp/browsers", "/cdp/p/work/browsers", "/cdp/profiles", "/cdp/p/work/profiles"} {
 		resp, err := http.Get(lasso.URL + path)
 		if err != nil {
 			t.Fatal(err)
@@ -275,14 +267,16 @@ func TestCDPProfilesListing(t *testing.T) {
 		if resp.StatusCode != 200 {
 			t.Fatalf("%s: status %d: %s", path, resp.StatusCode, body)
 		}
-		var got cdpProfilesOut
+		var got map[string][]cdpBrowserEntry
 		if err := json.Unmarshal(body, &got); err != nil {
 			t.Fatalf("%s: %v: %s", path, err, body)
 		}
-		if len(got.Profiles) != 2 {
-			t.Fatalf("%s: profiles = %+v", path, got.Profiles)
+		key := path[strings.LastIndex(path, "/")+1:]
+		list := got[key]
+		if len(got) != 1 || len(list) != 2 {
+			t.Fatalf("%s: listing = %s", path, body)
 		}
-		d, w := got.Profiles[0], got.Profiles[1]
+		d, w := list[0], list[1]
 		if d.ID != defaultBrowserProfile || !d.Default || d.WSPath != "/cdp" || d.WSURL != "ws://"+lu.Host+"/cdp" {
 			t.Errorf("%s: default = %+v", path, d)
 		}
@@ -298,7 +292,7 @@ func TestCDPProfilesListing(t *testing.T) {
 	}
 
 	// The Origin guard runs before the listing, like every other /cdp request.
-	req, _ := http.NewRequest("GET", lasso.URL+"/cdp/profiles", nil)
+	req, _ := http.NewRequest("GET", lasso.URL+"/cdp/browsers", nil)
 	req.Header.Set("Origin", "https://evil.example")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -309,7 +303,7 @@ func TestCDPProfilesListing(t *testing.T) {
 		t.Errorf("foreign origin: %d", resp.StatusCode)
 	}
 	// Reading, not writing.
-	resp, err = http.Post(lasso.URL+"/cdp/profiles", "application/json", strings.NewReader("{}"))
+	resp, err = http.Post(lasso.URL+"/cdp/browsers", "application/json", strings.NewReader("{}"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -410,11 +404,11 @@ func TestBrowserProfileMCPTools(t *testing.T) {
 	}
 	defer sess.Close()
 
-	var prof browserProfileOut
-	if msg := callTool(t, sess, "create_browser_profile", map[string]any{"name": "Work"}, &prof); msg != "" {
+	var prof browserOut
+	if msg := callTool(t, sess, "create_browser", map[string]any{"name": "Work"}, &prof); msg != "" {
 		t.Fatal(msg)
 	}
-	if prof.ID != "work" || prof.MCPEndpoint != "http://"+su.Host+"/browser-mcp" || prof.WSEndpoint != "ws://"+su.Host+"/cdp/p/work" {
+	if prof.ID != "work" || prof.WSEndpoint != "ws://"+su.Host+"/cdp/p/work" {
 		t.Fatalf("created %+v", prof)
 	}
 
@@ -422,10 +416,10 @@ func TestBrowserProfileMCPTools(t *testing.T) {
 	runProfileOn(t, f, "work", fc)
 
 	var tab browserTabOut
-	if msg := callTool(t, sess, "open_browser_tab", map[string]any{"url": "example.com", "profile": "Work"}, &tab); msg != "" {
+	if msg := callTool(t, sess, "open_browser_tab", map[string]any{"url": "example.com", "browser": "Work"}, &tab); msg != "" {
 		t.Fatal(msg)
 	}
-	if tab.TabID != "NEW1" || tab.Profile != "work" || tab.URL != "https://example.com" || tab.Delivered != 2 {
+	if tab.TabID != "NEW1" || tab.Browser != "work" || tab.URL != "https://example.com" || tab.Delivered != 2 || tab.WSEndpoint != "ws://"+su.Host+"/cdp/p/work" {
 		t.Errorf("open = %+v", tab)
 	}
 	var put *http.Request
@@ -444,7 +438,7 @@ func TestBrowserProfileMCPTools(t *testing.T) {
 	}
 
 	var quiet browserTabOut
-	if msg := callTool(t, sess, "open_browser_tab", map[string]any{"url": "https://a.test", "profile": "work", "show": false}, &quiet); msg != "" {
+	if msg := callTool(t, sess, "open_browser_tab", map[string]any{"url": "https://a.test", "browser": "work", "show": false}, &quiet); msg != "" {
 		t.Fatal(msg)
 	}
 	if len(events) != 1 || quiet.Delivered != 0 {
@@ -452,68 +446,68 @@ func TestBrowserProfileMCPTools(t *testing.T) {
 	}
 
 	var tabs listBrowserTabsOut
-	if msg := callTool(t, sess, "list_browser_tabs", map[string]any{"profile": "work"}, &tabs); msg != "" {
+	if msg := callTool(t, sess, "list_browser_tabs", map[string]any{"browser": "work"}, &tabs); msg != "" {
 		t.Fatal(msg)
 	}
-	if len(tabs.Profiles) != 1 || !tabs.Profiles[0].Running || len(tabs.Profiles[0].Tabs) != 1 || tabs.Profiles[0].Tabs[0].ID != "P1" {
+	if len(tabs.Browsers) != 1 || tabs.Browsers[0].Browser != "work" || !tabs.Browsers[0].Running || len(tabs.Browsers[0].Tabs) != 1 || tabs.Browsers[0].Tabs[0].ID != "P1" {
 		t.Errorf("tabs = %+v", tabs)
 	}
 
-	if msg := callTool(t, sess, "show_browser_tab", map[string]any{"tab_id": "P1", "profile": "work"}, &tab); msg != "" {
+	if msg := callTool(t, sess, "show_browser_tab", map[string]any{"tab_id": "P1", "browser": "work"}, &tab); msg != "" {
 		t.Fatal(msg)
 	}
 	if len(events) != 2 || events[1].TabID != "P1" {
 		t.Errorf("show events = %+v", events)
 	}
-	if msg := callTool(t, sess, "show_browser_tab", map[string]any{"tab_id": "NOPE", "profile": "work"}, &tab); !strings.Contains(msg, "no tab") {
+	if msg := callTool(t, sess, "show_browser_tab", map[string]any{"tab_id": "NOPE", "browser": "work"}, &tab); !strings.Contains(msg, "no tab") {
 		t.Errorf("show of a missing tab: %q", msg)
 	}
-	if msg := callTool(t, sess, "close_browser_tab", map[string]any{"tab_id": "../x", "profile": "work"}, &tab); !strings.Contains(msg, "not a tab id") {
+	if msg := callTool(t, sess, "close_browser_tab", map[string]any{"tab_id": "../x", "browser": "work"}, &tab); !strings.Contains(msg, "not a tab id") {
 		t.Errorf("close of a path-shaped id: %q", msg)
 	}
 
 	var closed closeBrowserTabOut
-	if msg := callTool(t, sess, "close_browser_tab", map[string]any{"tab_id": "P1", "profile": "work"}, &closed); msg != "" {
+	if msg := callTool(t, sess, "close_browser_tab", map[string]any{"tab_id": "P1", "browser": "work"}, &closed); msg != "" {
 		t.Fatal(msg)
 	}
-	if closed.Closed != "P1" || fc.last().URL.Path != "/json/close/P1" {
+	if closed.Closed != "P1" || closed.Browser != "work" || fc.last().URL.Path != "/json/close/P1" {
 		t.Errorf("close = %+v, upstream %s", closed, fc.last().URL.Path)
 	}
 
-	var list listBrowserProfilesOut
-	if msg := callTool(t, sess, "list_browser_profiles", map[string]any{}, &list); msg != "" {
+	var list listBrowsersOut
+	if msg := callTool(t, sess, "list_browsers", map[string]any{}, &list); msg != "" {
 		t.Fatal(msg)
 	}
-	if len(list.Profiles) != 2 || list.Profiles[1].Name != "Work" || !list.Profiles[1].Running {
+	if len(list.Browsers) != 2 || list.Browsers[1].Name != "Work" || !list.Browsers[1].Running {
 		t.Errorf("list = %+v", list)
 	}
 
 	var sb sharedBrowserOut
-	if msg := callTool(t, sess, "shared_browser", map[string]any{"profile": "work", "start": false}, &sb); msg != "" {
+	if msg := callTool(t, sess, "shared_browser", map[string]any{"browser": "work", "start": false}, &sb); msg != "" {
 		t.Fatal(msg)
 	}
-	if sb.Profile != "work" || sb.MCPEndpoint != "http://"+su.Host+"/browser-mcp" || sb.WSPath != "/cdp/p/work" || len(sb.Pages) != 1 {
+	if sb.Browser != "work" || sb.WSPath != "/cdp/p/work" || sb.WSEndpoint != "ws://"+su.Host+"/cdp/p/work" || sb.BrowsersURL != "http://"+su.Host+"/cdp/browsers" || len(sb.Pages) != 1 {
 		t.Errorf("shared_browser(work) = %+v", sb)
 	}
 
 	// A rename on a stopped profile only stores it.
 	f.mgrs["work"].proc = nil
-	var upd browserProfileOut
-	if msg := callTool(t, sess, "update_browser_profile", map[string]any{"profile": "work", "name": "Job"}, &upd); msg != "" {
+	var upd browserOut
+	if msg := callTool(t, sess, "update_browser", map[string]any{"browser": "work", "name": "Job"}, &upd); msg != "" {
 		t.Fatal(msg)
 	}
 	if upd.Name != "Job" || upd.Running {
 		t.Errorf("update = %+v", upd)
 	}
 
-	var del deleteBrowserProfileOut
-	if msg := callTool(t, sess, "delete_browser_profile", map[string]any{"profile": "work"}, &del); msg != "" {
+	var del deleteBrowserOut
+	if msg := callTool(t, sess, "delete_browser", map[string]any{"browser": "work"}, &del); msg != "" {
 		t.Fatal(msg)
 	}
 	if del.Deleted != "work" {
 		t.Errorf("delete = %+v", del)
 	}
-	if msg := callTool(t, sess, "delete_browser_profile", map[string]any{"profile": "default"}, &del); !strings.Contains(msg, "cannot be deleted") {
+	if msg := callTool(t, sess, "delete_browser", map[string]any{"browser": "default"}, &del); !strings.Contains(msg, "cannot be deleted") {
 		t.Errorf("delete default: %q", msg)
 	}
 }
