@@ -185,10 +185,17 @@
     box-shadow 0.15s ease,
     transform 0.15s ease;
 }
-/* Only a tile that is itself the click target lifts: a button (a bot row) or a
- * closed settings group, which is all header. An open group holds controls,
- * and a panel that moved while the pointer was on a slider would be wrong. */
-:root[data-fx] :is(button.fx-tile, .fx-tile[data-state="closed"]):hover {
+/* Only a tile that is itself the click target lifts: a button (a bot row), a
+ * closed settings group, which is all header, or a wrapper that opts in with
+ * .fx-tile-lift (an agent tile, two buttons side by side). An open group holds
+ * controls, and a panel that moved under the pointer on a slider would be
+ * wrong. */
+:root[data-fx]
+  :is(
+    button.fx-tile,
+    .fx-tile[data-state="closed"],
+    .fx-tile.fx-tile-lift
+  ):hover {
   transform: translateY(-1px);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / calc(0.14 + 0.24 * var(--fx-k))),
@@ -197,8 +204,18 @@
     0 2px 4px color-mix(in oklab, var(--fx-ink) 22%, transparent),
     0 10px 20px -12px color-mix(in oklab, var(--fx-ink) 65%, transparent);
 }
-:root[data-fx] :is(button.fx-tile, .fx-tile[data-state="closed"]):active {
+:root[data-fx]
+  :is(
+    button.fx-tile,
+    .fx-tile[data-state="closed"],
+    .fx-tile.fx-tile-lift
+  ):active {
   transform: none;
+}
+/* "This is the one" on a tile, where the flat chrome used a primary border
+ * (which the tile hides). An outline, so the hover shadow cannot replace it. */
+:root[data-fx] .fx-tile[data-current] {
+  outline: 1px solid color-mix(in oklab, var(--primary) 50%, transparent);
 }
 /* The selected row keeps its palette wash (the .fx-row rule above) on top of
  * the tile's sheen; same specificity, so this one wins by coming later. */
