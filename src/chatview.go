@@ -1840,7 +1840,10 @@ func serveChat(w http.ResponseWriter, r *http.Request) {
 	// pane listing, the records and the stat come from one host. The one
 	// exception is a pane whose host does not have its log at all, which
 	// resolvePaneLog finds on another host and reports as served_by.
-	writeChat(w, buildChatPayload(scr.be, scr.pane, r.URL.Query().Get("before"), false))
+	// ?incoming=1 adds the messages Claude Code channels delivered (mail,
+	// texts, scheduled loops): the Bots view asks for them, the terminal's chat
+	// overlay does not.
+	writeChat(w, buildChatPayload(scr.be, scr.pane, r.URL.Query().Get("before"), r.URL.Query().Get("incoming") == "1"))
 }
 
 // buildChatPayload reads one pane's session as chat rows: the page ending at
@@ -2104,6 +2107,40 @@ func serveChatSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	outcome, detail := chatSubmit(be, req.PaneID, kind, req.Text)
+	writeJSON(w, map[string]any{"outcome": outcome, "detail": detail})
+}
+
+// serveChatStop interrupts the pane's agent (chatStop): POST {pane_id}, on
+// this tab's host like send.
+func serveChatStop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	be, err := reqHostBackend(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	var req struct {
+		PaneID string `json:"pane_id"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil || strings.TrimSpace(req.PaneID) == "" {
+		http.Error(w, "pane_id is required", http.StatusBadRequest)
+		return
+	}
+	panes, err := panesRaw(be)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	p, ok := findChatPane(panes, req.PaneID)
+	if !ok {
+		http.Error(w, "pane not found", http.StatusNotFound)
+		return
+	}
+	_, status := paneAgentPresence(p)
+	outcome, detail := chatStop(be, p, status)
 	writeJSON(w, map[string]any{"outcome": outcome, "detail": detail})
 }
 

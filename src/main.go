@@ -249,6 +249,7 @@ func runServer() {
 	// Agent records: keep them reconciled against herdr's panes without a reader
 	// (see agentreap.go — the aggregation used to be driven by a browser).
 	go startAgentReaper(ctx)
+	go startBotLoop(ctx)
 
 	// The shared browser launches lazily (first /cdp request, the Browser tab's
 	// start, or the MCP tool); nothing runs until then. run() is its idle stop
@@ -324,6 +325,9 @@ func runServer() {
 	mux.HandleFunc("/api/chat", serveChat)
 	mux.HandleFunc("/api/chat/send", serveChatSend)
 	mux.HandleFunc("/api/chat/answer", serveChatAnswer)
+	mux.HandleFunc("/api/chat/stop", serveChatStop)
+	mux.HandleFunc("/api/bots", serveBots)
+	mux.HandleFunc("/api/bots/", serveBots)
 	mux.HandleFunc("/api/all-panes", serveAllPanes)
 	mux.HandleFunc("/api/ui-state", serveUIState)
 	mux.HandleFunc("/api/clients", serveClients)
