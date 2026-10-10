@@ -149,6 +149,10 @@ func serveBotCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	if err := botCheckLaunchTask(b, &rec); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if err := insertBot(&rec); err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
@@ -173,11 +177,15 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 	case http.MethodGet:
 		v := botStatus(b, rec, readClaudeSessions(b))
 		dir := expandTildeOn(b, rec.Dir)
+		// The launch task picker's choices; nil (unknown) when mise cannot
+		// list the folder, which the page shows as just the current task.
+		tasks, _ := botLaunchTasks(b, dir)
 		writeJSON(w, map[string]any{
 			"bot":       v,
 			"dir_path":  dir,
 			"launch":    botTaskScript(rec, dir, botEnvKeys(b, dir)),
 			"claude_md": filepath.Join(dir, "CLAUDE.md"),
+			"tasks":     tasks,
 		})
 	case http.MethodPut:
 		in, err := decodeBotInput(r, *rec)
@@ -191,6 +199,10 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 		next.LastSessionID, next.Stopped, next.CreatedAt = rec.LastSessionID, rec.Stopped, rec.CreatedAt
 		next.AvatarImage = rec.AvatarImage
 		if err := next.normalize(); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := botCheckLaunchTask(b, &next); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

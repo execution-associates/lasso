@@ -155,7 +155,7 @@ func TestBotMCPJSON(t *testing.T) {
 }
 
 func TestValidateResumeArgv(t *testing.T) {
-	if err := validateResumeArgv(botResumeArgv("4a8eb1d3-f2fb-4755-aa35-8fc5efac2e1e")); err != nil {
+	if err := validateResumeArgv(botResumeArgv("bot", "4a8eb1d3-f2fb-4755-aa35-8fc5efac2e1e")); err != nil {
 		t.Fatal(err)
 	}
 	for _, bad := range [][]string{
@@ -169,7 +169,7 @@ func TestValidateResumeArgv(t *testing.T) {
 			t.Errorf("accepted %q", bad)
 		}
 	}
-	if l := len(botLaunchCommand("4a8eb1d3-f2fb-4755-aa35-8fc5efac2e1e")); l > maxTypedLaunch {
+	if l := len(botLaunchCommand(strings.Repeat("t", 64), "4a8eb1d3-f2fb-4755-aa35-8fc5efac2e1e")); l > maxTypedLaunch {
 		t.Errorf("launch line %d bytes", l)
 	}
 }
@@ -212,6 +212,14 @@ func recordTools(t *testing.T, listOut string) *[]toolCall {
 			return nil, fmt.Errorf("no such secret")
 		case tool == "fnox" && args[0] == "remove":
 			delete(fnoxStore, args[1])
+		case tool == "mise" && args[0] == "tasks":
+			tasks, _ := json.Marshal([]map[string]string{
+				{"name": "bot", "source": filepath.Join(dir, ".mise/tasks/bot")},
+				{"name": "restart", "source": filepath.Join(dir, ".mise/tasks/restart")},
+				{"name": "deepseek", "source": filepath.Join(dir, ".mise/tasks/deepseek")},
+				{"name": "global", "source": "/home/x/.config/mise/config.toml"},
+			})
+			return tasks, nil
 		}
 		return nil, nil
 	}
@@ -519,6 +527,53 @@ func TestBotTickRelaunchesAfterGrace(t *testing.T) {
 	botTick()
 	if len(relaunched) != 1 || relaunched[0] != "keep" {
 		t.Fatalf("relaunched = %v, want only keep", relaunched)
+	}
+}
+
+// A launch task is a mode: every way the bot starts goes through it, and the
+// self-restart relaunches through it too, so the mode survives a restart.
+func TestBotLaunchTask(t *testing.T) {
+	r := &botRecord{Name: "jess", LaunchTask: "bot"}
+	if err := r.normalize(); err != nil || r.LaunchTask != "" || r.task() != "bot" {
+		t.Fatalf("bot = %q (%v)", r.LaunchTask, err)
+	}
+	for _, bad := range []string{"restart", "a b", "x;rm", "-x", "it's"} {
+		r := &botRecord{Name: "jess", LaunchTask: bad}
+		if r.normalize() == nil {
+			t.Errorf("accepted launch task %q", bad)
+		}
+	}
+	r = &botRecord{Name: "jess", LaunchTask: "deepseek"}
+	if err := r.normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if got := botResumeArgv(r.task(), "s1"); strings.Join(got, " ") != "mise run deepseek -- --resume s1" {
+		t.Errorf("resume argv = %q", got)
+	}
+	if got := botLaunchCommand(r.task(), ""); got != "mise run deepseek" {
+		t.Errorf("launch = %q", got)
+	}
+	script := botTaskScript(r, "/b/jess", nil)
+	if !strings.Contains(script, "exec mise run deepseek -- --continue") {
+		t.Errorf("restart does not go through the launch task:\n%s", script)
+	}
+	if !strings.Contains(botSystemPrompt(r, "/b/jess"), "mise run deepseek -- --resume") {
+		t.Error("the system prompt names the wrong launch")
+	}
+
+	b := useBotTestEnv(t)
+	dir := t.TempDir()
+	r.Dir = dir
+	if err := botCheckLaunchTask(b, r); err != nil {
+		t.Errorf("refused a task the folder has: %v", err)
+	}
+	names, err := botLaunchTasks(b, dir)
+	if err != nil || strings.Join(names, ",") != "bot,deepseek" {
+		t.Errorf("tasks = %v (%v)", names, err)
+	}
+	r.LaunchTask = "global"
+	if err := botCheckLaunchTask(b, r); err == nil {
+		t.Error("accepted a task from outside the folder")
 	}
 }
 
