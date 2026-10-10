@@ -263,7 +263,7 @@ export function JobsTab({ bot }: { bot: BotView }) {
                   setSeed(null)
                   setEditing("")
                 }}
-                className="flex @min-[560px]:min-h-44 min-h-24 flex-col items-center justify-center gap-1 rounded-lg border border-border border-dashed bg-card/40 p-3 text-[12.5px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                className="flex @min-[560px]:aspect-square min-h-24 flex-col items-center justify-center gap-1 rounded-lg border border-border border-dashed bg-card/40 p-3 text-[12.5px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
               >
                 <Plus className="size-4" />
                 New job
@@ -417,7 +417,7 @@ function JobCard({
         }
       }}
       className={cn(
-        "fx-plate flex min-w-0 cursor-pointer flex-col gap-2 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+        "fx-plate flex @min-[560px]:aspect-square min-w-0 cursor-pointer flex-col gap-2 overflow-hidden rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
         !j.enabled && "opacity-80"
       )}
     >
@@ -537,7 +537,7 @@ function JobCard({
       </dl>
 
       {j.message && (
-        <p className="line-clamp-2 @min-[560px]:block hidden text-[12px] text-muted-foreground leading-snug">
+        <p className="@min-[560px]:block hidden min-h-0 flex-1 overflow-hidden text-[12px] text-muted-foreground leading-snug [mask-image:linear-gradient(to_bottom,black_70%,transparent)]">
           {j.message}
         </p>
       )}
@@ -857,7 +857,7 @@ function JobEditor({
           </p>
         )}
         {draft.scheduled && (
-          <div className="rounded-md bg-muted/60 px-3 py-2 text-[12px]">
+          <div className="rounded-md bg-muted/60 px-3 py-2 text-[12px] sm:ml-[6.25rem]">
             {problem ? (
               <span className="text-muted-foreground">{problem}</span>
             ) : preview?.error ? (
@@ -959,8 +959,19 @@ function ScheduleFields({
     setAdding("")
   }
   const atTimes = b.repeat !== "every" && b.repeat !== "custom"
+  const pill = (on: boolean) =>
+    cn(
+      "h-8 rounded-full border px-3 text-[12px] transition-colors",
+      on
+        ? "border-primary/50 bg-primary/15 text-foreground"
+        : "border-border text-muted-foreground hover:text-foreground"
+    )
+  // Every control is h-8, so a row of chips, fields and buttons shares one
+  // baseline.
+  const control = cn(fieldClass, "h-8 py-0")
   return (
-    <div className="flex flex-col gap-3">
+    <div className="grid grid-cols-1 items-center gap-x-3 gap-y-3 sm:grid-cols-[5.5rem_minmax(0,1fr)]">
+      <Label>Repeats</Label>
       <fieldset className="flex flex-wrap gap-1.5" aria-label="Repeats">
         {REPEATS.map((r) => (
           <button
@@ -968,12 +979,7 @@ function ScheduleFields({
             type="button"
             aria-pressed={b.repeat === r.id}
             onClick={() => pick(r.id)}
-            className={cn(
-              "rounded-full border px-3 py-1 text-[12px] transition-colors",
-              b.repeat === r.id
-                ? "border-primary/50 bg-primary/15 text-foreground"
-                : "border-border text-muted-foreground hover:text-foreground"
-            )}
+            className={pill(b.repeat === r.id)}
           >
             {r.label}
           </button>
@@ -981,44 +987,47 @@ function ScheduleFields({
       </fieldset>
 
       {b.repeat === "every" && (
-        <div className="flex items-center gap-2 text-[12.5px]">
-          <span className="text-muted-foreground">Every</span>
-          <select
-            value={b.everyN}
-            onChange={(e) => setB({ everyN: Number(e.target.value) })}
-            aria-label="Interval"
-            className={cn(fieldClass, "w-20")}
-          >
-            {(b.everyUnit === "minutes" ? EVERY_MINUTES : EVERY_HOURS).map(
-              (n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              )
-            )}
-          </select>
-          <select
-            value={b.everyUnit}
-            onChange={(e) => {
-              const everyUnit = e.target.value as Builder["everyUnit"]
-              const list = everyUnit === "minutes" ? EVERY_MINUTES : EVERY_HOURS
-              setB({
-                everyUnit,
-                everyN: list.includes(b.everyN) ? b.everyN : list[0],
-              })
-            }}
-            aria-label="Unit"
-            className={cn(fieldClass, "w-28")}
-          >
-            <option value="minutes">minutes</option>
-            <option value="hours">hours</option>
-          </select>
-        </div>
+        <>
+          <Label>Every</Label>
+          <div className="flex items-center gap-1.5">
+            <select
+              value={b.everyN}
+              onChange={(e) => setB({ everyN: Number(e.target.value) })}
+              aria-label="Interval"
+              className={cn(control, "w-20")}
+            >
+              {(b.everyUnit === "minutes" ? EVERY_MINUTES : EVERY_HOURS).map(
+                (n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                )
+              )}
+            </select>
+            <select
+              value={b.everyUnit}
+              onChange={(e) => {
+                const everyUnit = e.target.value as Builder["everyUnit"]
+                const list =
+                  everyUnit === "minutes" ? EVERY_MINUTES : EVERY_HOURS
+                setB({
+                  everyUnit,
+                  everyN: list.includes(b.everyN) ? b.everyN : list[0],
+                })
+              }}
+              aria-label="Unit"
+              className={cn(control, "w-28")}
+            >
+              <option value="minutes">minutes</option>
+              <option value="hours">hours</option>
+            </select>
+          </div>
+        </>
       )}
 
       {b.repeat === "weekly" && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="w-10 text-[12px] text-muted-foreground">On</span>
+        <>
+          <Label>On</Label>
           <div className="flex gap-1">
             {WEEK.map((w) => {
               const on = b.days.includes(w.d)
@@ -1036,127 +1045,139 @@ function ScheduleFields({
                         : [...b.days, w.d],
                     })
                   }
-                  className={cn(
-                    "size-7 rounded-md border text-[12px] transition-colors",
-                    on
-                      ? "border-primary/50 bg-primary/15 text-foreground"
-                      : "border-border text-muted-foreground hover:text-foreground"
-                  )}
+                  className={cn(pill(on), "w-8 px-0")}
                 >
                   {w.l}
                 </button>
               )
             })}
           </div>
-        </div>
+        </>
       )}
 
       {b.repeat === "monthly" && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="w-10 text-[12px] text-muted-foreground">On day</span>
-          <select
-            value={b.dom}
-            onChange={(e) => setB({ dom: Number(e.target.value) })}
-            aria-label="Day of the month"
-            className={cn(fieldClass, "w-20")}
-          >
-            {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-          {b.dom > 28 && (
-            <span className="text-[11.5px] text-muted-foreground">
-              Months without a {b.dom}th are skipped.
-            </span>
-          )}
-        </div>
+        <>
+          <Label>On day</Label>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={b.dom}
+              onChange={(e) => setB({ dom: Number(e.target.value) })}
+              aria-label="Day of the month"
+              className={cn(control, "w-20")}
+            >
+              {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+            {b.dom > 28 && (
+              <span className="text-[11.5px] text-muted-foreground">
+                Months without a {b.dom}th are skipped.
+              </span>
+            )}
+          </div>
+        </>
       )}
 
       {atTimes && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="w-10 text-[12px] text-muted-foreground">At</span>
-          {b.times.map((t) => {
-            const [h, m] = t.split(":").map(Number)
-            return (
-              <span
-                key={t}
-                className="flex items-center gap-1 rounded-full border border-border bg-background py-0.5 pr-1 pl-2.5 text-[12px]"
-              >
-                {formatTime(h, m)}
-                <button
-                  type="button"
-                  aria-label={`Remove ${formatTime(h, m)}`}
-                  onClick={() =>
-                    setB({ times: b.times.filter((x) => x !== t) })
-                  }
-                  className="flex size-4 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
+        <>
+          <Label>At</Label>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {b.times.map((t) => {
+              const [h, m] = t.split(":").map(Number)
+              return (
+                <span
+                  key={t}
+                  className="flex h-8 items-center gap-1 rounded-full border border-border bg-background pr-1.5 pl-3 text-[12px]"
                 >
-                  <X className="size-3" />
-                </button>
-              </span>
-            )
-          })}
-          <span className="flex items-center gap-1">
-            <input
-              type="time"
-              step={60}
-              value={adding}
-              onChange={(e) => setAdding(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addTime()}
-              aria-label="Add a time"
-              className={cn(fieldClass, "w-32 py-1")}
-            />
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={!adding}
-              onClick={addTime}
-            >
-              <Plus />
-              Add
-            </Button>
-          </span>
-        </div>
+                  {formatTime(h, m)}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${formatTime(h, m)}`}
+                    onClick={() =>
+                      setB({ times: b.times.filter((x) => x !== t) })
+                    }
+                    className="flex size-5 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </span>
+              )
+            })}
+            <span className="flex items-center gap-1.5">
+              <input
+                type="time"
+                step={60}
+                value={adding}
+                onChange={(e) => setAdding(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addTime()}
+                aria-label="Add a time"
+                className={cn(control, "w-32")}
+              />
+              <Button variant="outline" disabled={!adding} onClick={addTime}>
+                <Plus />
+                Add
+              </Button>
+            </span>
+          </div>
+        </>
       )}
 
       {b.repeat === "custom" && (
-        <label className="flex flex-col gap-1">
-          <span className={labelClass}>Cron</span>
-          <input
-            {...NO_AUTOCORRECT}
-            value={b.cron}
-            onChange={(e) => setB({ cron: e.target.value })}
-            placeholder="0 9 * * 1-5"
-            className={cn(fieldClass, "font-mono")}
-          />
-          <span className="text-[11px] text-muted-foreground">
-            minute hour day-of-month month day-of-week. Join several with ";".
-          </span>
-        </label>
+        <>
+          <Label htmlFor="job-cron">Cron</Label>
+          <div className="flex flex-col gap-1">
+            <input
+              {...NO_AUTOCORRECT}
+              id="job-cron"
+              value={b.cron}
+              onChange={(e) => setB({ cron: e.target.value })}
+              placeholder="0 9 * * 1-5"
+              className={cn(control, "font-mono")}
+            />
+            <span className="text-[11px] text-muted-foreground">
+              minute hour day-of-month month day-of-week. Join several with ";".
+            </span>
+          </div>
+        </>
       )}
 
-      <label className="flex flex-wrap items-center gap-2">
-        <span className="w-20 text-[12px] text-muted-foreground">
-          Time zone
-        </span>
-        <select
-          value={draft.timezone}
-          onChange={(e) => set({ timezone: e.target.value })}
-          className={cn(fieldClass, "min-w-0 flex-1 sm:max-w-xs")}
-        >
-          {(zones.includes(draft.timezone)
-            ? zones
-            : [draft.timezone, ...zones]
-          ).map((z) => (
-            <option key={z} value={z}>
-              {z.replace(/_/g, " ")} ({zoneAbbr(z)})
-            </option>
-          ))}
-        </select>
-      </label>
+      <Label htmlFor="job-tz">Time zone</Label>
+      <select
+        id="job-tz"
+        value={draft.timezone}
+        onChange={(e) => set({ timezone: e.target.value })}
+        className={cn(control, "max-w-sm")}
+      >
+        {(zones.includes(draft.timezone)
+          ? zones
+          : [draft.timezone, ...zones]
+        ).map((z) => (
+          <option key={z} value={z}>
+            {z.replace(/_/g, " ")} ({zoneAbbr(z)})
+          </option>
+        ))}
+      </select>
     </div>
+  )
+}
+
+// A row label in the schedule's two-column grid.
+function Label({
+  htmlFor,
+  children,
+}: {
+  htmlFor?: string
+  children: React.ReactNode
+}) {
+  const cls = "text-[12px] text-muted-foreground"
+  return htmlFor ? (
+    <label htmlFor={htmlFor} className={cls}>
+      {children}
+    </label>
+  ) : (
+    <span className={cls}>{children}</span>
   )
 }
 
