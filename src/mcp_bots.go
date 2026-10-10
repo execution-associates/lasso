@@ -67,7 +67,7 @@ func registerBotTools(s *mcp.Server) {
 	}, getBotTool)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "update_bot",
-		Description: "Change a bot's settings: model, effort, permission mode, MCP servers (the complete list, replacing the current one), strict MCP, extra args, keep-running, notifications, avatar, workspace. Only the fields you pass change. Lasso rewrites the bot's launch script and MCP config; a running bot picks the change up when it restarts (restart_needed). Its CLAUDE.md and skills are files in its folder, edited directly, not through this tool.",
+		Description: "Change a bot's settings: model, effort, permission mode, MCP servers (the complete list, replacing the current one), strict MCP, extra args, keep-running, notifications, workspace. Only the fields you pass change. Lasso rewrites the bot's launch script and MCP config; a running bot picks the change up when it restarts (restart_needed). Its CLAUDE.md and skills are files in its folder, edited directly, not through this tool.",
 	}, updateBotTool)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "set_bot_env",
@@ -121,7 +121,6 @@ type updateBotIn struct {
 	LaunchTask     *string         `json:"launch_task,omitempty" jsonschema:"the mise task in the bot's folder that launches it (a mode, such as another provider); empty or bot for the generated one. It must exist, set its environment, and end with exec mise run bot -- \"$@\""`
 	KeepRunning    *bool           `json:"keep_running,omitempty" jsonschema:"relaunch the bot if it stops unexpectedly"`
 	Notify         *bool           `json:"notify,omitempty" jsonschema:"push a notification to the human's devices each time the bot finishes a reply"`
-	Avatar         *string         `json:"avatar,omitempty" jsonschema:"up to 8 characters (an emoji or initials) for the bot's avatar"`
 	Workspace      *string         `json:"workspace,omitempty" jsonschema:"the herdr workspace its tab opens in, on its next start"`
 }
 
@@ -193,7 +192,6 @@ func updateBotTool(ctx context.Context, req *mcp.CallToolRequest, in updateBotIn
 	set(&next.Model, in.Model)
 	set(&next.Effort, in.Effort)
 	set(&next.PermissionMode, in.PermissionMode)
-	set(&next.Avatar, in.Avatar)
 	set(&next.Workspace, in.Workspace)
 	set(&next.LaunchTask, in.LaunchTask)
 	if in.MCP != nil {
@@ -265,7 +263,7 @@ func unsetBotEnvTool(ctx context.Context, req *mcp.CallToolRequest, in botEnvIn)
 type setBotAvatarIn struct {
 	Name  string `json:"name" jsonschema:"the bot's name"`
 	Path  string `json:"path,omitempty" jsonschema:"an image file on the bot's host (absolute, or ~/…): PNG, JPEG, WebP or GIF, at most 2 MB. Download or generate it to a file first."`
-	Clear bool   `json:"clear,omitempty" jsonschema:"remove the picture, back to the initials avatar"`
+	Clear bool   `json:"clear,omitempty" jsonschema:"remove the picture, back to the first letter of its name"`
 }
 
 func setBotAvatarTool(ctx context.Context, req *mcp.CallToolRequest, in setBotAvatarIn) (*mcp.CallToolResult, botChangeOut, error) {

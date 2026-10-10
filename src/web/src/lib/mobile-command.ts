@@ -3,7 +3,9 @@
 // hears a dial in either iframe (herdr's terminal and the sidebar's shell).
 export const MOBILE_COMMAND_EVENT = "lasso:mobile-command"
 
-export type MobileCommand = "new" | "sidebar" | "host" | "search" | "chat"
+// "views" opens the view picker, which is where every other phone command
+// (New, Search, Host, Sidebar) lives.
+export type MobileCommand = "views"
 
 export function emitMobileCommand(command: MobileCommand): void {
   window.dispatchEvent(

@@ -61,7 +61,7 @@ The gear in the conversation's header opens `/bots/<name>/settings`. **General**
 | Field | What it does |
 | --- | --- |
 | **Name** | Set when the bot is created, then fixed: lowercase letters, digits and dashes, up to 40. It names the herdr agent, the default folder and the address. |
-| **Avatar** | An emoji or up to 8 characters. Empty shows the name's first letter on a colour taken from the name. Once the bot exists, clicking the avatar sets an image instead (see [Pictures](#pictures)). |
+| **Avatar** | A picture, set once the bot exists by clicking the avatar (see [Pictures](#pictures)). Without one it shows the name's first letter on a colour taken from the name. |
 | **Host** | Set when the bot is created: the machine it runs on and where its folder lives. |
 | **Workspace** | The herdr workspace its pane opens in. Default **Bots**. |
 | **Folder** | Its working directory. Default `~/bots/<name>`. |
@@ -74,7 +74,7 @@ The gear in the conversation's header opens `/bots/<name>/settings`. **General**
 
 #### Pictures
 
-Click the avatar next to the Avatar field to upload a PNG, JPEG, WebP or GIF of up to 2 MB (a square one looks best). It shows in the list, the conversation and the bot's notifications. Click it again to replace the picture, or the small × on its corner to remove it. The picture is saved as soon as you pick it, not with the form. lasso keeps it in the bot's folder as `.lasso/avatar.<ext>`. Without a picture the text or emoji avatar shows, and SVG images are not accepted.
+Click the avatar under Avatar to upload a PNG, JPEG, WebP or GIF of up to 2 MB (a square one looks best). It shows in the list, the conversation and the bot's notifications. Click it again to replace the picture, or the small × on its corner to remove it. The picture is saved as soon as you pick it, not with the form. lasso keeps it in the bot's folder as `.lasso/avatar.<ext>`. Without a picture the name's first letter shows, and SVG images are not accepted.
 
 ### Connections
 
@@ -205,4 +205,4 @@ The **+** in the list's header, or **New bot** on the management page, opens the
 
 On a phone the view is one column at a time, as in [When the view is narrow](#when-the-view-is-narrow): the list, then the bot you pick, its settings or the management page, each with **‹ Bots** to go back.
 
-Bots covers the input dial, so the list's header and each bot's own header have a **Switch view** button, which opens the same view picker as the dial's **Chat** button.
+Bots covers the input dial, so the list's header and each bot's own header have a **Switch view** button, which opens the same view picker as the dial's big button.

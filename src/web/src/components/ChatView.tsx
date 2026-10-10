@@ -11,6 +11,7 @@ import {
   Globe,
   Image as ImageIcon,
   Inbox,
+  LayoutGrid,
   ListTodo,
   Loader2,
   Mail,
@@ -1468,6 +1469,7 @@ export function ChatView({
   modal,
   onShowTerminal,
   onShowSidebar,
+  onOpenViews,
   onNew,
   className,
   incoming = false,
@@ -1482,6 +1484,9 @@ export function ChatView({
   // is what lets the modal open without re-pointing herdr's one global focus.
   address?: { host: string; paneID: string }
   modal?: ChatModalActions
+  // The terminal, showing the pane this chat reads (herdr's focused one). md+
+  // only: below md the view picker (onOpenViews) is the way there, as it is
+  // from every other view that covers the input dial.
   onShowTerminal?: () => void
   // lasso's right sidebar (Files, Agents, Settings). An OPEN, not a toggle:
   // below md that panel overlays the whole screen, so the header carrying this
@@ -1491,6 +1496,10 @@ export function ChatView({
   // the way to the agent list and the creator there, both of which live in that
   // panel below md.
   onShowSidebar?: () => void
+  // The phone's view picker (App's). The chat covers the input dial that
+  // opens it from the terminal, so below md its header carries the button,
+  // as Bots' headers and a plugin view do.
+  onOpenViews?: () => void
   // The creator, with both its Agent and Terminal tabs (App.tsx:openNewFromChat).
   // Below md only: at md+ the footer's New is on screen. Not in the modal.
   onNew?: () => void
@@ -1503,8 +1512,8 @@ export function ChatView({
   // terminal's chat leaves them out, as the transcript's meta turns they are.
   incoming?: boolean
   // "bot": embedded in the Bots view, which owns the agent's lifecycle and
-  // its own chrome — so the header drops the pin, End agent and the phone's
-  // New/Terminal/Sidebar trio, and the title is not a rename.
+  // its own chrome — so the header drops the pin, Terminal, End agent and the
+  // phone's New/Views/Sidebar trio, and the title is not a rename.
   variant?: "default" | "bot"
   // A fixed title instead of herdr's workspace label: the bot's name, or the
   // Bots view's bot switcher when it is too narrow for its list.
@@ -1990,21 +1999,18 @@ export function ChatView({
             )}
           </button>
         )}
-        {/* Below md these two are the chat's whole chrome, as buttons rather
-            than items under one glyph: the menu they replace carried five, and
-            three of those have moved into the sidebar panel — the agent list is a
-            tab there now, and New agent and Close pane are its header's own
-            controls — which leaves exactly the two that are about this VIEW
-            rather than about an agent. Two icons fit a phone's title row where
-            four did not, and a destination one tap away beats a named item two
-            taps in. Sidebar is the only pointer route to that panel from the chat
-            on a phone (the footer is md+, and the dial's own sidebar button is
-            inside the terminal iframe this view covers); Terminal is the way
-            back, which the footer's toggle is at md+. Sidebar takes the outer
-            edge, where the panel it opens comes from and where the footer keeps
-            its own sidebar control at md+. New leads them: the footer's New is
-            md+ too, and the sidebar's New agent makes only agents, so this is a
-            phone's one way to a terminal from the chat. */}
+        {/* Below md these three are the chat's whole chrome: New, the view
+            picker and Sidebar, as buttons rather than items under one glyph.
+            The picker is the way back to the terminal (and on to Bots or a
+            plugin's view), the same button every view that covers the input
+            dial carries, so a phone moves between views one way everywhere.
+            Sidebar is the only pointer route to that panel from the chat on a
+            phone (the footer is md+, and the dial's own sidebar button is
+            inside the terminal iframe this view covers); it takes the outer
+            edge, where the panel it opens comes from. New leads them: the
+            footer's New is md+ too, and the sidebar's New agent makes only
+            agents, so this is a phone's one way to a terminal from the chat.
+            At md+ the header has Terminal and End agent instead. */}
         {modal ? (
           <>
             <button
@@ -2046,12 +2052,12 @@ export function ChatView({
             </button>
             <button
               type="button"
-              onClick={onShowTerminal}
-              title="Show the terminal"
-              aria-label="Show the terminal"
+              onClick={onOpenViews}
+              title="Switch view"
+              aria-label="Switch view"
               className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground md:hidden"
             >
-              <SquareTerminal className="size-4" />
+              <LayoutGrid className="size-4" />
             </button>
             <button
               type="button"
@@ -2062,11 +2068,21 @@ export function ChatView({
             >
               <PanelRightOpen className="size-4" />
             </button>
-            {/* And at md+ this is the one action the header keeps: the footer already
-            carries Agents (its left-hand toggle), Terminal and New, but nothing
-            anywhere closes a pane — so the chat, which is where you are looking
-            at the pane in question, is where that belongs. Below md the sidebar's
-            Agents tab carries it instead, next to the agent whose pane it ends. */}
+            {/* At md+ the header keeps two actions about the agent on screen:
+            its terminal, one click from the conversation being read, and its
+            end — nothing else anywhere closes a pane, so the chat, which is
+            where you are looking at the pane in question, is where that
+            belongs. Below md the picker is the way to the terminal and the
+            sidebar's Agents tab carries End, next to the agent it ends. */}
+            <button
+              type="button"
+              onClick={onShowTerminal}
+              title="Open in terminal"
+              aria-label="Open in terminal"
+              className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground max-md:hidden"
+            >
+              <SquareTerminal className="size-4" />
+            </button>
             <button
               type="button"
               onClick={() => setConfirmClose(true)}

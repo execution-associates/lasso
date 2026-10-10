@@ -5,7 +5,7 @@ order: 12
 nav_title: Phone setup
 ---
 
-lasso works as a phone app: added to the home screen it launches full screen from its own icon, with a radial input dial for the keys a touch keyboard lacks (see [Terminal](../web-ui/terminal.md)). Its most useful trick on a phone is buzzing you when an agent is stuck waiting on you. That needs three things, in this order: an HTTPS origin, the home-screen install, and push enabled from inside the installed app.
+lasso works as a phone app: added to the home screen it launches full screen from its own icon, with an input dial for the keys a touch keyboard lacks and a view picker (see [Terminal](../web-ui/terminal.md)). Its most useful trick on a phone is buzzing you when an agent is stuck waiting on you. That needs three things, in this order: an HTTPS origin, the home-screen install, and push enabled from inside the installed app.
 
 ## 1. Reach lasso over HTTPS
 

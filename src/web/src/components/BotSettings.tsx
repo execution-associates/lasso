@@ -121,7 +121,6 @@ type DraftServer = {
 type Draft = {
   name: string
   host: string
-  avatar: string
   workspace: string
   dir: string
   model: string
@@ -162,7 +161,6 @@ function draftOf(b?: BotView): Draft {
   return {
     name: b?.name ?? "",
     host: b?.host ?? "local",
-    avatar: b?.avatar ?? "",
     workspace: b?.workspace ?? "",
     dir: b?.dir ?? "",
     model: b?.model ?? "",
@@ -199,7 +197,6 @@ function fieldsOf(d: Draft): BotFields {
     permission_mode: d.permission_mode,
     keep_running: d.keep_running,
     notify: d.notify,
-    avatar: d.avatar.trim(),
     extra_args: lines(d.extra_args),
     strict_mcp: d.strict_mcp,
     mcp: d.mcp.map(serverOf),
@@ -435,11 +432,11 @@ function AvatarPicture({
   shown,
 }: {
   bot?: BotView
-  shown: Pick<BotView, "avatar" | "name"> & { avatar_image?: string }
+  shown: Pick<BotView, "name"> & { avatar_image?: string }
 }) {
   const input = React.useRef<HTMLInputElement>(null)
   const [busy, setBusy] = React.useState(false)
-  if (!bot) return <BotAvatar bot={shown} size={36} />
+  if (!bot) return <BotAvatar bot={shown} size={44} />
   const run = async (fn: () => Promise<unknown>, fail: string) => {
     setBusy(true)
     try {
@@ -478,7 +475,7 @@ function AvatarPicture({
         aria-label={label}
         className="group relative block cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-default disabled:opacity-60"
       >
-        <BotAvatar bot={shown} size={36} />
+        <BotAvatar bot={shown} size={44} />
         <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/45 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
           <ImageIcon className="size-4" />
         </span>
@@ -526,182 +523,178 @@ function GeneralTab({
     ? claude.effort_levels
     : FALLBACK_EFFORTS
   const nameBad = creating && draft.name !== "" && !BOT_NAME_RE.test(draft.name)
+  // Two raised tiles: what the bot is, then how it behaves.
   return (
-    <div className="flex flex-col gap-4">
-      {creating && (
-        <Field
-          label="Name"
-          htmlFor="bot-name"
-          hint={
-            nameBad ? (
-              <span className="text-destructive">
-                Lowercase letters, digits and dashes, starting with a letter or
-                digit (40 at most).
-              </span>
-            ) : (
-              "Its herdr pane, its folder and its address here. Fixed once created."
-            )
-          }
-        >
-          <input
-            {...NO_AUTOCORRECT}
-            id="bot-name"
-            value={draft.name}
-            maxLength={40}
-            onChange={(e) => set({ name: e.target.value.toLowerCase() })}
-            placeholder="jessica"
-            aria-invalid={nameBad || undefined}
-            className={fieldClass}
-          />
-        </Field>
-      )}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field
-          label="Avatar"
-          htmlFor="bot-avatar"
-          hint={
-            bot
-              ? "Click the avatar for a picture, or type an emoji or up to 8 characters. Empty uses the first letter."
-              : "An emoji or up to 8 characters; a picture once the bot exists. Empty uses the first letter."
-          }
-        >
-          <div className="flex items-center gap-2">
+    <div className="flex flex-col gap-3">
+      <section className="fx-tile flex flex-col gap-4 rounded-lg border border-border p-4">
+        {creating && (
+          <Field
+            label="Name"
+            htmlFor="bot-name"
+            hint={
+              nameBad ? (
+                <span className="text-destructive">
+                  Lowercase letters, digits and dashes, starting with a letter
+                  or digit (40 at most).
+                </span>
+              ) : (
+                "Its herdr pane, its folder and its address here. Fixed once created."
+              )
+            }
+          >
+            <input
+              {...NO_AUTOCORRECT}
+              id="bot-name"
+              value={draft.name}
+              maxLength={40}
+              onChange={(e) => set({ name: e.target.value.toLowerCase() })}
+              placeholder="jessica"
+              aria-invalid={nameBad || undefined}
+              className={fieldClass}
+            />
+          </Field>
+        )}
+        <Field label="Avatar">
+          <div className="flex items-center gap-3">
             <AvatarPicture
               bot={bot}
               shown={{
                 name: draft.name || "?",
-                avatar: draft.avatar,
                 avatar_image: bot?.avatar_image,
               }}
             />
-            <input
-              {...NO_AUTOCORRECT}
-              id="bot-avatar"
-              value={draft.avatar}
-              onChange={(e) => set({ avatar: e.target.value })}
-              placeholder="🤖"
-              className={cn(fieldClass, "min-w-0 flex-1")}
-            />
+            <p className="text-[11px] text-muted-foreground">
+              {bot
+                ? "Click it to choose a picture: PNG, JPEG, WebP or GIF. Without one it shows the first letter."
+                : "A picture can be added once the bot exists. Until then it shows the first letter."}
+            </p>
           </div>
         </Field>
-        {creating && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {creating && (
+            <Field
+              label="Host"
+              htmlFor="bot-host"
+              hint="The machine it runs on, and where its folder lives."
+            >
+              <HostSelect
+                value={draft.host}
+                onChange={(host) => set({ host })}
+              />
+            </Field>
+          )}
           <Field
-            label="Host"
-            htmlFor="bot-host"
-            hint="The machine it runs on, and where its folder lives."
+            label="Workspace"
+            htmlFor="bot-workspace"
+            hint="The herdr workspace its pane opens in."
           >
-            <HostSelect value={draft.host} onChange={(host) => set({ host })} />
+            <input
+              {...NO_AUTOCORRECT}
+              id="bot-workspace"
+              value={draft.workspace}
+              onChange={(e) => set({ workspace: e.target.value })}
+              placeholder="Bots"
+              className={fieldClass}
+            />
           </Field>
-        )}
-        <Field
-          label="Workspace"
-          htmlFor="bot-workspace"
-          hint="The herdr workspace its pane opens in."
-        >
-          <input
-            {...NO_AUTOCORRECT}
-            id="bot-workspace"
-            value={draft.workspace}
-            onChange={(e) => set({ workspace: e.target.value })}
-            placeholder="Bots"
-            className={fieldClass}
-          />
-        </Field>
-        <Field
-          label="Folder"
-          htmlFor="bot-dir"
-          hint="Its working directory, holding CLAUDE.md, skills and mise.toml."
-        >
-          <input
-            {...NO_AUTOCORRECT}
-            id="bot-dir"
-            value={draft.dir}
-            onChange={(e) => set({ dir: e.target.value })}
-            placeholder={`~/bots/${draft.name || "<name>"}`}
-            className={cn(fieldClass, "font-mono")}
-          />
-        </Field>
-        <Field label="Model" htmlFor="bot-model">
-          <EditableCombobox
-            id="bot-model"
-            value={draft.model}
-            onValueChange={(model) => set({ model })}
-            suggestions={claude?.model_suggestions ?? []}
-            placeholder="default"
-            emptyOption="default"
-          />
-        </Field>
-        <Field label="Thinking effort" htmlFor="bot-effort">
-          <select
-            id="bot-effort"
-            className={fieldClass}
-            value={draft.effort}
-            onChange={(e) => set({ effort: e.target.value })}
+          <Field
+            label="Folder"
+            htmlFor="bot-dir"
+            hint="Its working directory, holding CLAUDE.md, skills and mise.toml."
           >
-            <option value="">default</option>
-            {efforts.map((l) => (
-              <option key={l} value={l}>
-                {l}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field
-          label="Permission mode"
-          htmlFor="bot-permission"
-          hint="What it may do without asking. A bot nobody is watching usually needs more than the default."
-        >
-          <select
-            id="bot-permission"
-            className={fieldClass}
-            value={draft.permission_mode}
-            onChange={(e) => set({ permission_mode: e.target.value })}
+            <input
+              {...NO_AUTOCORRECT}
+              id="bot-dir"
+              value={draft.dir}
+              onChange={(e) => set({ dir: e.target.value })}
+              placeholder={`~/bots/${draft.name || "<name>"}`}
+              className={cn(fieldClass, "font-mono")}
+            />
+          </Field>
+          <Field label="Model" htmlFor="bot-model">
+            <EditableCombobox
+              id="bot-model"
+              value={draft.model}
+              onValueChange={(model) => set({ model })}
+              suggestions={claude?.model_suggestions ?? []}
+              placeholder="default"
+              emptyOption="default"
+            />
+          </Field>
+          <Field label="Thinking effort" htmlFor="bot-effort">
+            <select
+              id="bot-effort"
+              className={fieldClass}
+              value={draft.effort}
+              onChange={(e) => set({ effort: e.target.value })}
+            >
+              <option value="">default</option>
+              {efforts.map((l) => (
+                <option key={l} value={l}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field
+            label="Permission mode"
+            htmlFor="bot-permission"
+            hint="What it may do without asking. A bot nobody is watching usually needs more than the default."
           >
-            {BOT_PERMISSION_MODES.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field
-          label="Extra CLI args"
-          htmlFor="bot-args"
-          hint="Added to its claude command, one argument per line."
+            <select
+              id="bot-permission"
+              className={fieldClass}
+              value={draft.permission_mode}
+              onChange={(e) => set({ permission_mode: e.target.value })}
+            >
+              {BOT_PERMISSION_MODES.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field
+            label="Extra CLI args"
+            htmlFor="bot-args"
+            hint="Added to its claude command, one argument per line."
+          >
+            <textarea
+              {...NO_AUTOCORRECT}
+              id="bot-args"
+              rows={2}
+              value={draft.extra_args}
+              onChange={(e) => set({ extra_args: e.target.value })}
+              className={cn(fieldClass, "resize-y font-mono")}
+            />
+          </Field>
+        </div>
+      </section>
+      <section className="fx-tile flex flex-col gap-4 rounded-lg border border-border p-4">
+        <Check
+          id="bot-keep"
+          checked={draft.keep_running}
+          onChange={(keep_running) => set({ keep_running })}
         >
-          <textarea
-            {...NO_AUTOCORRECT}
-            id="bot-args"
-            rows={2}
-            value={draft.extra_args}
-            onChange={(e) => set({ extra_args: e.target.value })}
-            className={cn(fieldClass, "resize-y font-mono")}
-          />
-        </Field>
-      </div>
-      <Check
-        id="bot-keep"
-        checked={draft.keep_running}
-        onChange={(keep_running) => set({ keep_running })}
-      >
-        Keep running
-        <span className="block text-[11.5px] text-muted-foreground">
-          Bring it back when its session ends or herdr restarts, resuming the
-          same conversation.
-        </span>
-      </Check>
-      <Check
-        id="bot-notify"
-        checked={draft.notify}
-        onChange={(notify) => set({ notify })}
-      >
-        Notify me when it answers
-        <span className="block text-[11.5px] text-muted-foreground">
-          A notification on your devices each time it finishes a reply, unless
-          you are looking at its chat. Turn on notifications on each device
-          first (Bots list, the bell).
-        </span>
-      </Check>
+          Keep running
+          <span className="block text-[11.5px] text-muted-foreground">
+            Bring it back when its session ends or herdr restarts, resuming the
+            same conversation.
+          </span>
+        </Check>
+        <Check
+          id="bot-notify"
+          checked={draft.notify}
+          onChange={(notify) => set({ notify })}
+        >
+          Notify me when it answers
+          <span className="block text-[11.5px] text-muted-foreground">
+            A notification on your devices each time it finishes a reply, unless
+            you are looking at its chat. Turn on notifications on each device
+            first (Bots list, the bell).
+          </span>
+        </Check>
+      </section>
     </div>
   )
 }

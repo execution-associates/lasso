@@ -55,12 +55,9 @@ export function botRunning(b: BotView): boolean {
   return b.state !== "stopped"
 }
 
-// What the avatar circle shows: the bot's own (an emoji or a few letters),
-// else its initial.
-export function botAvatarText(b: Pick<BotView, "avatar" | "name">): string {
-  const a = b.avatar?.trim()
-  if (a) return a
-  return (b.name.charAt(0) || "?").toUpperCase()
+// What the avatar circle shows when the bot has no picture: its initial.
+export function botInitial(name: string): string {
+  return (name.charAt(0) || "?").toUpperCase()
 }
 
 // A hue from the name, so a bot with no avatar keeps one colour wherever it is
