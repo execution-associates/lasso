@@ -9,6 +9,7 @@ import {
   Pause,
   Play,
   Plus,
+  Radar,
   RefreshCw,
   Save,
   Trash2,
@@ -44,6 +45,7 @@ import {
   type BotChannelState,
   type BotJob,
   type BotJobEvent,
+  type BotJobRunResult,
   type BotView,
 } from "@/lib/api"
 import { botRunning, useMinuteClock } from "@/lib/bots"
@@ -57,16 +59,20 @@ import {
   fromCron,
   humanize,
   localTimeZone,
+  onceText,
   type Repeat,
   timeZones,
   toCron,
   whenText,
   zoneAbbr,
+  zoneLocalInput,
 } from "@/lib/cron"
 import { cn } from "@/lib/utils"
 
-// A bot's Jobs tab (docs/design/bots.md, "Jobs"): scheduled prompts and
-// webhooks lasso delivers into the bot's session through its lasso-channel.
+// A bot's Jobs tab (docs/design/bots.md, "Jobs"): scheduled prompts, watches
+// and webhooks lasso delivers into the bot's session through its
+// lasso-channel. A watch is a job with a command: it runs on each firing and
+// only what it prints is delivered.
 // Jobs are saved where they are edited, each on its own, like the folder's
 // tabs: none of them needs the bot's row or a restart.
 
@@ -122,7 +128,12 @@ async function copyHook(j: BotJob) {
 }
 
 // The schedule as people say it, with the zone: "Every day at 7:47 AM · PT".
-function scheduleText(j: { cron: string; timezone: string }, short = false) {
+function scheduleText(
+  j: { cron: string; timezone: string; once_at?: string },
+  short = false
+) {
+  if (j.once_at)
+    return `${onceText(j.once_at, j.timezone)} · ${zoneAbbr(j.timezone)}`
   if (!j.cron) return null
   const h = humanize(j.cron)
   const words = h ? (short ? h.short : h.long) : "Custom schedule"
@@ -148,9 +159,7 @@ export function JobsTab({ bot }: { bot: BotView }) {
   const run = async (j: BotJob) => {
     try {
       const res = await api.bots.jobRun(bot.name, j.name)
-      if (res.status === "dropped")
-        toast.warning(`${bot.name} is stopped, so ${j.name} was not delivered`)
-      else toast.success(`${j.name} queued for ${bot.name}`)
+      runToast(bot.name, j, res)
     } catch (e) {
       toast.error(`could not run ${j.name}: ${(e as Error).message}`)
     }
@@ -220,8 +229,8 @@ export function JobsTab({ bot }: { bot: BotView }) {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-start gap-3">
         <p className="min-w-0 flex-1 text-[12.5px] text-muted-foreground leading-relaxed">
-          Scheduled prompts and webhooks delivered into {bot.name}'s session.
-          Changes apply right away, no restart.
+          Scheduled prompts, watches and webhooks delivered into {bot.name}'s
+          session. Changes apply right away, no restart.
         </p>
         <Button
           size="sm"
@@ -244,7 +253,7 @@ export function JobsTab({ bot }: { bot: BotView }) {
       )}
       {jobs.data && list.length === 0 && channel?.available && (
         <p className="rounded-lg border border-border border-dashed px-3 py-6 text-center text-[12.5px] text-muted-foreground">
-          No jobs yet. New job adds a scheduled prompt or a webhook.
+          No jobs yet. New job adds a scheduled prompt, a watch or a webhook.
         </p>
       )}
       {jobs.data && list.length > 0 && (
@@ -291,6 +300,69 @@ export function JobsTab({ bot }: { bot: BotView }) {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  )
+}
+
+// What Run now came to. A watch delivers only when its command prints, so
+// "nothing happened" is a result worth saying.
+function runToast(bot: string, j: BotJob, res: BotJobRunResult) {
+  const detail = res.detail ? `: ${res.detail}` : ""
+  switch (res.status) {
+    case "dropped":
+      toast.warning(`${bot} is stopped, so ${j.name} was not delivered`)
+      return
+    case "quiet":
+      toast.success(`${j.name} ran: no output, so nothing was delivered`)
+      return
+    case "failed": {
+      const how = res.exit ? `failed (exit ${res.exit})` : "failed"
+      const sent = res.event_id
+        ? `reported to ${bot}`
+        : "not reported (failures are damped)"
+      toast.error(`${j.name} ${how}${detail}. ${sent}`)
+      return
+    }
+    case "running":
+      toast.info(
+        `${j.name} is still running; it delivers only if the command prints`
+      )
+      return
+    case "busy":
+      toast.info(`${j.name} is already running`)
+      return
+    default:
+      toast.success(
+        j.command
+          ? `${j.name} printed something; queued for ${bot}`
+          : `${j.name} queued for ${bot}`
+      )
+  }
+}
+
+// A watch's newest run: "3m ago, quiet", "1h ago, failed (exit 1) ×5".
+function checkText(j: BotJob, now: number): string {
+  if (j.running) return "running now"
+  if (!j.last_run_at) return "not yet"
+  const when = whenText(j.last_run_at, now)
+  const streak = j.fail_streak > 1 ? ` ×${j.fail_streak}` : ""
+  switch (j.last_run_result) {
+    case "quiet":
+      return `${when}, quiet`
+    case "output":
+      return `${when}, printed`
+    case "timeout":
+      return `${when}, timed out${streak}`
+    case "error":
+      return `${when}, failed${j.last_run_exit ? ` (exit ${j.last_run_exit})` : ""}${streak}`
+    default:
+      return when
+  }
+}
+
+function checkFailed(j: BotJob): boolean {
+  return (
+    !j.running &&
+    (j.last_run_result === "error" || j.last_run_result === "timeout")
   )
 }
 
@@ -428,6 +500,15 @@ function JobCard({
           {j.name}
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-1">
+          {j.command && (
+            <span
+              className="flex items-center gap-0.5 rounded bg-primary/15 px-1.5 py-px font-medium text-[10px] text-primary uppercase tracking-wide"
+              title="Runs a command each time and delivers only what it prints"
+            >
+              <Radar className="size-2.5" />
+              watch
+            </span>
+          )}
           {j.webhook && (
             <span
               className="flex items-center gap-0.5 rounded bg-primary/15 px-1.5 py-px font-medium text-[10px] text-primary uppercase tracking-wide"
@@ -514,6 +595,17 @@ function JobCard({
             "never"
           )}
         </dd>
+        {j.command && (
+          <>
+            <dt>Checked</dt>
+            <dd
+              className={cn("truncate", checkFailed(j) && "text-destructive")}
+              title={j.last_run_note || undefined}
+            >
+              {checkText(j, now)}
+            </dd>
+          </>
+        )}
       </dl>
 
       {j.message && (
@@ -561,20 +653,32 @@ type JobDraft = {
   enabled: boolean
   scheduled: boolean
   builder: Builder
+  // A one-time run instead of the builder's repeat, as a datetime-local
+  // value on the job's clock.
+  once: boolean
+  onceLocal: string
   timezone: string
   webhook: boolean
+  command: string
+  // Seconds, as typed; "" for the default.
+  timeout: string
 }
 
 function draftOf(j?: Partial<BotJob> | null): JobDraft {
   const cron = j?.cron ?? ""
+  const timezone = j?.timezone || localTimeZone()
   return {
     name: j?.name ?? "",
     message: j?.message ?? "",
     enabled: j?.enabled ?? true,
-    scheduled: j ? !!cron : true,
+    scheduled: j ? !!cron || !!j.once_at : true,
     builder: cron ? fromCron(cron) : blankBuilder(),
-    timezone: j?.timezone || localTimeZone(),
+    once: !!j?.once_at,
+    onceLocal: j?.once_at ? zoneLocalInput(j.once_at, timezone) : "",
+    timezone,
     webhook: j?.webhook ?? false,
+    command: j?.command ?? "",
+    timeout: j?.timeout ? String(j.timeout) : "",
   }
 }
 
@@ -583,9 +687,12 @@ function fieldsOf(d: JobDraft) {
     name: d.name.trim(),
     message: d.message,
     enabled: d.enabled,
-    cron: d.scheduled ? toCron(d.builder) : "",
+    cron: d.scheduled && !d.once ? toCron(d.builder) : "",
+    once_at: d.scheduled && d.once ? d.onceLocal : "",
     timezone: d.timezone,
     webhook: d.webhook,
+    command: d.command.trim(),
+    timeout: d.timeout.trim() ? Number(d.timeout) : 0,
   }
 }
 
@@ -689,7 +796,20 @@ function JobEditor({
   const fields = fieldsOf(draft)
   const dirty = !job || JSON.stringify(fields) !== base
   const nameBad = !!fields.name && !JOB_NAME_RE.test(fields.name)
-  const problem = draft.scheduled ? builderProblem(draft.builder) : ""
+  const problem = !draft.scheduled
+    ? ""
+    : draft.once
+      ? draft.onceLocal
+        ? ""
+        : "Pick a date and time."
+      : builderProblem(draft.builder)
+  const timeoutBad =
+    !!draft.timeout.trim() &&
+    !(
+      Number.isInteger(fields.timeout) &&
+      fields.timeout >= 1 &&
+      fields.timeout <= 3600
+    )
 
   // The server checks the schedule and lists its next fires, so the preview
   // says exactly what the scheduler will do.
@@ -697,15 +817,21 @@ function JobEditor({
     next?: string[]
     error?: string
   } | null>(null)
+  // A one-time run that has already fired is left alone by a save, so its
+  // "already passed" is only a problem once it is edited.
+  const oncePassedUnchanged =
+    !!job?.once_at &&
+    fields.once_at === zoneLocalInput(job.once_at, job.timezone) &&
+    draft.timezone === job.timezone
   React.useEffect(() => {
-    if (!draft.scheduled || !fields.cron) {
+    if (!draft.scheduled || (!fields.cron && !fields.once_at)) {
       setPreview(null)
       return
     }
     let live = true
     const t = setTimeout(() => {
       api.bots
-        .jobPreview(bot.name, fields.cron, draft.timezone)
+        .jobPreview(bot.name, fields.cron, draft.timezone, fields.once_at)
         .then((p) => live && setPreview(p))
         .catch((e) => live && setPreview({ error: (e as Error).message }))
     }, 250)
@@ -713,16 +839,19 @@ function JobEditor({
       live = false
       clearTimeout(t)
     }
-  }, [bot.name, fields.cron, draft.scheduled, draft.timezone])
+  }, [bot.name, fields.cron, fields.once_at, draft.scheduled, draft.timezone])
+  const previewError =
+    preview?.error && !(draft.once && oncePassedUnchanged) ? preview.error : ""
 
-  const missing = !fields.message.trim() && !fields.webhook
+  const missing = !fields.message.trim() && !fields.webhook && !fields.command
   const canSave =
     dirty &&
     !saving &&
     !!fields.name &&
     !nameBad &&
     !problem &&
-    !preview?.error &&
+    !previewError &&
+    !timeoutBad &&
     !missing
 
   const save = async () => {
@@ -742,6 +871,15 @@ function JobEditor({
   }
 
   const human = fields.cron ? humanize(fields.cron) : null
+  const summary = draft.once
+    ? preview?.next?.[0]
+      ? onceText(preview.next[0], draft.timezone)
+      : job?.once_at && oncePassedUnchanged
+        ? `${onceText(job.once_at, draft.timezone)} (passed)`
+        : "Once"
+    : human
+      ? human.long
+      : "Custom schedule"
   const zones = React.useMemo(timeZones, [])
 
   return (
@@ -812,11 +950,57 @@ function JobEditor({
           className={cn(fieldClass, "resize-y leading-relaxed")}
         />
         <span className="text-[11px] text-muted-foreground">
-          {draft.webhook
-            ? "A webhook call's body is delivered after this, marked as the caller's."
-            : `Delivered to ${bot.name} as your instruction each time the job fires.`}
+          {fields.command
+            ? `Optional for a watch: shown above the command's output whenever it prints, as your standing instruction.`
+            : draft.webhook
+              ? "A webhook call's body is delivered after this, marked as the caller's."
+              : `Delivered to ${bot.name} as your instruction each time the job fires.`}
         </span>
       </label>
+
+      <Section
+        title="Command"
+        aside={
+          <label className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+            Timeout
+            <input
+              {...NO_AUTOCORRECT}
+              inputMode="numeric"
+              value={draft.timeout}
+              onChange={(e) =>
+                set({ timeout: e.target.value.replace(/[^0-9]/g, "") })
+              }
+              placeholder="60"
+              aria-invalid={timeoutBad || undefined}
+              className={cn(fieldClass, "h-7 w-16 py-0 text-right font-mono")}
+            />
+            s
+          </label>
+        }
+      >
+        <textarea
+          {...NO_AUTOCORRECT}
+          value={draft.command}
+          onChange={(e) => set({ command: e.target.value })}
+          rows={2}
+          placeholder="/home/you/.local/libexec/check-something.sh"
+          aria-label="Command"
+          className={cn(fieldClass, "resize-y font-mono text-[12px]")}
+        />
+        <span className="text-[11px] text-muted-foreground leading-relaxed">
+          {fields.command
+            ? `A watch: each firing runs this in ${bot.name}'s folder and delivers only what it prints. No output, nothing delivered. A failure or a timeout is reported, damped to the 1st, 2nd, 4th, 8th… in a row.`
+            : `Optional. With a command the job becomes a watch: it checks each time and wakes ${bot.name} only when the command prints something.`}{" "}
+          It runs as lasso's user with a minimal environment, not a login shell:
+          use absolute paths, and have the script fetch its own secrets.
+        </span>
+        {timeoutBad && (
+          <span className="text-[11.5px] text-destructive">
+            Timeout is 1 to 3600 seconds.
+          </span>
+        )}
+        {job?.command && <LastCheck job={job} />}
+      </Section>
 
       <Section
         title="Schedule"
@@ -840,14 +1024,12 @@ function JobEditor({
           <div className="rounded-md bg-muted/60 px-3 py-2 text-[12px] sm:ml-[6.25rem]">
             {problem ? (
               <span className="text-muted-foreground">{problem}</span>
-            ) : preview?.error ? (
-              <span className="text-destructive">{preview.error}</span>
+            ) : previewError ? (
+              <span className="text-destructive">{previewError}</span>
             ) : (
               <>
                 <span className="block text-foreground">
-                  {human
-                    ? `${human.long}, ${zoneLong(draft.timezone)}`
-                    : "Custom schedule"}
+                  {summary}, {zoneLong(draft.timezone)}
                 </span>
                 {preview?.next && preview.next.length > 0 && (
                   <span className="block text-muted-foreground">
@@ -890,11 +1072,33 @@ function JobEditor({
 
       {missing && (
         <p className="text-[11.5px] text-muted-foreground">
-          A job needs a message, or a webhook whose body becomes the message.
+          A job needs a message, a command, or a webhook whose body becomes the
+          message.
         </p>
       )}
 
       {job && <JobHistory bot={bot} job={job} />}
+    </div>
+  )
+}
+
+// The watch's newest run, in the editor's Command section.
+function LastCheck({ job }: { job: BotJob }) {
+  const now = useMinuteClock()
+  const failed = checkFailed(job)
+  return (
+    <div className="flex flex-col gap-0.5 rounded-md bg-muted/60 px-3 py-2 text-[12px]">
+      <span className={cn(failed ? "text-destructive" : "text-foreground")}>
+        Last check: {checkText(job, now)}
+        {job.last_run_at && !job.running && job.last_run_ms > 0
+          ? ` · took ${job.last_run_ms < 1000 ? `${job.last_run_ms}ms` : `${(job.last_run_ms / 1000).toFixed(1)}s`}`
+          : ""}
+      </span>
+      {failed && job.last_run_note && (
+        <span className="break-words font-mono text-[11.5px] text-muted-foreground">
+          {job.last_run_note}
+        </span>
+      )}
     </div>
   )
 }
@@ -938,7 +1142,8 @@ function ScheduleFields({
     if (!b.times.includes(adding)) setB({ times: [...b.times, adding].sort() })
     setAdding("")
   }
-  const atTimes = b.repeat !== "every" && b.repeat !== "custom"
+  const once = draft.once
+  const atTimes = !once && b.repeat !== "every" && b.repeat !== "custom"
   const pill = (on: boolean) =>
     cn(
       "h-8 rounded-full border px-3 text-[12px] transition-colors",
@@ -953,20 +1158,45 @@ function ScheduleFields({
     <div className="grid grid-cols-1 items-center gap-x-3 gap-y-3 sm:grid-cols-[5.5rem_minmax(0,1fr)]">
       <Label>Repeats</Label>
       <fieldset className="flex flex-wrap gap-1.5" aria-label="Repeats">
+        <button
+          type="button"
+          aria-pressed={once}
+          onClick={() => set({ once: true })}
+          className={pill(once)}
+        >
+          Once
+        </button>
         {REPEATS.map((r) => (
           <button
             key={r.id}
             type="button"
-            aria-pressed={b.repeat === r.id}
-            onClick={() => pick(r.id)}
-            className={pill(b.repeat === r.id)}
+            aria-pressed={!once && b.repeat === r.id}
+            onClick={() => {
+              set({ once: false })
+              pick(r.id)
+            }}
+            className={pill(!once && b.repeat === r.id)}
           >
             {r.label}
           </button>
         ))}
       </fieldset>
 
-      {b.repeat === "every" && (
+      {once && (
+        <>
+          <Label htmlFor="job-once">On</Label>
+          <input
+            id="job-once"
+            type="datetime-local"
+            step={60}
+            value={draft.onceLocal}
+            onChange={(e) => set({ onceLocal: e.target.value })}
+            className={cn(control, "w-56")}
+          />
+        </>
+      )}
+
+      {!once && b.repeat === "every" && (
         <>
           <Label>Every</Label>
           <div className="flex items-center gap-1.5">
@@ -1005,7 +1235,7 @@ function ScheduleFields({
         </>
       )}
 
-      {b.repeat === "weekly" && (
+      {!once && b.repeat === "weekly" && (
         <>
           <Label>On</Label>
           <div className="flex gap-1">
@@ -1035,7 +1265,7 @@ function ScheduleFields({
         </>
       )}
 
-      {b.repeat === "monthly" && (
+      {!once && b.repeat === "monthly" && (
         <>
           <Label>On day</Label>
           <div className="flex flex-wrap items-center gap-2">
@@ -1104,7 +1334,7 @@ function ScheduleFields({
         </>
       )}
 
-      {b.repeat === "custom" && (
+      {!once && b.repeat === "custom" && (
         <>
           <Label htmlFor="job-cron">Cron</Label>
           <div className="flex flex-col gap-1">
@@ -1265,7 +1495,9 @@ function JobHistory({ bot, job }: { bot: BotView; job: BotJob }) {
     <Section title="Recent">
       {list.length === 0 ? (
         <p className="text-[12px] text-muted-foreground">
-          Nothing yet. Press Run now to try it.
+          {job.command
+            ? "Nothing delivered yet: the command has not printed anything. Press Run now to try it."
+            : "Nothing yet. Press Run now to try it."}
         </p>
       ) : (
         <ul className="flex flex-col divide-y divide-border/60 text-[12px]">
@@ -1296,9 +1528,15 @@ function JobHistory({ bot, job }: { bot: BotView; job: BotJob }) {
                       : e.status}
                   {e.count > 1 ? ` ×${e.count}` : ""}
                 </span>
+                {e.run_status && (
+                  <span className="rounded bg-destructive/15 px-1.5 py-px font-medium text-[10px] text-destructive uppercase tracking-wide">
+                    {e.run_status === "timeout" ? "timed out" : "failed"}
+                  </span>
+                )}
                 {(e.reason || (e.count > 1 && e.status !== "dropped")) && (
                   <span className="min-w-0 truncate text-muted-foreground">
-                    {e.reason || "merged while busy"}
+                    {e.reason ||
+                      (e.watch ? `${e.count} runs` : "merged while busy")}
                   </span>
                 )}
                 {e.source && (
