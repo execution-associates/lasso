@@ -22,6 +22,7 @@ package main
 //	GET    /api/bots/<name>/skills            the folder's project skills
 //	POST   /api/bots/<name>/skills            {from}: copy a skill directory in
 //	DELETE /api/bots/<name>/skills?name=
+//	…      /api/bots/<name>/jobs[/…]          scheduled jobs and webhooks (botjobs.go)
 //
 // CLAUDE.md is a file in the bot's folder and goes through /api/file.
 
@@ -96,6 +97,10 @@ func serveBots(w http.ResponseWriter, r *http.Request) {
 	b, err := botBackend(rec.Host)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	if jobs, ok := strings.CutPrefix(action, "jobs"); ok && (jobs == "" || strings.HasPrefix(jobs, "/")) {
+		serveBotJobs(w, r, rec, strings.TrimPrefix(jobs, "/"))
 		return
 	}
 	switch action {
@@ -178,6 +183,7 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 	case http.MethodGet:
 		v := botStatus(b, rec, readClaudeSessions(b))
 		dir := expandTildeOn(b, rec.Dir)
+		botLoadChannelToken(rec)
 		// The launch task picker's choices; nil (unknown) when mise cannot
 		// list the folder, which the page shows as just the current task.
 		tasks, _ := botLaunchTasks(b, dir)
@@ -195,6 +201,8 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 			"claude_md": filepath.Join(dir, "CLAUDE.md"),
 			"tasks":     tasks,
 			"lasso_mcp": lassoMCP,
+			// lasso's channel, shown as a read-only connection when the bot gets it.
+			"lasso_channel": rec.channelToken != "" && slices.Contains(rec.channelGrants(), botChannelName),
 		})
 	case http.MethodPut:
 		in, err := decodeBotInput(r, *rec)

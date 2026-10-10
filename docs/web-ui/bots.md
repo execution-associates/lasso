@@ -82,7 +82,7 @@ The MCP servers the bot gets, as a grid of cards. Each card shows the server's n
 
 Click a card, or **Add connection**, to edit it in a dialog. A server is **stdio** (a command, its arguments one per line, and environment variables) or **http**/**sse** (a URL and headers). Tick **Channel** on a server that also delivers messages for the bot to answer. **Done** keeps the change in the page and the footer's **Save** writes it; **Remove connection** takes the server out. Closing the dialog on a new server that was never filled in drops it.
 
-A dashed **lasso** card, *added by lasso*, is the server lasso gives every bot on its own machine for its settings tools. It is shown so the grid is complete, and cannot be edited.
+A dashed **lasso** card, *added by lasso*, is the server lasso gives every bot on its own machine for its settings tools. A dashed **lasso-channel** card is the channel that delivers its [jobs](#jobs). Both are shown so the grid is complete, and cannot be edited.
 
 **Only these servers** starts the bot with these servers and nothing else, without your claude.ai connectors or user-level MCP servers.
 
@@ -95,6 +95,19 @@ Keep secrets out of this page. Write `${VAR}` in a server's environment or heade
 - **Where the tokens go:** lasso keeps the tokens in the bot's `fnox.toml`, encrypted like any other secret, and refreshes them before they expire. Claude reads the current one each time it connects. Each bot signs in separately, so two bots can use different accounts on the same service.
 - **A running bot needs a restart:** the first sign-in, and a sign-out, change how the bot connects, and a running bot only reads that when it starts. The panel says so; restart it from **Launch**. Later token refreshes need no restart.
 - **Servers that don't register clients automatically:** open **Server without automatic client registration** and enter the client ID, the redirect URI it was registered with, and the scope.
+
+### Jobs
+
+Scheduled prompts and webhooks that lasso delivers into the bot's session, shown as a grid of cards (three columns when there is room, one on a narrow view). Each card shows the job's name, its schedule in plain words with the time zone ("Every day at 6 AM, noon and 6 PM · PT"), when it runs next and when it last ran (✓ delivered, ✗ dropped: hover for why), and the start of its message. Badges mark a **webhook**, a **paused** job, and **queued ×N** when it fired while the bot was busy or not listening. Enabled jobs come first, by next run, then jobs with no schedule, then paused ones. **Run now** fires a job at once (a paused one too). **Copy URL** copies a webhook's address. The **⋯** menu pauses, resumes, duplicates or deletes. Changes take effect immediately, with no save of the bot and no restart.
+
+Click a card, or **New job**, to edit it:
+
+- **Message:** the instruction delivered each time the job fires.
+- **Schedule:** **Every…** (minutes or hours), **Daily**, **Weekdays**, **Weekly** (pick days), **Monthly** (pick a day), each with one or more times, or **Custom** for a cron expression. The time zone defaults to your browser's. A box under it reads the schedule back as a sentence with its next three run times, or says why it is not valid.
+- **Webhook:** turn it on and save to get a URL. Anything that POSTs to it fires the job, and the request body is delivered after the message, marked as coming from the caller. The URL's `key` is its only credential, so it is masked until **Show**, and **Rotate key** replaces it (the old URL stops working at once). A caller that sends headers can use `Authorization: Bearer <key>` instead. From outside the tailnet, the hostname's edge (Cloudflare Access) must let `/hooks/` through.
+- **Recent:** the job's last deliveries: when, what fired it, and whether it was delivered or dropped.
+
+The line under the description says whether the bot is listening. Jobs reach a bot through lasso's own channel, which it gets from its next start: a bot that was running before lasso had jobs offers **Restart**. A job that fires while the bot is **stopped** is dropped, not saved for later, and one nobody picks up within a day is dropped too. Firings that pile up while the bot is busy arrive as one delivery with a count. Jobs are offered only to bots on lasso's own machine.
 
 ### Skills
 
