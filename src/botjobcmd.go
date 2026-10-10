@@ -350,7 +350,19 @@ func runBotJobCommand(j *botJob, kind string, now time.Time) (botCmdOutcome, err
 		id, _, err := enqueueBotEvent(j, kind, j.Message, "", now)
 		return botCmdOutcome{Result: "dropped", EventID: id}, err
 	}
-	res := execBotCommand(j.Command, rec.Dir, botCommandEnv(os.Environ(), j.Bot, j.Name), j.timeout())
+	// The stored folder may be "~/…": expand it against the bot's host, as
+	// every other bot path does. exec reports a missing Dir as a missing
+	// /bin/sh, so say what is actually wrong.
+	dir := rec.Dir
+	if b, err := botBackend(rec.Host); err == nil {
+		dir = expandTildeOn(b, dir)
+	}
+	var res botExecResult
+	if dirExists(dir) {
+		res = execBotCommand(j.Command, dir, botCommandEnv(os.Environ(), j.Bot, j.Name), j.timeout())
+	} else {
+		res = botExecResult{Err: fmt.Errorf("the bot's folder %s does not exist", dir)}
+	}
 	end := now.Add(res.Took)
 	stamp := nowStamp(end)
 

@@ -302,3 +302,31 @@ func TestBotJobOnce(t *testing.T) {
 		t.Errorf("past preview = %v", p)
 	}
 }
+
+func TestBotWatchTildeFolder(t *testing.T) {
+	rec := testJobBot(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.Mkdir(filepath.Join(home, "bot"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE bots SET dir = '~/bot' WHERE name = ?`, rec.Name); err != nil {
+		t.Fatal(err)
+	}
+	j, err := createBotJob(rec, botJobInput{Name: ptr("w"), Command: ptr(`pwd`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o := fire(t, j); o.Result != "output" {
+		t.Fatalf("~ folder run = %+v", o)
+	}
+	ev, _ := claimBotEvents("jess", time.Now())
+	if len(ev) != 1 || !strings.Contains(ev[0].Content, filepath.Join(home, "bot")) {
+		t.Fatalf("ran elsewhere: %+v", ev)
+	}
+	// A folder that is gone is said plainly, not as a missing /bin/sh.
+	_, _ = db.Exec(`UPDATE bots SET dir = '~/gone' WHERE name = ?`, rec.Name)
+	if o := fire(t, j); o.Result != "error" || !strings.Contains(o.Detail, "does not exist") {
+		t.Fatalf("missing folder = %+v", o)
+	}
+}
