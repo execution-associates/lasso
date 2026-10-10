@@ -224,9 +224,14 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 		}
 		writeJSON(w, map[string]any{"bot": botStatus(b, &next, readClaudeSessions(b))})
 	case http.MethodDelete:
+		// Delete works from any state: a running bot is stopped first (marked
+		// stopped before its pane closes, so keep-running cannot bring it back
+		// in between), and then the row goes.
 		if _, running := findBotPane(b, rec); running {
-			http.Error(w, "stop the bot before deleting it", http.StatusConflict)
-			return
+			if err := stopBot(b, rec); err != nil {
+				http.Error(w, "stop it before deleting: "+err.Error(), http.StatusBadGateway)
+				return
+			}
 		}
 		if err := deleteBot(rec.Name); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
