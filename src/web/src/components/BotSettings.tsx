@@ -425,11 +425,20 @@ function KVEditor({
 // ---------------------------------------------------------------------------
 // General
 
-// AvatarPicture sets or removes a saved bot's picture. It saves on pick, not
-// with the form: the picture is a file in the bot's folder, not a setting.
-function AvatarPicture({ bot }: { bot: BotView }) {
+// AvatarPicture is the avatar itself as a button: click it to pick a picture.
+// It saves on pick, not with the form: the picture is a file in the bot's
+// folder, not a setting. Before the bot exists there is no folder, so it is
+// just the avatar.
+function AvatarPicture({
+  bot,
+  shown,
+}: {
+  bot?: BotView
+  shown: Pick<BotView, "avatar" | "name"> & { avatar_image?: string }
+}) {
   const input = React.useRef<HTMLInputElement>(null)
   const [busy, setBusy] = React.useState(false)
+  if (!bot) return <BotAvatar bot={shown} size={36} />
   const run = async (fn: () => Promise<unknown>, fail: string) => {
     setBusy(true)
     try {
@@ -441,8 +450,9 @@ function AvatarPicture({ bot }: { bot: BotView }) {
       setBusy(false)
     }
   }
+  const label = bot.avatar_image ? "Replace the picture" : "Use a picture"
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <span className="relative shrink-0">
       <input
         ref={input}
         type="file"
@@ -459,31 +469,37 @@ function AvatarPicture({ bot }: { bot: BotView }) {
             )
         }}
       />
-      <Button
-        variant="outline"
-        size="sm"
+      <button
+        type="button"
         disabled={busy}
         onClick={() => input.current?.click()}
+        title={label}
+        aria-label={label}
+        className="group relative block cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-default disabled:opacity-60"
       >
-        <ImageIcon />
-        {bot.avatar_image ? "Replace picture" : "Use a picture"}
-      </Button>
+        <BotAvatar bot={shown} size={36} />
+        <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/45 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+          <ImageIcon className="size-4" />
+        </span>
+      </button>
       {bot.avatar_image && (
-        <Button
-          variant="ghost"
-          size="sm"
+        <button
+          type="button"
           disabled={busy}
+          title="Remove the picture"
+          aria-label="Remove the picture"
           onClick={() =>
             void run(
               () => api.bots.avatarClear(bot.name),
               "could not remove the picture"
             )
           }
+          className="absolute -top-1 -right-1 flex size-4 cursor-pointer items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground"
         >
-          Remove picture
-        </Button>
+          <X className="size-2.5" />
+        </button>
       )}
-    </div>
+    </span>
   )
 }
 
@@ -542,28 +558,29 @@ function GeneralTab({
         <Field
           label="Avatar"
           htmlFor="bot-avatar"
-          hint="A picture, or an emoji or up to 8 characters. Empty uses the first letter."
+          hint={
+            bot
+              ? "Click the avatar for a picture, or type an emoji or up to 8 characters. Empty uses the first letter."
+              : "An emoji or up to 8 characters; a picture once the bot exists. Empty uses the first letter."
+          }
         >
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <BotAvatar
-                bot={{
-                  name: draft.name || "?",
-                  avatar: draft.avatar,
-                  avatar_image: bot?.avatar_image,
-                }}
-                size={32}
-              />
-              <input
-                {...NO_AUTOCORRECT}
-                id="bot-avatar"
-                value={draft.avatar}
-                onChange={(e) => set({ avatar: e.target.value })}
-                placeholder="🤖"
-                className={cn(fieldClass, "min-w-0 flex-1")}
-              />
-            </div>
-            {bot && <AvatarPicture bot={bot} />}
+          <div className="flex items-center gap-2">
+            <AvatarPicture
+              bot={bot}
+              shown={{
+                name: draft.name || "?",
+                avatar: draft.avatar,
+                avatar_image: bot?.avatar_image,
+              }}
+            />
+            <input
+              {...NO_AUTOCORRECT}
+              id="bot-avatar"
+              value={draft.avatar}
+              onChange={(e) => set({ avatar: e.target.value })}
+              placeholder="🤖"
+              className={cn(fieldClass, "min-w-0 flex-1")}
+            />
           </div>
         </Field>
         {creating && (
