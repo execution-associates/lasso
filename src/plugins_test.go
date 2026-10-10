@@ -988,3 +988,36 @@ func TestPluginFingerprintStableWithoutViews(t *testing.T) {
 		t.Errorf("fingerprint = %s, want the pre-views %s", got, want)
 	}
 }
+
+// The SDK is served to every plugin page, enabled plugin or not, with the same
+// sandbox headers as plugin files and an explicit type (nosniff would refuse a
+// script without one). Anything else under _sdk is a 404.
+func TestPluginSDKServed(t *testing.T) {
+	m := &pluginManager{}
+	for file, wantType := range map[string]string{
+		"lasso.js":  "text/javascript",
+		"lasso.css": "text/css",
+	} {
+		rec := httptest.NewRecorder()
+		m.serveFiles(rec, httptest.NewRequest(http.MethodGet, "/plugins/_sdk/"+file, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status %d", file, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, wantType) {
+			t.Errorf("%s: Content-Type %q", file, ct)
+		}
+		if csp := rec.Header().Get("Content-Security-Policy"); csp != pluginDocCSP {
+			t.Errorf("%s: CSP %q", file, csp)
+		}
+		if rec.Body.Len() == 0 {
+			t.Errorf("%s: empty body", file)
+		}
+	}
+	for _, p := range []string{"/plugins/_sdk/", "/plugins/_sdk/x.js", "/plugins/_sdk/../plugins.go"} {
+		rec := httptest.NewRecorder()
+		m.serveFiles(rec, httptest.NewRequest(http.MethodGet, p, nil))
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("%s: status %d, want 404", p, rec.Code)
+		}
+	}
+}
