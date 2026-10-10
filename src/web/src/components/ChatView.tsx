@@ -359,7 +359,7 @@ function AskCard({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-lg border bg-card",
+        "fx-plate overflow-hidden rounded-lg border bg-card",
         answerable ? "border-primary/40" : "border-border"
       )}
     >
@@ -558,7 +558,7 @@ function ToolCard({ tool }: { tool: ChatTool }) {
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-lg border bg-card",
+        "fx-plate overflow-hidden rounded-lg border bg-card",
         tool.state === "error" ? "border-destructive/40" : "border-border"
       )}
     >
@@ -863,7 +863,7 @@ function ChannelCard({ msg }: { msg: ReturnType<typeof channelMessage> }) {
   const long = msg.body.length > 280 || msg.body.split("\n").length > 4
   const Icon = channelIcon(msg.label)
   return (
-    <div className="max-w-[92%] overflow-hidden rounded-lg border border-border bg-card">
+    <div className="fx-plate max-w-[92%] overflow-hidden rounded-lg border border-border bg-card">
       <div className="flex min-w-0 items-center gap-2 px-2.5 pt-2">
         <Icon className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="shrink-0 rounded bg-muted px-1.5 py-px font-mono text-[10px] text-muted-foreground uppercase tracking-wide">
@@ -1930,7 +1930,7 @@ export function ChatView({
         className
       )}
     >
-      <div className="flex flex-none items-center gap-2 border-border border-b px-2.5 py-1.5">
+      <div className="fx-headline flex flex-none items-center gap-2 border-border border-b px-2.5 py-1.5">
         {/* Below md the modal is a full-screen sheet, and its way out is a
             BACK, not a cross: it reads as navigation, so nobody takes it for
             the thing that ends the agent. */}
@@ -2155,13 +2155,20 @@ export function ChatView({
               </div>
             )}
             {rows.map((row) => (
-              <RowView
+              // A wrapper so a row that arrives fades in (fx.css; only under
+              // the palette chrome), once: rows are keyed, so a poll that
+              // re-renders them does not replay it.
+              <div
                 key={row.kind === "group" ? row.id : row.item.id}
-                row={row}
-                resolveImage={resolveImage}
-                host={data?.host ?? ""}
-                paneID={data?.pane_id ?? ""}
-              />
+                className="fx-in min-w-0"
+              >
+                <RowView
+                  row={row}
+                  resolveImage={resolveImage}
+                  host={data?.host ?? ""}
+                  paneID={data?.pane_id ?? ""}
+                />
+              </div>
             ))}
             {/* The message the pane has taken but the transcript has not written
                 yet, drawn exactly where its row will appear and in the user's

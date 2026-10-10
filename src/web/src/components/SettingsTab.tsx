@@ -68,6 +68,7 @@ import {
   type PluginState,
   type PluginTabPermission,
   type SidebarTabPref,
+  type Texture,
   type ThemeCatalogEntry,
   type ThemePayload,
   type TypographySlot,
@@ -1770,8 +1771,30 @@ function AtmosphereControls({
 }) {
   const shade = getShading(theme)
   const scrim = getScrim(theme)
+  const texture = useUIState().texture
   return (
     <div className="mt-1 flex flex-col gap-2">
+      {/* Every theme's, not this one's: it is how the chrome feels, and it
+          applies only while the chrome follows a palette. */}
+      <div className="flex flex-col gap-1">
+        <label
+          className="flex items-center gap-2 text-muted-foreground text-xs"
+          htmlFor="settings-texture"
+        >
+          Texture — grain, light and sheen on the chrome, never under the
+          terminal or a conversation
+        </label>
+        <select
+          id="settings-texture"
+          className={cn(flatFieldClass, "max-w-xs")}
+          value={texture}
+          onChange={(e) => patchUIState({ texture: e.target.value as Texture })}
+        >
+          <option value="subtle">Subtle</option>
+          <option value="full">Full</option>
+          <option value="off">Off — flat panels</option>
+        </select>
+      </div>
       <label
         className="flex cursor-pointer select-none items-center gap-2 text-muted-foreground text-xs"
         htmlFor="settings-atmo-shade"

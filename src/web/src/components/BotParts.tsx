@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react"
 import { toast } from "sonner"
 import { Orb } from "@/components/ui/orb"
 import { api, type BotView } from "@/lib/api"
@@ -22,15 +23,20 @@ export function BotAvatar({
       aria-hidden
       className={cn(
         "flex shrink-0 select-none items-center justify-center overflow-hidden rounded-full font-semibold leading-none",
-        own ? "bg-muted text-foreground" : "text-white",
+        own ? "bg-muted text-foreground" : "fx-avatar text-white",
         className
       )}
-      style={{
-        width: size,
-        height: size,
-        fontSize: Math.round(size * (own ? 0.5 : 0.42)),
-        background: own ? undefined : `oklch(0.58 0.12 ${botHue(bot.name)}deg)`,
-      }}
+      style={
+        {
+          width: size,
+          height: size,
+          fontSize: Math.round(size * (own ? 0.5 : 0.42)),
+          background: own
+            ? undefined
+            : `oklch(0.58 0.12 ${botHue(bot.name)}deg)`,
+          "--av-h": botHue(bot.name),
+        } as CSSProperties
+      }
     >
       {botAvatarText(bot)}
     </span>
@@ -70,7 +76,12 @@ export function BotStateMark({
       ) : bot.state === "stopped" ? (
         <span className="size-2 rounded-full border border-current" />
       ) : (
-        <span className="size-1.5 rounded-full bg-current opacity-70" />
+        <span
+          className={cn(
+            "size-1.5 rounded-full bg-current opacity-70",
+            bot.state === "blocked" && "fx-live"
+          )}
+        />
       )}
       {(words || bot.state === "blocked") && (
         <span className="truncate">

@@ -131,7 +131,7 @@ const MAIN_VIEWS: {
 const stripClass =
   "h-auto w-full justify-start gap-0 rounded-none border-b border-border bg-background p-0"
 const tabClass =
-  "flex-none rounded-none border-0 border-b-2 border-transparent bg-transparent px-3 py-1.5 text-[13px] text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none"
+  "fx-tab flex-none rounded-none border-0 border-b-2 border-transparent bg-transparent px-3 py-1.5 text-[13px] text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none"
 
 type TabDef = {
   value: string
@@ -1173,7 +1173,7 @@ function Shell() {
             className={cn(
               // sidebar-panel: the atmosphere's translucency opt-out at phone
               // widths, where this panel covers the terminal (see index.css).
-              "sidebar-panel relative flex h-full min-h-0 flex-col border-border border-l bg-card",
+              "sidebar-panel fx-ground relative flex h-full min-h-0 flex-col border-border border-l bg-card",
               // On phones there isn't room to split the screen, so an open sidebar
               // takes it over entirely: lift it out of the flex flow and overlay the
               // left panel full-screen. Drops back to an in-flow resizable panel at
@@ -1333,7 +1333,7 @@ function Shell() {
         desktop window dragged that narrow has no room for the row either — and
         the input dial beside xterm's textarea carries the same commands at that
         width, mouse or finger (see lib/mobile-input-dial). */}
-      <footer className="hidden flex-none items-center gap-2 border-border border-t bg-card px-2 py-1 md:flex">
+      <footer className="fx-ground hidden flex-none items-center gap-2 border-border border-t bg-card px-2 py-1 md:flex">
         <div className="flex flex-none items-center gap-1">
           {/* The list on the LEFT of the terminal column, which is a different
               thing in each view: herdr's own sidebar in the terminal, the host's

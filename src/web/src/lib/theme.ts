@@ -1,7 +1,8 @@
 import { api, type ThemeCatalogEntry, type ThemePayload } from "@/lib/api"
+import { applyCharacter } from "@/lib/character"
 import { contrastRatio, ensureContrast, isLightSurface } from "@/lib/contrast"
 import { applyMode, applyScheme, getMode, localPaletteName } from "@/lib/mode"
-import { uiStateSettled } from "@/lib/ui-state"
+import { uiStateNow, uiStateSettled } from "@/lib/ui-state"
 import {
   backgroundFor,
   getScrim,
@@ -755,6 +756,17 @@ export function applyAtmosphere() {
   if (atmosphereOn && chromeFollowsPalette())
     root.setAttribute("data-atmosphere", effectiveTheme || "on")
   else root.removeAttribute("data-atmosphere")
+  // The character layer rides the same chokepoint: its colors are this
+  // palette's, and the flat Nothing chrome (no palette followed) has none.
+  const texture = uiStateNow().texture ?? "subtle"
+  applyCharacter({
+    on: chromeFollowsPalette() && texture !== "off",
+    texture,
+    base,
+    a: paletteColor("blue") || paletteColor("cyan"),
+    b: paletteColor("magenta") || paletteColor("green"),
+    c: paletteColor("yellow") || paletteColor("red"),
+  })
   // The terminal's palette carries the transparency the backdrop needs, so a
   // backdrop change re-pins it: turning an image off has to put the opaque
   // background back, or the terminal keeps showing the chrome behind it. A
