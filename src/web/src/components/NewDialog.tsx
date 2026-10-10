@@ -151,7 +151,10 @@ const PROMPT_PLACEHOLDERS = [
 // property of the screen you are typing on, not a preference to push to every
 // device mid-edit. The prompt, attachments and pasted images are NOT kept —
 // reopening onto someone else's half-written instruction is the surprise this
-// is trying to avoid.
+// is trying to avoid. The harness's params (model, effort, extra args, plan
+// mode, advisor) survive a close but not a create: a submit clears them
+// (`clearDraftParams`) while the harness itself stays picked, so one agent's
+// one-off flags never ride along on the next.
 type CreatorDraft = {
   type: AgentType
   repo: string
@@ -214,6 +217,22 @@ function saveDraft(host: string, draft: CreatorDraft) {
   } catch {
     // Private mode / blocked site data: the creator just stops remembering.
   }
+}
+
+// Drop the harness params from a host's draft after a create. Written straight
+// to storage because the dialog has already closed by then, and the save effect
+// only runs while it is open.
+function clearDraftParams(host: string) {
+  const draft = readDraft(host)
+  if (!draft.agent) return
+  saveDraft(host, {
+    ...(draft as CreatorDraft),
+    model: "",
+    effort: "",
+    extraArgs: "",
+    planMode: false,
+    advisor: false,
+  })
 }
 
 // Record the host a create actually ran on, so the next open lands there. Only
@@ -763,11 +782,11 @@ export function NewDialog({
     [pastedImages]
   )
 
-  // Clears only what belongs to the create that just happened. The remembered
-  // params (type, repo, harness, model, effort, args, plan mode, advisor,
-  // prefix) are deliberately left alone — the draft governs them, and the next
-  // open re-seeds from it.
+  // Clears what belongs to the create that just happened: the prompt and its
+  // files here, the harness params in the draft. Type, repo, harness and prefix
+  // stay remembered, and the next open re-seeds from the draft.
   const reset = () => {
+    clearDraftParams(selectedHost)
     setPrompt("")
     setPastingImage(false)
     setBranchName("")
