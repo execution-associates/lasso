@@ -530,5 +530,8 @@ The colours are the Execution Associates palette as isb's web app applies it (`i
 - **States** use isb's status colours, chosen to stay clear of the pink: done `--success` `#5ED99E`, working `--info` `#80B3FD`, blocked `--destructive` `#FA686A`, idle muted at 60 % on ink.
 - **The rail's glass** is re-tinted to ink: the fill runs `#352545` → ink-deep `#12071F`, and the rim `#947D99` → `#2A1D37`.
 
-The brand brief's own fonts (Geist, Archivo; OFL) would be bundled as app resources. That is not done; the app uses the system font.
+**Fonts** are the Execution Associates faces as isb applies them: Geist for text, Geist Mono for code, and Archivo at 112 % width (isb's `.font-display`) for titles.
+- They are the variable TTFs from Google Fonts' repository, licensed under SIL OFL 1.1, and kept in `mac/Resources/Fonts` with their licences.
+- `build-app.sh` copies them into the bundle, and `BundledFonts.register()` registers them for the app's process only.
+- A font token sets the face through its variable axes (wght, and wdth for Archivo). Parity checks that each font token resolves to its face, and Archivo to its width.
 

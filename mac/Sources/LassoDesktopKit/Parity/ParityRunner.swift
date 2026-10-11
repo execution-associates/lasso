@@ -87,6 +87,26 @@ public final class ParityRunner {
         for id in spec.tokens.keys.sorted() where !seen.contains(id) {
             add("-", "static", id, spec.tokens[id]!.value.compact, "(not in Theme.swift)", "", .fail)
         }
+        fontChecks()
+    }
+
+    /// Every font token that names a family resolves to that bundled face,
+    /// with its width axis set: a missing or unregistered font would
+    /// otherwise fall back to the system font without a word.
+    private func fontChecks() {
+        for t in Theme.all {
+            guard let family = t.value["family"]?.string else { continue }
+            let f = t.nsFont
+            var got = f.familyName ?? "?"
+            var ok = got == family
+            if let w = t.value["width"]?.double {
+                let axes = CTFontCopyVariation(f as CTFont) as? [NSNumber: NSNumber] ?? [:]
+                let have = axes[NSNumber(value: 0x7764_7468)]?.doubleValue ?? 100
+                got += " wdth \(Int(have))"
+                ok = ok && abs(have - w) < 0.5
+            }
+            add("-", "font", t.id, family + (t.value["width"].map { " wdth \($0.compact)" } ?? ""), got, "", ok ? .pass : .fail)
+        }
     }
 
     // MARK: states

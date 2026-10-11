@@ -28,6 +28,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
+        BundledFonts.register()
         if let states = value(after: "--parity") {
             runParity(states)
         } else {

@@ -150,7 +150,7 @@ public struct CardView: View {
                 .lineLimit(1)
             if pane.host != "local" {
                 Text(pane.host_label)
-                    .font(.system(size: Theme.Card.machineChip.number("font_size")))
+                    .font(Theme.Fonts.small.font)
                     .foregroundStyle(Theme.Text.primary.color)
                     .padding(.horizontal, Theme.Card.machineChip.number("pad_h"))
                     .padding(.vertical, Theme.Card.machineChip.number("pad_v"))

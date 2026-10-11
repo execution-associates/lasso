@@ -313,8 +313,7 @@ struct AgentGlyph: View {
             .frame(width: d, height: d)
         case .overflow(let n):
             Text("+\(n)")
-                .font(
-                    .system(size: Theme.Rail.overflowFont.number("size"), weight: Theme.Rail.overflowFont.weight))
+                .font(Theme.Rail.overflowFont.font)
                 .foregroundStyle(Theme.Rail.overflowFont.textColor)
                 .frame(height: d)
         }

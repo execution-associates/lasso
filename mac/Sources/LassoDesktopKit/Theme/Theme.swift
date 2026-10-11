@@ -117,7 +117,7 @@ public enum Theme {
         public static let maxSlots = Token(
             "rail.agents.max_slots", 5, .inferred("332 pt rail matches the brief's ~330 pt travel"), proposed: true)
         public static let overflowFont = Token(
-            "rail.overflow.font", ["size": 9, "weight": "semibold", "color": "#B7ADBB"], .inferred("+N inside an 11 pt cell, EXA muted text"), proposed: true)
+            "rail.overflow.font", ["family": "Geist", "size": 9, "weight": "semibold", "color": "#B7ADBB"], .inferred("+N inside an 11 pt cell, EXA muted text"), proposed: true)
         public static let toolsCell = Token("rail.tools.cell", 40, .measured("ref a2: three 80 px cells"))
         public static let icon = Token(
             "rail.icon", ["size": 17, "weight": "regular", "color": "#F4ECF2"], .measured("ref a2 size; EXA --foreground"))
@@ -190,7 +190,7 @@ public enum Theme {
         public static let keycapFill = Token(
             "card.keycap.fill", "#3D2D4E", .inferred("EXA ink, oklch(0.33 0.06 306), above the controls"))
         public static let keycapFont = Token(
-            "card.keycap.font", ["size": 10, "weight": "semibold"], .measured("brief A.2"))
+            "card.keycap.font", ["family": "Geist", "size": 10, "weight": "semibold"], .measured("brief A.2"))
         public static let keycapMinSize = Token("card.keycap.min_size", [18, 18], .unmeasured("keycap"), proposed: true)
         public static let keycapRadius = Token("card.keycap.radius", 4, .unmeasured("keycap"), proposed: true)
         public static let keycapPadH = Token("card.keycap.pad_h", 4, .unmeasured("keycap"), proposed: true)
@@ -226,15 +226,16 @@ public enum Theme {
     }
 
     public enum Fonts {
-        public static let title = Token("font.title", ["size": 16, "weight": "semibold"], .measured("ref a2: 30 px line"))
-        public static let body = Token("font.body", ["size": 14, "weight": "regular"], .measured("ref a2: 34 px leading"))
-        public static let chat = Token("font.chat", ["size": 15, "weight": "regular"], .measured("ref a5: 37 px leading"))
-        public static let name = Token("font.name", ["size": 15, "weight": "regular"], .measured("ref a3: row names"))
-        public static let label = Token("font.label", ["size": 14, "weight": "semibold"], .measured("ref a2: Next steps"))
-        public static let header = Token("font.header", ["size": 13, "weight": "semibold"], .measured("ref a3: group headers"))
-        public static let small = Token("font.small", ["size": 12, "weight": "regular"], .measured("ref a5: Talking to …"))
+        public static let title = Token("font.title", ["family": "Archivo", "size": 16, "weight": "semibold", "width": 112], .measured("ref a2 size; EXA display face, Archivo at isb .font-display font-stretch 112%"))
+        public static let body = Token("font.body", ["family": "Geist", "size": 14, "weight": "regular"], .measured("ref a2: 34 px leading"))
+        public static let chat = Token("font.chat", ["family": "Geist", "size": 15, "weight": "regular"], .measured("ref a5: 37 px leading"))
+        public static let name = Token("font.name", ["family": "Geist", "size": 15, "weight": "regular"], .measured("ref a3: row names"))
+        public static let label = Token("font.label", ["family": "Geist", "size": 14, "weight": "semibold"], .measured("ref a2: Next steps"))
+        public static let header = Token("font.header", ["family": "Geist", "size": 13, "weight": "semibold"], .measured("ref a3: group headers"))
+        public static let small = Token("font.small", ["family": "Geist", "size": 12, "weight": "regular"], .measured("ref a5: Talking to …"))
         public static let terminal = Token(
-            "font.terminal", ["size": 12, "weight": "regular", "design": "monospaced"], .measured("brief A.2"))
+            "font.terminal", ["family": "Geist Mono", "size": 12, "weight": "regular", "design": "monospaced"],
+            .measured("brief A.2 size; EXA mono face, isb --app-font-mono"))
     }
 
     public enum List {
@@ -335,17 +336,35 @@ public enum Theme {
 // MARK: - Typed views of token values
 
 extension Token {
-    /// A font token: {size, weight, design?}.
-    public var font: Font {
-        let size = CGFloat(value["size"]?.double ?? 12)
-        let design: Font.Design = value["design"]?.string == "monospaced" ? .monospaced : .default
-        return .system(size: size, weight: weight, design: design)
-    }
+    /// A font token: {family?, size, weight, width?, design?}. A family is
+    /// one of the bundled faces (BundledFonts), set through its variable
+    /// axes: weight on wght, width (percent) on wdth. Without one, or if the
+    /// face is not registered, the system font.
+    public var font: Font { Font(nsFont as CTFont) }
 
     public var nsFont: NSFont {
         let size = CGFloat(value["size"]?.double ?? 12)
+        if let family = value["family"]?.string {
+            var axes: [NSNumber: NSNumber] = [Self.wghtAxis: NSNumber(value: weightNumber)]
+            if let w = value["width"]?.double { axes[Self.wdthAxis] = NSNumber(value: w) }
+            let d = NSFontDescriptor(fontAttributes: [.family: family, .variation: axes])
+            if let f = NSFont(descriptor: d, size: size), f.familyName == family { return f }
+        }
         return value["design"]?.string == "monospaced"
             ? .monospacedSystemFont(ofSize: size, weight: nsWeight) : .systemFont(ofSize: size, weight: nsWeight)
+    }
+
+    /// OpenType axis tags as CoreText wants them: 'wght' and 'wdth'.
+    static let wghtAxis = NSNumber(value: 0x7767_6874)
+    static let wdthAxis = NSNumber(value: 0x7764_7468)
+
+    var weightNumber: Double {
+        switch value["weight"]?.string {
+        case "medium": 500
+        case "semibold": 600
+        case "bold": 700
+        default: 400
+        }
     }
 
     public var weight: Font.Weight {

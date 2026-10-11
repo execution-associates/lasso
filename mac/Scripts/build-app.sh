@@ -25,6 +25,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/LassoDesktop"
 sed -e "s/@VERSION@/$VERSION/" -e "s/@BUILD@/$(date +%Y%m%d%H%M%S)/" Scripts/Info.plist.in >"$APP/Contents/Info.plist"
 cp -R Spec "$APP/Contents/Resources/Spec"
+cp -R Resources/Fonts "$APP/Contents/Resources/Fonts"
 
 IDENTITY=""
 if [ -f "$KC" ]; then

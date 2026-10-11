@@ -50,7 +50,7 @@ public struct Keycap: View {
     public var body: some View {
         let min = Theme.Card.keycapMinSize.size
         Text(binding.legend)
-            .font(.system(size: Theme.Card.keycapFont.number("size"), weight: Theme.Card.keycapFont.weight))
+            .font(Theme.Card.keycapFont.font)
             .foregroundStyle(Theme.Text.primary.color)
             .padding(.horizontal, Theme.Card.keycapPadH.pt)
             .frame(minWidth: min.width, minHeight: min.height)
