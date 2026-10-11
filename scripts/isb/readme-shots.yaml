@@ -1,0 +1,69 @@
+# The throwaway VM `mise run readme:shots` takes the README's screenshots in
+# (scripts/readme-shots/). scripts/readme-shots/run.sh exports the variables
+# below; nothing here is meant to be run by hand without them.
+#
+# A VM, not a container: the demo agents run with their approvals bypassed
+# (omp --yolo), and the box runs sshd, three herdr servers and dummy network
+# interfaces of its own. One mount only: the staged inputs, read-only (the
+# built lasso, these scripts, the hello plugin). Never the repo, never $HOME.
+# The screenshots come back as a tar over `isb exec`.
+#
+# The model key never enters the guest. It sees isb's placeholder in
+# DEEPSEEK_API_KEY and ANTHROPIC_AUTH_TOKEN, and isb's egress proxy swaps the
+# real value in on the wire to api.deepseek.com and nowhere else. Everything
+# else it may reach is the install list below.
+
+name: lasso-readme-shots
+
+services:
+  shots:
+    container_name: "${READMESHOTS_VM:?set by scripts/readme-shots/run.sh}"
+    type: vm
+    image: images:ubuntu/24.04/cloud
+    storage: auto
+    cpus: 6
+    mem_limit: 12g
+    raw_config:
+      # A first boot of this image sometimes stops in the firmware with
+      # "prohibited by secure boot policy" and never reaches the OS. The VM
+      # lives for one run and boots only the image isb pulled for it.
+      security.secureboot: "false"
+    labels:
+      owner: lasso-readme-shots
+    volumes:
+      - "${READMESHOTS_IN:?set by scripts/readme-shots/run.sh}:/in:ro"
+    egress:
+      allow:
+        # apt
+        - archive.ubuntu.com:80
+        - security.ubuntu.com:80
+        # herdr, ttyd, omp, mise, uv, fnox
+        - github.com
+        - api.github.com
+        - objects.githubusercontent.com
+        - release-assets.githubusercontent.com
+        # Claude Code, for the bot
+        - downloads.claude.ai
+        # Playwright: the Python package, then its Chromium
+        - pypi.org
+        - files.pythonhosted.org
+        - cdn.playwright.dev
+        - playwright.download.prss.microsoft.com
+      secrets:
+        - env: DEEPSEEK_API_KEY
+          secret: "${READMESHOTS_SECRET:?set by scripts/readme-shots/run.sh}"
+          hosts: [api.deepseek.com]
+        # The bot is Claude Code on DeepSeek's Anthropic-compatible endpoint.
+        - env: ANTHROPIC_AUTH_TOKEN
+          secret: "${READMESHOTS_SECRET}"
+          hosts: [api.deepseek.com]
+    ready:
+      - running
+      - user_exists: ubuntu
+    ready_timeout: 5m
+    user: ubuntu
+    working_dir: /home/ubuntu
+    exec:
+      env:
+        HOME: /home/ubuntu
+        PATH: /home/ubuntu/.local/share/mise/shims:/home/ubuntu/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
