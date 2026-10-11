@@ -10,7 +10,7 @@ public protocol BotChatActions: AnyObject {
     func send(_ bot: BotView, text: String) async throws -> Outcome
     func answer(_ bot: BotView, pending: ChatPayload.PendingUI, value: String) async throws -> Outcome
     func stop(_ bot: BotView) async throws -> Outcome
-    func attachScreenshot(_ bot: BotView) async throws -> String
+    func attach(_ file: URL, to bot: BotView) async throws -> String
 }
 
 /// The chat with a lasso bot: the same composer and keycaps as a card.
@@ -133,12 +133,16 @@ public final class ChatModel: ComposerModel {
         }
     }
 
-    public func attachScreenshot() {
+    public func attachFile() {
+        let files = FilePicker.choose()
+        guard !files.isEmpty else { return }
         run("Attach") { [self] in
-            let path = try await actions.attachScreenshot(bot)
-            composer = composer.isEmpty ? path : composer + "\n" + path
+            for f in files {
+                let path = try await actions.attach(f, to: bot)
+                composer = composer.isEmpty ? path : composer + "\n" + path
+            }
             focusComposer()
-            return "Screenshot attached"
+            return files.count == 1 ? "Attached \(files[0].lastPathComponent)" : "Attached \(files.count) files"
         }
     }
 
@@ -208,11 +212,8 @@ public final class LiveBotChatActions: BotChatActions {
         return try await client.post("/api/chat/stop", query: ["host": p.host], json: PaneStop(pane_id: p.pane_id))
     }
 
-    public func attachScreenshot(_ bot: BotView) async throws -> String {
-        try await card.attachScreenshot(
-            HostPane(
-                host: bot.host, host_label: bot.host, pane_id: "", workspace_id: "", workspace_label: "", tab_id: "",
-                tab_label: "", cwd: "", agent: "", agent_status: "", has_agent: false, focused: false))
+    public func attach(_ file: URL, to bot: BotView) async throws -> String {
+        try await card.upload(file, host: bot.host)
     }
 }
 
@@ -243,8 +244,8 @@ public final class FixtureBotChatActions: BotChatActions {
         return Outcome(outcome: "sent")
     }
 
-    public func attachScreenshot(_ bot: BotView) async throws -> String {
+    public func attach(_ file: URL, to bot: BotView) async throws -> String {
         calls.append("attach")
-        return "/fixture/screenshot.png"
+        return "/fixture/" + file.lastPathComponent
     }
 }

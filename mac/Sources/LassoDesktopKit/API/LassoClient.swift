@@ -97,6 +97,21 @@ public final class LassoClient: @unchecked Sendable {
         try await send(request(path, query: query, method: "POST", body: JSONEncoder().encode(json)))
     }
 
+    /// Send a file as the request body, streamed from disk rather than read
+    /// into memory, and decode the JSON answer.
+    public func upload<T: Decodable>(_ r: URLRequest, fromFile file: URL) async throws -> T {
+        var r = r
+        r.timeoutInterval = 600
+        let (data, resp) = try await session.upload(for: r, fromFile: file)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code) else {
+            throw LassoError.http(code, String(decoding: data.prefix(300), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        do { return try JSONDecoder().decode(T.self, from: data) } catch {
+            throw LassoError.decode(r.url?.path ?? "", String(describing: error))
+        }
+    }
+
     /// A request whose answer is not JSON (a file): its body and status.
     public func raw(_ r: URLRequest) async throws -> (Data, Int) {
         let (data, resp) = try await session.data(for: r)

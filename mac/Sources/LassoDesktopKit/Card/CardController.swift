@@ -119,7 +119,7 @@ public final class CardController {
             return true
         }
         switch true {
-        case Keys.attach.matches(e): m.attachScreenshot()
+        case Keys.attach.matches(e): m.attachFile()
         case Keys.send.matches(e):
             if m.composer.isEmpty { m.focusComposer() } else { m.send() }
         case Keys.kill.matches(e): m.kill()

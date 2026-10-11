@@ -1,6 +1,6 @@
 import AppKit
 import CoreGraphics
-import ScreenCaptureKit
+import UniformTypeIdentifiers
 
 /// A card's side effects through lasso's API (PLAN 3). Each is a real change
 /// on the user's machine, made only from a key or click the user gave.
@@ -125,54 +125,20 @@ public final class LiveCardActions: CardActions {
         await refreshUIState()
     }
 
-    struct Focus: Encodable { var pane_id: String }
-    struct Focused: Decodable { var ok: Bool? }
-
-    public func focus(_ pane: HostPane) async throws {
-        let _: Focused = try await client.post("/api/focus", query: ["host": pane.host], json: Focus(pane_id: pane.pane_id))
-    }
-
     struct Pasted: Decodable { var path: String }
 
-    /// S: capture the main display (without this app's own windows), upload
-    /// it to the agent's machine, and hand back the path for the message.
-    /// Needs Screen Recording; without it, says so and asks macOS once.
-    public func attachScreenshot(_ pane: HostPane) async throws -> String {
-        guard CGPreflightScreenCaptureAccess() else {
-            _ = CGRequestScreenCaptureAccess()
-            throw PermissionError.screenRecording
-        }
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? content.displays.first
-        else { throw PermissionError.noDisplay }
-        let mine = content.applications.filter { $0.processID == getpid() }
-        let filter = SCContentFilter(display: display, excludingApplications: mine, exceptingWindows: [])
-        let cfg = SCStreamConfiguration()
-        cfg.width = display.width * 2
-        cfg.height = display.height * 2
-        let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
-        guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
-            throw PermissionError.encode
-        }
-        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
-        var req = client.request(
-            "/api/paste-file", query: ["host": pane.host, "name": "screenshot-\(stamp).png"], method: "POST", body: png)
-        req.setValue("image/png", forHTTPHeaderField: "Content-Type")
-        let r: Pasted = try await client.send(req)
-        return r.path
+    /// Upload a file to the agent's machine (lasso's paste-file route, as the
+    /// web client's drop does) and hand back the path to put in the message.
+    public func attach(_ file: URL, to pane: HostPane) async throws -> String {
+        try await upload(file, host: pane.host)
     }
-}
 
-public enum PermissionError: Error, CustomStringConvertible {
-    case screenRecording, noDisplay, encode
-
-    public var description: String {
-        switch self {
-        case .screenRecording:
-            "Screen Recording is off for Lasso. Allow it in System Settings › Privacy & Security › Screen Recording, then press S again"
-        case .noDisplay: "no display to capture"
-        case .encode: "could not encode the screenshot"
-        }
+    func upload(_ file: URL, host: String) async throws -> String {
+        var req = client.request("/api/paste-file", query: ["host": host, "name": file.lastPathComponent], method: "POST")
+        let type = UTType(filenameExtension: file.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+        req.setValue(type, forHTTPHeaderField: "Content-Type")
+        let r: Pasted = try await client.upload(req, fromFile: file)
+        return r.path
     }
 }
 
@@ -210,15 +176,14 @@ public final class FixtureCardActions: CardActions {
 
     public func dismiss(_ pane: HostPane) async throws { calls.append("dismiss") }
 
-    public func focus(_ pane: HostPane) async throws { calls.append("focus") }
 
     public func answer(_ pane: HostPane, pending: ChatPayload.PendingUI, value: String) async throws -> Outcome {
         calls.append("answer")
         return Outcome(outcome: "sent")
     }
 
-    public func attachScreenshot(_ pane: HostPane) async throws -> String {
+    public func attach(_ file: URL, to pane: HostPane) async throws -> String {
         calls.append("attach")
-        return "/fixture/screenshot.png"
+        return "/fixture/" + file.lastPathComponent
     }
 }

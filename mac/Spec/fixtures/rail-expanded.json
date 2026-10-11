@@ -11,7 +11,6 @@
   },
   "permissions": {
     "microphone": "authorized",
-    "screen_recording": "denied",
     "accessibility": "not_determined"
   },
   "settings": {

@@ -300,7 +300,7 @@ struct AgentComposer: View {
                     .lineLimit(1)
                     .padding(.horizontal, Theme.Panel.inset.pt)
             }
-            ComposerRow(model: model) { model.attachScreenshot() }
+            ComposerRow(model: model) { model.attachFile() }
                 .padding(.horizontal, Theme.Panel.inset.pt)
             AgentFooter(pane: model.current, model: model.chat?.model)
         }

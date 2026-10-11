@@ -39,7 +39,7 @@ public struct ChatView: View {
                 .padding(.leading, Theme.Panel.inset.pt + Theme.Control.composer.number("height") + Theme.Control.composer.number("gap") + Theme.Control.composer.number("field_pad_l"))
                 .padding(.bottom, Theme.space("s"))
                 .parityAnchor("chat.talking")
-            ComposerRow(model: model, attach: model.attachScreenshot)
+            ComposerRow(model: model, attach: model.attachFile)
                 .padding(.horizontal, inset)
                 .padding(.bottom, inset)
         }

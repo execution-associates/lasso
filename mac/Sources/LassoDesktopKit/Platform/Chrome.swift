@@ -138,7 +138,7 @@ struct ComposerRow<Model: ComposerModel>: View {
         let h = c.number("height")
         let canSend = !model.composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         HStack(spacing: c.number("gap")) {
-            RoundButton(symbol: "camera", size: h, fill: c.color("fill"), label: "Attach a screenshot (S)", action: attach)
+            RoundButton(symbol: "paperclip", size: h, fill: c.color("fill"), label: "Attach a file (A)", action: attach)
                 .keyHint(Keys.attach)
             ComposerField(model: model)
                 .padding(.leading, c.number("field_pad_l"))

@@ -84,7 +84,7 @@ public struct CardView: View {
                         insertion: .opacity.combined(with: .offset(y: 12 * CGFloat(model.pageDirection))),
                         removal: .opacity))
                 .padding(.top, Theme.Layout.card.number("box_gap"))
-                ComposerRow(model: model, attach: model.attachScreenshot)
+                ComposerRow(model: model, attach: model.attachFile)
                 .padding(.top, Theme.Layout.card.number("composer_gap"))
                 Rectangle().fill(Theme.Panel.divider.color).frame(height: Theme.space("hair"))
                     .parityAnchor("card.divider")

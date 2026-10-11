@@ -57,36 +57,12 @@ struct AgentWindowView: View {
 
     private var buttons: some View {
         HStack(spacing: Theme.space("xs")) {
-            Menu {
-                Button("Focus in herdr") { model.focusInHerdr() }
-                if model.actions.canDismiss { Button("Discard") { model.discard() } }
-                if !model.isBot {
-                    Divider()
-                    Button("Kill agent…") { model.kill() }
-                }
-            } label: {
-                icon("text.alignleft")
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .tint(Theme.Text.primary.color)
-            .fixedSize()
-            .accessibilityLabel("More")
             WindowButton(symbol: chrome.collapsed ? "arrow.up.left.and.arrow.down.right" : "minus",
                          label: chrome.collapsed ? "Expand" : "Minimize") { chrome.onToggle() }
                 .parityAnchor("agent.minimize")
             WindowButton(symbol: "xmark", label: "Close") { chrome.onClose() }
                 .parityAnchor("agent.close")
         }
-    }
-
-    private func icon(_ symbol: String) -> some View {
-        let w = Theme.Agent.window
-        return Image(systemName: symbol)
-            .font(.system(size: w.number("icon"), weight: .medium))
-            .foregroundStyle(Theme.Text.primary.color)
-            .frame(width: w.number("button"), height: w.number("button"))
-            .contentShape(Rectangle())
     }
 
     /// The corner to resize by.
@@ -221,9 +197,8 @@ final class AgentWindowController {
         UserDefaults.standard.set(frames, forKey: Self.framesKey)
     }
 
-    /// The card's keys, minus paging and Discard (that is in ≡): 1–9
-    /// highlight a choice, → takes it, ↳ edits it, ⏎ to the composer, S
-    /// attaches, X X kills.
+    /// The card's keys, minus paging and Discard: 1–9 highlight a choice,
+    /// → takes it, ↳ edits it, ⏎ to the composer, A attaches, X X kills.
     private func handle(_ e: NSEvent) -> Bool {
         if model.composerFocused { return false }
         if !Keys.kill.matches(e) { model.disarm() }
@@ -232,7 +207,7 @@ final class AgentWindowController {
             return true
         }
         switch true {
-        case Keys.attach.matches(e): model.attachScreenshot()
+        case Keys.attach.matches(e): model.attachFile()
         case Keys.send.matches(e): if model.composer.isEmpty { model.focusComposer() } else { model.send() }
         case Keys.editStep.matches(e): model.editStep()
         case Keys.takeStep.matches(e): model.takeStep()

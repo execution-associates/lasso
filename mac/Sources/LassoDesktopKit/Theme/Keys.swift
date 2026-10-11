@@ -23,7 +23,7 @@ public struct KeyBinding: Hashable, Sendable, Identifiable {
 public enum Keys {
     public static let esc = KeyBinding(id: "esc", legend: "esc", action: "Close", keyCode: 53, character: nil)
     public static let attach = KeyBinding(
-        id: "s", legend: "S", action: "Attach a screenshot", keyCode: nil, character: "s")
+        id: "a", legend: "A", action: "Attach a file", keyCode: nil, character: "a")
     public static let send = KeyBinding(id: "enter", legend: "⏎", action: "Send", keyCode: 36, character: nil)
     public static let kill = KeyBinding(id: "x", legend: "X", action: "Kill agent", keyCode: nil, character: "x")
     public static let discard = KeyBinding(id: "e", legend: "E", action: "Discard", keyCode: nil, character: "e")

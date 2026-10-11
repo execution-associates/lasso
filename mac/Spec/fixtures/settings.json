@@ -1,5 +1,5 @@
 {
-  "about": "Settings on a fresh Mac: the lassos it can talk to (production in use, a dev lasso on the tunnel), and the permission states: screen recording off, accessibility not asked.",
+  "about": "Settings on a fresh Mac: the lassos it can talk to (production in use, a dev lasso on the tunnel), and the permission states: accessibility not asked.",
   "state": "settings",
   "extends": "rail-expanded",
   "ui": {
@@ -10,7 +10,6 @@
     "settings": true
   },
   "permissions": {
-    "screen_recording": "denied",
     "accessibility": "not_determined"
   },
   "lassos": [

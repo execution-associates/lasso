@@ -12,9 +12,8 @@ public protocol CardActions: AnyObject {
     func answer(_ pane: HostPane, pending: ChatPayload.PendingUI, value: String) async throws -> Outcome
     func kill(_ pane: HostPane) async throws -> String
     func dismiss(_ pane: HostPane) async throws
-    /// Bring the pane forward in herdr, wherever its terminal is open.
-    func focus(_ pane: HostPane) async throws
-    func attachScreenshot(_ pane: HostPane) async throws -> String
+    /// Upload a file to the agent's machine; the path to put in the message.
+    func attach(_ file: URL, to pane: HostPane) async throws -> String
     /// Whether the server keeps shared card dismissals (S1).
     var canDismiss: Bool { get }
 }
@@ -267,19 +266,18 @@ public final class CardModel: ComposerModel {
         }
     }
 
-    public func focusInHerdr() {
-        run("Focus") { [self] in
-            try await actions.focus(pane)
-            return "Focused \(pane.displayName) in herdr"
-        }
-    }
-
-    public func attachScreenshot() {
+    /// The paperclip (A): choose files, upload them to the agent's machine,
+    /// and put their paths in the message.
+    public func attachFile() {
+        let files = FilePicker.choose()
+        guard !files.isEmpty else { return }
         run("Attach") { [self] in
-            let path = try await actions.attachScreenshot(pane)
-            composer = composer.isEmpty ? path : composer + "\n" + path
+            for f in files {
+                let path = try await actions.attach(f, to: pane)
+                composer = composer.isEmpty ? path : composer + "\n" + path
+            }
             focusComposer()
-            return "Screenshot attached"
+            return files.count == 1 ? "Attached \(files[0].lastPathComponent)" : "Attached \(files.count) files"
         }
     }
 

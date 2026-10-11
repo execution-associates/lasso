@@ -197,10 +197,6 @@ public struct SettingsView: View {
     @ViewBuilder private var permissionsSection: some View {
         let p = model.permissions
         permissionRow(
-            "Screen Recording", "S attaches a screenshot to a message.", p.screenRecording,
-            action: p.screenRecording == .granted ? nil : "Allow"
-        ) { model.allowScreenRecording() }
-        permissionRow(
             "Accessibility", "Only for a double-tap inbox shortcut, which reads modifier keys in every app.", p.accessibility,
             action: p.accessibility == .granted ? nil : "Settings"
         ) { p.openAccessibilitySettings() }

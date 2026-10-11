@@ -175,11 +175,6 @@ public final class SettingsModel: ObservableObject {
         InboxSound.play(id, force: true)
     }
 
-    public func allowScreenRecording() {
-        permissions.requestScreenRecording()
-        tick += 1
-    }
-
     public func close() {
         UserDefaults.standard.set(true, forKey: Self.seenKey)
         onClose()
