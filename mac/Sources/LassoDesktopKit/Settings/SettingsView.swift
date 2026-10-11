@@ -170,7 +170,22 @@ public struct SettingsView: View {
                     }
                 }
             }
-            line("Plays when something new lands in the inbox. Picking one plays it.", secondary: true)
+            if model.upload != nil {
+                HStack(spacing: Theme.space("s")) {
+                    if let c = model.customSound() {
+                        choice(c.name, on: model.sound == InboxSound.custom, label: "Play your sound, \(c.name), when something arrives") {
+                            model.choose(sound: InboxSound.custom)
+                        }
+                        PillButton(title: "Remove", label: "Remove your sound from lasso") { model.removeSound() }
+                    }
+                    PillButton(title: model.customSound() == nil ? "Upload your own…" : "Replace…", label: "Upload your own sound to lasso") {
+                        model.pickSound()
+                    }
+                }
+                .parityAnchor("settings.sound.upload")
+            }
+            if let n = model.soundNotice { line(n, secondary: true) }
+            line("Plays when something new lands in the inbox. Picking one plays it. Your own sound is kept on lasso, so every Mac using it gets it.", secondary: true)
         }
     }
 

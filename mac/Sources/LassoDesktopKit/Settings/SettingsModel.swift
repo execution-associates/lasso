@@ -1,3 +1,4 @@
+import UniformTypeIdentifiers
 import AppKit
 import Combine
 import Foundation
@@ -123,6 +124,48 @@ public final class SettingsModel: ObservableObject {
             choose(c)
         }
         return true
+    }
+
+    /// The sound uploaded to lasso, if any, and how to change it (nil when
+    /// the app runs from a fixture).
+    public var customSound: () -> DesktopSound? = { nil }
+    public var upload: ((URL) async throws -> Void)?
+    public var removeUpload: (() async throws -> Void)?
+    @Published public private(set) var soundNotice: String?
+
+    /// Choose an audio file and upload it as lasso's arrival sound: every Mac
+    /// on this lasso gets it, cached, and this one plays it from now on.
+    public func pickSound() {
+        guard let upload else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.audio]
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a short sound (under 1 MB) to play when something reaches the inbox"
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        soundNotice = "Uploading…"
+        Task {
+            do {
+                try await upload(url)
+                soundNotice = nil
+                choose(sound: InboxSound.custom)
+            } catch {
+                soundNotice = "Upload failed: \(error)"
+            }
+        }
+    }
+
+    public func removeSound() {
+        guard let removeUpload else { return }
+        Task {
+            do {
+                try await removeUpload()
+                if sound == InboxSound.custom { choose(sound: InboxSound.fallback) }
+                soundNotice = nil
+            } catch {
+                soundNotice = "Could not remove it: \(error)"
+            }
+        }
     }
 
     /// Pick the arrival sound, and play it so the choice is heard.

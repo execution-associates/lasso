@@ -30,6 +30,23 @@ sync() {
   rsync -a --delete --exclude .build --exclude dist "$HERE/" "$MAC:$REMOTE/"
 }
 
+unlock() {
+  secret LASSO_DESKTOP_SIGNING_KEYCHAIN | ssh "$MAC" "IFS= read -r pw; security unlock-keychain -p \"\$pw\" $KC"
+}
+
+# Build on the Mac; a locked signing keychain (a logout or reboot locks it)
+# is unlocked from titan's secret store and the build tried once more.
+build_app() {
+  local out rc=0
+  out=$(on_mac "Scripts/build-app.sh ${1:-release}" 2>&1) || rc=$?
+  if grep -q "signing failed" <<<"$out"; then
+    unlock && on_mac "Scripts/build-app.sh ${1:-release}"
+    return
+  fi
+  printf '%s\n' "$out"
+  return "$rc"
+}
+
 cmd="${1:-}"
 shift || true
 case "$cmd" in
@@ -48,11 +65,11 @@ DOC
   sync) sync ;;
   build)
     sync
-    on_mac "Scripts/build-app.sh ${1:-release}"
+    build_app "${1:-release}"
     ;;
   run)
     sync
-    on_mac "Scripts/build-app.sh release && Scripts/agent.sh install && Scripts/agent.sh relaunch"
+    build_app release >/dev/null && on_mac "Scripts/agent.sh install && Scripts/agent.sh relaunch"
     ;;
   relaunch) on_mac "Scripts/agent.sh relaunch" ;;
   test)
@@ -62,7 +79,7 @@ DOC
   parity)
     sync
     rc=0
-    on_mac "Scripts/build-app.sh release >/dev/null && Scripts/parity-check.sh ${1:-all}" || rc=$?
+    { build_app release >/dev/null && on_mac "Scripts/parity-check.sh ${1:-all}"; } || rc=$?
     mkdir -p "$HERE/dist"
     rsync -a --delete "$MAC:$REMOTE/dist/parity/" "$HERE/dist/parity/" || true
     echo "results: $HERE/dist/parity/"
@@ -70,7 +87,7 @@ DOC
     ;;
   smoke)
     sync
-    on_mac "Scripts/build-app.sh release >/dev/null && ${LASSO_BASE_URL:+LASSO_BASE_URL=$LASSO_BASE_URL} dist/LassoDesktop.app/Contents/MacOS/LassoDesktop --smoke ${1:-30}"
+    build_app release >/dev/null && on_mac "${LASSO_BASE_URL:+LASSO_BASE_URL=$LASSO_BASE_URL} dist/LassoDesktop.app/Contents/MacOS/LassoDesktop --smoke ${1:-30}"
     ;;
   use)
     case "${1:-}" in
@@ -99,9 +116,7 @@ DOC
     echo "LassoDesktop now talks to titan:$port (minime:$mac)"
     ;;
   logs) ssh "$MAC" "tail -n ${1:-100} ~/Library/Logs/LassoDesktop.log" ;;
-  unlock)
-    secret LASSO_DESKTOP_SIGNING_KEYCHAIN | ssh "$MAC" "IFS= read -r pw; security unlock-keychain -p \"\$pw\" $KC"
-    ;;
+  unlock) unlock ;;
   *)
     sed -n '2,18p' "$0"
     exit 2

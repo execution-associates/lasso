@@ -793,14 +793,13 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
 ## 17. Shortcut, sound and brand
 
 - **Inbox shortcut**, in Settings › Inbox (UserDefaults `inboxShortcut`):
-  - **Default ⌥⌥**: double-tap Option. A tap is the modifier alone for at most 300 ms, and the second tap must end within 400 ms of the first (`keys.inbox_double_tap`). Any other key or modifier in between starts over.
-  - **⌘⌘ and ⌃⌃** work the same way.
-  - **Record…** takes any combination with ⌘, ⌥ or ⌃ through Carbon's `RegisterEventHotKey`, which needs no permission.
-  - **Off.**
-  - A double tap reads modifier keys in every app through a global event monitor, which macOS delivers only with **Accessibility**, so Settings says so until it is granted.
+  - **Default ⌥Space**, a key combination through Carbon's `RegisterEventHotKey`, which needs no permission.
+  - **⌥⌥, ⌘⌘ or ⌃⌃**, a double tap of the modifier alone: each tap at most 300 ms, the second ending within 400 ms of the first (`keys.inbox_double_tap`). Any other key or modifier in between starts over. A double tap reads modifier keys in every app through a global event monitor, which macOS delivers only with **Accessibility**. So Settings says so, with a button to open that pane, only when a double tap is picked and Accessibility is not granted, and never otherwise.
+  - **Record…** takes any other combination with ⌘, ⌥ or ⌃. **Off** turns it off.
   - The shortcut opens the inbox with the keyboard in it; pressed again while the inbox has the keyboard, it closes it.
 - **Arrival sound**, in Settings › Inbox (UserDefaults `inboxSound`, default Whoosh):
-  - Six sounds made with ElevenLabs on fal (`mac/Resources/Sounds/README.md` has the prompts), all levelled to a −4 dBFS peak. Choosing one plays it.
+  - Three bundled sounds made with ElevenLabs on fal: Whoosh, Marimba and Lasso (`mac/Resources/Sounds/README.md` has the prompts). They are levelled to a −4 dBFS peak, and choosing one plays it.
+  - **Your own sound:** Upload picks an audio file (at most 1 MB) and stores it on lasso: `PUT /api/desktop/sound` keeps the file at `<lassoDir>/desktop/sound`, typed by its bytes, and ui_state's server-owned `desktop_sound` names it with its sha256. Every Mac on that lasso gets it. The app caches the file in `~/Library/Application Support/LassoDesktop/Sounds/custom-<sha256>` and downloads it only when the record's hash differs from the cached one, so playing it never touches the network. Remove deletes it from lasso. Until the cache has it, the custom choice plays Whoosh.
   - It plays when the inbox holds an item, a new turn or a new question it did not hold before (`InboxItem.arrivalKey`). The first reading is a baseline, and arrivals within 2 s make one sound (`live.arrival_sound`).
 - **Settings footer**: the Execution Associates lockup as isb ships it (`Resources/Brand`), tinted like secondary text, linking to execution.associates.
 - **App icon**: the EXA monogram, exactly as `exa/brand-assets/logo/exa-mark-white.png` draws it, on a macOS icon plate in the rail's ink gradient (`Resources/AppIcon.png`). `build-app.sh` packs `AppIcon.icns`.
@@ -815,3 +814,25 @@ The user's lasso is `https://lasso.orangecountyai.com`, behind Cloudflare Zero T
 - **Open questions:**
   - Whether this team's Access application allows the CLI/native login flow, or needs `cloudflared`'s transfer endpoint.
   - Whether to support several saved deployments at once, alongside the tunnel and dev entries of §14.
+
+## 19. Agent windows and hover previews (the user's screenshots, 2026-10-11)
+
+**Hovering an agent's row in the agents list shows its preview,** fixed to the left of the list (`agent.preview`: 508 × 580 pt, 9 pt from the list), with its top level with the row.
+- It shows:
+  - the header (avatar, name, "state · harness in herdr · workspace", the state as a dot)
+  - the agent's side of the latest turn, with tool runs folded into one "⚙ …" line, the reply as a bubble with inline markdown, and any open question
+  - the question's choices
+  - the composer
+  - the folder and the model
+- It appears `rail.hover.item_open_ms` after the pointer rests on the row. It goes `panel_close_ms` after the pointer has left both the row and the preview, unless a click made it the user's. It is ordered front without the keyboard.
+- Rows report their frames through a preference key, and the list's controller polls the pointer at 20 Hz, for the same reason the rail does.
+
+**Clicking a row opens the agent's own window** (`agent.window`: 488 × 632 pt, 60 pt header, 18 pt corners). Bots open one too, since a bot's pane chats through the bot's routes.
+- The header has ≡ (a menu: Focus in herdr, Discard, Kill agent), minimize and close, as plain glyphs.
+- Below it are the whole conversation (the last 160 items), the choices, the composer and the footer.
+- It is a non-activating panel at the floating level, on every Space, and over full-screen apps (`.canJoinAllSpaces`, `.fullScreenAuxiliary`). So it stays put while the user switches desktops or maximizes other windows.
+- It moves by dragging its header and resizes by its corner (at least 360 × 320). **Minimize collapses it to its header** (`agent.window.collapsed`, 416 × 60 pt) with ⤢ to expand. The top edge stays fixed both ways.
+- One window per agent; a second click brings it forward. Where each agent's window was is kept in UserDefaults `agentWindowFrames`.
+- Keys while it has the keyboard: 1–9, →, ↳, ⏎, S, and X X to kill.
+
+**Parity states:** `list-hover-preview`, `agent-window` and `agent-window-collapsed`, from the `card-open` fixture.

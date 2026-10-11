@@ -358,7 +358,8 @@ public enum Theme {
         public static let backoff = Token(
             "live.reconnect.backoff", ["min": 1, "max": 30, "jitter": 0.2], .unmeasured("reconnects"), proposed: true)
         public static let arrivalSound = Token(
-            "live.arrival_sound", ["gap_ms": 2000], .inferred("arrivals this close make one sound, not a burst"),
+            "live.arrival_sound", ["gap_ms": 2000, "max_bytes": 1_048_576],
+            .inferred("arrivals this close make one sound, not a burst; an upload is capped where lasso caps it (src/desktopsound.go)"),
             proposed: true)
     }
 

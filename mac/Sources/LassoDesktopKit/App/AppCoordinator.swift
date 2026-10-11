@@ -130,6 +130,23 @@ public final class AppCoordinator {
         settingsModel.onClose = { [weak self] in self?.settings.close() }
         settingsModel.onUse = { [weak self] url in self?.use(url) }
         settingsModel.onShortcut = { [weak self] c in self?.shortcut?.apply(c) }
+        if let client {
+            settingsModel.customSound = { [weak fleet] in fleet?.uiState.desktop_sound }
+            settingsModel.upload = { [weak sync] url in
+                _ = try await CustomSound.upload(url, client: client)
+                await sync?.refreshUIState()
+            }
+            settingsModel.removeUpload = { [weak sync] in
+                try await CustomSound.remove(client: client)
+                await sync?.refreshUIState()
+            }
+            // lasso's sound record moved: bring this Mac's copy in line.
+            fleet.$uiState
+                .map(\.desktop_sound)
+                .removeDuplicates()
+                .sink { meta in Task { await CustomSound.sync(meta, client: client) } }
+                .store(in: &subs)
+        }
         settings.onKey = { [weak self] e in
             if self?.settingsModel.record(e) == true { return true }
             guard Keys.esc.matches(e) else { return false }

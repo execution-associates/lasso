@@ -97,6 +97,12 @@ public final class LassoClient: @unchecked Sendable {
         try await send(request(path, query: query, method: "POST", body: JSONEncoder().encode(json)))
     }
 
+    /// A request whose answer is not JSON (a file): its body and status.
+    public func raw(_ r: URLRequest) async throws -> (Data, Int) {
+        let (data, resp) = try await session.data(for: r)
+        return (data, (resp as? HTTPURLResponse)?.statusCode ?? 0)
+    }
+
     public func send<T: Decodable>(_ r: URLRequest) async throws -> T {
         let (data, resp) = try await session.data(for: r)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0

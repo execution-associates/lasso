@@ -134,6 +134,17 @@ public struct HostsPayload: Codable, Sendable, Equatable {
 public struct UIStateSlice: Codable, Sendable, Equatable {
     public var pinned_agents: [String]?
     public var dismissed_cards: [String: Int64]?
+    /// The uploaded arrival sound, if any (src/desktopsound.go).
+    public var desktop_sound: DesktopSound?
+}
+
+/// ui_state.desktop_sound: what is stored at /api/desktop/sound.
+public struct DesktopSound: Codable, Sendable, Equatable {
+    public var name: String
+    public var sha256: String
+    public var size: Int64
+    public var content_type: String
+    public var updated_at: Int64
 }
 
 /// One bot. src/botruntime.go:215 (botView) over src/bots.go:81 (botRecord);
