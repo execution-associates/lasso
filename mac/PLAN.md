@@ -846,6 +846,8 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
 - **Settings footer**: the Execution Associates lockup as isb ships it (`Resources/Brand`), tinted like secondary text, linking to execution.associates.
 - **App icon**: the EXA monogram, exactly as `exa/brand-assets/logo/exa-mark-white.png` draws it, on a macOS icon plate in the rail's ink gradient (`Resources/AppIcon.png`). `build-app.sh` packs `AppIcon.icns`.
 
+- **Help:** Settings' footer has **Help** (and `?` while Settings has the keyboard). It opens a floating, titled window that explains the rail, the inbox (answer, Acknowledge, Kill, blocked), the agents (preview, window, shared files and attachments), every key and what Settings holds. Its key lists are drawn from the app's own bindings (`Keys.all`, the stored inbox shortcut, `keys.summon`), so they cannot drift from the handlers. Parity state `help`.
+
 ## 18. Later: signing in to a deployed lasso through Cloudflare Access
 
 The user's lasso is `https://lasso.orangecountyai.com`, behind Cloudflare Zero Trust (Access). The app should connect to it by URL and authenticate the way a browser does, rather than needing a tunnel. Not built yet.

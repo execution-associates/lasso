@@ -49,6 +49,8 @@ public final class SettingsModel: ObservableObject {
     public var version: () -> VersionInfo?
     public var usableHosts: () -> (usable: Int, total: Int)?
     public var onClose: () -> Void = {}
+    /// Open the Help window.
+    public var onHelp: () -> Void = {}
     /// Switch the app to another lasso.
     public var onUse: (URL) -> Void = { _ in }
     /// Asks a lasso for /api/version; nil when the app runs from a fixture.

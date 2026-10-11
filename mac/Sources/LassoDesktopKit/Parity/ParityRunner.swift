@@ -11,7 +11,7 @@ public final class ParityRunner {
     /// States whose surfaces exist. The rest report as pending until their
     /// milestone lands (PLAN 6).
     public static let implemented: Set<String> = [
-        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings",
+        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "help",
     ]
 
     let spec: Spec
@@ -180,6 +180,12 @@ public final class ParityRunner {
             l.selected = fixture.ui.selected
             l.hovered = fixture.ui.hovered
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(ListView(model: l), size: Theme.List.size.size) }
+            cap = try await make()
+            recapture = make
+        } else if fixture.ui.help == true {
+            let make: @MainActor () async throws -> Capture = {
+                try await Capturer.capture(HelpView(inboxShortcut: "⌥Space", summon: Theme.summonKey.shortcutLabel), size: Theme.Card.size.size)
+            }
             cap = try await make()
             recapture = make
         } else if let key = fixture.ui.preview {

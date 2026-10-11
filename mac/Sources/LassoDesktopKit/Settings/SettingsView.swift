@@ -63,6 +63,8 @@ public struct SettingsView: View {
                 .accessibilityLabel("Execution Associates website")
                 .help("execution.associates")
                 Spacer()
+                PillButton(title: "Help", label: "Help: the inbox, the agents and every key (?)") { model.onHelp() }
+                    .parityAnchor("settings.help")
             }
             .padding(.horizontal, pad)
             .padding(.vertical, f.number("pad_v"))

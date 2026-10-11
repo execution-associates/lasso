@@ -32,6 +32,7 @@ public final class AppCoordinator {
     private var inboxSeen: Set<String>?
     /// The control whose panel a hover opened and nobody has clicked yet,
     /// and since when the pointer has been away from both rail and panel.
+    private let help = HelpController()
     private var hoverShown: RailModel.Item?
     private var hoverAway: Date?
 
@@ -132,6 +133,7 @@ public final class AppCoordinator {
             return true
         }
         settingsModel.onClose = { [weak self] in self?.settings.close() }
+        settingsModel.onHelp = { [weak self] in self?.openHelp() }
         settingsModel.onUse = { [weak self] url in self?.use(url) }
         settingsModel.onShortcut = { [weak self] c in self?.shortcut?.apply(c) }
         if let client {
@@ -153,6 +155,10 @@ public final class AppCoordinator {
         }
         settings.onKey = { [weak self] e in
             if self?.settingsModel.record(e) == true { return true }
+            if e.charactersIgnoringModifiers == "?" {
+                self?.openHelp()
+                return true
+            }
             guard Keys.esc.matches(e) else { return false }
             self?.settingsModel.close()
             return true
@@ -253,6 +259,11 @@ public final class AppCoordinator {
         defer { inboxSeen = now }
         guard let before = inboxSeen, !now.subtracting(before).isEmpty else { return }
         InboxSound.play()
+    }
+
+    func openHelp() {
+        let sc = InboxShortcutChoice.stored
+        help.show(inboxShortcut: sc == .off ? "(off)" : sc.label.components(separatedBy: "  ").first ?? sc.label)
     }
 
     /// Resting on a rail control opens it, without the keyboard: the user may
