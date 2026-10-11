@@ -5,6 +5,7 @@ import SwiftUI
 /// permissions.
 public struct SettingsView: View {
     @ObservedObject var model: SettingsModel
+    @ObservedObject var auth = AuthState.shared
 
     public init(model: SettingsModel) { self.model = model }
 
@@ -100,10 +101,40 @@ public struct SettingsView: View {
 
     @ViewBuilder private var lassoSection: some View {
         let current = model.baseURL()
+        if auth.expired != nil {
+            HStack(spacing: Theme.space("m")) {
+                Text("lasso signed this Mac out.").font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
+                Spacer()
+                PillButton(title: "Sign in again", primary: true, label: "Sign in to lasso again") { model.signInAgain() }
+            }
+            .parityAnchor("settings.signin_again")
+        }
         let list = model.lassos.isEmpty ? [LassoChoice(url: current, version: model.version())] : model.lassos
         ForEach(list) { c in lassoRow(c, inUse: c.url == current) }
         if let h = model.usableHosts() { line("\(h.usable) of \(h.total) machines usable", secondary: true) }
         if model.version() == nil { line("Not answering yet. Is the tunnel up?", secondary: true) }
+        HStack(spacing: Theme.space("m")) {
+            TextField("Address, e.g. lasso.example.com", text: $model.urlDraft)
+                .textFieldStyle(.plain)
+                .font(Theme.Fonts.body.font)
+                .foregroundStyle(Theme.Text.primary.color)
+                .padding(.horizontal, Theme.space("l"))
+                .frame(height: Theme.NewAgent.layout.number("chip_h"))
+                .background(Capsule().fill(Theme.Panel.inner.color("fill")))
+                .onSubmit { model.connect() }
+                .accessibilityLabel("lasso address")
+            PillButton(title: model.connecting ? "Connecting…" : "Connect", label: "Connect to the lasso at this address") {
+                model.connect()
+            }
+        }
+        if model.signedIn {
+            HStack {
+                line("Signed in on this Mac.", secondary: true)
+                Spacer()
+                PillButton(title: "Sign out", label: "Sign out of this lasso") { model.signOut() }
+            }
+        }
+        if let note = model.connectNote { line(note, secondary: true) }
     }
 
     /// One lasso: what it is, where, and Use for the ones not in use.

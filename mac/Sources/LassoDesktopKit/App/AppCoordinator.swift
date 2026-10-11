@@ -146,6 +146,15 @@ public final class AppCoordinator {
         }
         settingsModel.onClose = { [weak self] in self?.settings.close() }
         settingsModel.onUse = { [weak self] url in self?.use(url) }
+        // A sign-in to the lasso in use keeps everything on screen; one to
+        // another lasso switches to it (its tokens are in the Keychain).
+        settingsModel.onSignedIn = { [weak self] url, grant in
+            guard let self, let client = self.client else { return }
+            if url == client.baseURL { client.signedIn(grant) } else { self.use(url) }
+        }
+        settingsModel.onSignOut = { [weak self] in self?.client?.signOut() }
+        settingsModel.signInAnchor = { [weak self] in self?.settings.panel }
+        AuthState.shared.onExpired = { [weak self] in self?.openSettings(takeKey: false) }
         settingsModel.onShortcut = { [weak self] slot, c in self?.shortcuts[slot]?.apply(c) }
         list.model.onNew = { [weak self] in self?.openNewAgent(.git) }
         settingsModel.notify = { [weak fleet] in fleet?.notify }

@@ -58,6 +58,89 @@ public final class SettingsModel: ObservableObject {
     public var chooseNotify: ((String, Bool) async throws -> Void)?
     /// Switch the app to another lasso.
     public var onUse: (URL) -> Void = { _ in }
+    /// A sign-in finished for this lasso: use it, with its tokens.
+    public var onSignedIn: (URL, OAuthGrant) -> Void = { _, _ in }
+    /// Forget the lasso in use's tokens.
+    public var onSignOut: () -> Void = {}
+    /// The window the sign-in sheet hangs from.
+    public var signInAnchor: () -> NSWindow? = { nil }
+
+    /// The URL field: any lasso by its address (a tailnet name, a
+    /// Cloudflare hostname, a loopback port).
+    @Published public var urlDraft = ""
+    /// What the last Connect or sign-in found, in a sentence.
+    @Published public private(set) var connectNote: String?
+    @Published public private(set) var connecting = false
+
+    /// The lasso in use holds sign-in tokens on this Mac.
+    public var signedIn: Bool { _ = tick; return URL(string: baseURL()).flatMap(TokenStore.read) != nil }
+
+    /// Connect to the lasso in the URL field: ask it what it needs, then use
+    /// it, signing in first when it asks for that.
+    public func connect() {
+        var text = urlDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !connecting else { return }
+        if !text.contains("://") { text = (text.hasPrefix("127.") || text.hasPrefix("localhost") ? "http://" : "https://") + text }
+        guard let url = URL(string: text), url.host != nil else {
+            connectNote = "That is not an address."
+            return
+        }
+        connecting = true
+        connectNote = nil
+        Task {
+            defer { connecting = false }
+            switch await LassoAuth.probe(url) {
+            case .open:
+                onUse(url)
+                connectNote = "Connected. This lasso needs no sign-in from here."
+                urlDraft = ""
+                tick += 1
+            case .signIn(let metadata):
+                await signIn(url, metadata)
+            case .password:
+                connectNote = "This lasso asks for its UI_AUTH password (Keychain item ui-auth)."
+            case .unreachable(let why):
+                connectNote = "No answer from \(url.host ?? text): \(why)"
+            }
+        }
+    }
+
+    /// The lasso in use stopped taking its token: sign in to it again.
+    public func signInAgain() {
+        guard !connecting, let url = AuthState.shared.expired ?? URL(string: baseURL()) else { return }
+        connecting = true
+        Task {
+            defer { connecting = false }
+            guard case .signIn(let metadata) = await LassoAuth.probe(url) else {
+                connectNote = "This lasso no longer asks for a sign-in."
+                AuthState.shared.signedIn()
+                return
+            }
+            await signIn(url, metadata)
+        }
+    }
+
+    private func signIn(_ url: URL, _ metadata: URL) async {
+        connectNote = "Finish signing in in the window that opened."
+        do {
+            let g = try await OAuthSignIn(base: url, metadata: metadata, anchor: signInAnchor()).run()
+            TokenStore.write(g, for: url)
+            onSignedIn(url, g)
+            AuthState.shared.signedIn()
+            connectNote = "Signed in."
+            urlDraft = ""
+        } catch {
+            connectNote = String(describing: error)
+        }
+        tick += 1
+    }
+
+    public func signOut() {
+        onSignOut()
+        connectNote = "Signed out. This Mac holds no token for this lasso."
+        tick += 1
+    }
+
     /// Asks a lasso for /api/version; nil when the app runs from a fixture.
     public var probe: (@Sendable (URL) async -> VersionInfo?)?
 

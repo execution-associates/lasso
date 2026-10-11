@@ -21,7 +21,7 @@ the LassoDesktop brief (plan mode, 2026-10-11). The spec the harness asserts aga
 
 | Brief says | Plan does | Why |
 |---|---|---|
-| Optional bearer token for a remote lasso | UI_AUTH basic in the Keychain, plus optional Cloudflare Access service-token headers (`CF-Access-Client-Id`, `CF-Access-Client-Secret`) | `withAuth` reads only `r.BasicAuth()` (`src/main.go:3285-3299`). Making `/api/*` accept MCP bearers would hand a host-scoped MCP credential the whole UI API, which has no `requireHost` checks. |
+| Optional bearer token for a remote lasso | Whatever the lasso's network proves (§18): nothing on loopback or the tailnet, a bearer token from the network's OAuth server behind Cloudflare Access or with `MCP_OAUTH`, UI_AUTH basic for an older install, and an Access service token for an unattended Mac. All come from the Keychain. | A host-scoped MCP credential must not reach the whole UI API, which has no `requireHost` checks. So the token is the device's own sign-in, never a copied MCP token (the lasso-auth design). |
 | Ad-hoc `codesign` | Sign with a self-signed identity in a dedicated keychain on minime. Ad-hoc is only the fallback for a fresh Mac and prints a warning. | TCC keys grants on the designated requirement. An ad-hoc cdhash changes every build. |
 | `dist/LassoDesktop.app`, `dist/parity/` | `mac/dist/…` | The repo-root `dist/` is the release workflow's output (`dist/lasso-*`). |
 | Mac's `127.0.0.1:8090` | The app defaults to `http://127.0.0.1:8090` as the brief says. On minime, the dev script points it at our own tunnel on `127.0.0.1:18090`. | `jessica-triage`'s mux holds 8090 on minime, and binding over it would fail `ExitOnForwardFailure`. |
@@ -889,16 +889,36 @@ The Mac launches agents the way lasso's web New dialog does (`src/web/src/compon
 
 All three system-wide shortcuts (inbox, new agent, new scratch agent) are `ShortcutSlot`s, each stored on its own and recorded the same way.
 
-## 18. Later: signing in to a deployed lasso through Cloudflare Access
+## 18. Signing in to a lasso
 
-The user's lasso is `https://lasso.orangecountyai.com`, behind Cloudflare Zero Trust (Access). The app should connect to it by URL and authenticate the way a browser does, rather than needing a tunnel. Not built yet.
-- **Settings › lasso gains a URL field.** For an `https` lasso, the app first probes `/api/version` without credentials. A redirect to `<team>.cloudflareaccess.com` means Access sits in front.
-- **Sign-in through the browser, the way `cloudflared access login` does it.** The app opens the Access login for that hostname in an `ASWebAuthenticationSession`, so the user's identity provider, MFA and device posture all apply as they do for the web app. It keeps the resulting `CF_Authorization` application token in the Keychain, then sends it on every request as the `cf-access-token` header (the event stream included), never in plain storage.
-- **Refresh:** a 401 or 403, or a redirect to the Access login, marks the token expired. The app keeps the user's state, asks once to sign in again, and resumes the event stream afterwards.
-- **lasso's own `UI_AUTH`** still applies behind Access when it is set: basic credentials from the Keychain, as today. A service token (`CF-Access-Client-Id`/`Secret`, which the client already sends when stored) stays the non-interactive alternative for a shared Mac.
-- **Open questions:**
-  - Whether this team's Access application allows the CLI/native login flow, or needs `cloudflared`'s transfer endpoint.
-  - Whether to support several saved deployments at once, alongside the tunnel and dev entries of §14.
+The app uses one lasso at a time and reaches it by address (`API/Auth.swift`, `API/LassoClient.swift`, Settings › lasso). This is step 8 of the lasso-auth design. The server's side is on branch `lasso-auth`.
+
+**Settings › lasso has an address field and Connect.** A bare hostname means `https://`, and `127.*`/`localhost` mean `http://`. Connect asks `GET /api/version` with no credential, sending `X-Requested-With: XMLHttpRequest`, which is Cloudflare's way of getting a clean 401 rather than a login redirect.
+- **200:** nothing to send. The address is loopback, or a tailnet listener that knows the device by Tailscale whois. The app switches to it.
+- **401 with `WWW-Authenticate: Bearer … resource_metadata="<url>"`:** RFC 9728 discovery, then a sign-in.
+  - Read that document. Take `authorization_servers[0]`, then its RFC 8414 metadata.
+  - Behind Cloudflare Access this is Access's Managed OAuth: titan answers `knowsuchagency.cloudflareaccess.com`, with registration, S256 and public clients. On a lasso with `MCP_OAUTH` and no edge, it is lasso's own server.
+- **401 with `Basic`:** an older UI_AUTH install. The password comes from the Keychain item `ui-auth`.
+
+**The sign-in:**
+1. Dynamic client registration (RFC 7591) as a public native client, with a loopback redirect `http://127.0.0.1:<port>/callback`. The port is the system's choice, and the listener binds 127.0.0.1 only.
+2. Authorization code with PKCE S256 in an `ASWebAuthenticationSession`. It is not ephemeral, so the browser's own sign-in session is reused. The RFC 8707 `resource` is the lasso's origin, never the probed path. Access's metadata names the probed path (`/api/version`) as the resource.
+3. The browser lands on the loopback listener, which answers "Signed in to lasso" and closes the window.
+4. The token exchange.
+
+The access token, refresh token, client id and token endpoint are kept as one Keychain item, `oauth:<origin>`, under the app's service.
+
+**Every request carries the token**, the event stream included:
+- `Authorization: Bearer`. When an Access service token is stored (an unattended Mac), the service token takes the edge, and lasso's token rides in `X-Lasso-Token`.
+- A token within a minute of expiry is refreshed first.
+- A 401 refreshes once and retries. A refresh that fails marks the lasso expired (`AuthState`). Settings opens with **Sign in again**, and everything on screen stays as it was. Sign in again runs the same flow against the same lasso.
+- **Sign out** forgets that lasso's tokens.
+
+**Still to settle:**
+- Whether Access accepts a loopback redirect from DCR without an allowlist entry (`allow_any_on_loopback`). If it does not, a custom-scheme redirect is the fallback.
+- Whether a non-Access bearer passes through Access.
+
+Both are step 2 of the auth plan: `~/.lasso/worktrees/lasso/lasso-auth-notes/step2-access.md`.
 
 ## 19. Agent windows and hover previews (the user's screenshots, 2026-10-11)
 

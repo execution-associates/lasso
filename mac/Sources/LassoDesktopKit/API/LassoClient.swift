@@ -1,8 +1,9 @@
 import Foundation
 
-/// lasso's HTTP API, and only that (PLAN 3). /api/* takes UI_AUTH basic auth
-/// and nothing else (src/main.go:3285); a lasso behind Cloudflare Access also
-/// needs an Access service token. Both come from the Keychain.
+/// lasso's HTTP API, and only that (PLAN 3). What it sends depends on the
+/// lasso (PLAN 18): nothing on loopback or the tailnet, a signed-in lasso's
+/// bearer token, UI_AUTH basic for an older install, and an Access service
+/// token for an unattended Mac. All of them come from the Keychain.
 ///
 /// A reference: every live action shares one client, so pointing it at
 /// another lasso (Settings' picker, `retarget`) moves them all at once.
@@ -16,37 +17,55 @@ public final class LassoClient: @unchecked Sendable {
 
     private let lock = NSLock()
     private var url: URL
+    private var tokens: TokenAuth?
     private let headers: [String: String]
     private let session: URLSession
 
     public var baseURL: URL { lock.withLock { url } }
+    /// The signed-in lasso's tokens, if it has any.
+    public var auth: TokenAuth? { lock.withLock { tokens } }
 
-    public convenience init(baseURL: URL, basicAuth: String? = nil, accessID: String? = nil, accessSecret: String? = nil) {
-        var h: [String: String] = ["Accept": "application/json"]
+    public convenience init(
+        baseURL: URL, basicAuth: String? = nil, accessID: String? = nil, accessSecret: String? = nil, grant: OAuthGrant? = nil,
+        protocolClasses: [AnyClass]? = nil, persist: (@Sendable (OAuthGrant, URL) -> Void)? = nil
+    ) {
+        // X-Requested-With gets a clean 401 from Cloudflare Access when its
+        // session has ended, not a redirect to its login page.
+        var h: [String: String] = ["Accept": "application/json", "X-Requested-With": "XMLHttpRequest"]
         if let b = basicAuth, !b.isEmpty { h["Authorization"] = "Basic " + Data(b.utf8).base64EncodedString() }
         if let id = accessID, let secret = accessSecret, !id.isEmpty, !secret.isEmpty {
             h["CF-Access-Client-Id"] = id
             h["CF-Access-Client-Secret"] = secret
         }
-        self.init(baseURL: baseURL, headers: h, timeout: 15)
+        self.init(baseURL: baseURL, headers: h, timeout: 15, protocolClasses: protocolClasses)
+        tokens = grant.map {
+            TokenAuth(
+                base: baseURL, grant: $0, session: session, serviceToken: h["CF-Access-Client-Id"] != nil,
+                persist: persist ?? { TokenStore.write($0, for: $1) })
+        }
     }
 
-    private init(baseURL: URL, headers: [String: String], timeout: TimeInterval) {
+    private init(baseURL: URL, headers: [String: String], timeout: TimeInterval, protocolClasses: [AnyClass]? = nil) {
         url = baseURL
         self.headers = headers
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = timeout
         cfg.httpCookieStorage = nil
         cfg.urlCache = nil
+        if let p = protocolClasses { cfg.protocolClasses = p }
         session = URLSession(configuration: cfg)
     }
+
+    /// The session requests go out on (the event stream's too).
+    var urlSession: URLSession { session }
 
     /// The configured lasso: UserDefaults baseURL (dev.sh points minime at
     /// its own tunnel) and the Keychain's credentials.
     public static func configured() -> LassoClient {
         LassoClient(
             baseURL: configuredURL, basicAuth: Keychain.read(.uiAuth),
-            accessID: Keychain.read(.cfAccessID), accessSecret: Keychain.read(.cfAccessSecret))
+            accessID: Keychain.read(.cfAccessID), accessSecret: Keychain.read(.cfAccessSecret),
+            grant: TokenStore.read(configuredURL))
     }
 
     static var configuredURL: URL {
@@ -65,8 +84,26 @@ public final class LassoClient: @unchecked Sendable {
     /// Point this client, and so everything holding it, at another lasso,
     /// and remember the choice.
     public func retarget(_ to: URL, remember: Bool = true) {
-        lock.withLock { url = to }
+        let serviceToken = headers["CF-Access-Client-Id"] != nil
+        let t = TokenStore.read(to).map { TokenAuth(base: to, grant: $0, session: session, serviceToken: serviceToken) }
+        lock.withLock {
+            url = to
+            tokens = t
+        }
         if remember { UserDefaults.standard.set(to.absoluteString, forKey: Self.baseURLDefaultsKey) }
+    }
+
+    /// A sign-in finished: use its tokens from now on (they are already in
+    /// the Keychain).
+    public func signedIn(_ g: OAuthGrant) {
+        let t = TokenAuth(base: baseURL, grant: g, session: session, serviceToken: headers["CF-Access-Client-Id"] != nil)
+        lock.withLock { tokens = t }
+    }
+
+    /// Forget this lasso's tokens.
+    public func signOut() {
+        TokenStore.delete(baseURL)
+        lock.withLock { tokens = nil }
     }
 
     /// A short-lived client for probing another lasso with these credentials.
@@ -80,6 +117,7 @@ public final class LassoClient: @unchecked Sendable {
         var r = URLRequest(url: c.url!)
         r.httpMethod = method
         for (k, v) in headers { r.setValue(v, forHTTPHeaderField: k) }
+        auth?.apply(&r)
         if let body {
             r.httpBody = body
             r.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -102,7 +140,7 @@ public final class LassoClient: @unchecked Sendable {
     public func upload<T: Decodable>(_ r: URLRequest, fromFile file: URL) async throws -> T {
         var r = r
         r.timeoutInterval = 600
-        let (data, resp) = try await session.upload(for: r, fromFile: file)
+        let (data, resp) = try await perform(r) { try await self.session.upload(for: $0, fromFile: file) }
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else {
             throw LassoError.http(code, String(decoding: data.prefix(300), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
@@ -114,12 +152,25 @@ public final class LassoClient: @unchecked Sendable {
 
     /// A request whose answer is not JSON (a file): its body and status.
     public func raw(_ r: URLRequest) async throws -> (Data, Int) {
-        let (data, resp) = try await session.data(for: r)
+        let (data, resp) = try await perform(r) { try await self.session.data(for: $0) }
         return (data, (resp as? HTTPURLResponse)?.statusCode ?? 0)
     }
 
+    /// Send with the freshest token; a 401 refreshes once and retries, and a
+    /// refresh that fails leaves the user a "Sign in again" (AuthState).
+    func perform(_ r: URLRequest, _ go: (URLRequest) async throws -> (Data, URLResponse)) async throws -> (Data, URLResponse) {
+        guard let t = auth else { return try await go(r) }
+        var r = r
+        await t.freshen()
+        t.apply(&r)
+        let first = try await go(r)
+        guard (first.1 as? HTTPURLResponse)?.statusCode == 401, await t.refreshAfterRefusal() else { return first }
+        t.apply(&r)
+        return try await go(r)
+    }
+
     public func send<T: Decodable>(_ r: URLRequest) async throws -> T {
-        let (data, resp) = try await session.data(for: r)
+        let (data, resp) = try await perform(r) { try await self.session.data(for: $0) }
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         // lasso serves its web app for any path it has no route for, with a
         // 200: an HTML answer to an API call means the route does not exist
@@ -146,6 +197,94 @@ public final class LassoClient: @unchecked Sendable {
         r.timeoutInterval = 90
         return r
     }
+}
+
+/// A signed-in lasso's tokens: on every request, refreshed when stale, and
+/// once more after a 401. One refresh at a time; a failed one marks the app
+/// signed out (AuthState) and keeps everything else as it was.
+public final class TokenAuth: @unchecked Sendable {
+    let base: URL
+    let session: URLSession
+    /// An Access service token holds Authorization's place at the edge, so
+    /// lasso's own token rides in X-Lasso-Token.
+    let header: String
+    private let lock = NSLock()
+    private var grant: OAuthGrant
+    private var inflight: Task<Bool, Never>?
+    /// Where a refreshed grant is kept (the Keychain; tests keep it in memory).
+    let persist: @Sendable (OAuthGrant, URL) -> Void
+
+    init(
+        base: URL, grant: OAuthGrant, session: URLSession, serviceToken: Bool,
+        persist: @escaping @Sendable (OAuthGrant, URL) -> Void = { TokenStore.write($0, for: $1) }
+    ) {
+        self.base = base
+        self.grant = grant
+        self.session = session
+        self.persist = persist
+        header = serviceToken ? "X-Lasso-Token" : "Authorization"
+    }
+
+    public var current: OAuthGrant { lock.withLock { grant } }
+
+    func apply(_ r: inout URLRequest) {
+        let token = current.accessToken
+        if header == "Authorization" {
+            r.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+        } else {
+            r.setValue(token, forHTTPHeaderField: header)
+        }
+    }
+
+    /// Refresh first when the token is spent or about to be.
+    func freshen() async {
+        if current.stale() { _ = await refresh() }
+    }
+
+    /// lasso refused the token: refresh once. False: signed out.
+    func refreshAfterRefusal() async -> Bool { await refresh() }
+
+    private func refresh() async -> Bool {
+        let task: Task<Bool, Never> = lock.withLock {
+            if let t = inflight { return t }
+            let g = grant
+            let t = Task { [session, base] () -> Bool in
+                do {
+                    let fresh = try await LassoAuth.refresh(g, session: session)
+                    self.persist(fresh, base)
+                    self.lock.withLock { self.grant = fresh }
+                    return true
+                } catch {
+                    await AuthState.shared.signedOut(base)
+                    return false
+                }
+            }
+            inflight = t
+            return t
+        }
+        let ok = await task.value
+        lock.withLock { if inflight == task { inflight = nil } }
+        return ok
+    }
+}
+
+/// Whether the lasso in use needs the user to sign in again: a banner in
+/// Settings, and the app keeps its state until they do.
+@MainActor
+public final class AuthState: ObservableObject {
+    public static let shared = AuthState()
+    /// The lasso whose tokens stopped working.
+    @Published public private(set) var expired: URL?
+    /// Asked to show the sign-in (the coordinator opens Settings).
+    public var onExpired: () -> Void = {}
+
+    func signedOut(_ base: URL) {
+        guard expired == nil else { return }
+        expired = base
+        onExpired()
+    }
+
+    public func signedIn() { expired = nil }
 }
 
 public enum LassoError: Error, CustomStringConvertible, Equatable {
