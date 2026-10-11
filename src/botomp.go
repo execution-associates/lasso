@@ -113,6 +113,30 @@ type ompUIRequest struct {
 	Placeholder string   `json:"placeholder,omitempty"`
 }
 
+type ompModelInfo struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Provider      string `json:"provider"`
+	ContextWindow int64  `json:"context_window,omitempty"`
+}
+
+// selector is the model as a --model value: provider/id.
+func (m ompModelInfo) selector() string {
+	if m.ID == "" {
+		return ""
+	}
+	if m.Provider == "" {
+		return m.ID
+	}
+	return m.Provider + "/" + m.ID
+}
+
+type ompContextUsage struct {
+	Tokens  int64   `json:"tokens"`
+	Window  int64   `json:"window,omitempty"`
+	Percent float64 `json:"percent,omitempty"`
+}
+
 type ompResponse struct {
 	Success bool            `json:"success"`
 	Error   string          `json:"error"`
@@ -139,6 +163,14 @@ type ompBot struct {
 	hostProto   int
 	hostVersion string
 	upgrading   bool
+	// What omp says it runs (get_state): the model, its thinking levels, the
+	// current level and how full the context is. modelKnown is set by the
+	// first reading on a connection, the baseline a change is measured from.
+	model      ompModelInfo
+	thinking   string
+	efforts    []string
+	context    ompContextUsage
+	modelKnown bool
 	// opMu keeps a job delivery and a host upgrade from interleaving, so an
 	// upgrade never stops omp just after it accepted a prompt.
 	opMu     sync.Mutex
@@ -214,6 +246,7 @@ func (ob *ompBot) read(conn net.Conn, gen int) {
 	if ob.gen == gen {
 		ob.conn = nil
 		ob.hello = false
+		ob.modelKnown = false
 		ob.ready, ob.streaming = false, false
 		ob.pending = nil
 		for id, w := range ob.waiters {
@@ -293,6 +326,10 @@ func (ob *ompBot) observe(line []byte) {
 		}
 	case "message_end", "tool_execution_end":
 		nudge = true
+	case "model_changed", "thinking_level_changed":
+		// Whoever changed it (lasso, the bot's herdr pane, the bot itself):
+		// read it back and keep the bot's settings in step.
+		askState, nudge = true, true
 	case "extension_ui_request":
 		if q, ok := f.uiRequest(); ok {
 			ob.dropPending(q.ID)
@@ -356,8 +393,23 @@ func (ob *ompBot) refreshState() {
 		return
 	}
 	var st struct {
-		SessionID   string `json:"sessionId"`
-		IsStreaming bool   `json:"isStreaming"`
+		SessionID     string `json:"sessionId"`
+		IsStreaming   bool   `json:"isStreaming"`
+		ThinkingLevel string `json:"thinkingLevel"`
+		Model         *struct {
+			ID            string `json:"id"`
+			Name          string `json:"name"`
+			Provider      string `json:"provider"`
+			ContextWindow int64  `json:"contextWindow"`
+			Thinking      struct {
+				Efforts []string `json:"efforts"`
+			} `json:"thinking"`
+		} `json:"model"`
+		ContextUsage *struct {
+			Tokens        int64   `json:"tokens"`
+			ContextWindow int64   `json:"contextWindow"`
+			Percent       float64 `json:"percent"`
+		} `json:"contextUsage"`
 	}
 	if json.Unmarshal(resp.Data, &st) != nil {
 		return
@@ -365,7 +417,95 @@ func (ob *ompBot) refreshState() {
 	ob.mu.Lock()
 	ob.sessionID = st.SessionID
 	ob.streaming = st.IsStreaming
+	prevModel, prevThinking, known := ob.model.selector(), ob.thinking, ob.modelKnown
+	if st.Model != nil {
+		ob.model = ompModelInfo{ID: st.Model.ID, Name: st.Model.Name, Provider: st.Model.Provider, ContextWindow: st.Model.ContextWindow}
+		ob.efforts = st.Model.Thinking.Efforts
+	}
+	ob.thinking = st.ThinkingLevel
+	if st.ContextUsage != nil {
+		ob.context = ompContextUsage{Tokens: st.ContextUsage.Tokens, Window: st.ContextUsage.ContextWindow, Percent: st.ContextUsage.Percent}
+	} else {
+		ob.context = ompContextUsage{Window: ob.model.ContextWindow}
+	}
+	ob.modelKnown = true
+	model, thinking := ob.model.selector(), ob.thinking
 	ob.mu.Unlock()
+	// A change after the first reading is the bot's settings' too, so a
+	// restart keeps it. The first reading is only the baseline: at launch omp
+	// resolves the bot's own --model, which may be an alias or the default.
+	if known && (model != prevModel || thinking != prevThinking) {
+		go botOmpPersistModel(ob.name, model, thinking, model != prevModel, thinking != prevThinking)
+	}
+	ompChatNudge(ob.name)
+}
+
+// botOmpPersistModel writes a model or thinking change omp reported into the
+// bot's row and launch task.
+// botOmpPersistMu: a model change and a thinking change arrive as two events
+// and two readings; saved concurrently, the second would start from the row
+// as it was before the first and put the old model back.
+var botOmpPersistMu sync.Mutex
+
+func botOmpPersistModel(name, model, thinking string, modelChanged, thinkingChanged bool) {
+	botOmpPersistMu.Lock()
+	defer botOmpPersistMu.Unlock()
+	r, err := getBot(name)
+	if err != nil || !r.isOmp() {
+		return
+	}
+	next := *r
+	if modelChanged && model != "" {
+		next.Model = model
+	}
+	if thinkingChanged && thinking != "" {
+		if e := normalizeEffort("omp", thinking); e != "" {
+			next.Effort = e
+		}
+	}
+	if next.Model == r.Model && next.Effort == r.Effort {
+		return
+	}
+	if err := next.normalize(); err != nil {
+		log.Printf("bots:     %s: keep model %q / thinking %q: %v", name, model, thinking, err)
+		return
+	}
+	if err := updateBot(&next); err != nil {
+		return
+	}
+	if b, err := botBackend(next.Host); err == nil {
+		_ = botWriteTask(b, &next, expandTildeOn(b, next.Dir))
+	}
+	log.Printf("bots:     %s: now model %s, thinking %s", name, next.Model, next.Effort)
+}
+
+// botOmpSetModel changes a running omp bot's model and thinking level now,
+// over RPC. "" leaves that one alone.
+func botOmpSetModel(name, model, thinking string) error {
+	ob := ompBotFor(name)
+	if model != "" {
+		provider, id, ok := strings.Cut(model, "/")
+		if !ok || provider == "" || id == "" {
+			return fmt.Errorf("an omp model is provider/model, not %q", model)
+		}
+		resp, err := ob.call(map[string]any{"type": "set_model", "provider": provider, "modelId": id}, 15*time.Second)
+		if err != nil {
+			return err
+		}
+		if !resp.Success {
+			return fmt.Errorf("omp refused the model: %s", resp.Error)
+		}
+	}
+	if thinking != "" {
+		resp, err := ob.call(map[string]any{"type": "set_thinking_level", "level": thinking}, 15*time.Second)
+		if err != nil {
+			return err
+		}
+		if !resp.Success {
+			return fmt.Errorf("omp refused the thinking level: %s", resp.Error)
+		}
+	}
+	return nil
 }
 
 var errOmpNotConnected = errors.New("the bot is not running")
@@ -420,6 +560,10 @@ func (ob *ompBot) call(cmd map[string]any, timeout time.Duration) (ompResponse, 
 
 type ompSnapshot struct {
 	connected, ready, streaming bool
+	model                       ompModelInfo
+	thinking                    string
+	efforts                     []string
+	context                     ompContextUsage
 	hello                       bool
 	hostProto                   int
 	hostVersion                 string
@@ -434,6 +578,7 @@ func (ob *ompBot) snapshot() ompSnapshot {
 	return ompSnapshot{
 		connected: ob.conn != nil, ready: ob.ready, streaming: ob.streaming,
 		hello: ob.hello, hostProto: ob.hostProto, hostVersion: ob.hostVersion,
+		model: ob.model, thinking: ob.thinking, efforts: append([]string(nil), ob.efforts...), context: ob.context,
 		pending: append([]ompUIRequest(nil), ob.pending...), sessionID: ob.sessionID,
 		exit: ob.exit, upSince: ob.upSince,
 	}
@@ -623,6 +768,15 @@ func botOmpStatus(b Backend, r *botRecord) botView {
 	v.SessionID = s.sessionID
 	if p, ok := botOmpViewerPane(b, r); ok {
 		v.PaneID = p
+	}
+	if s.connected && s.model.ID != "" {
+		m := s.model
+		v.LiveModel = &m
+		v.Thinking = s.thinking
+		// omp's own selectors are off and auto, beside the model's rungs.
+		v.ThinkingLevels = append(append([]string{"off"}, s.efforts...), "auto")
+		c := s.context
+		v.Context = &c
 	}
 	if s.connected && s.hello {
 		v.HostVersion = s.hostVersion

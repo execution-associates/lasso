@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -20,6 +21,8 @@ import (
 // $LASSO_TEST_FAKE_OMP_LOG and appends turns to a session file in
 // $LASSO_TEST_FAKE_OMP_SESSIONS.
 const fakeOmpEnv = "LASSO_TEST_FAKE_OMP"
+
+var fakeProvider, fakeModelID, fakeThinking = "fakeco", "m1", "low"
 
 func runFakeOmp() int {
 	logPath := os.Getenv("LASSO_TEST_FAKE_OMP_LOG")
@@ -94,7 +97,28 @@ func runFakeOmp() int {
 		}
 		switch c.Type {
 		case "get_state":
-			emit(map[string]any{"type": "response", "id": c.ID, "command": c.Type, "success": true, "data": map[string]any{"sessionId": "sess-1", "isStreaming": false}})
+			emit(map[string]any{"type": "response", "id": c.ID, "command": c.Type, "success": true, "data": map[string]any{
+				"sessionId": "sess-1", "isStreaming": false, "thinkingLevel": fakeThinking,
+				"model":        map[string]any{"id": fakeModelID, "name": "Fake " + fakeModelID, "provider": fakeProvider, "contextWindow": 200000, "thinking": map[string]any{"efforts": []string{"low", "high"}}},
+				"contextUsage": map[string]any{"tokens": 5000, "contextWindow": 200000, "percent": 2.5},
+			}})
+		case "set_model":
+			var m struct {
+				Provider string `json:"provider"`
+				ModelID  string `json:"modelId"`
+			}
+			_ = json.Unmarshal([]byte(line), &m)
+			fakeProvider, fakeModelID = m.Provider, m.ModelID
+			emit(map[string]any{"type": "model_changed"})
+			emit(map[string]any{"type": "response", "id": c.ID, "command": c.Type, "success": true})
+		case "set_thinking_level":
+			var l struct {
+				Level string `json:"level"`
+			}
+			_ = json.Unmarshal([]byte(line), &l)
+			fakeThinking = l.Level
+			emit(map[string]any{"type": "thinking_level_changed", "thinkingLevel": l.Level})
+			emit(map[string]any{"type": "response", "id": c.ID, "command": c.Type, "success": true})
 		case "abort":
 			emit(map[string]any{"type": "response", "id": c.ID, "command": c.Type, "success": true})
 		case "extension_ui_response":
@@ -807,4 +831,53 @@ func TestBotDeleteWithFolder(t *testing.T) {
 	if err := botFolderRemovable(b, t.TempDir()); err != nil {
 		t.Errorf("a plain folder refused: %v", err)
 	}
+}
+
+func TestOmpBotModelPickers(t *testing.T) {
+	r, _ := useOmpBotEnv(t, "picky")
+	b, _ := botBackend("local")
+	if err := startBot(b, r, true); err != nil {
+		t.Fatal(err)
+	}
+	ompWaitFor(t, "the live model", func() bool {
+		v := botStatus(b, r, nil)
+		return v.State == "idle" && v.LiveModel != nil && v.LiveModel.ID == "m1"
+	})
+	v := botStatus(b, r, nil)
+	if v.Thinking != "low" || v.Context == nil || v.Context.Tokens != 5000 || v.Context.Window != 200000 ||
+		strings.Join(v.ThinkingLevels, ",") != "off,low,high,auto" {
+		t.Fatalf("view = thinking %q levels %v context %+v", v.Thinking, v.ThinkingLevels, v.Context)
+	}
+	post := func(body string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		serveBots(w, httptest.NewRequest("POST", "/api/bots/picky/model", strings.NewReader(body)))
+		return w
+	}
+	if w := post(`{"model":"bare-name"}`); w.Code != http.StatusBadGateway || !strings.Contains(w.Body.String(), "provider/model") {
+		t.Errorf("a model without provider: %d %s", w.Code, w.Body)
+	}
+	w := post(`{"model":"otherco/m2","thinking":"high"}`)
+	if w.Code != 200 || strings.Contains(w.Body.String(), `"restart_needed":true`) {
+		t.Fatalf("set: %d %s", w.Code, w.Body)
+	}
+	ompWaitFor(t, "the switch", func() bool {
+		v := botStatus(b, r, nil)
+		return v.LiveModel != nil && v.LiveModel.ID == "m2" && v.Thinking == "high"
+	})
+	got, _ := getBot("picky")
+	if got.Model != "otherco/m2" || got.Effort != "high" {
+		t.Errorf("saved = %q / %q", got.Model, got.Effort)
+	}
+	task, _ := os.ReadFile(botTaskPath(expandTildeOn(b, r.Dir)))
+	if !strings.Contains(string(task), "'--model' 'otherco/m2'") || !strings.Contains(string(task), "'--thinking' 'high'") {
+		t.Errorf("task not rewritten:\n%s", task)
+	}
+	// A change made elsewhere (the pane, the bot itself) is kept too.
+	if err := botOmpSetModel("picky", "thirdco/m3", "low"); err != nil {
+		t.Fatal(err)
+	}
+	ompWaitFor(t, "the outside change saved", func() bool {
+		got, _ := getBot("picky")
+		return got.Model == "thirdco/m3" && got.Effort == "low"
+	})
 }

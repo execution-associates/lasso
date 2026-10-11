@@ -116,6 +116,8 @@ func serveBots(w http.ResponseWriter, r *http.Request) {
 		serveBotOAuth(w, r, b, rec)
 	case "avatar":
 		serveBotAvatar(w, r, b, rec)
+	case "model":
+		serveBotModel(w, r, b, rec)
 	case "chat", "chat/send", "chat/stop", "chat/answer":
 		serveBotChat(w, r, b, rec, strings.TrimPrefix(strings.TrimPrefix(action, "chat"), "/"))
 	default:
@@ -458,6 +460,68 @@ func botLaunchScript(r *botRecord, dir string, envKeys []string) string {
 		return botOmpTaskScript(r, dir, envKeys)
 	}
 	return botTaskScript(r, dir, envKeys)
+}
+
+// serveBotModel changes a bot's model and thinking level, the chat header's
+// pickers: POST {model?, thinking?}. A running omp bot switches at once over
+// RPC (and lasso keeps the change in its settings when omp reports it); a
+// claude bot, or a stopped one, saves it for its next start.
+func serveBotModel(w http.ResponseWriter, r *http.Request, b Backend, rec *botRecord) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST", http.StatusMethodNotAllowed)
+		return
+	}
+	var in struct {
+		Model    *string `json:"model"`
+		Thinking *string `json:"thinking"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in); err != nil {
+		http.Error(w, "bad body", http.StatusBadRequest)
+		return
+	}
+	next := *rec
+	if in.Model != nil {
+		next.Model = strings.TrimSpace(*in.Model)
+	}
+	if in.Thinking != nil {
+		next.Effort = strings.TrimSpace(*in.Thinking)
+	}
+	if err := next.normalize(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	live := false
+	if rec.isOmp() && ompBotFor(rec.Name).ensure() && ompBotFor(rec.Name).snapshot().ready {
+		model, thinking := "", ""
+		if next.Model != rec.Model && next.Model != "" {
+			model = next.Model
+		}
+		if next.Effort != rec.Effort && next.Effort != "" {
+			thinking = next.Effort
+		}
+		if err := botOmpSetModel(rec.Name, model, thinking); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		// Blank means "the default", which a running session cannot go back
+		// to: that takes a restart.
+		live = (next.Model != "" || next.Model == rec.Model) && (next.Effort != "" || next.Effort == rec.Effort)
+	}
+	if err := updateBot(&next); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := botMaterialize(b, &next); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	if live {
+		ompBotFor(rec.Name).refreshState()
+	}
+	writeJSON(w, map[string]any{
+		"bot":            botStatus(b, &next, readClaudeSessions(b)),
+		"restart_needed": !live && botRunning(b, &next),
+	})
 }
 
 // serveBotChat is an omp bot's chat: it has a session file and a socket but
