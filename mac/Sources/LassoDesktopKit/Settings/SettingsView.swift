@@ -135,6 +135,13 @@ public struct SettingsView: View {
             }
         }
         if let note = model.connectNote { line(note, secondary: true) }
+        HStack {
+            line("LassoDesktop \(AppUpdates.version)", secondary: true)
+            Spacer()
+            if let check = AppUpdates.checkNow {
+                PillButton(title: "Check for updates", label: "Check for a newer LassoDesktop") { check() }
+            }
+        }
     }
 
     /// One lasso: what it is, where, and Use for the ones not in use.

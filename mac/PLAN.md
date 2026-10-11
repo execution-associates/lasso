@@ -27,6 +27,7 @@ the LassoDesktop brief (plan mode, 2026-10-11). The spec the harness asserts aga
 | Mac's `127.0.0.1:8090` | The app defaults to `http://127.0.0.1:8090` as the brief says. On minime, the dev script points it at our own tunnel on `127.0.0.1:18090`. | `jessica-triage`'s mux holds 8090 on minime, and binding over it would fail `ExitOnForwardFailure`. |
 | Frameworks: SwiftUI, AppKit, Foundation, AVFoundation, CoreGraphics only | The rule is **no third-party code**. Other Apple frameworks are allowed: Combine (`@Published`), Security (Keychain, required by constraint 4), ScreenCaptureKit (`S` attach), ApplicationServices (`AXIsProcessTrusted`), Carbon (`RegisterEventHotKey`, optional summon key). CoreML and Accelerate come later, for on-device ASR. | Constraints 3 and 4 can't be met with the brief's list. |
 | One executable target | One executable `LassoDesktop` plus a library `LassoDesktopKit` and a test target | The harness is `LassoDesktop --parity`, the same shipped binary, so parity measures the real code. |
+| No third-party code | Sparkle, for updates, is the one exception (the user asked for it). Only the executable target links it; the kit, its tests and the parity harness do not. | Updates need a signed feed and an installer, and Sparkle is the standard one. Recap already ships it the same way. |
 
 ## 1. Scope
 
@@ -930,6 +931,35 @@ The access token, refresh token, client id and token endpoint are kept as one Ke
 - Whether a non-Access bearer passes through Access.
 
 Both are step 2 of the auth plan: `~/.lasso/worktrees/lasso/lasso-auth-notes/step2-access.md`.
+
+## 21. Releases and updates (Sparkle)
+
+LassoDesktop ships with every lasso release, at lasso's version, as assets on lasso's GitHub release. The app's feed is `https://github.com/execution-associates/lasso/releases/latest/download/appcast.xml`, so it always names the newest release.
+
+**Build** (`Scripts/build-app.sh`):
+- Bundles `Sparkle.framework` from SwiftPM's artifacts. The rpath is set in `Package.swift`.
+- Signs Sparkle's pieces innermost first, then the app.
+- **A dev build** uses the self-signed identity. It has no feed or key in its Info.plist, so it never updates itself, and Settings shows no Check for updates.
+- **A release build** gets `LASSO_DESKTOP_VERSION`, a Developer ID `SIGN_IDENTITY`, `SPARKLE_FEED` and `SPARKLE_ED_KEY`.
+
+**Release** (`Scripts/release.sh <version>`, Recap's pattern, run on minime in its logged-in session):
+1. Import the Developer ID .p12 from fnox into a throwaway keychain.
+2. Build with hardened runtime and timestamps.
+3. Notarize and staple the app with an App Store Connect API key.
+4. Make a DMG (the app and an Applications link), then sign, notarize and staple it.
+5. Run Sparkle's `sign_update`, which ships in SwiftPM's Sparkle artifact.
+6. Write a one-item `appcast.xml`.
+
+Secrets are fnox names on minime, never GitHub secrets. The public EdDSA key is committed as `Scripts/sparkle-public-key.txt`.
+
+**Workflow:** `release.yml`'s `desktop` job runs after lasso's release on `[self-hosted, macOS, minime, lasso-desktop]` and attaches the DMG and appcast to the release.
+
+**Still to set up (the user's decisions):**
+- the signing and notary credentials: Recap's, or new ones
+- the Sparkle key pair
+- how minime runs the job (a runner, or a script from titan)
+
+The first Developer ID build replaces the self-signed identity. macOS then asks once more for the app's permissions, because TCC keys them on the signing identity.
 
 ## 19. Agent windows and hover previews (the user's screenshots, 2026-10-11)
 
