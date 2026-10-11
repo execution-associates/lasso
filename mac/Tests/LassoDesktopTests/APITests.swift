@@ -56,6 +56,28 @@ private func golden<T: Decodable>(_ name: String, _ type: T.Type) throws -> T {
     #expect(r.url?.absoluteString == "http://127.0.0.1:18090/api/all-panes?host=local")
 }
 
+/// Settings' picker moves every holder of the one client to another lasso,
+/// credentials and all.
+@Test func retargetMovesTheSharedClient() {
+    let c = LassoClient(baseURL: URL(string: "http://127.0.0.1:18090")!, basicAuth: "u:p")
+    c.retarget(URL(string: "http://127.0.0.1:18191")!, remember: false)
+    let r = c.request("/api/version")
+    #expect(r.url?.absoluteString == "http://127.0.0.1:18191/api/version")
+    #expect(r.value(forHTTPHeaderField: "Authorization") == "Basic dTpw")
+    #expect(c.probe(URL(string: "http://127.0.0.1:18192")!).request("/api/version").value(forHTTPHeaderField: "Authorization") == "Basic dTpw")
+}
+
+/// A dev lasso says so, and where it bound behind the tunnel.
+@Test func lassoChoicesNameDevLassos() throws {
+    let v = try JSONDecoder().decode(
+        VersionInfo.self,
+        from: Data(#"{"lasso_protocol":1,"lasso_version":"6.4.0-dev","compatible":true,"dev":true,"listen":"127.0.0.1:8191"}"#.utf8))
+    let c = LassoChoice(url: "http://127.0.0.1:18191", version: v)
+    #expect(c.title == "Dev lasso 6.4.0-dev")
+    #expect(c.detail == "127.0.0.1:18191 → 127.0.0.1:8191")
+    #expect(LassoChoice(url: "http://127.0.0.1:18090", version: nil).title == "Not answering")
+}
+
 /// Agents are named by their herdr label, else their tab, never the
 /// workspace: one workspace ("Agents") holds several of them.
 @Test func agentsAreNamedByLabelThenTab() {

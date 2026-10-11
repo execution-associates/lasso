@@ -3,25 +3,39 @@ import Foundation
 /// lasso's HTTP API, and only that (PLAN 3). /api/* takes UI_AUTH basic auth
 /// and nothing else (src/main.go:3285); a lasso behind Cloudflare Access also
 /// needs an Access service token. Both come from the Keychain.
-public struct LassoClient: Sendable {
+///
+/// A reference: every live action shares one client, so pointing it at
+/// another lasso (Settings' picker, `retarget`) moves them all at once.
+public final class LassoClient: @unchecked Sendable {
     public static let defaultBaseURL = URL(string: "http://127.0.0.1:8090")!
     public static let baseURLDefaultsKey = "baseURL"
+    /// The lassos Settings offers: UserDefaults `lassoCandidates` (dev.sh sets
+    /// a Mac's tunnel ports), else lasso's own defaults, production's 8090 and
+    /// the 8190-8199 a `mise run dev` lasso binds.
+    public static let candidatesDefaultsKey = "lassoCandidates"
 
-    public let baseURL: URL
+    private let lock = NSLock()
+    private var url: URL
     private let headers: [String: String]
     private let session: URLSession
 
-    public init(baseURL: URL, basicAuth: String? = nil, accessID: String? = nil, accessSecret: String? = nil) {
-        self.baseURL = baseURL
+    public var baseURL: URL { lock.withLock { url } }
+
+    public convenience init(baseURL: URL, basicAuth: String? = nil, accessID: String? = nil, accessSecret: String? = nil) {
         var h: [String: String] = ["Accept": "application/json"]
         if let b = basicAuth, !b.isEmpty { h["Authorization"] = "Basic " + Data(b.utf8).base64EncodedString() }
         if let id = accessID, let secret = accessSecret, !id.isEmpty, !secret.isEmpty {
             h["CF-Access-Client-Id"] = id
             h["CF-Access-Client-Secret"] = secret
         }
-        headers = h
+        self.init(baseURL: baseURL, headers: h, timeout: 15)
+    }
+
+    private init(baseURL: URL, headers: [String: String], timeout: TimeInterval) {
+        url = baseURL
+        self.headers = headers
         let cfg = URLSessionConfiguration.ephemeral
-        cfg.timeoutIntervalForRequest = 15
+        cfg.timeoutIntervalForRequest = timeout
         cfg.httpCookieStorage = nil
         cfg.urlCache = nil
         session = URLSession(configuration: cfg)
@@ -30,13 +44,33 @@ public struct LassoClient: Sendable {
     /// The configured lasso: UserDefaults baseURL (dev.sh points minime at
     /// its own tunnel) and the Keychain's credentials.
     public static func configured() -> LassoClient {
-        // LASSO_BASE_URL (scripts, smoke) beats the stored setting.
-        let url = (ProcessInfo.processInfo.environment["LASSO_BASE_URL"] ?? UserDefaults.standard.string(forKey: baseURLDefaultsKey))
-            .flatMap(URL.init(string:))
-        return LassoClient(
-            baseURL: url ?? defaultBaseURL, basicAuth: Keychain.read(.uiAuth),
+        LassoClient(
+            baseURL: configuredURL, basicAuth: Keychain.read(.uiAuth),
             accessID: Keychain.read(.cfAccessID), accessSecret: Keychain.read(.cfAccessSecret))
     }
+
+    static var configuredURL: URL {
+        // LASSO_BASE_URL (scripts, smoke) beats the stored setting.
+        (ProcessInfo.processInfo.environment["LASSO_BASE_URL"] ?? UserDefaults.standard.string(forKey: baseURLDefaultsKey))
+            .flatMap(URL.init(string:)) ?? defaultBaseURL
+    }
+
+    public static var candidates: [URL] {
+        if let list = UserDefaults.standard.stringArray(forKey: candidatesDefaultsKey) {
+            return list.compactMap(URL.init(string:))
+        }
+        return ([8090] + Array(8190...8199)).map { URL(string: "http://127.0.0.1:\($0)")! }
+    }
+
+    /// Point this client, and so everything holding it, at another lasso,
+    /// and remember the choice.
+    public func retarget(_ to: URL, remember: Bool = true) {
+        lock.withLock { url = to }
+        if remember { UserDefaults.standard.set(to.absoluteString, forKey: Self.baseURLDefaultsKey) }
+    }
+
+    /// A short-lived client for probing another lasso with these credentials.
+    public func probe(_ at: URL) -> LassoClient { LassoClient(baseURL: at, headers: headers, timeout: 2) }
 
     public func request(_ path: String, query: [String: String] = [:], method: String = "GET", body: Data? = nil)
         -> URLRequest

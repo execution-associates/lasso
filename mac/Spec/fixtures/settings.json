@@ -1,5 +1,5 @@
 {
-  "about": "Settings on a fresh Mac: the lasso it talks to, and the permission states: screen recording off, accessibility not asked.",
+  "about": "Settings on a fresh Mac: the lassos it can talk to (production in use, a dev lasso on the tunnel), and the permission states: screen recording off, accessibility not asked.",
   "state": "settings",
   "extends": "rail-expanded",
   "ui": {
@@ -12,5 +12,35 @@
   "permissions": {
     "screen_recording": "denied",
     "accessibility": "not_determined"
-  }
+  },
+  "lassos": [
+    {
+      "url": "http://127.0.0.1:18090",
+      "version": {
+        "lasso_protocol": 22,
+        "lasso_version": "6.3.0 (fixture)",
+        "herdr_protocol": 22,
+        "herdr_version": "0.9.3",
+        "compatible": true,
+        "updatable": false,
+        "update_state": "current",
+        "latest_version": "v6.3.0"
+      }
+    },
+    {
+      "url": "http://127.0.0.1:18191",
+      "version": {
+        "lasso_protocol": 22,
+        "lasso_version": "6.4.0-dev (fixture)",
+        "herdr_protocol": 22,
+        "herdr_version": "0.9.3",
+        "compatible": true,
+        "updatable": false,
+        "update_state": "current",
+        "latest_version": "v6.3.0",
+        "dev": true,
+        "listen": "127.0.0.1:8191"
+      }
+    }
+  ]
 }

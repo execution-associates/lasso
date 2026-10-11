@@ -11,7 +11,7 @@ public final class ParityRunner {
     /// States whose surfaces exist. The rest report as pending until their
     /// milestone lands (PLAN 6).
     public static let implemented: Set<String> = [
-        "rail-collapsed", "rail-expanded", "inbox-open", "card-open", "list-panel-open", "chat-open", "settings",
+        "rail-collapsed", "rail-expanded", "inbox-open", "inbox-empty", "card-open", "list-panel-open", "chat-open", "settings",
     ]
 
     let spec: Spec
@@ -138,18 +138,29 @@ public final class ParityRunner {
             let hosts = fixture.server.hosts
             let usable = hosts.hosts.filter { $0.reachable && $0.running && $0.compatible }.count + 1
             let m = SettingsModel(
-                permissions: FixedPermissions(fixture.permissions), baseURL: "http://127.0.0.1:18090",
+                permissions: FixedPermissions(fixture.permissions), baseURL: { "http://127.0.0.1:18090" },
                 version: { fixture.server.version }, usableHosts: { (usable, hosts.hosts.count + 1) })
+            if let l = fixture.lassos { m.show(lassos: l) }
             bindings = [Keys.esc]
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(SettingsView(model: m), size: Theme.Card.size.size) }
             cap = try await make()
             recapture = make
         } else if fixture.ui.inbox == true {
+            // The inbox opens on its newest message; only an empty one is a panel.
             let m = InboxModel(fleet: fleet, reads: BotReads(), now: { fixture.now })
-            bindings = [Keys.esc]
-            let make: @MainActor () async throws -> Capture = { try await Capturer.capture(InboxView(model: m), size: Theme.List.size.size) }
-            cap = try await make()
-            recapture = make
+            if let first = m.panes.first {
+                let c = try cardModel(fixture, fleet: fleet, key: first.key)
+                c.inbox = m
+                card = c
+                let make: @MainActor () async throws -> Capture = { try await Capturer.capture(CardView(model: c), size: Theme.Card.size.size) }
+                cap = try await make()
+                recapture = make
+            } else {
+                bindings = [Keys.esc]
+                let make: @MainActor () async throws -> Capture = { try await Capturer.capture(InboxView(model: m), size: Theme.List.size.size) }
+                cap = try await make()
+                recapture = make
+            }
         } else if fixture.ui.chat == true, let name = fixture.ui.bot,
                   let bot = fixture.server.bots.bots.first(where: { $0.name == name })
         {

@@ -95,6 +95,9 @@ public struct VersionInfo: Codable, Sendable, Equatable {
     public var herdr_protocol: Int?
     public var herdr_version: String?
     public var compatible: Bool
+    /// A `-dev` lasso (`mise run dev`), and the address it bound.
+    public var dev: Bool?
+    public var listen: String?
 }
 
 /// GET /api/hosts. src/hosts.go:72 (hostsPayload), :43 (HostInfo).

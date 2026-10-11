@@ -1,5 +1,5 @@
 {
-  "about": "The inbox: what waits on the human, most urgent first. jessica (a bot, waiting on an approval), stub and notarize (blocked agents), then clem (finished). jessica's own pane is listed once, as the bot.",
+  "about": "The inbox opens straight into its newest message: jessica (a bot, waiting on an approval) comes first, so the card opens on her pane, showing her question as next steps. J/K page on through stub and notarize (blocked) and clem (finished), in the inbox's order; the unread bar shows all four.",
   "state": "inbox-open",
   "extends": "rail-expanded",
   "ui": {
@@ -11,5 +11,65 @@
   },
   "expect": {
     "badge": 3
+  },
+  "chats": {
+    "local\u0000w1:p3": {
+      "pane_id": "w1:p3",
+      "agent": "claude",
+      "host": "local",
+      "title": "jessica",
+      "model": "claude-opus-5-5",
+      "path": "/home/stephan/.claude/projects/jessica/session.jsonl",
+      "start_offset": 0,
+      "tokens": 18240,
+      "running": false,
+      "items": [
+        {
+          "kind": "user",
+          "id": "u1",
+          "at": "2026-10-11T18:40:00Z",
+          "text": "Triage this morning's inbox and draft replies."
+        },
+        {
+          "kind": "agent",
+          "id": "a1",
+          "at": "2026-10-11T18:44:10Z",
+          "text": "Three threads need you. The Kestrel renewal is due Friday; I drafted a reply accepting the new terms."
+        },
+        {
+          "kind": "tool",
+          "id": "t1",
+          "at": "2026-10-11T18:44:30Z",
+          "tool": {
+            "call_id": "c1",
+            "name": "AskUserQuestion",
+            "title": "Question",
+            "state": "running",
+            "ask": {
+              "questions": [
+                {
+                  "header": "Kestrel",
+                  "question": "Send the Kestrel renewal reply as drafted?",
+                  "multi": false,
+                  "recommended": 0,
+                  "options": [
+                    {
+                      "label": "Send it",
+                      "description": "Accepts the 12-month term at the quoted rate."
+                    },
+                    {
+                      "label": "Show me the draft first"
+                    },
+                    {
+                      "label": "Hold until Thursday"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
   }
 }

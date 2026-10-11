@@ -20,6 +20,14 @@ public final class FleetModel: ObservableObject {
     public func apply(bots: BotsPayload) { self.bots = bots.bots }
     public func apply(uiState: UIStateSlice) { self.uiState = uiState }
 
+    /// Forget everything: another lasso is about to fill it.
+    public func clear() {
+        panes = []
+        bots = []
+        uiState = UIStateSlice()
+        hostErrors = [:]
+    }
+
     /// Agents only (a pane without one is not a fleet member, as in the web
     /// client), most urgent first, newest transcript first within a state.
     public var agents: [HostPane] {

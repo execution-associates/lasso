@@ -39,6 +39,8 @@ public final class CardController {
     private let actions: CardActions
     /// Where the rail is, so the card opens beside it.
     var railFrame: () -> NSRect = { .zero }
+    /// What J/K page through.
+    var inbox: InboxModel?
 
     public init(fleet: FleetModel, actions: CardActions) {
         self.fleet = fleet
@@ -60,6 +62,8 @@ public final class CardController {
         }
         holder.model?.stopPolling()
         let model = CardModel(pane: pane, fleet: fleet, actions: actions)
+        model.inbox = inbox
+        inbox?.markSeen(pane)
         model.onClose = { [weak self] in self?.close() }
         holder.model = model
         model.startPolling()

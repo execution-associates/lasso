@@ -55,13 +55,35 @@ public struct SettingsView: View {
     }
 
     @ViewBuilder private var lassoSection: some View {
-        if let v = model.version() {
-            line("\(model.baseURL) · lasso \(v.lasso_version)")
-            if let h = model.usableHosts() { line("\(h.usable) of \(h.total) machines usable", secondary: true) }
-        } else {
-            line("\(model.baseURL)")
-            line("Not answering yet. Is the tunnel up?", secondary: true)
+        let current = model.baseURL()
+        let list = model.lassos.isEmpty ? [LassoChoice(url: current, version: model.version())] : model.lassos
+        ForEach(list) { c in lassoRow(c, inUse: c.url == current) }
+        if let h = model.usableHosts() { line("\(h.usable) of \(h.total) machines usable", secondary: true) }
+        if model.version() == nil { line("Not answering yet. Is the tunnel up?", secondary: true) }
+    }
+
+    /// One lasso: what it is, where, and Use for the ones not in use.
+    private func lassoRow(_ c: LassoChoice, inUse: Bool) -> some View {
+        HStack(alignment: .top, spacing: Theme.space("m")) {
+            Circle()
+                .fill(c.version == nil ? Theme.State.blocked.color : Theme.State.done.color)
+                .frame(width: Theme.space("m"), height: Theme.space("m"))
+                .parityAnchor("settings.lasso[\(c.url)]")
+                .padding(.top, Theme.space("xs"))
+            VStack(alignment: .leading, spacing: Theme.space("hair")) {
+                HStack(spacing: Theme.space("s")) {
+                    Text(c.title).font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
+                    if inUse { Text("In use").font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color) }
+                }
+                Text(c.detail).font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color)
+            }
+            Spacer()
+            if !inUse, c.version != nil {
+                PillButton(title: "Use", label: "Use \(c.title) at \(c.detail)") { model.use(c) }
+            }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(c.title), \(c.detail)\(inUse ? ", in use" : "")")
     }
 
     @ViewBuilder private var permissionsSection: some View {

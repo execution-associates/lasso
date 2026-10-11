@@ -50,6 +50,19 @@ public final class FleetSync: ObservableObject {
         loops.forEach { $0.cancel() }
     }
 
+    /// Talk to another lasso from now on: the fleet empties and refills from
+    /// it, and every live action follows, since they share this client.
+    public func retarget(_ url: URL) {
+        stop()
+        client.retarget(url)
+        fleet.clear()
+        revs = ActiveFrame()
+        version = nil
+        lastError = nil
+        stream = .connecting
+        start()
+    }
+
     private func every(_ seconds: Double, _ body: @escaping (FleetSync) async -> Void) -> Task<Void, Never> {
         Task { [weak self] in
             while !Task.isCancelled {

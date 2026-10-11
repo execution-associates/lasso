@@ -17,8 +17,19 @@ public final class LiveCardActions: CardActions {
 
     public var canDismiss: Bool { fleet.uiState.dismissed_cards != nil }
 
+    /// The omp bot running in this pane: its chat, messages and questions go
+    /// through the bot's own routes, which see its pending requests.
+    private func ompBot(_ pane: HostPane) -> BotView? {
+        fleet.bot(for: pane).flatMap { $0.runtime == "omp" ? $0 : nil }
+    }
+
+    private func botPath(_ b: BotView, _ tail: String) -> String {
+        "/api/bots/\(b.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? b.name)/\(tail)"
+    }
+
     public func chat(_ pane: HostPane) async throws -> ChatPayload {
-        try await client.get("/api/chat", query: ["pane": pane.pane_id, "host": pane.host])
+        if let b = ompBot(pane) { return try await client.get(botPath(b, "chat")) }
+        return try await client.get("/api/chat", query: ["pane": pane.pane_id, "host": pane.host])
     }
 
     struct SendBody: Encodable {
@@ -26,8 +37,25 @@ public final class LiveCardActions: CardActions {
         var text: String
     }
 
+    struct BotSend: Encodable { var text: String }
+
     public func send(_ pane: HostPane, text: String) async throws -> Outcome {
-        try await client.post("/api/chat/send", query: ["host": pane.host], json: SendBody(pane_id: pane.pane_id, text: text))
+        if let b = ompBot(pane) { return try await client.post(botPath(b, "chat/send"), json: BotSend(text: text)) }
+        return try await client.post("/api/chat/send", query: ["host": pane.host], json: SendBody(pane_id: pane.pane_id, text: text))
+    }
+
+    struct BotAnswer: Encodable {
+        var id: String
+        var value: String?
+        var confirmed: Bool?
+    }
+
+    public func answer(_ pane: HostPane, pending: ChatPayload.PendingUI, value: String) async throws -> Outcome {
+        guard let b = ompBot(pane) else { throw LassoError.http(409, "not an omp bot's pane") }
+        let body =
+            pending.method == "confirm"
+            ? BotAnswer(id: pending.id, value: nil, confirmed: value == "Yes") : BotAnswer(id: pending.id, value: value, confirmed: nil)
+        return try await client.post(botPath(b, "chat/answer"), json: body)
     }
 
     struct AnswerBody: Encodable {
@@ -73,6 +101,8 @@ public final class LiveCardActions: CardActions {
     /// A lasso agent (it has a record) is closed through its record, which
     /// keeps the record honest; any other agent pane is closed as a pane.
     public func kill(_ pane: HostPane) async throws -> String {
+        // lasso keeps a bot running; ending one is the Bots view's Stop.
+        if let b = fleet.bot(for: pane) { return "\(b.name) is a bot: stop it from lasso's Bots view" }
         if let id = pane.agent_id, !id.isEmpty {
             let r: AgentClosed = try await client.post(
                 "/api/agent/close",
@@ -172,6 +202,11 @@ public final class FixtureCardActions: CardActions {
     }
 
     public func dismiss(_ pane: HostPane) async throws { calls.append("dismiss") }
+
+    public func answer(_ pane: HostPane, pending: ChatPayload.PendingUI, value: String) async throws -> Outcome {
+        calls.append("answer")
+        return Outcome(outcome: "sent")
+    }
 
     public func attachScreenshot(_ pane: HostPane) async throws -> String {
         calls.append("attach")

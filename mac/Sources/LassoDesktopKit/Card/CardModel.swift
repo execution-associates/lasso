@@ -8,6 +8,8 @@ public protocol CardActions: AnyObject {
     func chat(_ pane: HostPane) async throws -> ChatPayload
     func send(_ pane: HostPane, text: String) async throws -> Outcome
     func answer(_ pane: HostPane, question: ChatTool.Question, option: Int) async throws -> Outcome
+    /// An omp bot's open request (`pending_ui`), answered by its id.
+    func answer(_ pane: HostPane, pending: ChatPayload.PendingUI, value: String) async throws -> Outcome
     func kill(_ pane: HostPane) async throws -> String
     func dismiss(_ pane: HostPane) async throws
     func attachScreenshot(_ pane: HostPane) async throws -> String
@@ -59,6 +61,9 @@ public final class CardModel: ComposerModel {
 
     public let fleet: FleetModel
     public let actions: CardActions
+    /// The inbox the card pages through, in its order; nil pages the fleet's
+    /// blocked and finished agents (the fixtures' cards).
+    public var inbox: InboxModel?
     public let now: () -> Date
     public var onClose: () -> Void = {}
     /// Set by the parity harness only (see ProbedAnimation).
@@ -77,6 +82,10 @@ public final class CardModel: ComposerModel {
     /// and what finished unseen (done), most urgent first, minus the
     /// dismissed. The open card is always in it.
     public var pages: [HostPane] {
+        if let inbox {
+            let list = inbox.panes
+            return list.contains(where: { $0.key == pane.key }) ? list : [pane] + list
+        }
         let dismissed = fleet.uiState.dismissed_cards ?? [:]
         let inbox = fleet.agents.filter { p in
             // A bot's pane opens the bot's chat, not a card.
@@ -99,8 +108,25 @@ public final class CardModel: ComposerModel {
         return item.tool?.ask?.questions.first
     }
 
+    /// A bot's pane: lasso keeps it running, so the card offers no Kill.
+    public var isBot: Bool { fleet.bot(for: current) != nil }
+
+    /// What an omp bot waits on: its first open request.
+    public var pending: ChatPayload.PendingUI? { chat?.pending_ui?.first }
+
+    private var pendingOptions: [String] {
+        switch pending?.method {
+        case "select": pending?.options ?? []
+        case "confirm": ["Yes", "No"]
+        default: []
+        }
+    }
+
     public var nextSteps: [NextStep] {
-        (openQuestion?.options ?? []).prefix(9).enumerated().map {
+        if pending != nil {
+            return pendingOptions.prefix(9).enumerated().map { NextStep(index: $0.offset, label: $0.element, detail: nil) }
+        }
+        return (openQuestion?.options ?? []).prefix(9).enumerated().map {
             NextStep(index: $0.offset, label: $0.element.label, detail: $0.element.description)
         }
     }
@@ -109,7 +135,8 @@ public final class CardModel: ComposerModel {
     /// screen may show (the parity harness checks every rendered keycap is
     /// in here).
     public var activeBindings: Set<KeyBinding> {
-        var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.send, Keys.kill, Keys.next, Keys.previous]
+        var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.send, Keys.next, Keys.previous]
+        if !isBot { b.insert(Keys.kill) }
         if actions.canDismiss { b.insert(Keys.discard) }
         if !nextSteps.isEmpty { b.formUnion([Keys.editStep, Keys.takeStep]) }
         return b
@@ -170,9 +197,19 @@ public final class CardModel: ComposerModel {
     /// → : take the highlighted step (or the first): answer the open question
     /// with that option.
     public func takeStep() {
-        guard let q = openQuestion else { return }
         let i = highlighted ?? 0
         guard nextSteps.indices.contains(i) else { return }
+        if let p = pending {
+            let value = pendingOptions[i]
+            run("Answer") { [self] in
+                let o = try await actions.answer(pane, pending: p, value: value)
+                highlighted = nil
+                await load()
+                return o.ok ? "Answered: \(value)" : "Refused: \(o.detail ?? "")"
+            }
+            return
+        }
+        guard let q = openQuestion else { return }
         run("Answer") { [self] in
             let o = try await actions.answer(pane, question: q, option: i)
             highlighted = nil
@@ -196,6 +233,10 @@ public final class CardModel: ComposerModel {
 
     /// X once arms, X again kills: killing an agent is not undoable.
     public func kill() {
+        guard !isBot else {
+            notice = "\(pane.displayName) is a bot: stop it from lasso's Bots view"
+            return
+        }
         guard killArmed else {
             killArmed = true
             notice = "Press X again to kill \(pane.displayName)"
@@ -250,6 +291,7 @@ public final class CardModel: ComposerModel {
             chat = nil
             read.insert(next.key)
         }
+        inbox?.markSeen(next)
         killArmed = false
         highlighted = nil
         notice = nil

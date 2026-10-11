@@ -95,6 +95,22 @@ public final class InboxModel: ObservableObject {
         return blocked + fresh
     }
 
+    /// The inbox as the card pages it: each item's pane, a bot by the pane
+    /// it runs in (a bot that has none is left out).
+    public var panes: [HostPane] {
+        items.compactMap { item in
+            switch item {
+            case .agent(let p): p
+            case .bot(let b): fleet.agents.first { fleet.bot(for: $0)?.name == b.name }
+            }
+        }
+    }
+
+    /// The card reached this pane: a bot's reply counts as read.
+    public func markSeen(_ p: HostPane) {
+        if let b = fleet.bot(for: p) { reads.markRead(b) }
+    }
+
     public func open(_ item: InboxItem) {
         switch item {
         case .agent(let p): onOpenAgent(p)

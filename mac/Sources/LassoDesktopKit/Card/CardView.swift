@@ -198,6 +198,7 @@ public struct CardView: View {
                         ForEach(chat.items.suffix(80)) { item in
                             ChatRow(item: item).id(item.id)
                         }
+                        if let p = model.pending { PendingRow(pending: p) }
                         if chat.items.isEmpty {
                             placeholder(chat.unavailable.map { "No conversation (\($0.reason))" } ?? "No messages yet")
                         }
@@ -239,12 +240,14 @@ public struct CardView: View {
                     .font(Theme.Fonts.label.font)
                     .foregroundStyle(Theme.Text.secondary.color)
                 Spacer(minLength: 8)
-                PillButton(
-                    title: model.killArmed ? "Confirm kill" : "Kill agent", textColor: Theme.dangerText.color,
-                    label: model.killArmed ? "Confirm kill agent (X)" : "Kill agent (X)"
-                ) { model.kill() }
-                .keyHint(Keys.kill)
-                .parityAnchor("action.kill")
+                if !model.isBot {
+                    PillButton(
+                        title: model.killArmed ? "Confirm kill" : "Kill agent", textColor: Theme.dangerText.color,
+                        label: model.killArmed ? "Confirm kill agent (X)" : "Kill agent (X)"
+                    ) { model.kill() }
+                    .keyHint(Keys.kill)
+                    .parityAnchor("action.kill")
+                }
                 if model.actions.canDismiss {
                     PillButton(title: "Discard", primary: true, label: "Discard card (E)") { model.discard() }
                         .keyHint(Keys.discard)
@@ -269,6 +272,12 @@ public struct CardView: View {
                                 Text(step.label)
                                     .foregroundStyle(Theme.Text.primary.color)
                                     .lineLimit(1)
+                                    .layoutPriority(1)
+                                if let d = step.detail, !d.isEmpty {
+                                    Text(d)
+                                        .foregroundStyle(Theme.Text.secondary.color)
+                                        .lineLimit(1)
+                                }
                                 Spacer(minLength: 8)
                                 if on {
                                     Image(systemName: "arrow.right")
@@ -305,7 +314,7 @@ struct ChatRow: View {
     var body: some View {
         switch item.kind {
         case "tool":
-            if let t = item.tool { ToolRow(tool: t) }
+            if let ask = item.tool?.ask { AskRow(ask: ask, font: font) } else if let t = item.tool { ToolRow(tool: t) }
         case "marker":
             Text("— \(item.marker ?? "marker") —")
                 .font(font)
@@ -323,6 +332,66 @@ struct ChatRow: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+/// A question put to the human, in the agent's own words: its header, the
+/// question, and once answered, what was picked. The options themselves are
+/// the footer's next steps.
+struct AskRow: View {
+    let ask: ChatTool.Ask
+    var font: Font = Theme.Fonts.body.font
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.space("s")) {
+            ForEach(Array(ask.questions.enumerated()), id: \.offset) { _, q in
+                VStack(alignment: .leading, spacing: Theme.space("2xs")) {
+                    if let h = q.header, !h.isEmpty {
+                        Text(h)
+                            .font(Theme.Fonts.label.font)
+                            .foregroundStyle(Theme.Text.secondary.color)
+                    }
+                    Text(q.question ?? "")
+                        .font(font)
+                        .foregroundStyle(Theme.Text.primary.color)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if let picked = q.selected, !picked.isEmpty {
+                        Text("→ " + picked.joined(separator: ", "))
+                            .font(font)
+                            .foregroundStyle(Theme.Text.secondary.color)
+                    } else if let c = q.custom, !c.isEmpty {
+                        Text("→ " + c)
+                            .font(font)
+                            .foregroundStyle(Theme.Text.secondary.color)
+                    }
+                }
+            }
+        }
+        .parityAnchor("card.ask")
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// What an omp bot waits on (`pending_ui`): its title and message.
+struct PendingRow: View {
+    let pending: ChatPayload.PendingUI
+    var font: Font = Theme.Fonts.body.font
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.space("2xs")) {
+            Text(pending.title ?? "Waiting on you")
+                .font(font)
+                .foregroundStyle(Theme.Text.primary.color)
+            if let m = pending.message, !m.isEmpty {
+                Text(m)
+                    .font(font)
+                    .foregroundStyle(Theme.Text.secondary.color)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .textSelection(.enabled)
+        .accessibilityElement(children: .combine)
     }
 }
 

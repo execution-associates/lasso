@@ -49,9 +49,13 @@ public final class AppCoordinator {
         list = ListController(model: ListModel(fleet: fleet, actions: fleetActions))
         inboxModel = InboxModel(fleet: fleet, reads: reads)
         inbox = SidePanel(size: Theme.List.size.size, content: InboxView(model: inboxModel))
+        let baseURL = (client ?? .configured()).baseURL
         settingsModel = SettingsModel(
-            permissions: permissions, baseURL: (client ?? .configured()).baseURL.absoluteString,
+            permissions: permissions, baseURL: { [weak client] in (client?.baseURL ?? baseURL).absoluteString },
             version: { [weak sync] in sync?.version }, usableHosts: { nil })
+        if let client {
+            settingsModel.probe = { url in try? await client.probe(url).get("/api/version", as: VersionInfo.self) }
+        }
         settings = SidePanel(size: Theme.Card.size.size, content: SettingsView(model: settingsModel))
         wire()
     }
@@ -75,7 +79,8 @@ public final class AppCoordinator {
                 || self.chat?.panel.isOpen == true
         }
 
-        rail.model.onInbox = { [weak self] in self?.toggleInbox() }
+        card.inbox = inboxModel
+        rail.model.onInbox = { [weak self] in self?.openInbox() }
         rail.model.onAgents = { [weak self] in self?.toggleList() }
         rail.model.onSettings = { [weak self] in self?.openSettings() }
 
@@ -90,6 +95,7 @@ public final class AppCoordinator {
             return true
         }
         settingsModel.onClose = { [weak self] in self?.settings.close() }
+        settingsModel.onUse = { [weak self] url in self?.use(url) }
         settings.onKey = { [weak self] e in
             guard Keys.esc.matches(e) else { return false }
             self?.settingsModel.close()
@@ -128,15 +134,35 @@ public final class AppCoordinator {
         list.toggle()
     }
 
-    func toggleInbox() {
-        closeAll(except: inbox)
-        if inbox.isOpen { inbox.close() } else { inbox.open() }
+    /// The inbox drops straight into its newest message, a card that J/K
+    /// page through the rest; with nothing waiting it says so. Pressed again
+    /// while open, it closes.
+    func openInbox() {
+        if card.isOpen || inbox.isOpen {
+            closeAll()
+            return
+        }
+        if let first = inboxModel.panes.first {
+            openCard(first)
+        } else {
+            closeAll(except: inbox)
+            inbox.open()
+        }
     }
 
     func openSettings() {
         closeAll(except: settings)
         settingsModel.refresh()
         settings.open()
+    }
+
+    /// Switch to another lasso: whatever was open belonged to the old one.
+    func use(_ url: URL) {
+        closeAll(except: settings)
+        chat?.model.stopPolling()
+        chat = nil
+        sync?.retarget(url)
+        Trace.event("lasso \(url.absoluteString)")
     }
 
     /// A bot's chat.

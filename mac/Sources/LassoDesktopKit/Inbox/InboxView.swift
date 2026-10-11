@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The inbox panel: one row per thing that waits on the human, in the list's
-/// row anatomy. A row opens the agent's card or the bot's chat.
+/// The inbox panel, for when the card has nothing to open on: empty, or only
+/// bots with no pane to show. A row opens the agent's card or the bot's chat.
 public struct InboxView: View {
     @ObservedObject var model: InboxModel
     @ObservedObject var fleet: FleetModel
@@ -32,12 +32,18 @@ public struct InboxView: View {
             .padding(.bottom, Theme.space("m"))
 
             if items.isEmpty {
-                Text("Nothing waits on you.")
-                    .font(Theme.Fonts.body.font)
-                    .foregroundStyle(Theme.Text.secondary.color)
-                    .padding(.horizontal, row.number("pad_h"))
-                    .padding(.top, Theme.space("m"))
-                    .parityAnchor("inbox.empty")
+                VStack(alignment: .leading, spacing: Theme.space("xs")) {
+                    Text("Nothing waiting on you.")
+                        .font(Theme.Fonts.body.font)
+                        .foregroundStyle(Theme.Text.primary.color)
+                    Text("Questions, finished turns and notices from your claude and omp agents land here.")
+                        .font(Theme.Fonts.small.font)
+                        .foregroundStyle(Theme.Text.secondary.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, row.number("pad_h"))
+                .padding(.top, Theme.space("m"))
+                .parityAnchor("inbox.empty")
                 Spacer()
             } else {
                 ScrollView(.vertical) {
