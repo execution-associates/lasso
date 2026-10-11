@@ -11,7 +11,7 @@ public final class ParityRunner {
     /// States whose surfaces exist. The rest report as pending until their
     /// milestone lands (PLAN 6).
     public static let implemented: Set<String> = [
-        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "inbox-open", "inbox-empty", "card-open", "list-panel-open", "chat-open", "settings",
+        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "inbox-open", "inbox-empty", "card-open", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings",
     ]
 
     let spec: Spec
@@ -177,6 +177,26 @@ public final class ParityRunner {
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(ListView(model: l), size: Theme.List.size.size) }
             cap = try await make()
             recapture = make
+        } else if let key = fixture.ui.preview {
+            let c = try cardModel(fixture, fleet: fleet, key: key)
+            card = c
+            let make: @MainActor () async throws -> Capture = {
+                try await Capturer.capture(AgentPreviewView(model: c), size: Theme.Agent.preview.size2("size"))
+            }
+            cap = try await make()
+            recapture = make
+        } else if let key = fixture.ui.window {
+            let c = try cardModel(fixture, fleet: fleet, key: key)
+            let chrome = AgentWindowChrome()
+            chrome.collapsed = fixture.ui.collapsed == true
+            // Collapsed, the header shows no keycaps to check.
+            if !chrome.collapsed { card = c }
+            let size = chrome.collapsed ? Theme.Agent.collapsed.size2("size") : Theme.Agent.window.size2("size")
+            let make: @MainActor () async throws -> Capture = {
+                try await Capturer.capture(AgentWindowView(model: c, chrome: chrome), size: size)
+            }
+            cap = try await make()
+            recapture = make
         } else if let key = fixture.ui.card {
             let c = try cardModel(fixture, fleet: fleet, key: key)
             card = c
@@ -309,7 +329,8 @@ public final class ParityRunner {
             }
             let fr = frames.map { $0! }
             if g.measure == "size" {
-                let v = spec.tokens[g.token]?.value
+                let raw = spec.tokens[g.token]?.value
+                let v = raw?["size"] ?? raw
                 let w = v?.array?.first?.double ?? v?["w"]?.double ?? .nan
                 let h = v?.array?.dropFirst().first?.double ?? v?["h"]?.double ?? .nan
                 let d = max(abs(fr[0].width - w), abs(fr[0].height - h))

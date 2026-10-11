@@ -1,0 +1,13 @@
+{
+  "about": "stub's window minimized to its header: ≡, expand and close.",
+  "state": "agent-window-collapsed",
+  "extends": "card-open",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "window": "local\u0000w1:p1",
+    "collapsed": true
+  }
+}

@@ -6,10 +6,7 @@ import AppKit
 public enum InboxSound {
     public static let key = "inboxSound"
     /// Every bundled sound, in the order Settings lists them, with its name.
-    public static let all: [(id: String, name: String)] = [
-        ("whoosh", "Whoosh"), ("swoosh", "Swoosh"), ("chime", "Chime"), ("marimba", "Marimba"), ("bubble", "Bubble"),
-        ("lasso", "Lasso"),
-    ]
+    public static let all: [(id: String, name: String)] = [("whoosh", "Whoosh"), ("marimba", "Marimba"), ("lasso", "Lasso")]
     public static let none = "none"
     public static let fallback = "whoosh"
 

@@ -5,7 +5,7 @@ import SwiftUI
 /// over full-screen apps, transparent (clicks on empty pixels fall through to
 /// the window below), and able to take key status for keyboard navigation
 /// without activating the app or stealing the user's main window.
-public final class RailPanel: NSPanel {
+public class RailPanel: NSPanel {
     /// Gets every key-down first; returns true when it handled the event.
     public var onKey: ((NSEvent) -> Bool)?
     /// Gets every key-up (push-to-talk ends on V's release).

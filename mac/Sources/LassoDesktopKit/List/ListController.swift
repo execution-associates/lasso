@@ -22,6 +22,15 @@ public final class ListController {
     public let model: ListModel
     private let presence = CardPresence()
     var railFrame: () -> NSRect = { .zero }
+    /// Resting on a row asks for its preview (nil: put it away), with the
+    /// list's and the row's screen rects.
+    var onPreview: (HostPane?, NSRect, NSRect) -> Void = { _, _, _ in }
+    /// The preview is under the pointer, or a click made it the user's.
+    var previewHolds: () -> Bool = { false }
+    private var hoverTimer: Timer?
+    private var restingOn: (key: String, since: Date)?
+    private var previewing: String?
+    private var awaySince: Date?
 
     public init(model: ListModel) {
         self.model = model
@@ -43,9 +52,19 @@ public final class ListController {
         place()
         if takeKey { panel.makeKeyAndOrderFront(nil) } else { panel.orderFrontRegardless() }
         withAnimationToken(Theme.Motion.cardOpen) { presence.shown = true }
+        hoverTimer?.invalidate()
+        hoverTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 20, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.pollHover() }
+        }
     }
 
     public func close() {
+        hoverTimer?.invalidate()
+        hoverTimer = nil
+        if previewing != nil { onPreview(nil, .zero, .zero) }
+        previewing = nil
+        restingOn = nil
+        model.hovered = nil
         withAnimationToken(Theme.Motion.cardClose) { presence.shown = false }
         model.confirmEnd = nil
         let delay = Theme.Motion.cardClose.value["duration"]?.double ?? 0
@@ -54,6 +73,50 @@ public final class ListController {
             guard let self, !self.presence.shown else { return }
             self.panel.orderOut(nil)
         }
+    }
+
+    /// The row under the pointer, from the frames the rows report (a
+    /// background app's panel gets no hover events, so the pointer is polled).
+    private func rowUnderPointer() -> (key: String, rect: NSRect)? {
+        let f = panel.frame
+        let m = NSEvent.mouseLocation
+        guard f.contains(m) else { return nil }
+        let p = CGPoint(x: m.x - f.minX, y: f.maxY - m.y)
+        guard let (id, r) = model.rowFrames.first(where: { $0.value.contains(p) }) else { return nil }
+        let key = id.hasPrefix("pinned:") ? String(id.dropFirst(7)) : id
+        return (key, NSRect(x: f.minX + r.minX, y: f.maxY - r.maxY, width: r.width, height: r.height))
+    }
+
+    /// Resting on a row for rail.hover's item_open_ms previews it; once the
+    /// pointer has left the row and the preview for panel_close_ms, it goes.
+    private func pollHover() {
+        let h = Theme.Rail.hover
+        let now = Date()
+        guard let row = rowUnderPointer() else {
+            if model.hovered != nil { model.hovered = nil }
+            restingOn = nil
+            guard previewing != nil else { return }
+            if previewHolds() {
+                awaySince = nil
+                return
+            }
+            if awaySince == nil { awaySince = now }
+            if now.timeIntervalSince(awaySince!) * 1000 >= h.number("panel_close_ms") {
+                previewing = nil
+                awaySince = nil
+                onPreview(nil, .zero, .zero)
+            }
+            return
+        }
+        awaySince = nil
+        if model.hovered != row.key { model.hovered = row.key }
+        if restingOn?.key != row.key { restingOn = (row.key, now) }
+        guard previewing != row.key, let since = restingOn?.since,
+              now.timeIntervalSince(since) * 1000 >= h.number("item_open_ms"),
+              let pane = model.fleet.agents.first(where: { $0.key == row.key })
+        else { return }
+        previewing = row.key
+        onPreview(pane, panel.frame, row.rect)
     }
 
     private func place() { panel.setFrameOrigin(originBesideRail(railFrame(), size: Theme.List.size.size)) }

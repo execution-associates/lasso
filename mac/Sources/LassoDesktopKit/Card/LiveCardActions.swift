@@ -125,6 +125,13 @@ public final class LiveCardActions: CardActions {
         await refreshUIState()
     }
 
+    struct Focus: Encodable { var pane_id: String }
+    struct Focused: Decodable { var ok: Bool? }
+
+    public func focus(_ pane: HostPane) async throws {
+        let _: Focused = try await client.post("/api/focus", query: ["host": pane.host], json: Focus(pane_id: pane.pane_id))
+    }
+
     struct Pasted: Decodable { var path: String }
 
     /// S: capture the main display (without this app's own windows), upload
@@ -202,6 +209,8 @@ public final class FixtureCardActions: CardActions {
     }
 
     public func dismiss(_ pane: HostPane) async throws { calls.append("dismiss") }
+
+    public func focus(_ pane: HostPane) async throws { calls.append("focus") }
 
     public func answer(_ pane: HostPane, pending: ChatPayload.PendingUI, value: String) async throws -> Outcome {
         calls.append("answer")

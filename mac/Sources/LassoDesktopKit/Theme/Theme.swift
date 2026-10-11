@@ -273,6 +273,21 @@ public enum Theme {
             .measured("ref a3: 78 px pitch"))
     }
 
+    /// An agent's own window (a click on its row) and its hover preview,
+    /// measured from the user's screenshots (2026-10-11, 2 px per point).
+    public enum Agent {
+        public static let window = Token(
+            "agent.window",
+            ["size": [488, 632], "min": [360, 320], "header_h": 60, "radius": 18, "avatar": 26, "button": 28, "icon": 15],
+            .measured("user screenshot of the detached window: 978x1268 px; header to 120 px; buttons 31 pt apart"))
+        public static let collapsed = Token(
+            "agent.window.collapsed", ["size": [416, 60]],
+            .measured("user screenshot of the minimized window: the header alone, 832x120 px"))
+        public static let preview = Token(
+            "agent.preview", ["size": [508, 580], "gap": 9],
+            .measured("user screenshot of the hover preview: 1015x1158 px, 18 px left of the agents list"))
+    }
+
     public enum Chat {
         public static let bubble = Token(
             "chat.bubble", ["fill": "#2D1D3C", "radius": 18, "pad_h": 19, "pad_v": 9], .measured("ref a5 shape; EXA --secondary"))
@@ -366,7 +381,7 @@ public enum Theme {
         Rail.maxSlots, Rail.overflowFont, Rail.icon, Rail.ellipsisOuter, Rail.edge, Rail.edgeInset,
         Rail.panelMargin, Rail.badgeSize, Rail.badgeRing, Rail.badgeCenter, Rail.peek, Rail.peekFill, Rail.drag, Rail.hover, Rail.hoverFill, Rail.pressed,
         State.done, State.working, State.blocked, State.idle,
-        Settings.footer,
+        Settings.footer, Agent.window, Agent.collapsed, Agent.preview,
         Panel.surface, Panel.border, Panel.radius, Panel.inset, Panel.inner, Panel.divider, Panel.shadow,
         Control.round, Control.composer, Control.pill, Control.pillPrimary,
         Card.size, Card.titleX, Card.contentX, Card.unreadSegment, Card.unreadDot, Card.unreadGap, Card.keycapFill,
@@ -393,10 +408,16 @@ extension Token {
     /// face is not registered, the system font.
     public var font: Font { Font(nsFont as CTFont) }
 
-    public var nsFont: NSFont {
+    public var nsFont: NSFont { nsFont(weight: nil) }
+
+    /// The same face at another weight on its wght axis (markdown's bold:
+    /// a variable face ignores SwiftUI's bold trait).
+    public func font(weight: Double) -> Font { Font(nsFont(weight: weight) as CTFont) }
+
+    func nsFont(weight: Double?) -> NSFont {
         let size = CGFloat(value["size"]?.double ?? 12)
         if let family = value["family"]?.string {
-            var axes: [NSNumber: NSNumber] = [Self.wghtAxis: NSNumber(value: weightNumber)]
+            var axes: [NSNumber: NSNumber] = [Self.wghtAxis: NSNumber(value: weight ?? weightNumber)]
             if let w = value["width"]?.double { axes[Self.wdthAxis] = NSNumber(value: w) }
             let d = NSFontDescriptor(fontAttributes: [.family: family, .variation: axes])
             if let f = NSFont(descriptor: d, size: size), f.familyName == family { return f }

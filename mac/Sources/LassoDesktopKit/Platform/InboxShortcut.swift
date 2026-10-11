@@ -33,7 +33,9 @@ public enum InboxShortcutChoice: Equatable, Sendable {
     }
 
     public static let key = "inboxShortcut"
-    public static let fallback = InboxShortcutChoice.doubleTap(.option)
+    /// ⌥Space: a combination needs no permission, unlike a double tap.
+    public static let fallback = InboxShortcutChoice.combo(
+        keyCode: 49, modifiers: NSEvent.ModifierFlags.option.rawValue, display: "⌥Space")
 
     public static var stored: InboxShortcutChoice {
         get { UserDefaults.standard.string(forKey: key).flatMap(InboxShortcutChoice.init(stored:)) ?? fallback }

@@ -1,0 +1,12 @@
+{
+  "about": "A click on stub's row opened its own window: header with ≡, minimize and close, the whole conversation, its choices, the composer and footer, and a resize corner.",
+  "state": "agent-window",
+  "extends": "card-open",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "window": "local\u0000w1:p1"
+  }
+}

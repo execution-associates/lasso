@@ -17,6 +17,10 @@ public struct Fixture: Decodable, Sendable {
         /// The bot the chat state talks to.
         public var bot: String?
         public var settings: Bool?
+        /// An agent's hover preview, or its own window (collapsed or not), by pane key.
+        public var preview: String?
+        public var window: String?
+        public var collapsed: Bool?
         public var inbox: Bool?
     }
 

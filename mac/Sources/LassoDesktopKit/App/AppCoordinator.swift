@@ -23,6 +23,10 @@ public final class AppCoordinator {
     private var chat: (model: ChatModel, panel: SidePanel)?
     private var subs: Set<AnyCancellable> = []
     private var hotKey: HotKey?
+    /// The hover preview beside the agents list, and each agent's own window.
+    private var preview: AgentPreviewController!
+    private var windows: [String: AgentWindowController] = [:]
+    private let cardActions: CardActions
     private var shortcut: InboxShortcut?
     /// What was in the inbox last time it changed, to hear what is new.
     private var inboxSeen: Set<String>?
@@ -51,6 +55,7 @@ public final class AppCoordinator {
             botActions = FixtureBotChatActions(payload: nil)
             permissions = FixedPermissions(fixture?.permissions ?? [:])
         }
+        self.cardActions = cardActions
         rail = RailController(model: RailModel(fleet: fleet))
         card = CardController(fleet: fleet, actions: cardActions)
         list = ListController(model: ListModel(fleet: fleet, actions: fleetActions))
@@ -64,6 +69,7 @@ public final class AppCoordinator {
             settingsModel.probe = { url in try? await client.probe(url).get("/api/version", as: VersionInfo.self) }
         }
         settings = SidePanel(size: Theme.Card.size.size, content: SettingsView(model: settingsModel))
+        preview = AgentPreviewController { [fleet, cardActions] p in CardModel(pane: p, fleet: fleet, actions: cardActions) }
         wire()
     }
 
@@ -85,7 +91,7 @@ public final class AppCoordinator {
         settings.railFrame = railFrame
         rail.keepOpen = { [weak self] in
             guard let self else { return false }
-            return self.card.isOpen || self.list.isOpen || self.inbox.isOpen || self.settings.isOpen
+            return self.card.isOpen || self.list.isOpen || self.inbox.isOpen || self.settings.isOpen || self.preview.isOpen
                 || self.chat?.panel.isOpen == true
         }
 
@@ -104,8 +110,15 @@ public final class AppCoordinator {
         rail.model.onAgents = { [weak self] in self?.toggleList() }
         rail.model.onSettings = { [weak self] in self?.openSettings() }
 
-        list.model.onOpen = { [weak self] p in self?.openCard(p) }
-        list.model.onOpenBot = { [weak self] b in self?.openChat(b) }
+        list.model.onOpen = { [weak self] p in self?.openWindow(p) }
+        list.onPreview = { [weak self] p, listFrame, row in
+            guard let self else { return }
+            if let p { self.preview.show(p, beside: listFrame, row: row) } else { self.preview.close() }
+        }
+        list.previewHolds = { [weak self] in
+            guard let self, self.preview.isOpen else { return false }
+            return self.preview.engaged || self.preview.panel.frame.contains(NSEvent.mouseLocation)
+        }
         inboxModel.onOpenAgent = { [weak self] p in self?.openCard(p) }
         inboxModel.onOpenBot = { [weak self] b in self?.openChat(b) }
         inboxModel.onClose = { [weak self] in self?.inbox.close() }
@@ -256,7 +269,8 @@ public final class AppCoordinator {
             hoverShown = nil
             return
         }
-        if s.frame.contains(pointer) || rail.panel.frame.contains(pointer) {
+        let previewHas = preview.isOpen && preview.panel.frame.contains(pointer)
+        if s.frame.contains(pointer) || rail.panel.frame.contains(pointer) || previewHas || preview.engaged {
             hoverAway = nil
             return
         }
@@ -276,6 +290,22 @@ public final class AppCoordinator {
         chat = nil
         sync?.retarget(url)
         Trace.event("lasso \(url.absoluteString)")
+    }
+
+    /// An agent's own window: one per agent, brought forward if open. It
+    /// floats free of the rail, so opening one closes nothing.
+    func openWindow(_ p: HostPane) {
+        preview.close()
+        if let w = windows[p.key] {
+            w.show()
+            return
+        }
+        let w = AgentWindowController(
+            model: CardModel(pane: p, fleet: fleet, actions: cardActions), near: list.isOpen ? list.panel.frame : rail.panel.frame)
+        w.onClosed = { [weak self] in self?.windows[p.key] = nil }
+        windows[p.key] = w
+        w.show()
+        Trace.event("agent window opened")
     }
 
     /// A bot's chat.

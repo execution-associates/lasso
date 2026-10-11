@@ -99,11 +99,16 @@ public final class SettingsModel: ObservableObject {
         Task { await scan() }
     }
 
+    /// Set only when the user has just picked a shortcut that needs
+    /// Accessibility and it is not granted: Settings says so then, and only then.
+    @Published public private(set) var needsAccessibility = false
+
     public func choose(_ c: InboxShortcutChoice) {
         recording = false
         shortcut = c
         InboxShortcutChoice.stored = c
         onShortcut(c)
+        needsAccessibility = c.needsAccessibility && permissions.accessibility != .granted
     }
 
     public func startRecording() { recording = true }

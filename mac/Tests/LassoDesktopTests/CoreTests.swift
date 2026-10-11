@@ -84,7 +84,7 @@ private let specDir = packageDir.appendingPathComponent("Spec")
 /// belongs in Theme.swift with its provenance.
 @Test func viewsTakeTheirLayoutFromTheme() throws {
     let src = packageDir.appendingPathComponent("Sources/LassoDesktopKit")
-    let views = ["Rail", "Card", "List", "Inbox", "Chat", "Settings", "Platform"]
+    let views = ["Rail", "Card", "List", "Inbox", "Chat", "Settings", "Platform", "Agent"]
     let literal = try Regex(
         #"\.padding\((\.[a-zA-Z]+, )?[1-9][0-9]*(\.[0-9]+)?\)|spacing: [1-9]|(width|height|size): [1-9][0-9]*(\.[0-9]+)?[,)]|\* 0\.[0-9]|offset\(x: [1-9]"#)
     for dir in views {
@@ -126,7 +126,8 @@ private let specDir = packageDir.appendingPathComponent("Spec")
         #expect(InboxShortcutChoice(stored: c.stored) == c)
     }
     #expect(InboxShortcutChoice(stored: "double:hyper") == nil)
-    #expect(InboxShortcutChoice.fallback == .doubleTap(.option))
+    #expect(InboxShortcutChoice.fallback == .combo(keyCode: 49, modifiers: 1 << 19, display: "⌥Space"))
+    #expect(!InboxShortcutChoice.fallback.needsAccessibility)
     #expect(InboxShortcutChoice.doubleTap(.option).needsAccessibility)
 }
 

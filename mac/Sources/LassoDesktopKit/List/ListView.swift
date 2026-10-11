@@ -46,6 +46,7 @@ public struct ListView: View {
                 if let key { proxy.scrollTo(key) }
             }
         }
+        .onPreferenceChange(RowFrames.self) { frames in MainActor.assumeIsolated { model.rowFrames = frames } }
         .panelChrome(Theme.List.size.size, anchor: "list")
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Fleet")
@@ -129,7 +130,10 @@ public struct ListView: View {
                         .fill(selected ? Theme.Row.selected.color : (hovered ? Theme.Row.hover.color : .clear))
                         .padding(.horizontal, Theme.space("m"))
                 )
-                .onHover { model.hovered = $0 ? key : (model.hovered == key ? nil : model.hovered) }
+                .background(
+                    GeometryReader { g in
+                        Color.clear.preference(key: RowFrames.self, value: [pinnedSection ? "pinned:\(key)" : key: g.frame(in: .global)])
+                    })
                 .contextMenu {
                     Button(pinned ? "Unpin" : "Pin") { model.togglePin(p) }
                     Button("Focus in herdr") { model.focus(p) }
@@ -142,5 +146,13 @@ public struct ListView: View {
         }
         .id(pinnedSection ? "pinned:\(key)" : key)
         .parityAnchor(pinnedSection ? "list.row.pinned[\(key)]" : "list.row[\(key)]")
+    }
+}
+
+/// The rows' frames in the window, for the controller's hover polling.
+struct RowFrames: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { $1 }
     }
 }

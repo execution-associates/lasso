@@ -25,6 +25,9 @@ public struct FleetGroup: Identifiable, Equatable {
 public final class ListModel: ObservableObject {
     @Published public var selected: String?
     @Published public var hovered: String?
+    /// Each row's frame in the panel (top-left origin), by row id: what the
+    /// pointer is over. Not published: the controller reads it as it polls.
+    public var rowFrames: [String: CGRect] = [:]
     /// The agent whose End is waiting for a confirm.
     @Published public var confirmEnd: String?
     @Published public private(set) var notice: String?
@@ -34,8 +37,6 @@ public final class ListModel: ObservableObject {
     public let now: () -> Date
     public var onOpen: (HostPane) -> Void = { _ in }
     public var onClose: () -> Void = {}
-    /// A bot's pane opens the bot's chat rather than a card.
-    public var onOpenBot: (BotView) -> Void = { _ in }
 
     public init(fleet: FleetModel, actions: FleetActions, now: @escaping () -> Date = Date.init) {
         self.fleet = fleet
@@ -105,10 +106,11 @@ public final class ListModel: ObservableObject {
         }
     }
 
-    /// Open a row: a bot's chat for a bot's pane, else the agent's card.
+    /// Open a row: the agent's own window (a bot's too: its pane chats
+    /// through the bot's routes).
     public func open(_ p: HostPane) {
         selected = p.key
-        if let b = fleet.bot(for: p) { onOpenBot(b) } else { onOpen(p) }
+        onOpen(p)
     }
 
     /// End asks first: the row turns into a confirm, and only that ends it.

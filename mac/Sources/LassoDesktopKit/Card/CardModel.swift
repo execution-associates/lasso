@@ -12,6 +12,8 @@ public protocol CardActions: AnyObject {
     func answer(_ pane: HostPane, pending: ChatPayload.PendingUI, value: String) async throws -> Outcome
     func kill(_ pane: HostPane) async throws -> String
     func dismiss(_ pane: HostPane) async throws
+    /// Bring the pane forward in herdr, wherever its terminal is open.
+    func focus(_ pane: HostPane) async throws
     func attachScreenshot(_ pane: HostPane) async throws -> String
     /// Whether the server keeps shared card dismissals (S1).
     var canDismiss: Bool { get }
@@ -262,6 +264,13 @@ public final class CardModel: ComposerModel {
             try await actions.dismiss(pane)
             page(1)
             return "Discarded"
+        }
+    }
+
+    public func focusInHerdr() {
+        run("Focus") { [self] in
+            try await actions.focus(pane)
+            return "Focused \(pane.displayName) in herdr"
         }
     }
 

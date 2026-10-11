@@ -134,13 +134,15 @@ public struct SettingsView: View {
         VStack(alignment: .leading, spacing: Theme.space("s")) {
             Text("Shortcut").font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
             HStack(spacing: Theme.space("s")) {
+                let fallback = InboxShortcutChoice.fallback
+                choice(fallback.label, on: sc == fallback, label: "\(fallback.label) opens the inbox") { model.choose(fallback) }
                 ForEach([InboxShortcutChoice.Modifier.option, .command, .control], id: \.self) { m in
                     choice("\(m.symbol)\(m.symbol)", on: sc == .doubleTap(m), label: "Double \(m.rawValue) opens the inbox") {
                         model.choose(.doubleTap(m))
                     }
                 }
-                if case .combo(_, _, let d) = sc, !model.recording {
-                    choice(d, on: true, label: "\(d) opens the inbox") { model.startRecording() }
+                if case .combo = sc, sc != fallback, !model.recording {
+                    choice(sc.label, on: true, label: "\(sc.label) opens the inbox") { model.startRecording() }
                 }
                 choice(model.recording ? "Press keys…" : "Record…", on: model.recording, label: "Record a key combination") {
                     model.startRecording()
@@ -148,30 +150,28 @@ public struct SettingsView: View {
                 choice("Off", on: sc == .off, label: "No inbox shortcut") { model.choose(.off) }
             }
             .parityAnchor("settings.shortcut")
-            line(shortcutNote(sc), secondary: true)
+            if model.needsAccessibility {
+                HStack(alignment: .top, spacing: Theme.space("m")) {
+                    line("A double tap needs Accessibility: it reads modifier keys in every app. Allow LassoDesktop there, then it works.", secondary: true)
+                    Spacer()
+                    PillButton(title: "Open", label: "Open Accessibility settings") { model.permissions.openAccessibilitySettings() }
+                }
+                .parityAnchor("settings.shortcut.accessibility")
+            } else if model.recording {
+                line("Press the combination, with ⌘, ⌥ or ⌃. esc cancels.", secondary: true)
+            }
 
             Text("Sound").font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
                 .padding(.top, Theme.space("s"))
-            let sounds = InboxSound.all.map { ($0.id, $0.name) } + [(InboxSound.none, "None")]
-            ForEach([Array(sounds.prefix(4)), Array(sounds.dropFirst(4))], id: \.first?.0) { row in
-                HStack(spacing: Theme.space("s")) {
-                    ForEach(row, id: \.0) { id, name in
-                        choice(name, on: model.sound == id, label: id == InboxSound.none ? "No sound" : "Play \(name) when something arrives") {
-                            model.choose(sound: id)
-                        }
+            HStack(spacing: Theme.space("s")) {
+                ForEach(InboxSound.all.map { ($0.id, $0.name) } + [(InboxSound.none, "None")], id: \.0) { id, name in
+                    choice(name, on: model.sound == id, label: id == InboxSound.none ? "No sound" : "Play \(name) when something arrives") {
+                        model.choose(sound: id)
                     }
                 }
             }
             line("Plays when something new lands in the inbox. Picking one plays it.", secondary: true)
         }
-    }
-
-    private func shortcutNote(_ sc: InboxShortcutChoice) -> String {
-        if model.recording { return "Press the combination, with ⌘, ⌥ or ⌃. esc cancels." }
-        if sc.needsAccessibility, model.permissions.accessibility != .granted {
-            return "A double tap needs Accessibility (below), since it reads modifier keys in every app."
-        }
-        return sc == .off ? "The rail's inbox button still opens it." : "Opens the inbox from any app."
     }
 
     private func choice(_ title: String, on: Bool, label: String, _ act: @escaping () -> Void) -> some View {
@@ -186,7 +186,7 @@ public struct SettingsView: View {
             action: p.screenRecording == .granted ? nil : "Allow"
         ) { model.allowScreenRecording() }
         permissionRow(
-            "Accessibility", "The double-tap inbox shortcut reads modifier keys in every app.", p.accessibility,
+            "Accessibility", "Only for a double-tap inbox shortcut, which reads modifier keys in every app.", p.accessibility,
             action: p.accessibility == .granted ? nil : "Settings"
         ) { p.openAccessibilitySettings() }
     }
