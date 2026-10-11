@@ -116,6 +116,12 @@ func serveBots(w http.ResponseWriter, r *http.Request) {
 		serveBotOAuth(w, r, b, rec)
 	case "avatar":
 		serveBotAvatar(w, r, b, rec)
+	case "model":
+		serveBotModel(w, r, b, rec)
+	case "sessions", "sessions/new", "sessions/resume":
+		serveBotSessions(w, r, b, rec, strings.TrimPrefix(strings.TrimPrefix(action, "sessions"), "/"))
+	case "chat", "chat/send", "chat/stop", "chat/answer":
+		serveBotChat(w, r, b, rec, strings.TrimPrefix(strings.TrimPrefix(action, "chat"), "/"))
 	default:
 		http.NotFound(w, r)
 	}
@@ -126,7 +132,12 @@ type botInput struct {
 	botRecord
 	Start   bool `json:"start"`
 	Restart bool `json:"restart"`
+	// Instructions (create only) are the bot's first AGENTS.md or CLAUDE.md,
+	// in place of the stub. A folder that already has one keeps it.
+	Instructions string `json:"instructions"`
 }
+
+const botInstructionsMax = 256 << 10
 
 // decodeBotInput reads a create or save body over base, so a field the body
 // leaves out keeps base's value (a create's defaults, or a save's current row).
@@ -139,7 +150,8 @@ func decodeBotInput(r *http.Request, base botRecord) (*botInput, error) {
 }
 
 func serveBotCreate(w http.ResponseWriter, r *http.Request) {
-	in, err := decodeBotInput(r, botRecord{KeepRunning: true, Notify: true})
+	// A new bot runs omp unless the body says claude.
+	in, err := decodeBotInput(r, botRecord{KeepRunning: true, Notify: true, Runtime: botRuntimeOmp})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -159,12 +171,22 @@ func serveBotCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if len(in.Instructions) > botInstructionsMax {
+		http.Error(w, "instructions are longer than 256 KB", http.StatusBadRequest)
+		return
+	}
 	if err := insertBot(&rec); err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
 	// The row stays even when the folder cannot be written: the settings page
-	// is where the human fixes what was wrong.
+	// is where the human fixes what was wrong. The instructions go in first,
+	// so botMaterialize finds the file and writes no stub.
+	note, err := botSeedInstructions(b, &rec, in.Instructions)
+	if err != nil {
+		writeJSON(w, map[string]any{"bot": botStatus(b, &rec, nil), "error": err.Error()})
+		return
+	}
 	if err := botMaterialize(b, &rec); err != nil {
 		writeJSON(w, map[string]any{"bot": botStatus(b, &rec, nil), "error": err.Error()})
 		return
@@ -175,7 +197,35 @@ func serveBotCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, map[string]any{"bot": botStatus(b, &rec, readClaudeSessions(b))})
+	out := map[string]any{"bot": botStatus(b, &rec, readClaudeSessions(b))}
+	if note != "" {
+		out["note"] = note
+	}
+	writeJSON(w, out)
+}
+
+// botSeedInstructions writes a new bot's instructions file from the create
+// form. It never replaces one already in the folder (a bot pointed at an
+// existing folder keeps its file) and says so instead.
+func botSeedInstructions(b Backend, r *botRecord, text string) (string, error) {
+	if strings.TrimSpace(text) == "" {
+		return "", nil
+	}
+	dir := expandTildeOn(b, r.Dir)
+	path := filepath.Join(dir, botInstructionsFile(r))
+	if _, err := b.Stat(path); err == nil {
+		return "the folder already has " + botInstructionsFile(r) + ", which was kept", nil
+	}
+	if err := b.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("create %s: %w", dir, err)
+	}
+	if !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	if err := b.WriteFile(path, []byte(text), 0o644); err != nil {
+		return "", fmt.Errorf("write %s: %w", botInstructionsFile(r), err)
+	}
+	return "", nil
 }
 
 func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botRecord) {
@@ -195,10 +245,11 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 			lassoMCP = url
 		}
 		writeJSON(w, map[string]any{
-			"bot":       v,
-			"dir_path":  dir,
-			"launch":    botTaskScript(rec, dir, botEnvKeys(b, dir)),
-			"claude_md": filepath.Join(dir, "CLAUDE.md"),
+			"bot":      v,
+			"dir_path": dir,
+			"launch":   botLaunchScript(rec, dir, botEnvKeys(b, dir)),
+			// The instructions file: CLAUDE.md for claude, AGENTS.md for omp.
+			"claude_md": filepath.Join(dir, botInstructionsFile(rec)),
 			"tasks":     tasks,
 			"lasso_mcp": lassoMCP,
 			// lasso's channel, shown as a read-only connection when the bot gets it.
@@ -219,6 +270,10 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if next.Runtime != rec.Runtime && botRunning(b, rec) {
+			http.Error(w, "stop the bot before changing its runtime", http.StatusConflict)
+			return
+		}
 		if err := botCheckLaunchTask(b, &next); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -232,7 +287,7 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 			return
 		}
 		if in.Restart {
-			if _, running := findBotPane(b, &next); running {
+			if botRunning(b, &next) {
 				if err := restartBot(b, &next, false); err != nil {
 					http.Error(w, err.Error(), http.StatusBadGateway)
 					return
@@ -241,10 +296,20 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 		}
 		writeJSON(w, map[string]any{"bot": botStatus(b, &next, readClaudeSessions(b))})
 	case http.MethodDelete:
+		// ?folder=1 also deletes the bot's folder, checked before anything is
+		// touched so a refused folder leaves the bot as it was.
+		withFolder := r.URL.Query().Get("folder") == "1"
+		dir := expandTildeOn(b, rec.Dir)
+		if withFolder {
+			if err := botFolderRemovable(b, dir); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
 		// Delete works from any state: a running bot is stopped first (marked
 		// stopped before its pane closes, so keep-running cannot bring it back
 		// in between), and then the row goes.
-		if _, running := findBotPane(b, rec); running {
+		if botRunning(b, rec) {
 			if err := stopBot(b, rec); err != nil {
 				http.Error(w, "stop it before deleting: "+err.Error(), http.StatusBadGateway)
 				return
@@ -254,7 +319,17 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, map[string]any{"ok": true, "dir": rec.Dir})
+		out := map[string]any{"ok": true, "dir": rec.Dir}
+		if withFolder {
+			// The bot is already forgotten, so a failure here is reported,
+			// not a reason to answer an error.
+			if err := b.RemoveAll(dir); err != nil {
+				out["folder_error"] = err.Error()
+			} else {
+				out["folder_deleted"] = true
+			}
+		}
+		writeJSON(w, out)
 	default:
 		http.Error(w, "GET, PUT or DELETE", http.StatusMethodNotAllowed)
 	}
@@ -345,8 +420,217 @@ func serveBotEnv(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 
 // botRunning: an env change reaches a running bot only on its next start.
 func botRunning(b Backend, r *botRecord) bool {
+	if r.isOmp() {
+		return botOmpRunning(r)
+	}
 	_, ok := findBotPane(b, r)
 	return ok
+}
+
+// botFolderRemovable refuses a folder that deleting with its bot would be a
+// disaster for: the root, the host's home or anything above it, lasso's own
+// directory or anything above it, or something that is not a directory. What
+// is left is the human's choice, made in the delete dialog with the path in
+// front of them.
+func botFolderRemovable(b Backend, dir string) error {
+	dir = filepath.Clean(dir)
+	if !filepath.IsAbs(dir) || strings.Count(dir, "/") < 2 {
+		return fmt.Errorf("not deleting %s: too close to the root", dir)
+	}
+	within := func(inner, outer string) bool {
+		return inner == outer || strings.HasPrefix(inner+"/", outer+"/")
+	}
+	if home, err := b.HomeDir(); err == nil && home != "" && within(filepath.Clean(home), dir) {
+		return fmt.Errorf("not deleting %s: it holds the home directory", dir)
+	}
+	if b.Name() == "local" && within(filepath.Clean(lassoDir()), dir) {
+		return fmt.Errorf("not deleting %s: it holds lasso's own directory", dir)
+	}
+	st, err := b.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("the folder %s: %w", dir, err)
+	}
+	if !st.IsDir() {
+		return fmt.Errorf("not deleting %s: not a directory", dir)
+	}
+	return nil
+}
+
+// botLaunchScript is the generated launch task, as the Launch tab shows it.
+func botLaunchScript(r *botRecord, dir string, envKeys []string) string {
+	if r.isOmp() {
+		return botOmpTaskScript(r, dir, envKeys)
+	}
+	return botTaskScript(r, dir, envKeys)
+}
+
+// serveBotModel changes a bot's model and thinking level, the chat header's
+// pickers: POST {model?, thinking?}. A running omp bot switches at once over
+// RPC (and lasso keeps the change in its settings when omp reports it); a
+// claude bot, or a stopped one, saves it for its next start.
+func serveBotModel(w http.ResponseWriter, r *http.Request, b Backend, rec *botRecord) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST", http.StatusMethodNotAllowed)
+		return
+	}
+	var in struct {
+		Model    *string `json:"model"`
+		Thinking *string `json:"thinking"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in); err != nil {
+		http.Error(w, "bad body", http.StatusBadRequest)
+		return
+	}
+	next := *rec
+	if in.Model != nil {
+		next.Model = strings.TrimSpace(*in.Model)
+	}
+	if in.Thinking != nil {
+		next.Effort = strings.TrimSpace(*in.Thinking)
+	}
+	if err := next.normalize(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	live := false
+	if rec.isOmp() && ompBotFor(rec.Name).ensure() && ompBotFor(rec.Name).snapshot().ready {
+		model, thinking := "", ""
+		if next.Model != rec.Model && next.Model != "" {
+			model = next.Model
+		}
+		if next.Effort != rec.Effort && next.Effort != "" {
+			thinking = next.Effort
+		}
+		if err := botOmpSetModel(rec.Name, model, thinking); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		// Blank means "the default", which a running session cannot go back
+		// to: that takes a restart.
+		live = (next.Model != "" || next.Model == rec.Model) && (next.Effort != "" || next.Effort == rec.Effort)
+	}
+	if err := updateBot(&next); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := botMaterialize(b, &next); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	if live {
+		ompBotFor(rec.Name).refreshState()
+	}
+	writeJSON(w, map[string]any{
+		"bot":            botStatus(b, &next, readClaudeSessions(b)),
+		"restart_needed": !live && botRunning(b, &next),
+	})
+}
+
+// serveBotSessions lists a bot's conversations (GET), starts a new one (POST
+// new) and resumes an earlier one (POST resume {id}).
+func serveBotSessions(w http.ResponseWriter, r *http.Request, b Backend, rec *botRecord, op string) {
+	if op == "" {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET", http.StatusMethodNotAllowed)
+			return
+		}
+		list := botSessions(b, rec)
+		if list == nil {
+			list = []botSessionInfo{}
+		}
+		writeJSON(w, map[string]any{"sessions": list})
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST", http.StatusMethodNotAllowed)
+		return
+	}
+	var err error
+	switch op {
+	case "new":
+		err = botNewSession(b, rec)
+	case "resume":
+		var in struct {
+			ID string `json:"id"`
+		}
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in) != nil || strings.TrimSpace(in.ID) == "" {
+			http.Error(w, "id is required", http.StatusBadRequest)
+			return
+		}
+		err = botResumeSession(b, rec, strings.TrimSpace(in.ID))
+	}
+	switch {
+	case errors.Is(err, errBotBusy):
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	case err != nil:
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	if latest, err := getBot(rec.Name); err == nil {
+		rec = latest
+	}
+	writeJSON(w, map[string]any{"bot": botStatus(b, rec, readClaudeSessions(b))})
+}
+
+// serveBotChat is an omp bot's chat: it has a session file and a socket but
+// no pane, so it cannot use /api/chat. A claude bot's chat stays there.
+func serveBotChat(w http.ResponseWriter, r *http.Request, b Backend, rec *botRecord, op string) {
+	if !rec.isOmp() {
+		http.Error(w, "a claude bot's chat is its pane's: /api/chat", http.StatusBadRequest)
+		return
+	}
+	if op == "" {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET", http.StatusMethodNotAllowed)
+			return
+		}
+		out := botOmpChat(b, rec, r.URL.Query().Get("before"))
+		out.PendingUI = ompBotFor(rec.Name).snapshot().pending
+		writeChat(w, out)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST", http.StatusMethodNotAllowed)
+		return
+	}
+	var in struct {
+		Text      string  `json:"text"`
+		ID        string  `json:"id"`
+		Value     *string `json:"value"`
+		Confirmed *bool   `json:"confirmed"`
+		Cancelled bool    `json:"cancelled"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, "bad body", http.StatusBadRequest)
+		return
+	}
+	var err error
+	switch op {
+	case "send":
+		if strings.TrimSpace(in.Text) == "" {
+			http.Error(w, "text is required", http.StatusBadRequest)
+			return
+		}
+		err = botOmpSend(rec.Name, in.Text, true)
+	case "stop":
+		if !ompBotFor(rec.Name).snapshot().streaming {
+			writeJSON(w, map[string]any{"outcome": "refused", "detail": "the bot is not working"})
+			return
+		}
+		err = botOmpAbort(rec.Name)
+	case "answer":
+		err = botOmpAnswer(rec.Name, in.ID, in.Value, in.Confirmed, in.Cancelled)
+	}
+	if err != nil {
+		writeJSON(w, map[string]any{"outcome": "refused", "detail": err.Error()})
+		return
+	}
+	outcome := "sent"
+	if op == "send" {
+		outcome = chatSent
+	}
+	writeJSON(w, map[string]any{"outcome": outcome})
 }
 
 // --- skills ------------------------------------------------------------------

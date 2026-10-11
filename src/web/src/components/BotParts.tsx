@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react"
+import * as React from "react"
 import { toast } from "sonner"
 import {
   AlertDialog,
@@ -10,6 +11,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Orb } from "@/components/ui/orb"
 import { api, type BotView, botAvatarURL } from "@/lib/api"
 import {
@@ -156,22 +158,47 @@ export function DeleteBotDialog({
   onOpenChange: (open: boolean) => void
   onDeleted?: () => void
 }) {
+  // Off every time the dialog opens: deleting a folder is never the default.
+  const [withFolder, setWithFolder] = React.useState(false)
+  React.useEffect(() => {
+    if (open) setWithFolder(false)
+  }, [open])
+  const where = bot?.host === "local" ? "this machine" : bot?.host
+  const folder = dirPath ?? bot?.dir_path ?? bot?.dir
+  const omp = bot?.runtime === "omp"
+  // Deleting takes seconds (a running bot is stopped first), so the dialog
+  // stays up, saying so, until the server has answered: closing it on the
+  // click left nothing on screen to tell a slow delete from a refused one.
+  const [deleting, setDeleting] = React.useState(false)
   const remove = async () => {
     if (!bot) return
+    setDeleting(true)
     try {
-      await api.bots.delete(bot.name)
-      toast.success(
-        `${bot.name} deleted; its folder is still on ${bot.host === "local" ? "this machine" : bot.host}`
-      )
+      const res = await api.bots.delete(bot.name, withFolder)
+      if (res.folder_error)
+        toast.warning(
+          `${bot.name} deleted, but its folder was not: ${res.folder_error}`
+        )
+      else if (res.folder_deleted)
+        toast.success(`${bot.name} and its folder deleted`)
+      else toast.success(`${bot.name} deleted; its folder is still on ${where}`)
+      onOpenChange(false)
       onDeleted?.()
     } catch (e) {
+      // The dialog stays open on a refusal, so it can be read and retried.
       toast.error(`could not delete ${bot.name}: ${(e as Error).message}`)
     } finally {
+      setDeleting(false)
       void invalidateBots(bot.name)
     }
   }
   return (
-    <AlertDialog open={open && !!bot} onOpenChange={onOpenChange}>
+    <AlertDialog
+      open={open && !!bot}
+      onOpenChange={(o) => {
+        if (!deleting) onOpenChange(o)
+      }}
+    >
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Delete {bot?.name}?</AlertDialogTitle>
@@ -179,19 +206,64 @@ export function DeleteBotDialog({
             {bot && botRunning(bot) && (
               <>It is running: deleting stops it and closes its pane. </>
             )}
-            lasso forgets this bot. Its folder ({dirPath ?? bot?.dir}) stays on{" "}
-            {bot?.host === "local" ? "this machine" : bot?.host}, with its
-            CLAUDE.md, skills and environment, and its conversations stay in
-            Claude Code's history.
+            lasso forgets this bot.{" "}
+            {withFolder ? (
+              <>
+                Its folder ({folder}) on {where} is deleted too, with everything
+                in it: its {omp ? "AGENTS.md" : "CLAUDE.md"}, skills,
+                environment and secrets{omp ? ", and its conversations" : ""}.
+                This cannot be undone.
+              </>
+            ) : (
+              <>
+                Its folder ({folder}) stays on {where}, with its{" "}
+                {omp ? "AGENTS.md" : "CLAUDE.md"}, skills and environment, and
+                its conversations stay{" "}
+                {omp ? "in that folder" : "in Claude Code's history"}.
+              </>
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
+        <label
+          htmlFor="delete-bot-folder"
+          className="flex items-start gap-2 text-[13px]"
+        >
+          <Checkbox
+            id="delete-bot-folder"
+            checked={withFolder}
+            disabled={deleting}
+            onCheckedChange={(v) => setWithFolder(v === true)}
+            className="mt-0.5"
+          />
+          <span>
+            Also delete its folder
+            <span className="block break-all font-mono text-[11.5px] text-muted-foreground">
+              {folder}
+            </span>
+          </span>
+        </label>
         <AlertDialogFooter>
-          <AlertDialogCancel>Keep it</AlertDialogCancel>
+          <AlertDialogCancel disabled={deleting}>Keep it</AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
-            onClick={() => void remove()}
+            disabled={deleting}
+            onClick={(e) => {
+              // Not the dialog's own close: remove() closes it once the
+              // server has answered.
+              e.preventDefault()
+              void remove()
+            }}
           >
-            Delete bot
+            {deleting ? (
+              <>
+                <Orb state="working" px={12} />
+                Deleting…
+              </>
+            ) : withFolder ? (
+              "Delete bot and folder"
+            ) : (
+              "Delete bot"
+            )}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

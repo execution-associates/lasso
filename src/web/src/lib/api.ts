@@ -352,6 +352,10 @@ export interface ChatPayload {
   // Why items is empty, for a program: `not_found` names a session whose log
   // no host asked has yet, with the hosts checked and the ones that did not
   // answer in time.
+  // What an omp bot is waiting on the human for: a question from its ask
+  // tool, or an approval (a select of Approve/Deny). Answered with
+  // api.bots.chatAnswer.
+  pending_ui?: BotPendingUI[]
   unavailable?: {
     reason:
       | "no_session"
@@ -371,6 +375,28 @@ export interface ChatPayload {
 export interface ChatSendResult {
   outcome: "confirmed" | "refused" | "uncertain"
   detail?: string
+}
+
+// One of a bot's conversations (botsessions.go): omp's own session files, or
+// Claude Code's for the bot's folder.
+export interface BotSession {
+  id: string
+  title?: string
+  // The first message, for a conversation with no title.
+  preview?: string
+  updated_at: string
+  messages?: number
+  current?: boolean
+}
+
+// A question an omp bot is waiting on (an extension_ui_request).
+export interface BotPendingUI {
+  id: string
+  method: "select" | "confirm" | "input" | "editor"
+  title: string
+  message?: string
+  options?: string[]
+  placeholder?: string
 }
 
 // What became of a Stop pressed in the chat: one Escape typed into the pane.
@@ -823,8 +849,13 @@ export interface BotOAuthStatus {
 
 export type BotState = "stopped" | "starting" | "idle" | "working" | "blocked"
 
+// omp: omp in RPC mode under lasso's bot host (no herdr pane; its chat is
+// /api/bots/<name>/chat). claude: Claude Code in a herdr pane.
+export type BotRuntime = "omp" | "claude"
+
 // The editable half of a bot: what POST creates and PUT saves.
 export interface BotFields {
+  runtime: BotRuntime
   dir: string
   workspace: string
   model: string
@@ -850,6 +881,8 @@ export interface BotView extends BotFields {
   created_at: string
   updated_at: string
   state: BotState
+  // The folder with ~ expanded on its host (the file viewer follows it).
+  dir_path?: string
   pane_id?: string
   session_id?: string
   // What a blocked bot is waiting on, as herdr reports it.
@@ -859,6 +892,23 @@ export interface BotView extends BotFields {
   last_kind?: "agent" | "user" | "incoming"
   last_at?: string
   error?: string
+  // An omp bot's host: the lasso version it runs, and whether it speaks
+  // another protocol than this lasso (restarted onto it once idle).
+  host_version?: string
+  host_outdated?: boolean
+  // What an omp bot runs right now, as omp reports it, with the thinking
+  // levels that model takes. Absent while it is not running.
+  live_model?: {
+    id: string
+    name: string
+    provider: string
+    context_window?: number
+  }
+  thinking?: string
+  thinking_levels?: string[]
+  // How full its context is: tokens of the newest turn, and for an omp bot
+  // the model's window and the share used.
+  context?: { tokens: number; window?: number; percent?: number }
   // Its picture (.lasso/avatar.<ext> plus a ?v= revision), or "": see
   // botAvatarURL. Set through avatarSet, never by a save.
   avatar_image: string
@@ -1951,6 +2001,42 @@ export const api = {
     reorder: (names: string[]) =>
       sendJSON<{ ok: boolean }>("PUT", "/api/bots/order", { names }),
     get: (name: string) => getJSON<BotDetail>(botURL(name)),
+    // Conversations: the list, a new one, and resuming an earlier one. An
+    // omp bot switches at once; a claude bot restarts into it. 409 mid-turn.
+    sessions: (name: string) =>
+      getJSON<{ sessions: BotSession[] }>(`${botURL(name)}/sessions`),
+    newSession: (name: string) =>
+      postJSON<{ bot: BotView }>(`${botURL(name)}/sessions/new`, {}),
+    resumeSession: (name: string, id: string) =>
+      postJSON<{ bot: BotView }>(`${botURL(name)}/sessions/resume`, { id }),
+    // The chat header's pickers. A running omp bot switches at once; a claude
+    // or stopped bot saves it, and restart_needed says a restart applies it.
+    setModel: (name: string, body: { model?: string; thinking?: string }) =>
+      postJSON<{ bot: BotView; restart_needed: boolean }>(
+        `${botURL(name)}/model`,
+        body
+      ),
+    // An omp bot's chat: the same payload as api.chat, read from its session
+    // file, with the questions it is waiting on in pending_ui.
+    chat: (name: string, before?: number) =>
+      getJSON<ChatPayload>(
+        `${botURL(name)}/chat${before ? `?before=${before}` : ""}`
+      ),
+    // A prompt, or a steer while it works: no pane to type into, and no
+    // composer to confirm against, so "confirmed" means omp accepted it.
+    chatSend: (name: string, text: string) =>
+      postJSON<ChatSendResult>(`${botURL(name)}/chat/send`, { text }),
+    chatStop: (name: string) =>
+      postJSON<ChatStopResult>(`${botURL(name)}/chat/stop`, {}),
+    chatAnswer: (
+      name: string,
+      id: string,
+      answer: { value: string } | { confirmed: boolean } | { cancelled: true }
+    ) =>
+      postJSON<ChatAnswerResult>(`${botURL(name)}/chat/answer`, {
+        id,
+        ...answer,
+      }),
     // A 200 can still carry `error`: the row was created but its folder could
     // not be written (or it would not start), which Settings is where to fix.
     create: (
@@ -1958,13 +2044,28 @@ export const api = {
         name: string
         host?: string
         start?: boolean
+        // The bot's first AGENTS.md (omp) or CLAUDE.md (claude), in place
+        // of the stub. A folder that already has one keeps it (`note`).
+        instructions?: string
       }
-    ) => postJSON<{ bot: BotView; error?: string }>("/api/bots", body),
+    ) =>
+      postJSON<{ bot: BotView; error?: string; note?: string }>(
+        "/api/bots",
+        body
+      ),
     update: (name: string, body: BotFields & { restart?: boolean }) =>
       sendJSON<{ bot: BotView }>("PUT", botURL(name), body),
     // Forgets the bot; its folder stays on the host.
-    delete: (name: string) =>
-      sendJSON<{ ok: boolean; dir: string }>("DELETE", botURL(name)),
+    // `folder` also deletes its folder on its host (refused for one that holds
+    // the home or lasso's own directory). A folder that could not be removed
+    // after the bot was forgotten comes back as folder_error.
+    delete: (name: string, folder = false) =>
+      sendJSON<{
+        ok: boolean
+        dir: string
+        folder_deleted?: boolean
+        folder_error?: string
+      }>("DELETE", `${botURL(name)}${folder ? "?folder=1" : ""}`),
     start: (name: string, fresh = false) =>
       postJSON<{ bot: BotView }>(botURL(name, "/start"), { fresh }),
     // The picture: the image file itself as the body (PNG, JPEG, WebP, GIF).
