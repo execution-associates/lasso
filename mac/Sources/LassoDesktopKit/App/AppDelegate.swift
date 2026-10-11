@@ -10,6 +10,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private let arguments: [String]
     private var rail: RailController?
     private var hotKey: HotKey?
+    private var sync: FleetSync?
 
     public init(arguments: [String]) {
         self.arguments = arguments
@@ -52,15 +53,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startApp() {
         let fleet = FleetModel()
-        // Until the live client lands (M2) the rail shows a fixture.
-        let name = value(after: "--fixture") ?? "rail-expanded"
-        do {
-            let fx = try Fixture.load(name, from: specDir.appendingPathComponent("fixtures"))
-            fleet.apply(panes: fx.server.all_panes)
-            fleet.apply(bots: fx.server.bots)
-            fleet.apply(uiState: fx.server.ui_state)
-        } catch {
-            log.error("fixture \(name, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+        if let name = value(after: "--fixture") {
+            // A fixture instead of a live lasso: what the parity states show.
+            do {
+                let fx = try Fixture.load(name, from: specDir.appendingPathComponent("fixtures"))
+                fleet.apply(panes: fx.server.all_panes)
+                fleet.apply(bots: fx.server.bots)
+                fleet.apply(uiState: fx.server.ui_state)
+            } catch {
+                log.error("fixture \(name, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            }
+        } else {
+            let sync = FleetSync(client: .configured(), fleet: fleet)
+            sync.start()
+            self.sync = sync
         }
         let model = RailModel(fleet: fleet)
         let rail = RailController(model: model)

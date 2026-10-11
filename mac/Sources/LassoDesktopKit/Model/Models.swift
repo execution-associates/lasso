@@ -149,3 +149,108 @@ public struct BotView: Codable, Sendable, Equatable, Identifiable {
 public struct BotsPayload: Codable, Sendable, Equatable {
     public var bots: [BotView]
 }
+
+/// GET /api/chat and GET /api/bots/<name>/chat. src/chatview.go:190
+/// (chatPayload), :64 (chatItem), :95 (chatTool); src/botomp.go:107 (pending_ui).
+public struct ChatPayload: Codable, Sendable, Equatable {
+    public struct Unavailable: Codable, Sendable, Equatable {
+        public var reason: String
+        public var checked: [String]?
+        public var unanswered: [String]?
+    }
+
+    /// An omp bot's open question or approval (select/confirm/input/editor).
+    public struct PendingUI: Codable, Sendable, Equatable, Identifiable {
+        public var id: String
+        public var method: String
+        public var title: String?
+        public var message: String?
+        public var options: [String]?
+        public var placeholder: String?
+    }
+
+    public var pane_id: String
+    public var agent: String
+    public var host: String
+    public var title: String?
+    public var model: String?
+    public var cwd: String?
+    public var path: String?
+    public var start_offset: Int64?
+    public var items: [ChatItem]
+    public var tokens: Int?
+    public var running: Bool?
+    public var more: Bool?
+    public var note: String?
+    public var starting: Bool?
+    public var served_by: String?
+    public var unavailable: Unavailable?
+    public var pending_ui: [PendingUI]?
+}
+
+public struct ChatItem: Codable, Sendable, Equatable, Identifiable {
+    public var kind: String
+    public var id: String
+    public var at: String?
+    public var text: String?
+    public var thinking: Bool?
+    public var marker: String?
+    public var count: Int?
+    public var tool: ChatTool?
+    public var source: String?
+    /// What the sender said about a bot message (S3): input, engine, model.
+    public var meta: [String: String]?
+}
+
+public struct ChatTool: Codable, Sendable, Equatable {
+    public struct DiffLine: Codable, Sendable, Equatable {
+        public var kind: String
+        public var text: String
+    }
+
+    public struct Ask: Codable, Sendable, Equatable {
+        public var questions: [Question]
+    }
+
+    public struct Question: Codable, Sendable, Equatable {
+        public struct Option: Codable, Sendable, Equatable {
+            public var label: String
+            public var description: String?
+            public var preview: String?
+        }
+
+        public var header: String?
+        public var question: String?
+        public var options: [Option]?
+        public var multi: Bool?
+        public var recommended: Int?
+        public var selected: [String]?
+        public var custom: String?
+    }
+
+    public var call_id: String?
+    public var name: String?
+    public var title: String?
+    public var family: String?
+    public var group: String?
+    public var subject: String?
+    public var command: String?
+    public var state: String?
+    public var result_line: String?
+    public var output: String?
+    public var diff: [DiffLine]?
+    public var error: String?
+    public var images: Int?
+    public var duration_ms: Int64?
+    public var ask: Ask?
+}
+
+/// One `active` frame of /api/events (src/main.go:1069): the fields the app
+/// reacts to. A changed rev means "refetch that resource".
+public struct ActiveFrame: Codable, Sendable, Equatable {
+    public var panes_rev: Int64?
+    public var ui_state_rev: Int64?
+    public var plugins_rev: Int64?
+    public var herdr_up: Bool?
+    public var host: String?
+}

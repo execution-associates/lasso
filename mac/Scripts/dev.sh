@@ -8,6 +8,7 @@
 #   mac/Scripts/dev.sh relaunch        restart the installed app
 #   mac/Scripts/dev.sh test            sync, then swift test on the Mac
 #   mac/Scripts/dev.sh parity [states] sync, build, run the harness, copy results to mac/dist/parity
+#   mac/Scripts/dev.sh smoke [seconds] read-only GETs (and the event stream) against the live lasso
 #   mac/Scripts/dev.sh logs            tail the app's log on the Mac
 #   mac/Scripts/dev.sh unlock          unlock the signing keychain (password from `secret`)
 #
@@ -62,6 +63,10 @@ DOC
     rsync -a --delete "$MAC:$REMOTE/dist/parity/" "$HERE/dist/parity/" || true
     echo "results: $HERE/dist/parity/"
     exit "$rc"
+    ;;
+  smoke)
+    sync
+    on_mac "Scripts/build-app.sh release >/dev/null && dist/LassoDesktop.app/Contents/MacOS/LassoDesktop --smoke ${1:-30}"
     ;;
   logs) ssh "$MAC" "tail -n ${1:-100} ~/Library/Logs/LassoDesktop.log" ;;
   unlock)

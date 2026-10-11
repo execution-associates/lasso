@@ -1,0 +1,23 @@
+{
+  "host": "x",
+  "host_label": "x",
+  "pane_id": "x",
+  "workspace_id": "x",
+  "workspace_label": "x",
+  "tab_id": "x",
+  "tab_label": "x",
+  "pane_label": "x",
+  "terminal_title": "x",
+  "cwd": "x",
+  "agent": "x",
+  "agent_status": "x",
+  "has_agent": true,
+  "focused": true,
+  "transcript_at": 1,
+  "repo": "x",
+  "repo_key": "x",
+  "repo_label": "x",
+  "prompt": "x",
+  "agent_id": "x",
+  "closed": true
+}
