@@ -126,8 +126,8 @@ const (
 	// sweepInterruptedCreates catches the crash case at next startup.
 	BootCreating = "creating"
 	// BootBooting: create returned; the async boot (file copy, setup, CLI launch)
-	// is still running. Not surfaced as a status string — the agent's live herdr
-	// status takes over as soon as the CLI comes up.
+	// is still running. Surfaced as status "booting", which also covers the
+	// window after it until a prompted agent's first turn starts (agentstart.go).
 	BootBooting = "booting"
 	// BootReady: the async boot finished launching the agent CLI.
 	BootReady = "ready"

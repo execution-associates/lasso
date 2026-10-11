@@ -136,9 +136,10 @@ type agentInfo struct {
 	RootPane    string `json:"root_pane,omitempty"`
 	Status      string `json:"status,omitempty"`
 	// BootStatus is the async boot's own phase (booting/ready/failed). Status
-	// only folds in a FAILED boot — a still-booting agent otherwise looks exactly
-	// like one that is up and idle, which a caller polling after create_agent
-	// cannot tell apart. BootError carries the reason when this is failed.
+	// folds it in ("failed", or "booting" until the agent has started — see
+	// agentstart.go), so a caller polling after create_agent never reads the
+	// CLI's first idle screen as a finished task. BootError carries the reason
+	// when this is failed.
 	BootStatus string `json:"boot_status,omitempty"`
 	BootError  string `json:"boot_error,omitempty"`
 	CreatedAt  string `json:"created_at"`
@@ -368,11 +369,19 @@ func resolveAgentTarget(host, needle string) (resolvedTarget, Backend, error) {
 // surfacedStatus reconciles an agent's live herdr pane status with the outcome
 // of its async boot. A failed boot (the CLI never launched) is terminal and must
 // win, so a later get_agent/list_agents shows "failed" instead of a phantom
-// healthy agent — even if a zombie pane still reports idle. Otherwise the live
-// herdr status is authoritative (it means the agent actually came up).
+// healthy agent — even if a zombie pane still reports idle. A boot still running
+// reads "booting" (see agentstart.go), so even a path that never asked herdr
+// (create_agent's own answer) cannot show a booting agent as idle or blank.
+// The first-turn half of that rule needs herdr, so it lives in
+// liveAgentStatus, which callers holding a backend apply first; this is
+// idempotent over its result.
 func surfacedStatus(rec AgentRecord, herdrStatus string) string {
 	if rec.BootStatus == BootFailed {
 		return "failed"
+	}
+	if (rec.BootStatus == BootCreating || rec.BootStatus == BootBooting) &&
+		herdrStatus != "working" && time.Since(rec.CreatedAt) < agentBootGrace {
+		return statusBooting
 	}
 	return herdrStatus
 }
@@ -777,7 +786,11 @@ func listAgentsTool(_ context.Context, req *mcp.CallToolRequest, in listAgentsIn
 		gp := byPane[rec.RootPane]
 		// b is nil-checked inside: when the enumeration failed there is no live
 		// status to upgrade and no backend to read a screen with (see ompplan.go).
-		ai := agentInfoFrom(host, rec, ompGateStatus(b, rec.RootPane, gp.Agent, gp.AgentStatus))
+		status := ompGateStatus(b, rec.RootPane, gp.Agent, gp.AgentStatus)
+		if err == nil { // with herdr unreachable there is no live status to gate
+			status = liveAgentStatus(b, host, rec, status)
+		}
+		ai := agentInfoFrom(host, rec, status)
 		ai.SidebarName = sidebarName(gp)
 		out.Agents = append(out.Agents, ai)
 		if rec.RootPane != "" {
@@ -872,7 +885,7 @@ func resolveWhoami(b Backend, host string, recs []AgentRecord, paneID string) wh
 			if status == "" {
 				status = paneAgentStatus(b, rec.RootPane)
 			}
-			ai := agentInfoFrom(host, rec, status)
+			ai := agentInfoFrom(host, rec, liveAgentStatus(b, host, rec, status))
 			return whoamiOut{Found: true, Agent: &ai}
 		}
 	}
@@ -900,7 +913,7 @@ func resolveWhoamiAcrossHosts(ctx context.Context, cs mcpCaller, paneID string) 
 		rec := matches[0]
 		status := ""
 		if b, err := agentBackendResolver(rec.Host); err == nil {
-			status = paneAgentStatus(b, rec.RootPane)
+			status = liveAgentStatus(b, rec.Host, rec, paneAgentStatus(b, rec.RootPane))
 		}
 		ai := agentInfoFrom(rec.Host, rec, status)
 		return whoamiOut{Found: true, Agent: &ai}
@@ -917,7 +930,7 @@ func resolveWhoamiAcrossHosts(ctx context.Context, cs mcpCaller, paneID string) 
 				if rec, ok, aerr := adoptPeerAgent(ctx, b, paneID); aerr != nil {
 					return whoamiOut{Detail: aerr.Error()}
 				} else if ok {
-					ai := agentInfoFrom(rec.Host, rec, paneAgentStatus(b, rec.RootPane))
+					ai := agentInfoFrom(rec.Host, rec, liveAgentStatus(b, rec.Host, rec, paneAgentStatus(b, rec.RootPane)))
 					return whoamiOut{Found: true, Agent: &ai}
 				}
 			}
@@ -1041,6 +1054,14 @@ func getAgentTool(_ context.Context, req *mcp.CallToolRequest, in getAgentIn) (*
 	// pane is checked for it here too, so get_agent and list_agents report the
 	// same "blocked" for a pane parked on its plan review. See ompplan.go.
 	status := ompGateStatus(b, t.PaneID, gp.Agent, gp.AgentStatus)
+	if t.Record != nil {
+		// The cached listing can predate a pane create_agent made a moment ago;
+		// ask herdr directly rather than answer a blank status for it.
+		if !ok && t.PaneID != "" {
+			status = paneAgentStatus(b, t.PaneID)
+		}
+		status = liveAgentStatus(b, t.Host, *t.Record, status)
+	}
 	return nil, getAgentOut{Agent: t.info(b.Name(), status)}, nil
 }
 
