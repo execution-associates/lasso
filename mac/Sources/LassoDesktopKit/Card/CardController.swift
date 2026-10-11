@@ -68,6 +68,7 @@ public final class CardController {
     }
 
     public func close() {
+        guard presence.shown else { return }
         holder.model?.stopPolling()
         withAnimationToken(Theme.Motion.cardClose) { presence.shown = false }
         let delay = Theme.Motion.cardClose.value["duration"]?.double ?? 0

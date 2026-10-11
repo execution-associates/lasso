@@ -11,6 +11,9 @@ public struct Fixture: Decodable, Sendable {
         public var list: Bool?
         public var chat: Bool?
         public var recording: JSONValue?
+        /// List panel row keys.
+        public var selected: String?
+        public var hovered: String?
     }
 
     public struct Server: Decodable, Sendable {

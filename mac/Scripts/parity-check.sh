@@ -45,4 +45,4 @@ launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
 [ -f "$OUT/report.json" ] || { echo "parity run timed out" >&2; cat "$LOG" >&2; exit 2; }
 
 cat "$OUT/report.txt"
-exit "$(plutil -extract exit_code raw "$OUT/report.json")"
+exit "$(cat "$OUT/exit_code" 2>/dev/null || echo 2)"

@@ -20,6 +20,8 @@ public struct Spec: Decodable, Sendable {
         public var anchor: String
         public var rect: [Double]?
         public var token: String
+        /// For a translucent token: the token it is composited over.
+        public var over: String?
     }
 
     public struct Geometry: Decodable, Sendable {

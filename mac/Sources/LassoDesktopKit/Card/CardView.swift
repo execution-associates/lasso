@@ -155,7 +155,7 @@ public struct CardView: View {
     private var conversation: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
-                LazyVStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 6) {
                     if let chat = model.chat {
                         ForEach(chat.items.suffix(80)) { item in
                             ChatRow(item: item).id(item.id)

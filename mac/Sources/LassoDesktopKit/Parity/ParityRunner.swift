@@ -10,7 +10,7 @@ import SwiftUI
 public final class ParityRunner {
     /// States whose surfaces exist. The rest report as pending until their
     /// milestone lands (PLAN 6).
-    public static let implemented: Set<String> = ["rail-collapsed", "rail-expanded", "card-open"]
+    public static let implemented: Set<String> = ["rail-collapsed", "rail-expanded", "card-open", "list-panel-open"]
 
     let spec: Spec
     let specDir: URL
@@ -52,10 +52,13 @@ public final class ParityRunner {
         _ state: String, _ check: String, _ token: String, _ spec: String, _ measured: String, _ delta: String,
         _ result: ParityRow.Result
     ) {
+        // Pane keys are host NUL pane_id; a NUL is no use in a table or a
+        // JSON file other tools read.
+        func clean(_ s: String) -> String { s.replacingOccurrences(of: "\u{0}", with: "/") }
         rows.append(
             ParityRow(
-                state: state, check: check, token: token, spec: spec, measured: measured, delta: delta,
-                result: result))
+                state: state, check: clean(check), token: clean(token), spec: clean(spec), measured: clean(measured),
+                delta: clean(delta), result: result))
     }
 
     private static func f(_ v: Double, _ digits: Int = 2) -> String { String(format: "%.\(digits)f", v) }
@@ -107,7 +110,12 @@ public final class ParityRunner {
         model.setExpanded(fixture.ui.rail == "expanded", animated: false)
         let cap: Capture
         var card: CardModel?
-        if let key = fixture.ui.card {
+        if fixture.ui.list == true {
+            let l = ListModel(fleet: fleet, actions: FixtureFleetActions(), now: { fixture.now })
+            l.selected = fixture.ui.selected
+            l.hovered = fixture.ui.hovered
+            cap = try await Capturer.capture(ListView(model: l), size: Theme.List.size.size)
+        } else if let key = fixture.ui.card {
             let c = try cardModel(fixture, fleet: fleet, key: key)
             card = c
             cap = try await Capturer.capture(CardView(model: c), size: Theme.Card.size.size)
@@ -178,9 +186,16 @@ public final class ParityRunner {
                 continue
             }
             let tv = spec.tokens[p.token]?.value
-            guard let want = RGBA(parsing: tv?.string ?? tv?["color"]?.string ?? tv?["fill"]?.string ?? "") else {
+            guard var want = RGBA(parsing: tv?.string ?? tv?["color"]?.string ?? tv?["fill"]?.string ?? "") else {
                 add(state, "colour", p.token, "(not a colour)", "", "", .fail)
                 continue
+            }
+            if let over = p.over, let base = RGBA(parsing: spec.tokens[over]?.value.string ?? "") {
+                // Source-over in sRGB, as the window server composites.
+                let a = want.a
+                want = RGBA(
+                    r: want.r * a + base.r * (1 - a), g: want.g * a + base.g * (1 - a), b: want.b * a + base.b * (1 - a),
+                    a: 1)
             }
             let rect = CGRect(x: frame.minX + r[0], y: frame.minY + r[1], width: r[2], height: r[3])
             let got = cap.median(in: rect)
@@ -281,10 +296,26 @@ public final class ParityRunner {
         var labels: [String] = []
         func walk(_ e: AXUIElement, depth: Int) {
             guard depth < 40 else { return }
+            // A scroll bar's arrow and page parts are AppKit's, announced
+            // through the scroll bar itself: not controls of ours.
+            if attr(e, kAXRoleAttribute) as? String == kAXScrollBarRole as String { return }
             if attr(e, kAXRoleAttribute) as? String == kAXButtonRole as String {
                 buttons += 1
-                let label = (attr(e, kAXDescriptionAttribute) as? String) ?? (attr(e, kAXTitleAttribute) as? String) ?? ""
-                if label.isEmpty { unlabelled += 1 } else { labels.append(label) }
+                let label = [kAXDescriptionAttribute, kAXTitleAttribute]
+                    .compactMap { attr(e, $0) as? String }.first { !$0.isEmpty } ?? ""
+                if label.isEmpty {
+                    unlabelled += 1
+                    var where_ = ""
+                    if let v = attr(e, kAXPositionAttribute), CFGetTypeID(v) == AXValueGetTypeID() {
+                        var p = CGPoint.zero
+                        AXValueGetValue(v as! AXValue, .cgPoint, &p)
+                        where_ = " at \(Int(p.x)),\(Int(p.y))"
+                    }
+                    let kids = (attr(e, kAXChildrenAttribute) as? [AXUIElement])?.count ?? 0
+                    labels.append("UNLABELLED(\((attr(e, kAXRoleDescriptionAttribute) as? String) ?? "?")\(where_), \(kids) children)")
+                } else {
+                    labels.append(label)
+                }
             }
             for c in (attr(e, kAXChildrenAttribute) as? [AXUIElement]) ?? [] { walk(c, depth: depth + 1) }
         }
@@ -574,6 +605,7 @@ public final class ParityRunner {
             },
         ]
         try? text.write(to: out.appendingPathComponent("report.txt"), atomically: true, encoding: .utf8)
+        try? "\(code)\n".write(to: out.appendingPathComponent("exit_code"), atomically: true, encoding: .utf8)
         if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
             // Written last: its presence tells dev.sh the run is over.
             try? data.write(to: out.appendingPathComponent("report.json"), options: .atomic)

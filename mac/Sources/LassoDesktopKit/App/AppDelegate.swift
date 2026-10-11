@@ -12,6 +12,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKey: HotKey?
     private var sync: FleetSync?
     private var card: CardController?
+    private var list: ListController?
 
     public init(arguments: [String]) {
         self.arguments = arguments
@@ -70,22 +71,42 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self.sync = sync
         }
         let actions: CardActions
+        let fleetActions: FleetActions
         if let sync {
             let live = LiveCardActions(client: sync.client, fleet: fleet)
             live.refreshUIState = { [weak sync] in await sync?.refreshUIState() }
             actions = live
+            fleetActions = LiveFleetActions(client: sync.client, fleet: fleet, card: live)
         } else {
             let fx = try? Fixture.load(value(after: "--fixture") ?? "", from: specDir.appendingPathComponent("fixtures"))
             actions = FixtureCardActions(chats: fx?.chats ?? [:], canDismiss: fx?.server.ui_state.dismissed_cards != nil)
+            fleetActions = FixtureFleetActions()
         }
         let model = RailModel(fleet: fleet)
         let rail = RailController(model: model)
         let card = CardController(fleet: fleet, actions: actions)
+        let list = ListController(model: ListModel(fleet: fleet, actions: fleetActions))
         card.railFrame = { [weak rail] in rail?.panel.frame ?? .zero }
-        model.onPickAgent = { [weak card] pane in card?.open(pane) }
+        list.railFrame = card.railFrame
+        // The card and the list share the place beside the rail.
+        model.onPickAgent = { [weak card, weak list] pane in
+            list?.close()
+            card?.open(pane)
+        }
+        let showList = { [weak card, weak list] in
+            card?.close()
+            list?.toggle()
+        }
+        model.onInbox = showList
+        model.onOverflow = showList
+        list.model.onOpen = { [weak card, weak list] pane in
+            list?.close()
+            card?.open(pane)
+        }
         rail.show()
         self.rail = rail
         self.card = card
+        self.list = list
         hotKey = HotKey(token: Theme.summonKey) { [weak rail] in rail?.summon() }
         if hotKey == nil { log.error("summon hotkey could not be registered") }
     }
