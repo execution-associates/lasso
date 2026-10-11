@@ -567,7 +567,7 @@ function GeneralTab({
               value={draft.name}
               maxLength={40}
               onChange={(e) => set({ name: e.target.value.toLowerCase() })}
-              placeholder="jessica"
+              placeholder="my-bot"
               aria-invalid={nameBad || undefined}
               className={fieldClass}
             />
