@@ -8,3 +8,4 @@ shot-*.png
 /src/skill/
 /mac/.build/
 /mac/dist/
+/dist/
