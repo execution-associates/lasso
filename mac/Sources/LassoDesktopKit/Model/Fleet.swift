@@ -13,6 +13,9 @@ public final class FleetModel: ObservableObject {
     @Published public var seen: [String: String] = [:]
     /// lasso's notices since launch, newest last (at most 50).
     @Published public var notices: [InboxNotice] = []
+    /// lasso's notification kinds and this Mac's choices; nil when lasso has
+    /// none (an older lasso), and then every arrival sounds.
+    @Published public var notify: NotifyPayload?
     /// Finished turns count from here (unix ms); 0 counts them all.
     public var inboxSince: Int64 = 0
 

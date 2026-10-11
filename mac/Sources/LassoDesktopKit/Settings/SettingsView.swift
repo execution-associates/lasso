@@ -27,8 +27,8 @@ public struct SettingsView: View {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: Theme.space("4xl")) {
                     section("lasso") { lassoSection }
-                    section("Inbox") { inboxSection }
                     section("Permissions") { permissionsSection }
+                    section("Inbox") { inboxSection }
                 }
                 .padding(.horizontal, pad)
                 .padding(.vertical, Theme.space("2xl"))
@@ -186,7 +186,28 @@ public struct SettingsView: View {
             }
             if let n = model.soundNotice { line(n, secondary: true) }
             line("Plays when something new lands in the inbox. Picking one plays it. Your own sound is kept on lasso, so every Mac using it gets it.", secondary: true)
+            if let n = model.notify() {
+                Text("Notify me about").font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
+                    .padding(.top, Theme.space("s"))
+                ForEach(n.kinds) { k in notifyRow(k, on: n.wants(k.id)) }
+                line("On this Mac, a kind that is off makes no sound. The inbox still lists everything waiting.", secondary: true)
+            }
         }
+    }
+
+    private func notifyRow(_ k: NotifyKind, on: Bool) -> some View {
+        HStack(alignment: .top, spacing: Theme.space("m")) {
+            VStack(alignment: .leading, spacing: Theme.space("hair")) {
+                Text(k.label).font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
+                Text(k.description).font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            choice(on ? "On" : "Off", on: on, label: "\(k.label): \(on ? "on, tap to turn off" : "off, tap to turn on")") {
+                model.setNotify(k.id, !on)
+            }
+        }
+        .parityAnchor("settings.notify[\(k.id)]")
     }
 
     private func choice(_ title: String, on: Bool, label: String, _ act: @escaping () -> Void) -> some View {

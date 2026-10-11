@@ -227,22 +227,3 @@ private func key(_ c: String, _ code: UInt16) -> NSEvent {
     #expect(CardKeys.route(key("a", 0), editing: false, pointerKeyed: true) == .handBack)
     #expect(CardKeys.route(key("q", 12), editing: false, pointerKeyed: true) == .handBack)
 }
-
-/// With a keyboard the pointer lent, E asks twice (PLAN 13.7a): the first
-/// press only arms, so a word typed for another app that starts with e
-/// acknowledges nothing; any other key disarms.
-@MainActor @Test func lentKeyboardAcknowledgesOnlyOnASecondE() async throws {
-    let p = HostPane(
-        host: "local", host_label: "titan", pane_id: "w1:p1", workspace_id: "w1", workspace_label: "Agents",
-        tab_id: "w1:t1", tab_label: "stub", cwd: "/", agent: "claude", agent_status: "done", has_agent: true, focused: false)
-    let actions = FixtureCardActions(chats: [:], canAcknowledge: true)
-    let m = CardModel(pane: p, fleet: FleetModel(), actions: actions)
-    m.acknowledgeTwice()
-    #expect(m.ackArmed && !actions.calls.contains("acknowledge"))
-    m.disarm()
-    #expect(!m.ackArmed)
-    m.acknowledgeTwice()
-    m.acknowledgeTwice()
-    try await Task.sleep(nanoseconds: 100_000_000)
-    #expect(actions.calls.contains("acknowledge"))
-}

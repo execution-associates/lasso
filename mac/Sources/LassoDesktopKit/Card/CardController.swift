@@ -193,7 +193,7 @@ public final class CardController {
         }
         Trace.event("card key \(action)")
         switch action {
-        case .kill, .acknowledge: break
+        case .kill: break
         default: m.disarm()
         }
         switch action {
@@ -202,7 +202,7 @@ public final class CardController {
         case .attach: m.attachFile()
         case .send: if m.composer.isEmpty { m.focusComposer() } else { m.send() }
         case .kill: m.kill()
-        case .acknowledge: if pointerKeyed { m.acknowledgeTwice() } else { m.acknowledge() }
+        case .acknowledge: m.acknowledge()
         case .next: m.page(1)
         case .previous: m.page(-1)
         case .editStep: m.editStep()

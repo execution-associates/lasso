@@ -134,7 +134,12 @@ public final class AppCoordinator {
         settingsModel.onClose = { [weak self] in self?.settings.close() }
         settingsModel.onUse = { [weak self] url in self?.use(url) }
         settingsModel.onShortcut = { [weak self] c in self?.shortcut?.apply(c) }
+        settingsModel.notify = { [weak fleet] in fleet?.notify }
         if let client {
+            settingsModel.chooseNotify = { [weak sync] kind, on in
+                try await NotifyDevice.choose(kind, on, client: client)
+                await sync?.refreshNotify()
+            }
             settingsModel.customSound = { [weak fleet] in fleet?.uiState.desktop_sound }
             settingsModel.upload = { [weak sync] url in
                 _ = try await CustomSound.upload(url, client: client)
@@ -231,6 +236,7 @@ public final class AppCoordinator {
         }
         closeAll(except: settings)
         settingsModel.refresh()
+        Task { await sync?.refreshNotify() }
         settings.open(takeKey: takeKey)
     }
 
@@ -249,9 +255,13 @@ public final class AppCoordinator {
 
     /// Play the arrival sound when the inbox holds something it did not.
     private func noteArrivals() {
-        let now = inboxModel.arrivalKeys
+        let arrivals = inboxModel.arrivals
+        let now = Set(arrivals.keys)
         defer { inboxSeen = now }
-        guard let before = inboxSeen, !now.subtracting(before).isEmpty else { return }
+        guard let before = inboxSeen else { return }
+        // Sound only for a kind this Mac wants to be interrupted by.
+        let kinds = Set(now.subtracting(before).compactMap { arrivals[$0] })
+        guard kinds.contains(where: { fleet.notify?.wants($0) ?? true }) else { return }
         InboxSound.play()
     }
 

@@ -744,19 +744,18 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 - **By hover:** an inbox opened by hover is shown without the keyboard (§16). **While the pointer is over the inbox (the rail or its card)**, the card lends itself the keyboard for `j`, `k`, `x`, `e` and `esc` only. So `j`/`k` work the moment the inbox opens under the pointer, with no move onto the card.
   - Any other key hands the keyboard straight back. That key is lost, since a key cannot be re-sent to another app without Accessibility, and the card keeps it back until the pointer leaves and returns.
   - The keyboard is lent **once per pointer visit**. If it goes away (a click in another app), the card does not take it again until the pointer leaves and comes back.
-  - **While lent, `e` asks twice, like `x`.** A first `e` arms ("Press E again to acknowledge"), and any other key disarms. So a word typed for another app that starts with `e` acknowledges nothing.
   - When the pointer leaves the card, the keyboard goes back to your app. A click on the card makes it fully yours.
   - **Why this is safe:** the pointer is visibly on the card, so you are looking at it.
     - Paging and esc are harmless.
-    - Acknowledge and Kill both need a second press while the keyboard is only lent.
-    - Typing meant for another app is cut off at its first key outside the set. The worst a stray word does is page the card or arm a confirm that its next letter cancels.
-- **Every key shows.** While the card has the keyboard, each control and move carries its keycap, with no ⌘ needed:
+    - Acknowledge acts at once (the user chose no confirm for it): it never touches the agent, and the item comes back when it has something new. Kill needs a second press.
+    - Typing meant for another app is cut off at its first key outside the set. The worst a stray word does is page the card or acknowledge one item.
+- **A key shows on hover.** While the card has the keyboard, a control's keycap appears when the pointer is on that control. The user found every key at once too noisy. One app-wide value says which control is hovered (`HoveredKey`). The keycaps:
   - `K`/`J` beside the paging chevrons, and `esc` on close
   - `A` on the paperclip and `⏎` on send
   - `X` on Kill and `E` on Acknowledge
   - the choice numbers, plus `↳` and `→` on the selected choice
 
-  A lent keyboard shows only the five keys that work then; a full one shows them all (`CardModel.shownKeys`). Holding ⌘ still shows every key everywhere.
+  A lent keyboard shows only the five keys that work then; a full one shows any live key (`CardModel.shownKeys`). Holding ⌘ shows every key at once.
 - **A focused text field wins.** A key typed into the composer stays text, `j` included, even as the first character. Text focus is read from the window's first responder, not only from the field's own "did begin editing" (which fires only after the first character).
 
 ### 13.8a As built (M8)
@@ -852,6 +851,17 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
   - It plays when the inbox holds an item, a new turn or a new question it did not hold before (`InboxItem.arrivalKey`). The first reading is a baseline, and arrivals within 2 s make one sound (`live.arrival_sound`).
 - **Settings footer**: the Execution Associates lockup as isb ships it (`Resources/Brand`), tinted like secondary text, linking to execution.associates.
 - **App icon**: the EXA monogram, exactly as `exa/brand-assets/logo/exa-mark-white.png` draws it, on a macOS icon plate in the rail's ink gradient (`Resources/AppIcon.png`). `build-app.sh` packs `AppIcon.icns`.
+
+- **Notifications by kind** (the server side is on branch `lasso-notify-kinds`, `docs/design/notifications.md` there):
+  - The Mac is one device. It has a stable id (UserDefaults `notifyDevice`, `mac-` plus 16 characters) and registers as "LassoDesktop on <Mac name>".
+  - Settings › Inbox lists **Notify me about** from the server's catalog (`GET /api/notify?device=`), and each On/Off is written per kind (`POST /api/notify/device`).
+  - The arrival sound plays only for a kind this Mac wants. Each arrival maps to a kind:
+    - a waiting entry is `agent_blocked`
+    - a finished turn is `agent_finished` (off by default), or `bot_message` for a bot
+    - a notice is `lasso_notice` or `agent_message`
+  - A choice never hides anything from the inbox.
+  - lasso's notices and agents' pings arrive as the `notification` event when the server has kinds, and as the older `notice` event otherwise; the app takes one or the other, never both.
+  - Against a lasso without kinds (titan's production lasso until that branch is built into it), the list is absent and every arrival sounds.
 
 ## 18. Later: signing in to a deployed lasso through Cloudflare Access
 

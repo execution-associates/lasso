@@ -34,30 +34,45 @@ extension EnvironmentValues {
     }
 }
 
+/// The control under the pointer, by its key: a keycap shows only there, so
+/// the card stays quiet (Stephan: hints on hover, not all at once). One value
+/// for the whole app, since the pointer is over one thing.
+@MainActor
+final class HoveredKey: ObservableObject {
+    static let shared = HoveredKey()
+    @Published var id: String?
+}
+
 struct KeyHint: ViewModifier {
     let binding: KeyBinding
     var alignment: Alignment = .bottomTrailing
     @ObservedObject var hints = KeyHints.shared
+    @ObservedObject var hovered = HoveredKey.shared
     @Environment(\.shownKeys) private var shown
 
     func body(content: Content) -> some View {
-        content.overlay(alignment: alignment) {
-            if hints.visible || shown?.contains(binding.id) == true {
+        content
+            .onHover { inside in
+                if inside { hovered.id = binding.id } else if hovered.id == binding.id { hovered.id = nil }
+            }
+            .overlay(alignment: alignment) {
+            if hints.visible || (shown?.contains(binding.id) == true && hovered.id == binding.id) {
                 Keycap(binding).offset(x: Theme.space("s"), y: Theme.space("s"))
             }
         }
     }
 }
 
-/// A keycap set in a row (not over a control): shown on the same terms as
-/// keyHint, for keys that act on the row rather than on one button.
+/// A keycap set in a row (not over a control), for keys that act on the
+/// row: shown while the pointer is on that row (`hovering`), or with ⌘ held.
 struct InlineKey: View {
     let binding: KeyBinding
+    var hovering = false
     @ObservedObject var hints = KeyHints.shared
     @Environment(\.shownKeys) private var shown
 
     var body: some View {
-        if hints.visible || shown?.contains(binding.id) == true { Keycap(binding) }
+        if hints.visible || (hovering && shown?.contains(binding.id) == true) { Keycap(binding) }
     }
 }
 

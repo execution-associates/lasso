@@ -55,6 +55,12 @@ struct AgentAvatar: View {
 }
 
 public struct CardView: View {
+    @ObservedObject private var hover = HoveredKey.shared
+    private var hoveredStep: Int? {
+        guard let id = hover.id, id.hasPrefix("step:") else { return nil }
+        return Int(id.dropFirst(5))
+    }
+
     @ObservedObject var model: CardModel
     @ObservedObject var fleet: FleetModel
 
@@ -284,8 +290,8 @@ public struct CardView: View {
                                 Spacer(minLength: 8)
                                 if on {
                                     // The selected choice: → answers with it, ↳ edits it.
-                                    InlineKey(binding: Keys.editStep)
-                                    InlineKey(binding: Keys.takeStep)
+                                    InlineKey(binding: Keys.editStep, hovering: hoveredStep == step.index)
+                                    InlineKey(binding: Keys.takeStep, hovering: hoveredStep == step.index)
                                     Image(systemName: "arrow.right")
                                         .font(.system(size: Theme.icon.number("step"), weight: .semibold))
                                         .foregroundStyle(Theme.Text.secondary.color)
@@ -300,6 +306,9 @@ public struct CardView: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel("Step \(step.index + 1): \(step.label)")
                         .accessibilityHint("Right arrow answers with it; tab edits it first")
+                        .onHover { inside in
+                            if inside { hover.id = "step:\(step.index)" } else if hover.id == "step:\(step.index)" { hover.id = nil }
+                        }
                     }
                 }
                 .parityAnchor("card.steps")

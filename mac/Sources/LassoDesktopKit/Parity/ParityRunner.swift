@@ -146,6 +146,7 @@ public final class ParityRunner {
                 permissions: FixedPermissions(fixture.permissions), baseURL: { "http://127.0.0.1:18090" },
                 version: { fixture.server.version }, usableHosts: { (usable, hosts.hosts.count + 1) })
             if let l = fixture.lassos { m.show(lassos: l) }
+            m.notify = { fixture.notify }
             bindings = [Keys.esc]
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(SettingsView(model: m), size: Theme.Card.size.size) }
             cap = try await make()

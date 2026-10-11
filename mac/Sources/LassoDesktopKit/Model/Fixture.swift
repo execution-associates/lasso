@@ -47,6 +47,8 @@ public struct Fixture: Decodable, Sendable {
     public var chats: [String: ChatPayload]
     /// What Settings' lasso picker found (the settings state).
     public var lassos: [LassoChoice]?
+    /// lasso's notification kinds and this Mac's choices (the settings state).
+    public var notify: NotifyPayload?
 
     private struct Raw: Decodable {
         var state: String
@@ -58,6 +60,7 @@ public struct Fixture: Decodable, Sendable {
         var expect: Expect?
         var chats: [String: ChatPayload]?
         var lassos: [LassoChoice]?
+        var notify: NotifyPayload?
     }
 
     public static func load(_ name: String, from dir: URL) throws -> Fixture {
@@ -77,6 +80,7 @@ public struct Fixture: Decodable, Sendable {
             state: raw.state, now: now, ui: ui, permissions: raw.permissions ?? base?.permissions ?? [:],
             server: server, expect: raw.expect ?? base?.expect, chats: (base?.chats ?? [:]).merging(raw.chats ?? [:]) { $1 })
         fx.lassos = raw.lassos ?? base?.lassos
+        fx.notify = raw.notify ?? base?.notify
         return fx
     }
 

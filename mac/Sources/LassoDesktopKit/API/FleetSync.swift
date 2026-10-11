@@ -43,6 +43,14 @@ public final class FleetSync: ObservableObject {
             every(30) { await $0.refreshUIState() },
         ]
         Task { await refreshVersion() }
+        Task { await refreshNotify(register: true) }
+    }
+
+    /// This Mac's notification choices (and, the first time, its name on lasso).
+    public func refreshNotify(register: Bool = false) async {
+        let n = await NotifyDevice.load(client)
+        fleet.notify = n
+        if n != nil, register { await NotifyDevice.register(client) }
     }
 
     public func stop() {
@@ -81,7 +89,16 @@ public final class FleetSync: ObservableObject {
             if f.ui_state_rev != revs.ui_state_rev { Task { await refreshUIState() } }
             revs = f
         case "notice":
+            // A lasso with kinds sends its notices as notifications too: take them there.
+            guard fleet.notify == nil else { return }
             if let n = try? JSONDecoder().decode(InboxNotice.self, from: Data(e.data.utf8)) { fleet.add(notice: n) }
+        case "notification":
+            // lasso's own notices and an agent's pings list in the inbox panel;
+            // the other kinds are already inbox entries of their own.
+            guard let n = try? JSONDecoder().decode(LiveNotification.self, from: Data(e.data.utf8)),
+                  n.kind == NotifyKinds.lassoNotice || n.kind == NotifyKinds.agentMessage
+            else { return }
+            fleet.add(notice: InboxNotice(id: n.id, at: n.at, level: n.level ?? "info", title: n.title, detail: n.body, kind: n.kind))
         case "bot-chat":
             struct B: Decodable { var bot: String }
             Task { await refreshBots() }

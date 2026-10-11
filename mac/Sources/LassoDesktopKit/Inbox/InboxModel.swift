@@ -40,6 +40,17 @@ public struct InboxNotice: Codable, Identifiable, Equatable, Sendable {
     public var level: String
     public var title: String
     public var detail: String?
+    /// lasso_notice, or agent_message for an agent's own ping (NotifyKinds).
+    public var kind: String = NotifyKinds.lassoNotice
+
+    public init(id: String, at: Int64, level: String, title: String, detail: String?, kind: String) {
+        self.id = id
+        self.at = at
+        self.level = level
+        self.title = title
+        self.detail = detail
+        self.kind = kind
+    }
 
     /// A lasso older than notice ids sends none: stamp it here.
     public init(from d: Decoder) throws {
@@ -49,6 +60,7 @@ public struct InboxNotice: Codable, Identifiable, Equatable, Sendable {
         level = try c.decodeIfPresent(String.self, forKey: .level) ?? "info"
         title = try c.decode(String.self, forKey: .title)
         detail = try c.decodeIfPresent(String.self, forKey: .detail)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? NotifyKinds.lassoNotice
     }
 }
 
@@ -186,8 +198,16 @@ public final class InboxModel: ObservableObject {
 
     public func acknowledge(_ n: InboxNotice) { fleet.notices.removeAll { $0.id == n.id } }
 
-    /// What arrived, for the arrival sound: an entry with a new mark, or a notice.
-    public var arrivalKeys: Set<String> {
-        Set(entries.map { "\($0.id)@\($0.mark)" }).union(fleet.notices.map { "notice:\($0.id)" })
+    /// What arrived, for the arrival sound: an entry with a new mark, or a
+    /// notice, each with the kind it is (which this Mac may not want to hear).
+    public var arrivals: [String: String] {
+        var out: [String: String] = [:]
+        for e in entries {
+            let kind =
+                e.kind == .waiting ? NotifyKinds.agentBlocked : (e.bot != nil ? NotifyKinds.botMessage : NotifyKinds.agentFinished)
+            out["\(e.id)@\(e.mark)"] = kind
+        }
+        for n in fleet.notices { out["notice:\(n.id)"] = n.kind }
+        return out
     }
 }

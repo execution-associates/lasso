@@ -74,8 +74,6 @@ public final class CardModel: ComposerModel {
         case .full: Set(activeBindings.map(\.id))
         }
     }
-    /// E once armed Acknowledge (a keyboard the pointer lent asks twice).
-    @Published public private(set) var ackArmed = false
     @Published public var highlighted: Int?
     /// The open question as it was when drawn (PLAN 13.4): an answer is
     /// built from this, never from the chat re-read at send time, so one
@@ -347,25 +345,12 @@ public final class CardModel: ComposerModel {
     }
 
     public func disarm() {
-        if killArmed || ackArmed {
+        if killArmed {
             killArmed = false
-            ackArmed = false
             notice = nil
         }
     }
 
-    /// E while the pointer, not a click, lent the keyboard: the first press
-    /// arms, the second acknowledges, so a word typed for another app that
-    /// starts with e cannot acknowledge anything (PLAN 13.7a).
-    public func acknowledgeTwice() {
-        guard ackArmed else {
-            ackArmed = true
-            notice = "Press E again to acknowledge \(pane.displayName)"
-            return
-        }
-        ackArmed = false
-        acknowledge()
-    }
 
     public func acknowledge() {
         guard actions.canAcknowledge else {
@@ -416,7 +401,6 @@ public final class CardModel: ComposerModel {
         }
         inbox?.markSeen(next)
         killArmed = false
-        ackArmed = false
         highlighted = nil
         notice = nil
         Task { await load() }

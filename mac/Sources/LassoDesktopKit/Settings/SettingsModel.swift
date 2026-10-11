@@ -49,6 +49,10 @@ public final class SettingsModel: ObservableObject {
     public var version: () -> VersionInfo?
     public var usableHosts: () -> (usable: Int, total: Int)?
     public var onClose: () -> Void = {}
+    /// lasso's notification kinds and this Mac's choices (nil: lasso has none).
+    public var notify: () -> NotifyPayload? = { nil }
+    /// Choose whether a kind may interrupt this Mac.
+    public var chooseNotify: ((String, Bool) async throws -> Void)?
     /// Switch the app to another lasso.
     public var onUse: (URL) -> Void = { _ in }
     /// Asks a lasso for /api/version; nil when the app runs from a fixture.
@@ -164,6 +168,18 @@ public final class SettingsModel: ObservableObject {
                 soundNotice = nil
             } catch {
                 soundNotice = "Could not remove it: \(error)"
+            }
+        }
+    }
+
+    public func setNotify(_ kind: String, _ on: Bool) {
+        guard let chooseNotify else { return }
+        Task {
+            do {
+                try await chooseNotify(kind, on)
+                tick += 1
+            } catch {
+                soundNotice = "Could not save that: \(error)"
             }
         }
     }
