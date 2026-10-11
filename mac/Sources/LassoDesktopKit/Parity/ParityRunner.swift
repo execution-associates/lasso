@@ -11,7 +11,7 @@ public final class ParityRunner {
     /// States whose surfaces exist. The rest report as pending until their
     /// milestone lands (PLAN 6).
     public static let implemented: Set<String> = [
-        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "new-agent", "new-agent-menu",
+        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "new-agent", "new-agent-menu", "agent-window-markdown",
     ]
 
     let spec: Spec

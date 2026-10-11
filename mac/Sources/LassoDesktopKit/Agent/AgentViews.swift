@@ -83,13 +83,20 @@ struct ToolRunRow: View {
 struct MessageBubble: View {
     let text: String
     let mine: Bool
+    /// Yours, sent but not yet in the transcript.
+    var sending = false
 
     var body: some View {
         let b = Theme.Chat.bubble
-        Text(Self.styled(text))
-            .font(Theme.Fonts.chat.font)
-            .foregroundStyle(Theme.Text.primary.color)
-            .textSelection(.enabled)
+        Group {
+            if mine {
+                Text(Self.styled(text)).font(Theme.Fonts.chat.font).foregroundStyle(Theme.Text.primary.color)
+                    .textSelection(.enabled)
+            } else {
+                MarkdownView(text: text)
+            }
+        }
+        .opacity(sending ? b.number("pending") : 1)
             .padding(.horizontal, b.number("pad_h"))
             .padding(.vertical, b.number("pad_v"))
             .frame(maxWidth: mine ? nil : .infinity, alignment: .leading)
@@ -108,10 +115,61 @@ extension MessageBubble {
         var s =
             (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
             ?? AttributedString(text)
-        for run in s.runs where run.inlinePresentationIntent?.contains(.stronglyEmphasized) == true {
-            s[run.range].font = Theme.Fonts.chat.font(weight: Theme.Fonts.label.weightNumber)
+        for run in s.runs {
+            guard let intent = run.inlinePresentationIntent else { continue }
+            if intent.contains(.code) {
+                s[run.range].font = Theme.Fonts.terminal.font
+            } else if intent.contains(.stronglyEmphasized) {
+                s[run.range].font = Theme.Fonts.chat.font(weight: Theme.Fonts.label.weightNumber)
+            }
         }
         return s
+    }
+}
+
+/// What the conversation is waiting on, if anything.
+public enum ConversationPhase: Equatable, Sendable {
+    /// The conversation has not arrived yet.
+    case loading
+    /// The agent is booting: no transcript, or an empty one.
+    case starting(String)
+    /// The agent is on its turn.
+    case working(String)
+    case idle
+
+    var says: String? {
+        switch self {
+        case .loading: "Loading the conversation"
+        case .starting(let h): "Starting \(h)"
+        case .working(let h): "\(h) is working"
+        case .idle: nil
+        }
+    }
+}
+
+/// A wait, said and shown moving: three dots that pulse in turn.
+struct WaitingRow: View {
+    let text: String
+
+    var body: some View {
+        let b = Theme.Chat.bubble
+        HStack(spacing: Theme.space("m")) {
+            TimelineView(.animation) { t in
+                let phase = t.date.timeIntervalSinceReferenceDate * 3
+                HStack(spacing: Theme.space("xs")) {
+                    ForEach(0..<3, id: \.self) { i in
+                        Circle().fill(Theme.accent.color)
+                            .frame(width: b.number("dot"), height: b.number("dot"))
+                            .opacity(b.number("pending") + (1 - b.number("pending")) * max(0, sin(phase - Double(i) * b.number("dot_lag"))))
+                    }
+                }
+            }
+            Text(text).font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color)
+        }
+        .padding(.vertical, Theme.space("s"))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(text)
+        .parityAnchor("agent.waiting")
     }
 }
 
@@ -190,6 +248,10 @@ enum ConversationEntry: Identifiable {
 struct AgentConversation: View {
     let entries: [ConversationEntry]
     var pending: ChatPayload.PendingUI?
+    /// Loading, starting up or working: said at the bottom, so a wait is visible.
+    var phase: ConversationPhase = .idle
+    /// Your message, on its way.
+    var outgoing: String?
     /// The machine holding the transcript, whose files media are read from.
     var host = "local"
 
@@ -201,7 +263,16 @@ struct AgentConversation: View {
                         entry(e, last: i == entries.count - 1 || isMessage(entries[i + 1]) != isMessage(e))
                             .id(e.id)
                     }
+                    if let o = outgoing {
+                        VStack(alignment: .trailing, spacing: Theme.space("xs")) {
+                            MessageBubble(text: o, mine: true, sending: true)
+                            Text("Sending…").font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color)
+                                .padding(.horizontal, Theme.space("xs"))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
                     if let p = pending { PendingRow(pending: p) }
+                    if let says = phase.says { WaitingRow(text: says) }
                     Color.clear.frame(height: Theme.space("hair")).id("end")
                 }
                 .padding(.horizontal, Theme.Panel.inset.pt)
@@ -209,6 +280,8 @@ struct AgentConversation: View {
             }
             .onAppear { proxy.scrollTo("end", anchor: .bottom) }
             .onChange(of: entries.last?.id) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
+            .onChange(of: outgoing) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
+            .onChange(of: phase) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
             .onReceive(NotificationCenter.default.publisher(for: .lassoMediaLoaded)) { _ in
                 proxy.scrollTo("end", anchor: .bottom)
             }

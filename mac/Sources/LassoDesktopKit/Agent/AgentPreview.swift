@@ -19,7 +19,7 @@ struct AgentPreviewView: View {
                     .parityAnchor("preview.state")
                     .accessibilityLabel(p.state.label)
             }
-            AgentConversation(entries: Self.latestTurn(model.chat?.items ?? [], cwd: model.chat?.cwd), pending: model.pending, host: model.mediaHost)
+            AgentConversation(entries: Self.latestTurn(model.chat?.items ?? [], cwd: model.chat?.cwd), pending: model.pending, phase: model.phase, outgoing: model.outgoing, host: model.mediaHost)
             StepList(model: model)
             AgentComposer(model: model)
         }

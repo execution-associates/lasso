@@ -864,6 +864,15 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
   - lasso's notices and agents' pings arrive as the `notification` event when the server has kinds, and as the older `notice` event otherwise; the app takes one or the other, never both.
   - Against a lasso without kinds, the list is absent and every arrival sounds.
 
+**An agent's prose is rendered as Markdown** (`Agent/Markdown.swift`), in the window, the hover preview and the inbox card. That covers headings, bullet and numbered lists (nested), fenced code in the terminal face, pipe tables (right-aligned where the delimiter row says so; short cells keep their width, long ones wrap; sideways scrolling only when the table cannot fit), quotes and rules. Inline Markdown (bold, inline code in the terminal face, links) is AttributedString's. Your own messages stay plain.
+
+**Waits are visible.** The conversation's foot shows three pulsing dots and what it waits on (`CardModel.phase`):
+- **Loading the conversation** before the first answer.
+- **Starting <harness>** while a new agent has no transcript yet.
+- **<harness> is working** while it is on its turn. This is never shown while it waits on you.
+
+A message you send shows at once, faded, under **Sending…**, until it appears in the transcript.
+
 ## 20. Launching agents (the web app's ⌘O and ⌘⇧O)
 
 The Mac launches agents the way lasso's web New dialog does (`src/web/src/components/NewDialog.tsx`), over the same routes:

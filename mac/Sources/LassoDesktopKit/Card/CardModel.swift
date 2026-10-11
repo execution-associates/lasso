@@ -59,6 +59,8 @@ public final class CardModel: ComposerModel {
     @Published public private(set) var busy = false
     /// One line of feedback in the footer (sent, refused, kill armed…).
     @Published public private(set) var notice: String?
+    /// Your message, sent and not yet in the transcript: shown at once, faded.
+    @Published public private(set) var outgoing: String?
     @Published public private(set) var killArmed = false
     /// Whether the card has the keyboard, and how (PLAN 13.7a): it decides
     /// which keys the card shows and answers.
@@ -217,6 +219,19 @@ public final class CardModel: ComposerModel {
 
     // MARK: loading
 
+    /// What the conversation waits on: its first load, an agent still
+    /// booting (no transcript yet, or an empty one), or the agent's turn.
+    public var phase: ConversationPhase {
+        let h = harnessName(pane.agent)
+        guard let c = chat else { return loadError == nil ? .loading : .idle }
+        if c.items.isEmpty {
+            return c.starting == true || c.unavailable != nil || pane.state == .working || outgoing != nil ? .starting(h) : .idle
+        }
+        // Waiting on the human is not working.
+        if pane.state == .blocked || pending != nil || captured != nil { return .idle }
+        return c.running == true || pane.state == .working || outgoing != nil ? .working(h) : .idle
+    }
+
     public func startPolling() {
         poll?.cancel()
         poll = Task { [weak self] in
@@ -233,6 +248,11 @@ public final class CardModel: ComposerModel {
         do {
             let c = try await actions.chat(pane)
             if c != chat { chat = c }
+            if let o = outgoing,
+                c.items.contains(where: { ($0.kind == "user" || $0.kind == "incoming") && $0.text?.trimmingCharacters(in: .whitespacesAndNewlines) == o })
+            {
+                outgoing = nil
+            }
             recapture()
             loadError = nil
         } catch {
@@ -262,9 +282,14 @@ public final class CardModel: ComposerModel {
             answer(custom: text)
             return
         }
+        outgoing = text
         run("Send") { [self] in
-            let o = try await actions.send(pane, text: text)
-            if o.ok { composer = "" }
+            let o: Outcome
+            do { o = try await actions.send(pane, text: text) } catch {
+                outgoing = nil
+                throw error
+            }
+            if o.ok { composer = "" } else { outgoing = nil }
             await load()
             return o.ok ? "Sent" : "\(o.outcome.capitalized): \(o.detail ?? "")"
         }

@@ -43,7 +43,7 @@ struct AgentWindowView: View {
                 Rectangle().fill(Theme.Panel.divider.color).frame(height: Theme.space("hair"))
                 AgentConversation(
                     entries: ConversationEntry.fold(model.chat?.items.suffix(160).map { $0 } ?? [], cwd: model.chat?.cwd),
-                    pending: model.pending, host: model.mediaHost)
+                    pending: model.pending, phase: model.phase, outgoing: model.outgoing, host: model.mediaHost)
                 StepList(model: model)
                 AgentComposer(model: model)
             }

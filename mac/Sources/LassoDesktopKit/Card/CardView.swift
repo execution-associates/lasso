@@ -207,13 +207,15 @@ public struct CardView: View {
                             ChatRow(item: item).id(item.id)
                         }
                         if let p = model.pending { PendingRow(pending: p) }
-                        if chat.items.isEmpty {
+                        if let says = model.phase.says {
+                            WaitingRow(text: says)
+                        } else if chat.items.isEmpty {
                             placeholder(chat.unavailable.map { "No conversation (\($0.reason))" } ?? "No messages yet")
                         }
                     } else if let err = model.loadError {
                         placeholder("Could not read the conversation: \(err)")
                     } else {
-                        placeholder("Loading…")
+                        WaitingRow(text: "Loading the conversation")
                     }
                 }
                 .padding(inner.number("pad"))
@@ -340,11 +342,15 @@ struct ChatRow: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         default:
-            Text(item.text ?? "")
-                .font(font)
-                .foregroundStyle(item.thinking == true ? Theme.Text.secondary.color : Theme.Text.primary.color)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if item.thinking == true {
+                Text(item.text ?? "")
+                    .font(font)
+                    .foregroundStyle(Theme.Text.secondary.color)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                MarkdownView(text: item.text ?? "", font: font).frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 }

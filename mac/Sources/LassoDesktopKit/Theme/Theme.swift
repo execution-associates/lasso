@@ -309,7 +309,7 @@ public enum Theme {
 
     public enum Chat {
         public static let bubble = Token(
-            "chat.bubble", ["fill": "#2D1D3C", "radius": 18, "pad_h": 19, "pad_v": 9], .measured("ref a5 shape; EXA --secondary"))
+            "chat.bubble", ["fill": "#2D1D3C", "radius": 18, "pad_h": 19, "pad_v": 9, "table_cell": 220, "dot": 6, "dot_lag": 0.9, "pending": 0.55], .measured("ref a5 shape; EXA --secondary"))
     }
 
 
