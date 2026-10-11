@@ -212,7 +212,10 @@ func restartBot(b Backend, r *botRecord, fresh bool) error {
 // botView is a bot as the Bots view shows it.
 type botView struct {
 	*botRecord
-	State      string `json:"state"` // stopped | starting | idle | working | blocked
+	State string `json:"state"` // stopped | starting | idle | working | blocked
+	// DirPath is the folder with ~ expanded on the bot's host: what the file
+	// viewer follows while the bot is open in the Bots view.
+	DirPath    string `json:"dir_path,omitempty"`
 	PaneID     string `json:"pane_id,omitempty"`
 	SessionID  string `json:"session_id,omitempty"`
 	WaitingFor string `json:"waiting_for,omitempty"`
@@ -230,7 +233,7 @@ func botStatus(b Backend, r *botRecord, sessions []claudeSessionEntry) botView {
 	if r.isOmp() {
 		return botOmpStatus(b, r)
 	}
-	v := botView{botRecord: r, State: "stopped"}
+	v := botView{botRecord: r, State: "stopped", DirPath: expandTildeOn(b, r.Dir)}
 	p, ok := findBotPane(b, r)
 	if !ok {
 		bots.mu.Lock()

@@ -55,6 +55,7 @@ import {
   useBotsSeen,
   useMinuteClock,
 } from "@/lib/bots"
+import { setFilesFollowTarget } from "@/lib/files-follow"
 import {
   disablePush,
   enablePush,
@@ -637,6 +638,17 @@ export function BotsView({
     if (!routeName || isPending || error) return
     if (!bots.some((b) => b.name === routeName)) go({ page: "list" }, false)
   }, [routeName, bots, isPending, error, go])
+
+  // While a bot is open here, the file viewer's follow mode shows its folder
+  // rather than whichever herdr pane was focused last.
+  const followHost = current?.host
+  const followDir = current?.dir_path
+  const botOpen = active && (route.page === "chat" || route.page === "settings")
+  React.useEffect(() => {
+    if (!botOpen || !followHost || !followDir) return
+    setFilesFollowTarget({ host: followHost, cwd: followDir })
+    return () => setFilesFollowTarget(null)
+  }, [botOpen, followHost, followDir])
 
   // Reading a bot's conversation marks what it has said as seen.
   React.useEffect(() => {

@@ -616,7 +616,7 @@ func botOmpRestart(b Backend, r *botRecord, fresh bool) error {
 // --- status -------------------------------------------------------------------
 
 func botOmpStatus(b Backend, r *botRecord) botView {
-	v := botView{botRecord: r, State: "stopped"}
+	v := botView{botRecord: r, State: "stopped", DirPath: expandTildeOn(b, r.Dir)}
 	ob := ompBotFor(r.Name)
 	ob.ensure()
 	s := ob.snapshot()

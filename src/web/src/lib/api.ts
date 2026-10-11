@@ -869,6 +869,8 @@ export interface BotView extends BotFields {
   created_at: string
   updated_at: string
   state: BotState
+  // The folder with ~ expanded on its host (the file viewer follows it).
+  dir_path?: string
   pane_id?: string
   session_id?: string
   // What a blocked bot is waiting on, as herdr reports it.
