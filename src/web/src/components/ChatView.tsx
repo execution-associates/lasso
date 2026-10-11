@@ -1619,6 +1619,9 @@ export function ChatView({
   title: titleOverride,
   headerLead,
   headerExtra,
+  headerMeta,
+  headerBelow,
+  hideTokens = false,
   placeholder,
   active = true,
 }: {
@@ -1665,6 +1668,12 @@ export function ChatView({
   // Header slots: before the title (a phone's Back) and at the right end.
   headerLead?: React.ReactNode
   headerExtra?: React.ReactNode
+  // Beside the title (a bot's model, thinking and context), and a row under
+  // the header (the same, folded into one chip on a narrow view).
+  headerMeta?: React.ReactNode
+  headerBelow?: React.ReactNode
+  // The header's own token count, left out where headerMeta shows context.
+  hideTokens?: boolean
   placeholder?: string
   // False while the view is kept mounted but not on screen: the transcript
   // poll stops, and resumes on the way back.
@@ -2124,6 +2133,7 @@ export function ChatView({
         ) : (
           <ChatTitle title={data?.title || data?.agent || "Chat"} pane={pane} />
         )}
+        {headerMeta}
         <span className="ml-auto flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
           {/* Only when the reader is NOT at the bottom. At the bottom the
               conversation carries the indicator itself, at the point the next
@@ -2135,7 +2145,9 @@ export function ChatView({
               working
             </span>
           )}
-          {data?.tokens ? <span>{Math.round(data.tokens / 1000)}k</span> : null}
+          {data?.tokens && !hideTokens ? (
+            <span>{Math.round(data.tokens / 1000)}k</span>
+          ) : null}
         </span>
         {/* The agents grid's pin, from where the agent is being read. It is the
             same ui_state entry, so it leads the grid and the chat's sidebar. */}
@@ -2255,6 +2267,11 @@ export function ChatView({
           </>
         )}
       </div>
+      {headerBelow && (
+        <div className="flex flex-none items-center border-border border-b px-2.5 py-1.5">
+          {headerBelow}
+        </div>
+      )}
 
       {/* The viewport and its corner control share a positioning context:
           the chevron is ABSOLUTE inside it, so it neither scrolls away with

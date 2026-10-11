@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { BotModelBar } from "@/components/BotModelBar"
 import {
   BotAvatar,
   BotStateMark,
@@ -742,6 +743,13 @@ export function BotsView({
             )
           }
           placeholder={`Message ${current.name}…`}
+          // Model, thinking and context: beside the title with room, one
+          // chip row under the header in the compact layout.
+          hideTokens
+          headerMeta={compact ? undefined : <BotModelBar bot={current} />}
+          headerBelow={
+            compact ? <BotModelBar bot={current} compact /> : undefined
+          }
           headerExtra={
             <>
               <BotStateMark bot={current} words />

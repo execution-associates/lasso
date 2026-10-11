@@ -884,6 +884,19 @@ export interface BotView extends BotFields {
   // another protocol than this lasso (restarted onto it once idle).
   host_version?: string
   host_outdated?: boolean
+  // What an omp bot runs right now, as omp reports it, with the thinking
+  // levels that model takes. Absent while it is not running.
+  live_model?: {
+    id: string
+    name: string
+    provider: string
+    context_window?: number
+  }
+  thinking?: string
+  thinking_levels?: string[]
+  // How full its context is: tokens of the newest turn, and for an omp bot
+  // the model's window and the share used.
+  context?: { tokens: number; window?: number; percent?: number }
   // Its picture (.lasso/avatar.<ext> plus a ?v= revision), or "": see
   // botAvatarURL. Set through avatarSet, never by a save.
   avatar_image: string
@@ -1976,6 +1989,13 @@ export const api = {
     reorder: (names: string[]) =>
       sendJSON<{ ok: boolean }>("PUT", "/api/bots/order", { names }),
     get: (name: string) => getJSON<BotDetail>(botURL(name)),
+    // The chat header's pickers. A running omp bot switches at once; a claude
+    // or stopped bot saves it, and restart_needed says a restart applies it.
+    setModel: (name: string, body: { model?: string; thinking?: string }) =>
+      postJSON<{ bot: BotView; restart_needed: boolean }>(
+        `${botURL(name)}/model`,
+        body
+      ),
     // An omp bot's chat: the same payload as api.chat, read from its session
     // file, with the questions it is waiting on in pending_ui.
     chat: (name: string, before?: number) =>
