@@ -508,7 +508,8 @@ function PaneCard({
             Chat
           </ActionButton>
         )}
-        <ActionButton primary onClick={discard}>
+        {/* Answer is the card's one primary action while a question is open. */}
+        <ActionButton primary={item.kind !== "ask"} onClick={discard}>
           Discard
         </ActionButton>
       </Actions>
@@ -584,7 +585,7 @@ function BotCard({
           <MessageSquare className="size-4" />
           Chat
         </ActionButton>
-        <ActionButton primary onClick={discard}>
+        <ActionButton primary={item.kind !== "bot-ask"} onClick={discard}>
           Discard
         </ActionButton>
       </Actions>
