@@ -50,7 +50,7 @@ public final class AppCoordinator {
             permissions = SystemPermissions()
         } else {
             cardActions = FixtureCardActions(
-                chats: fixture?.chats ?? [:], canDismiss: fixture?.server.ui_state.dismissed_cards != nil)
+                chats: fixture?.chats ?? [:], canAcknowledge: fixture?.server.ui_state.dismissed_cards != nil)
             fleetActions = FixtureFleetActions()
             botActions = FixtureBotChatActions(payload: nil)
             permissions = FixedPermissions(fixture?.permissions ?? [:])

@@ -20,9 +20,10 @@ public struct InboxEntry: Identifiable, Equatable, Sendable {
     public var kind: Kind
     /// The bot running in the pane, if it is one.
     public var bot: String?
-    /// Discard writes this key and value to ui_state.card_dismiss (PLAN 13.6).
-    public var dismissKey: String
-    public var dismissAt: Int64
+    /// Acknowledge writes this key and value to ui_state.card_dismiss
+    /// (PLAN 13.6; the wire name is S1's).
+    public var ackKey: String
+    public var ackAt: Int64
     /// What makes this showing of it new: a later turn or another question
     /// changes it, so it is unseen again and sounds again.
     public var mark: String
@@ -60,7 +61,7 @@ extension FleetModel {
     /// first in each. A finished turn counts from `inboxSince` (unix ms), so
     /// the first launch starts with what is waiting, not with history.
     public var inbox: [InboxEntry] {
-        let dismissed = uiState.dismissed_cards ?? [:]
+        let acked = uiState.dismissed_cards ?? [:]
         var waiting: [InboxEntry] = []
         var finished: [InboxEntry] = []
         for p in agents where Self.inboxHarnesses.contains(p.agent.lowercased()) {
@@ -69,15 +70,15 @@ extension FleetModel {
             let at = p.transcript_at ?? 0
             if p.state == .blocked || pending != nil {
                 if let pending, let b = bot {
-                    // An omp bot's question: hidden while that question is the dismissed one.
+                    // An omp bot's question: hidden while that question is the acknowledged one.
                     let key = "bot:\(b.name)#\(pending.id)"
-                    if dismissed[key] != nil { continue }
+                    if acked[key] != nil { continue }
                     waiting.append(
-                        InboxEntry(pane: p, kind: .waiting, bot: b.name, dismissKey: key, dismissAt: 0, mark: "ask:\(pending.id)", at: at))
+                        InboxEntry(pane: p, kind: .waiting, bot: b.name, ackKey: key, ackAt: 0, mark: "ask:\(pending.id)", at: at))
                 } else {
-                    if let d = dismissed[p.key], at <= d { continue }
+                    if let d = acked[p.key], at <= d { continue }
                     waiting.append(
-                        InboxEntry(pane: p, kind: .waiting, bot: bot?.name, dismissKey: p.key, dismissAt: at, mark: "ask:\(at)", at: at))
+                        InboxEntry(pane: p, kind: .waiting, bot: bot?.name, ackKey: p.key, ackAt: at, mark: "ask:\(at)", at: at))
                 }
                 continue
             }
@@ -86,12 +87,12 @@ extension FleetModel {
                 // A bot's turn is its last reply.
                 guard b.last_kind == "agent", let ms = b.last_at.flatMap(Self.unixMS), ms > inboxSince else { continue }
                 let key = "bot:\(b.name)"
-                if let d = dismissed[key], ms <= d { continue }
-                finished.append(InboxEntry(pane: p, kind: .finished, bot: b.name, dismissKey: key, dismissAt: ms, mark: "turn:\(ms)", at: ms))
+                if let d = acked[key], ms <= d { continue }
+                finished.append(InboxEntry(pane: p, kind: .finished, bot: b.name, ackKey: key, ackAt: ms, mark: "turn:\(ms)", at: ms))
             } else {
                 guard at > inboxSince else { continue }
-                if let d = dismissed[p.key], at <= d { continue }
-                finished.append(InboxEntry(pane: p, kind: .finished, bot: nil, dismissKey: p.key, dismissAt: at, mark: "turn:\(at)", at: at))
+                if let d = acked[p.key], at <= d { continue }
+                finished.append(InboxEntry(pane: p, kind: .finished, bot: nil, ackKey: p.key, ackAt: at, mark: "turn:\(at)", at: at))
             }
         }
         let newest: (InboxEntry, InboxEntry) -> Bool = { $0.at != $1.at ? $0.at > $1.at : $0.id < $1.id }
@@ -124,7 +125,7 @@ extension FleetModel {
 
 /// The inbox's state on this Mac: what has been seen (by entry, its mark),
 /// and since when finished turns count. A viewer convenience, so it lives in
-/// UserDefaults; what is shared (Discard) lives in lasso's ui_state.
+/// UserDefaults; what is shared (Acknowledge) lives in lasso's ui_state.
 @MainActor
 public enum InboxMemory {
     static let seenKey = "inboxSeen"
@@ -183,7 +184,7 @@ public final class InboxModel: ObservableObject {
         if changed, persist { InboxMemory.save(fleet) }
     }
 
-    public func dismiss(_ n: InboxNotice) { fleet.notices.removeAll { $0.id == n.id } }
+    public func acknowledge(_ n: InboxNotice) { fleet.notices.removeAll { $0.id == n.id } }
 
     /// What arrived, for the arrival sound: an entry with a new mark, or a notice.
     public var arrivalKeys: Set<String> {

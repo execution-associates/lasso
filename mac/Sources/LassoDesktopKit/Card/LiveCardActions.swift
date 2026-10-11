@@ -15,7 +15,7 @@ public final class LiveCardActions: CardActions {
         self.fleet = fleet
     }
 
-    public var canDismiss: Bool { fleet.uiState.dismissed_cards != nil }
+    public var canAcknowledge: Bool { fleet.uiState.dismissed_cards != nil }
 
     /// The omp bot running in this pane: its chat, messages and questions go
     /// through the bot's own routes, which see its pending requests.
@@ -116,17 +116,17 @@ public final class LiveCardActions: CardActions {
         return "Closed \(pane.displayName)"
     }
 
-    struct Dismiss: Encodable {
+    struct AckWrite: Encodable {
         var client_id = "lasso-desktop"
         var card_dismiss: [String: Int64]
     }
 
-    /// Discard by the inbox entry's own key (PLAN 13.6): a pane by its
+    /// Acknowledge by the inbox entry's own key (PLAN 13.6): a pane by its
     /// transcript, an omp bot's question by its id, a bot's reply by its time.
-    public func dismiss(_ pane: HostPane) async throws {
+    public func acknowledge(_ pane: HostPane) async throws {
         let e = fleet.inbox.first { $0.id == pane.key }
         let _: UIStateSlice = try await client.post(
-            "/api/ui-state", json: Dismiss(card_dismiss: [e?.dismissKey ?? pane.key: e?.dismissAt ?? pane.transcript_at ?? 0]))
+            "/api/ui-state", json: AckWrite(card_dismiss: [e?.ackKey ?? pane.key: e?.ackAt ?? pane.transcript_at ?? 0]))
         await refreshUIState()
     }
 
@@ -160,11 +160,11 @@ public final class LiveCardActions: CardActions {
 public final class FixtureCardActions: CardActions {
     let chats: [String: ChatPayload]
     public private(set) var calls: [String] = []
-    public let canDismiss: Bool
+    public let canAcknowledge: Bool
 
-    public init(chats: [String: ChatPayload], canDismiss: Bool) {
+    public init(chats: [String: ChatPayload], canAcknowledge: Bool) {
         self.chats = chats
-        self.canDismiss = canDismiss
+        self.canAcknowledge = canAcknowledge
     }
 
     public func chat(_ pane: HostPane) async throws -> ChatPayload {
@@ -186,7 +186,7 @@ public final class FixtureCardActions: CardActions {
         return "fixture"
     }
 
-    public func dismiss(_ pane: HostPane) async throws { calls.append("dismiss") }
+    public func acknowledge(_ pane: HostPane) async throws { calls.append("acknowledge") }
 
     public func focus(_ pane: HostPane) async throws { calls.append("focus") }
 

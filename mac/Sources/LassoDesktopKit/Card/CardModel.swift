@@ -13,13 +13,15 @@ public protocol CardActions: AnyObject {
     /// An omp bot's open request (`pending_ui`), answered by its id.
     func answer(_ pane: HostPane, pending: ChatPayload.PendingUI, value: String) async throws -> Outcome
     func kill(_ pane: HostPane) async throws -> String
-    func dismiss(_ pane: HostPane) async throws
+    /// Acknowledge the pane's inbox entry (S1, ui_state card_dismiss):
+    /// nothing reaches the agent, and it returns when it has something new.
+    func acknowledge(_ pane: HostPane) async throws
     /// Bring the pane forward in herdr: how a question lasso cannot read is answered.
     func focus(_ pane: HostPane) async throws
     /// Upload a file to the agent's machine; the path to put in the message.
     func attach(_ file: URL, to pane: HostPane) async throws -> String
-    /// Whether the server keeps shared card dismissals (S1).
-    var canDismiss: Bool { get }
+    /// Whether the server keeps shared acknowledgements (S1).
+    var canAcknowledge: Bool { get }
 }
 
 /// lasso's answer to a send/answer/stop: confirmed | sent | refused | uncertain.
@@ -58,6 +60,8 @@ public final class CardModel: ComposerModel {
     /// One line of feedback in the footer (sent, refused, kill armed…).
     @Published public private(set) var notice: String?
     @Published public private(set) var killArmed = false
+    /// E once armed Acknowledge (a keyboard the pointer lent asks twice).
+    @Published public private(set) var ackArmed = false
     @Published public var highlighted: Int?
     /// The open question as it was when drawn (PLAN 13.4): an answer is
     /// built from this, never from the chat re-read at send time, so one
@@ -92,17 +96,17 @@ public final class CardModel: ComposerModel {
 
     /// The inbox the card pages through: what waits on the human (blocked)
     /// and what finished unseen (done), most urgent first, minus the
-    /// dismissed. The open card is always in it.
+    /// acknowledged. The open card is always in it.
     public var pages: [HostPane] {
         if let inbox {
             let list = inbox.panes
             return list.contains(where: { $0.key == pane.key }) ? list : [pane] + list
         }
-        let dismissed = fleet.uiState.dismissed_cards ?? [:]
+        let acked = fleet.uiState.dismissed_cards ?? [:]
         let inbox = fleet.agents.filter { p in
             // A bot's pane opens the bot's chat, not a card.
             guard p.state == .blocked || p.state == .done, fleet.bot(for: p) == nil else { return false }
-            if let at = dismissed[p.key], (p.transcript_at ?? 0) <= at { return false }
+            if let at = acked[p.key], (p.transcript_at ?? 0) <= at { return false }
             return true
         }
         return inbox.contains(where: { $0.key == pane.key }) ? inbox : [pane] + inbox
@@ -144,7 +148,7 @@ public final class CardModel: ComposerModel {
     public var activeBindings: Set<KeyBinding> {
         var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.send, Keys.next, Keys.previous]
         if !isBot { b.insert(Keys.kill) }
-        if actions.canDismiss { b.insert(Keys.discard) }
+        if actions.canAcknowledge { b.insert(Keys.acknowledge) }
         if !nextSteps.isEmpty { b.formUnion([Keys.editStep, Keys.takeStep]) }
         return b
     }
@@ -329,21 +333,35 @@ public final class CardModel: ComposerModel {
     }
 
     public func disarm() {
-        if killArmed {
+        if killArmed || ackArmed {
             killArmed = false
+            ackArmed = false
             notice = nil
         }
     }
 
-    public func discard() {
-        guard actions.canDismiss else {
-            notice = "Discard needs a lasso with shared card dismissals"
+    /// E while the pointer, not a click, lent the keyboard: the first press
+    /// arms, the second acknowledges, so a word typed for another app that
+    /// starts with e cannot acknowledge anything (PLAN 13.7a).
+    public func acknowledgeTwice() {
+        guard ackArmed else {
+            ackArmed = true
+            notice = "Press E again to acknowledge \(pane.displayName)"
             return
         }
-        run("Discard") { [self] in
-            try await actions.dismiss(pane)
+        ackArmed = false
+        acknowledge()
+    }
+
+    public func acknowledge() {
+        guard actions.canAcknowledge else {
+            notice = "Acknowledge needs a lasso with shared acknowledgements"
+            return
+        }
+        run("Acknowledge") { [self] in
+            try await actions.acknowledge(pane)
             page(1)
-            return "Discarded"
+            return "Acknowledged"
         }
     }
 
@@ -384,6 +402,7 @@ public final class CardModel: ComposerModel {
         }
         inbox?.markSeen(next)
         killArmed = false
+        ackArmed = false
         highlighted = nil
         notice = nil
         Task { await load() }

@@ -32,17 +32,17 @@ the LassoDesktop brief (plan mode, 2026-10-11). The spec the harness asserts aga
 
 | # | Surface | Status | Notes |
 |---|---|---|---|
-| 0 | **Inbox**: the latest asks, finished turns and notices across lasso's claude and omp agents, answered in place | **next**, M8 | §13. Discard needs S1 (built on this branch, unreleased). Free text on a pane's ask needs S4 (proposed). |
+| 0 | **Inbox**: the latest asks, finished turns and notices across lasso's claude and omp agents, answered in place | **next**, M8 | §13. Acknowledge needs S1 (built on this branch, unreleased). Free text on a pane's ask needs S4 (proposed). |
 | 1 | Rail at rest: the peek tab at the screen edge, with the most urgent state's dot | built, M1 | §10, §12 |
 | 2 | Rail revealed: inbox, agents capsule with `+N`, settings | built, M1 and M2 | §12 |
-| 3 | Card | built, M4 | Discard (`E`) needs S1 in production. Next steps come only from open asks; the API has no source of generated suggestions, so those are *later*. |
+| 3 | Card | built, M4 | Acknowledge (`E`) needs S1 in production. Next steps come only from open asks; the API has no source of generated suggestions, so those are *later*. |
 | 4 | Agents list (workspace groups, label else tab name; pins; context menu) | built, M5 | Pins are `agent_pins` in ui_state. |
 | 5 | Bot chat | built, M6 | omp bots through `/api/bots/<name>/chat…`; claude-runtime bots through their pane's chat routes. |
 | 6 | Settings (lasso connection, permissions; opens itself on first launch) | built, M6 | |
 | 7 | Voice | removed for now | §12. S2 and S3 stay on the server, unused. |
 
 Server additions:
-- **S1**: ui_state card dismissals (`dismissed_cards`, written through `card_dismiss`). Built on this branch. The Inbox's Discard uses it as is.
+- **S1**: ui_state card dismissals (`dismissed_cards`, written through `card_dismiss`). Built on this branch. The Inbox's Acknowledge uses it as is.
 - **S2**: `/api/transcribe`. Built, unused.
 - **S3**: bot-send `meta`. Built, unused.
 - **S4**: free text on `POST /api/chat/answer`, for a pane ask's "Other" row (§13.4). Built on this branch, verified against live claude and omp dialogs.
@@ -164,7 +164,7 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 **S1: shared desktop state in ui_state** (`src/db.go:276`, writer `src/hostpanes.go:383`)
 - `assistant_bot`: a string, replaced whole. It is validated against the bot-name regex (`src/bots.go:129`), and `""` clears it.
 - `dismissed_cards`: `{paneKey: transcript_at}`, changed only through a write-only `card_dismiss: {paneKey: transcript_at|null}`, the same pattern as `agent_pins`.
-  - A card counts as dismissed until that pane's `transcript_at` moves past the stored value.
+  - A card counts as acknowledged until that pane's `transcript_at` moves past the stored value.
   - Capped at 256 entries; the oldest is dropped.
 - Both bump `ui_state_rev`. The web client can ignore them.
 - The app detects support by checking whether the key is present in GET.
@@ -402,14 +402,14 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 **M8: Inbox** (§13; built alongside M4's card, on M1, M2 and S1)
 - Membership and order (§13.2): asks, then blocked with no choices, then finished turns, then notices, newest first in each; claude and omp only.
 - Asks drawn from `chatAsk` and an omp bot's `pending_ui`, answered in place with the draw-time capture (§13.3, §13.4).
-- Kill (panes, behind a confirm) and Discard (no write to the agent; S1 for panes and bots, local for notices) (§13.6).
+- Kill (panes, behind a confirm) and Acknowledge (no write to the agent; S1 for panes and bots, local for notices) (§13.6).
 - Blocked with no choices: status plus Focus in herdr (§13.5).
 - Per-item seen state, the badge as "new since you looked", `J`/`K` marking seen, the empty state (§13.7).
 - S4 on the server, if the user takes it (§13.4).
 - **Accept**:
   - parity for inbox-open (extended fixture), inbox-empty and inbox-ask-picked
   - the §13.9 tests
-  - a live round trip on minime, with the user present: answer a real ask in a claude pane and in an omp pane from the Inbox, and Discard a finished turn and see it come back on the agent's next turn
+  - a live round trip on minime, with the user present: answer a real ask in a claude pane and in an omp pane from the Inbox, and Acknowledge a finished turn and see it come back on the agent's next turn
 
 **Later**
 - Parakeet, or Apple's SpeechAnalyzer (Q3)
@@ -512,7 +512,7 @@ The parity agent is the same binary with `--parity all --out …`, with `RunAtLo
 M1–M7 are built and every named state passes parity on minime: 192 checks, 0 failures, 0 pending (`mac/Scripts/dev.sh parity`). `dev.sh test` runs 16 tests. The app runs live on minime against titan's prod lasso through the tunnel.
 
 **Server additions S1–S3** are on this branch with Go tests (`mise run test`), and verified from the Mac against a dev lasso built from it (`./lasso -listen 127.0.0.1:8190 -insecure-no-auth -dev`, reached on minime as `127.0.0.1:18190`). Prod lasso gets them with the next release. Until then:
-- The assistant choice is kept on the Mac and says so; Discard is hidden; the lasso voice engine reports that lasso has no transcription route.
+- The assistant choice is kept on the Mac and says so; Acknowledge is hidden; the lasso voice engine reports that lasso has no transcription route.
 - A dev lasso shares `lasso.db` with prod, and prod rewrites `ui_state` without the S1 fields whenever it saves it, so a choice made through the dev lasso does not survive a prod save.
 - lasso answers an unknown `/api/*` path with its web app (HTML, 200). The client treats an HTML answer to an API call as a missing route.
 
@@ -532,7 +532,7 @@ The user supplied reference screenshots of the intended look (kept out of git). 
 
 - **At rest the rail is a peek**: a flat black tab, 13 × 80 pt, growing out of the screen edge with flared ends, with the most urgent state as an 8 pt dot in its centre. The rail panel now sits flush against the screen edge. Resting the pointer on the peek for 80 ms reveals the rail. With nothing open beside it, 450 ms off the rail hides it again. The pointer is polled at 20 Hz, because a non-activating panel of a background app gets no hover events.
 - **The rail's groups are lit from above.** The fill shades from `#2E3032` to `#0C0E10`, and the 1 pt rim from `#8F8F8F` to `#1F2021`. The badge is a 10 pt dot in the most urgent state's colour, ringed in near-black, with no count. Idle is `#98989D`. The geometry is the brief's and is unchanged.
-- **The card is 516×587 on `#040306`.** It has round 28 pt buttons (paging chevrons on the left, close on the right), a 16 pt semibold title, and an identity line with an avatar. The conversation sits in an inner `#1B191C` box with a 12 pt radius. The composer row is 32 pt round controls with the microphone inside the field. A divider sits above the footer, which holds "Next steps", a Kill agent pill and a white Discard pill.
+- **The card is 516×587 on `#040306`.** It has round 28 pt buttons (paging chevrons on the left, close on the right), a 16 pt semibold title, and an identity line with an avatar. The conversation sits in an inner `#1B191C` box with a 12 pt radius. The composer row is 32 pt round controls with the microphone inside the field. A divider sits above the footer, which holds "Next steps", a Kill agent pill and a white Acknowledge pill.
 - **The unread bar** is a 6×18 accent pill for the open card and 6 pt grey dots for the others.
 - **The list** has group headers, then rows of dot, avatar, name, microphone and ×.
 - **The chat** puts your messages in `#1D1C1E` bubbles, with a "Talking to …" line over the composer.
@@ -658,19 +658,19 @@ The Inbox is the surface this app exists for: **the latest messages across lasso
 When a pane is blocked but its chat carries no open ask, its row reads **blocked, no choices**. Examples: a claude permission dialog, or an approval outside both shapes.
 - The row shows the state, the agent's last tool line if there is one, and three actions:
   - **Focus in herdr** (`POST /api/focus?host= {pane_id}`, `src/main.go:1355`)
-  - Discard
+  - Acknowledge
   - Kill
 - The app never fabricates options and never types keystrokes into the pane.
 - The card opened from this row has no composer send while the pane is blocked.
 
-### 13.6 Kill and Discard
+### 13.6 Kill and Acknowledge
 
 **Kill ends the agent.** It is for panes only, behind a confirm step on the row (`X`, then `X` or ⏎ again; `esc` backs out).
 - A pane with an agent record: `POST /api/agent/close {pane_id, agent_id, host, remove_worktree: false}` (`src/closeme.go:34`).
 - A pane without one: `POST /api/close?host= {pane_ids}` (`src/main.go:1558`).
 - A bot has no Kill in the Inbox. Stopping a bot is managed in lasso's Bots view.
 
-**Discard changes nothing on the agent.** It clears the user's attention on that item: it never closes, stops, sends to or writes anything to the agent. It is S1's `dismissed_cards`, shared through ui_state so every client agrees. It writes `POST /api/ui-state {client_id, card_dismiss: {key: at}}`, where the key and value depend on the item:
+**Acknowledge changes nothing on the agent.** (The user named it: acknowledging says you have seen it, where "discard" read as throwing it away. The wire names stay S1's, `card_dismiss` and `dismissed_cards`, which the web `/m` app reads too.) It clears the user's attention on that item: it never closes, stops, sends to or writes anything to the agent. It is S1's `dismissed_cards`, shared through ui_state so every client agrees. It writes `POST /api/ui-state {client_id, card_dismiss: {key: at}}`, where the key and value depend on the item:
 
 | Item | Key | Value | It returns when |
 |---|---|---|---|
@@ -681,14 +681,14 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 
 - The server takes any key of 1–300 bytes (`mergeDismissedCards`, `src/hostpanes.go:711`), so bot keys need no server change.
 - The 256-entry cap drops the smallest value first, so bot-ask keys (value `0`) go first. Losing one only brings its item back.
-- **A dismissed item is hidden, not deleted:** the rule above decides on every update whether it shows.
-- Against a lasso without S1 (no `dismissed_cards` in GET), Discard is hidden, as the card's is today.
+- **An acknowledged item is hidden, not deleted:** the rule above decides on every update whether it shows.
+- Against a lasso without S1 (no `dismissed_cards` in GET), Acknowledge is hidden, as the card's is today.
 
 ### 13.7 Seen, the badge and the empty state
 
-**Seen and discarded are separate.**
+**Seen and acknowledged are separate.**
 - **Seen** is per-item and kept on this Mac (UserDefaults), like the bot read marks of §12. Seen is about this screen.
-- **Discarded** is shared (§13.6). Discard is about the user's attention everywhere.
+- **Acknowledged** is shared (§13.6). Acknowledge is about the user's attention everywhere.
 - Each mark is the item's `transcript_at`, `last_at`, ask hash, or arrival time.
 
 **The Inbox opens on its newest message, never a list.** The rail's inbox button opens the card on the first item in Inbox order (the reference prototype's behaviour, which the user chose). `J`/`K` page through the rest in that order, and the unread bar shows where you are. With nothing waiting, a small panel shows the empty state. Pressed again while the card is open, the button closes it.
@@ -699,10 +699,10 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 - An item is seen when the card lands on it: opened from the rail, or paged to with `J`/`K`.
 
 **The badge means "new since you looked":**
-- It shows when at least one item that is not discarded is unseen.
+- It shows when at least one item that is not acknowledged is unseen.
 - Its colour is the most urgent such item's state.
 - The peek's dot follows the same rule.
-- Seen items stay listed until they are answered, discarded, or no longer qualify. Seeing an item only takes it out of the badge.
+- Seen items stay listed until they are answered, acknowledged, or no longer qualify. Seeing an item only takes it out of the badge.
 
 **Empty state:** "Nothing waiting on you." with a second line: "Questions, finished turns and notices from your claude and omp agents land here." An empty Inbox is the normal state, not an error, so it has no illustration and no call to action.
 
@@ -711,7 +711,7 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 **Built (§12):**
 - The rail's inbox button and badge.
 - `InboxModel`, which lists blocked and done agents, blocked bots and bots with an unread reply.
-- Discard of a pane through `dismissed_cards`.
+- Acknowledge of a pane through `dismissed_cards`.
 - Per-Mac bot read marks (`BotReads`).
 - The inbox-open parity state.
 
@@ -721,7 +721,7 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 - Blocked with no choices.
 - Notices.
 - An omp bot's `pending_ui`.
-- Bot Discard keys.
+- Bot Acknowledge keys.
 - Per-item seen state and the badge rule.
 - `J`/`K` and the empty state.
 - S4, if taken.
@@ -734,7 +734,7 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 |---|---|
 | `j` / `k` | Next / previous item, in Inbox order (wrapping). The card lands on it, the unread bar shows where you are, and it is marked seen. |
 | `x` | Kill, behind its confirm: a first `x` arms it ("Press X again"), a second kills, and any other key disarms. A bot has none. |
-| `e` | Discard (S1): writes the entry's own key, and nothing to the agent. It returns when the item has something new. |
+| `e` | Acknowledge (S1): writes the entry's own key, and nothing to the agent. It returns when the item has something new. |
 | `1`–`9`, `→`, `↳` | Pick a choice, answer with it, or edit it into your own words. |
 | `⏎`, `a` | To the composer (or send); attach a file. |
 | `esc` | Close. |
@@ -743,22 +743,27 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 - **By click or keyboard:** the inbox shortcut, the summon key, or a click on the inbox button gives the card the keyboard in the same press. Opening never puts the cursor in the composer, so the next `j` pages.
 - **By hover:** an inbox opened by hover is shown without the keyboard (§16). **While the pointer is over the card**, it lends itself the keyboard for `j`, `k`, `x`, `e` and `esc` only.
   - Any other key hands the keyboard straight back. That key is lost, since a key cannot be re-sent to another app without Accessibility, and the card keeps it back until the pointer leaves and returns.
+  - The keyboard is lent **once per pointer visit**. If it goes away (a click in another app), the card does not take it again until the pointer leaves and comes back.
+  - **While lent, `e` asks twice, like `x`.** A first `e` arms ("Press E again to acknowledge"), and any other key disarms. So a word typed for another app that starts with `e` acknowledges nothing.
   - When the pointer leaves the card, the keyboard goes back to your app. A click on the card makes it fully yours.
-  - **Why this is safe:** the pointer is visibly on the card, so you are looking at it. Four of the five keys are harmless or reversible (paging, esc, and Discard, which never touches the agent). Kill needs a second press. Typing meant for another app is cut off at its first key.
+  - **Why this is safe:** the pointer is visibly on the card, so you are looking at it.
+    - Paging and esc are harmless.
+    - Acknowledge and Kill both need a second press while the keyboard is only lent.
+    - Typing meant for another app is cut off at its first key outside the set. The worst a stray word does is page the card or arm a confirm that its next letter cancels.
 - **A focused text field wins.** A key typed into the composer stays text, `j` included, even as the first character. Text focus is read from the window's first responder, not only from the field's own "did begin editing" (which fires only after the first character).
 
 ### 13.8a As built (M8)
 
 - **One computation:** `FleetModel.inbox` serves the card, the badge, the peek's dot and the arrival sound.
   - **Waiting:** a claude or omp pane that is blocked, or an omp bot with `pending_ui`.
-  - **Finished:** a turn newer than this Mac's `inboxSince` (its first launch) and not discarded.
+  - **Finished:** a turn newer than this Mac's `inboxSince` (its first launch) and not acknowledged.
   - **Order:** newest first within each group.
 - **Seen marks** are per entry and kept in UserDefaults (`inboxSeen`). The badge counts unseen entries plus unseen notices.
 - **Draw-time capture:** `CardModel.captured` freezes the question when it is first drawn, and an answer is built only from it.
 - **"Other: answer in your own words"** (where the dialog has an Other row) turns the composer into the answer (S4); ↳ does the same with a choice's words. An omp bot's `input`/`editor` request answers the same way.
 - **Blocked with no readable choices** shows "Waiting on you in the terminal" and Focus in herdr.
-- **Discard keys:** Discard writes the entry's own key (§13.6).
-- **Notices** arrive from the event stream and list in the inbox panel, each dismissed with ×.
+- **Acknowledge keys:** Acknowledge writes the entry's own key (§13.6).
+- **Notices** arrive from the event stream and list in the inbox panel, each acknowledged with ×.
 - **Not yet built:**
   - Answering a multi-question ask in one request; only the first question is answered, and the dialog then shows the next.
   - The card's Other row, since the card shows three choices; ↳ covers it there.
@@ -777,8 +782,8 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 - Membership and order, including the harness filter and a bot's pane listed once.
 - The capture: the answer body equals the draw-time capture after the model has updated underneath it.
 - A changed ask drops the pick.
-- Discard's return rule for each key kind.
-- Seen versus discarded, and the badge.
+- Acknowledge's return rule for each key kind.
+- Seen versus acknowledged, and the badge.
 - `J`/`K` marking seen.
 - No action ever calls `/api/chat/send` for a blocked pane.
 
@@ -865,7 +870,7 @@ The user's lasso is `https://lasso.orangecountyai.com`, behind Cloudflare Zero T
 - Rows report their frames through a preference key, and the list's controller polls the pointer at 20 Hz, for the same reason the rail does.
 
 **Clicking a row opens the agent's own window** (`agent.window`: 488 × 632 pt, 60 pt header, 18 pt corners). Bots open one too, since a bot's pane chats through the bot's routes.
-- The header has ≡ (a menu: Focus in herdr, Discard, Kill agent), minimize and close, as plain glyphs.
+- The header has minimize and close, as plain glyphs (no menu; X X kills from the keyboard).
 - Below it are the whole conversation (the last 160 items), the choices, the composer and the footer.
 - It is a non-activating panel at the floating level, on every Space, and over full-screen apps (`.canJoinAllSpaces`, `.fullScreenAuxiliary`). So it stays put while the user switches desktops or maximizes other windows.
 - It moves by dragging its header and resizes by its corner (at least 360 × 320). **Minimize collapses it to its header** (`agent.window.collapsed`, 416 × 60 pt) with ⤢ to expand. The top edge stays fixed both ways.

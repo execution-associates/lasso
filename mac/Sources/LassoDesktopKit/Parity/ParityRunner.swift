@@ -250,7 +250,7 @@ public final class ParityRunner {
         guard let pane = fleet.panes.first(where: { $0.key == key }) else {
             throw ParityError.capture("fixture card \(key) is not in its panes")
         }
-        let actions = FixtureCardActions(chats: fx.chats, canDismiss: fx.server.ui_state.dismissed_cards != nil)
+        let actions = FixtureCardActions(chats: fx.chats, canAcknowledge: fx.server.ui_state.dismissed_cards != nil)
         let now = fx.now
         let c = CardModel(pane: pane, fleet: fleet, actions: actions, now: { now })
         c.show(chat: fx.chats[key])

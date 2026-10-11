@@ -248,10 +248,10 @@ public struct CardView: View {
                     .keyHint(Keys.kill)
                     .parityAnchor("action.kill")
                 }
-                if model.actions.canDismiss {
-                    PillButton(title: "Discard", primary: true, label: "Discard card (E)") { model.discard() }
-                        .keyHint(Keys.discard)
-                        .parityAnchor("action.discard")
+                if model.actions.canAcknowledge {
+                    PillButton(title: "Acknowledge", primary: true, label: "Acknowledge (E)") { model.acknowledge() }
+                        .keyHint(Keys.acknowledge)
+                        .parityAnchor("action.acknowledge")
                 }
             }
             .padding(.leading, Theme.Card.titleX.pt - contentX)

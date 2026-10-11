@@ -1,5 +1,5 @@
 {
-  "about": "A card open on an agent that is asking a question: header, identity line, conversation with one-line tool rows, the status line, numbered next steps from the question's options, the composer and the end actions. Three cards to page through (stub and notarize blocked, clem finished; jessica's pane is a bot's, so it opens a chat instead), so the unread bar has three segments: the open one, then two unread. The pane is a lasso agent (it has an agent_id), on a server with shared dismissals, so Kill and Discard both show.",
+  "about": "A card open on an agent that is asking a question: header, identity line, conversation with one-line tool rows, the status line, numbered next steps from the question's options, the composer and the end actions. Three cards to page through (stub and notarize blocked, clem finished; jessica's pane is a bot's, so it opens a chat instead), so the unread bar has three segments: the open one, then two unread. The pane is a lasso agent (it has an agent_id), on a server with shared acknowledgements, so Kill and Acknowledge both show.",
   "state": "card-open",
   "extends": "rail-expanded",
   "ui": {

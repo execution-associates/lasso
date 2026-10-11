@@ -103,7 +103,7 @@ struct RoundButton: View {
     }
 }
 
-/// A capsule text button: the footer's Kill agent / Discard / Retry.
+/// A capsule text button: the footer's Kill agent / Acknowledge / Retry.
 struct PillButton: View {
     let title: String
     var primary = false

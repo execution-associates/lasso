@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The inbox panel, for when the card has no message to open: lasso's
-/// notices, newest first, each dismissed with ×, or the empty state.
+/// notices, newest first, each acknowledged with ×, or the empty state.
 public struct InboxView: View {
     @ObservedObject var model: InboxModel
     @ObservedObject var fleet: FleetModel
@@ -80,12 +80,12 @@ public struct InboxView: View {
                     .foregroundStyle(Theme.Text.secondary.color)
             }
             Spacer(minLength: Theme.space("m"))
-            Button { model.dismiss(n) } label: {
+            Button { model.acknowledge(n) } label: {
                 Image(systemName: "xmark").frame(width: row.number("action_w"), height: row.number("height")).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .foregroundStyle(Theme.Text.secondary.color)
-            .accessibilityLabel("Dismiss \(n.title)")
+            .accessibilityLabel("Acknowledge \(n.title)")
         }
         .padding(.horizontal, row.number("pad_h"))
         .padding(.vertical, Theme.space("s"))

@@ -26,7 +26,8 @@ public enum Keys {
         id: "a", legend: "A", action: "Attach a file", keyCode: nil, character: "a")
     public static let send = KeyBinding(id: "enter", legend: "⏎", action: "Send", keyCode: 36, character: nil)
     public static let kill = KeyBinding(id: "x", legend: "X", action: "Kill agent", keyCode: nil, character: "x")
-    public static let discard = KeyBinding(id: "e", legend: "E", action: "Discard", keyCode: nil, character: "e")
+    public static let acknowledge = KeyBinding(
+        id: "e", legend: "E", action: "Acknowledge", keyCode: nil, character: "e")
     public static let next = KeyBinding(id: "j", legend: "J", action: "Next card", keyCode: nil, character: "j")
     public static let previous = KeyBinding(
         id: "k", legend: "K", action: "Previous card", keyCode: nil, character: "k")
@@ -37,7 +38,7 @@ public enum Keys {
     public static let takeStep = KeyBinding(
         id: "right", legend: "→", action: "Take this step", keyCode: 124, character: nil)
 
-    public static let all: [KeyBinding] = [esc, attach, send, kill, discard, next, previous, editStep, takeStep]
+    public static let all: [KeyBinding] = [esc, attach, send, kill, acknowledge, next, previous, editStep, takeStep]
 
     /// 1-9 highlight a next step.
     public static func digit(_ e: NSEvent) -> Int? {

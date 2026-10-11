@@ -134,9 +134,9 @@ private let specDir = packageDir.appendingPathComponent("Spec")
 }
 
 /// The inbox (PLAN 13.2): waiting first, then finished turns; claude and
-/// omp only; a Discard hides an entry until its transcript moves; a new turn
+/// omp only; an Acknowledge hides an entry until its transcript moves; a new turn
 /// is unseen again (the badge).
-@MainActor @Test func inboxMembershipDiscardAndSeen() {
+@MainActor @Test func inboxMembershipAcknowledgeAndSeen() {
     func pane(_ id: String, _ agent: String, _ status: String, _ at: Int64) -> HostPane {
         var p = HostPane(
             host: "local", host_label: "titan", pane_id: id, workspace_id: "w1", workspace_label: "Agents",
@@ -181,7 +181,7 @@ private let specDir = packageDir.appendingPathComponent("Spec")
     let pane = HostPane(
         host: "local", host_label: "titan", pane_id: "w1:p1", workspace_id: "w1", workspace_label: "Agents",
         tab_id: "w1:t1", tab_label: "stub", cwd: "/", agent: "claude", agent_status: "blocked", has_agent: true, focused: false)
-    let actions = FixtureCardActions(chats: [:], canDismiss: true)
+    let actions = FixtureCardActions(chats: [:], canAcknowledge: true)
     let m = CardModel(pane: pane, fleet: FleetModel(), actions: actions)
     m.show(chat: try chat("Deploy?"))
     #expect(m.captured?.question == "Deploy?" && m.allowsCustom)
@@ -200,7 +200,7 @@ private func key(_ c: String, _ code: UInt16) -> NSEvent {
 }
 
 /// The inbox card answers j/k/x/e (PLAN 13.7a): they are in its live
-/// bindings, they route to paging, kill and discard, a focused composer keeps
+/// bindings, they route to paging, kill and acknowledge, a focused composer keeps
 /// them as text, and a keyboard the pointer lent takes those four (and esc)
 /// only, handing everything else back.
 @MainActor @Test func inboxKeysReachTheCard() {
@@ -210,20 +210,39 @@ private func key(_ c: String, _ code: UInt16) -> NSEvent {
     p.transcript_at = 10
     let fleet = FleetModel()
     fleet.apply(panes: AllPanes(panes: [p]))
-    let m = CardModel(pane: p, fleet: fleet, actions: FixtureCardActions(chats: [:], canDismiss: true))
+    let m = CardModel(pane: p, fleet: fleet, actions: FixtureCardActions(chats: [:], canAcknowledge: true))
     m.inbox = InboxModel(fleet: fleet)
-    for b in [Keys.next, Keys.previous, Keys.kill, Keys.discard] {
+    for b in [Keys.next, Keys.previous, Keys.kill, Keys.acknowledge] {
         #expect(m.activeBindings.contains(b), "\(b.id) not live in the inbox card")
     }
     let j = key("j", 38), k = key("k", 40), x = key("x", 7), e = key("e", 14)
     #expect(CardKeys.route(j, editing: false, pointerKeyed: false) == .next)
     #expect(CardKeys.route(k, editing: false, pointerKeyed: false) == .previous)
     #expect(CardKeys.route(x, editing: false, pointerKeyed: false) == .kill)
-    #expect(CardKeys.route(e, editing: false, pointerKeyed: false) == .discard)
+    #expect(CardKeys.route(e, editing: false, pointerKeyed: false) == .acknowledge)
     // A focused composer: the field types them.
     for ev in [j, k, x, e] { #expect(CardKeys.route(ev, editing: true, pointerKeyed: false) == nil) }
     // Lent by the pointer: the four and esc act; anything else goes back.
     #expect(CardKeys.route(j, editing: false, pointerKeyed: true) == .next)
     #expect(CardKeys.route(key("a", 0), editing: false, pointerKeyed: true) == .handBack)
     #expect(CardKeys.route(key("q", 12), editing: false, pointerKeyed: true) == .handBack)
+}
+
+/// With a keyboard the pointer lent, E asks twice (PLAN 13.7a): the first
+/// press only arms, so a word typed for another app that starts with e
+/// acknowledges nothing; any other key disarms.
+@MainActor @Test func lentKeyboardAcknowledgesOnlyOnASecondE() async throws {
+    let p = HostPane(
+        host: "local", host_label: "titan", pane_id: "w1:p1", workspace_id: "w1", workspace_label: "Agents",
+        tab_id: "w1:t1", tab_label: "stub", cwd: "/", agent: "claude", agent_status: "done", has_agent: true, focused: false)
+    let actions = FixtureCardActions(chats: [:], canAcknowledge: true)
+    let m = CardModel(pane: p, fleet: FleetModel(), actions: actions)
+    m.acknowledgeTwice()
+    #expect(m.ackArmed && !actions.calls.contains("acknowledge"))
+    m.disarm()
+    #expect(!m.ackArmed)
+    m.acknowledgeTwice()
+    m.acknowledgeTwice()
+    try await Task.sleep(nanoseconds: 100_000_000)
+    #expect(actions.calls.contains("acknowledge"))
 }

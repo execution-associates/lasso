@@ -93,6 +93,10 @@ public final class CardController {
     /// A key outside the hover set gave the keyboard back: it stays with the
     /// user's app until the pointer has left the card and come back.
     private var heldBack = false
+    /// The keyboard was lent once on this pointer visit: if it went away (a
+    /// click in another app), it is not taken again until the pointer leaves
+    /// and comes back.
+    private var lentThisVisit = false
 
     func takeKey() {
         pointerKeyed = false
@@ -103,7 +107,8 @@ public final class CardController {
 
     /// The pointer is over a hover-opened card: lend it the keyboard.
     func takeKeyForPointer() {
-        guard !panel.isKeyWindow, !heldBack else { return }
+        guard !panel.isKeyWindow, !heldBack, !lentThisVisit else { return }
+        lentThisVisit = true
         pointerKeyed = true
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(nil)
@@ -114,6 +119,7 @@ public final class CardController {
     /// again next time the pointer comes over.
     func pointerLeft() {
         heldBack = false
+        lentThisVisit = false
         releasePointerKey()
     }
 
@@ -130,6 +136,8 @@ public final class CardController {
     public func close() {
         guard presence.shown else { return }
         pointerKeyed = false
+        lentThisVisit = false
+        heldBack = false
         holder.model?.stopPolling()
         withAnimationToken(Theme.Motion.cardClose) { presence.shown = false }
         let delay = Theme.Motion.cardClose.value["duration"]?.double ?? 0
@@ -160,14 +168,17 @@ public final class CardController {
             return true
         }
         Trace.event("card key \(action)")
-        if case .kill = action {} else { m.disarm() }
+        switch action {
+        case .kill, .acknowledge: break
+        default: m.disarm()
+        }
         switch action {
         case .close: close()
         case .digit(let n): m.highlight(n)
         case .attach: m.attachFile()
         case .send: if m.composer.isEmpty { m.focusComposer() } else { m.send() }
         case .kill: m.kill()
-        case .discard: m.discard()
+        case .acknowledge: if pointerKeyed { m.acknowledgeTwice() } else { m.acknowledge() }
         case .next: m.page(1)
         case .previous: m.page(-1)
         case .editStep: m.editStep()
@@ -181,7 +192,7 @@ public final class CardController {
 
 /// What a key does in the card, decided before anything acts (PLAN 13.7a).
 public enum CardKeyAction: Equatable, CustomStringConvertible {
-    case close, attach, send, kill, discard, next, previous, editStep, takeStep, digit(Int)
+    case close, attach, send, kill, acknowledge, next, previous, editStep, takeStep, digit(Int)
     /// Not a card key: left to the system.
     case unbound
     /// A key outside the hover set while the pointer lent the card the
@@ -194,7 +205,7 @@ public enum CardKeyAction: Equatable, CustomStringConvertible {
         case .attach: "a"
         case .send: "enter"
         case .kill: "x"
-        case .discard: "e"
+        case .acknowledge: "e"
         case .next: "j"
         case .previous: "k"
         case .editStep: "tab"
@@ -208,8 +219,8 @@ public enum CardKeyAction: Equatable, CustomStringConvertible {
 
 public enum CardKeys {
     /// The keys a card answers when the pointer, not a click, gave it the
-    /// keyboard: paging, kill (behind its confirm), discard, and esc.
-    public static let hoverSet: [KeyBinding] = [Keys.next, Keys.previous, Keys.kill, Keys.discard, Keys.esc]
+    /// keyboard: paging, kill (behind its confirm), acknowledge, and esc.
+    public static let hoverSet: [KeyBinding] = [Keys.next, Keys.previous, Keys.kill, Keys.acknowledge, Keys.esc]
 
     /// Route a key: nil while text is being typed (the field takes it, a
     /// `j` stays a `j`); the hover set only while the pointer lent the
@@ -220,7 +231,7 @@ public enum CardKeys {
         switch true {
         case Keys.esc.matches(e): return .close
         case Keys.kill.matches(e): return .kill
-        case Keys.discard.matches(e): return .discard
+        case Keys.acknowledge.matches(e): return .acknowledge
         case Keys.next.matches(e): return .next
         case Keys.previous.matches(e): return .previous
         case Keys.attach.matches(e): return .attach

@@ -199,7 +199,7 @@ final class AgentWindowController {
         UserDefaults.standard.set(frames, forKey: Self.framesKey)
     }
 
-    /// The card's keys, minus paging and Discard: 1–9 highlight a choice,
+    /// The card's keys, minus paging and Acknowledge: 1–9 highlight a choice,
     /// → takes it, ↳ edits it, ⏎ to the composer, A attaches, X X kills.
     private func handle(_ e: NSEvent) -> Bool {
         if model.composerFocused || panel.editingText { return false }
