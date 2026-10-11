@@ -2205,7 +2205,7 @@ function LaunchTab({
         })
         if (running)
           toast(
-            `${bot.name} switches to mise run ${next} when it restarts. If that changes provider, use Restart fresh.`
+            `${bot.name} switches to mise run ${next} when it restarts. If that changes provider, use Restart, new conversation.`
           )
       } catch (e) {
         toast.error((e as Error).message)
@@ -2233,18 +2233,20 @@ function LaunchTab({
               size="sm"
               disabled={busy}
               onClick={() => void restart(false)}
+              title="Stop it and start it again, carrying on the same conversation"
             >
               <RotateCcw />
-              Restart
+              Restart, same conversation
             </Button>
             <Button
               variant="outline"
               size="sm"
               disabled={busy}
               onClick={() => void restart(true)}
+              title="Stop it and start it again on a new, empty conversation (the old one stays on disk)"
             >
               <RotateCcw />
-              Restart fresh
+              Restart, new conversation
             </Button>
           </>
         ) : (
@@ -2253,6 +2255,7 @@ function LaunchTab({
               size="sm"
               disabled={busy}
               onClick={() => void run(() => startBot(bot.name))}
+              title="Start it, carrying on its last conversation"
             >
               <Play />
               Start
@@ -2262,9 +2265,10 @@ function LaunchTab({
               size="sm"
               disabled={busy}
               onClick={() => void run(() => startBot(bot.name, true))}
+              title="Start it on a new, empty conversation (the old one stays on disk)"
             >
               <RotateCcw />
-              Start fresh
+              Start a new conversation
             </Button>
           </>
         )}
@@ -2294,7 +2298,7 @@ function LaunchTab({
             environment and ends with{" "}
             <code className="font-mono">exec mise run bot -- "$@"</code>. A
             conversation started on one provider may not resume on another:
-            after switching provider, restart fresh.
+            after switching provider, restart it on a new conversation.
           </>
         }
       >
@@ -2412,7 +2416,7 @@ export function BotSettings({
           ...fieldsOf(draft),
           name: draft.name,
           host: draft.host,
-          start: false,
+          start: true,
           instructions: draft.instructions,
         })
         await invalidateBots(res.bot.name)
@@ -2513,8 +2517,9 @@ export function BotSettings({
           )}
           {creating && (
             <p className="mt-6 text-[12px] text-muted-foreground">
-              Skills and environment are set once the bot exists. It is created
-              stopped, so you can finish setting it up first.
+              It starts as soon as it is created. Skills and environment are
+              added from its settings afterwards, and take effect when it
+              restarts.
             </p>
           )}
         </div>

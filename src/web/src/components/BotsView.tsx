@@ -183,7 +183,7 @@ function BotRow({
         {running ? (
           <>
             <ContextMenuItem onSelect={() => void restartBot(bot.name)}>
-              Restart
+              Restart, same conversation
             </ContextMenuItem>
             <ContextMenuItem onSelect={() => void stopBot(bot.name)}>
               Stop
@@ -276,8 +276,8 @@ function StoppedBot({
         ) : (
           <>
             <p className="max-w-sm text-[13px] text-muted-foreground">
-              {bot.name} is stopped. Start it to pick up where it left off, or
-              start fresh for a new session.
+              {bot.name} is stopped. Start it to carry on its last conversation,
+              or start a new one.
             </p>
             {bot.error && (
               <p className="max-w-sm text-[12px] text-destructive">
@@ -295,7 +295,7 @@ function StoppedBot({
                 onClick={() => void start(true)}
               >
                 <RotateCcw />
-                Start fresh
+                Start a new conversation
               </Button>
             </div>
           </>
@@ -695,7 +695,7 @@ export function BotsView({
         key="new"
         mode="new"
         lead={back}
-        onCreated={(name) => go({ page: "settings", name })}
+        onCreated={(name) => go({ page: "chat", name })}
         onClose={toList}
       />
     )

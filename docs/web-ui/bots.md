@@ -58,7 +58,7 @@ Everything else works as in Chat, including two composer features that apply to 
 - **Stop.** While the agent works, an empty composer's send button becomes **Stop**, which interrupts the turn (one `Esc` in a Claude Code bot's pane, an abort for an omp bot). If the agent was not working, or lasso could not tell whether the interrupt landed, it says so above the composer.
 - **Up next.** A message sent while the agent works is held, shown as **Up next** above the composer, and sent once the agent is idle, one at a time and in order. Remove one with its ✕. Pressing **Stop** puts the held messages **on hold**: nothing goes out until you press **Send queued messages**. The queue lives in this browser tab, so it is lost if you close the tab first. When lasso cannot confirm that a held message was delivered, the queue pauses and says so, and nothing is resent automatically.
 
-A stopped bot has no conversation to show. Its page offers **Start**, which resumes its last session, and **Start fresh**, which begins a new one.
+A stopped bot has no conversation to show. Its page offers **Start**, which carries on its last conversation, and **Start a new conversation**.
 
 ## Settings
 
@@ -137,7 +137,7 @@ A host with no age key yet cannot store secrets. The page says so and offers **C
 
 ### Launch
 
-Start, stop and restart the bot (**Restart fresh** begins a new session), and **Open terminal** to switch to its pane in the terminal. The bot can also restart itself: ask it to, and it runs `mise run restart`, which relaunches it in the same pane on the same conversation once its turn ends. Below them is the launch script lasso generates from the settings. The bot runs as `mise run bot` in its folder, and lasso rewrites the script on every save, so edit the settings rather than the file.
+Start, stop and restart the bot: **Restart, same conversation** carries on where it was, **Restart, new conversation** begins an empty one (the old one stays on disk); and **Open terminal** to switch to its pane in the terminal. The bot can also restart itself: ask it to, and it runs `mise run restart`, which relaunches it in the same pane on the same conversation once its turn ends. Below them is the launch script lasso generates from the settings. The bot runs as `mise run bot` in its folder, and lasso rewrites the script on every save, so edit the settings rather than the file.
 
 **Launch task** picks the mise task that starts the bot: `bot`, or a mode of your own in its folder. Start, keep-running, herdr's restore and the bot's own restart all go through it. A mode is a task that sets an environment and hands off to `bot`, so the channel grants and launch dialogs stay lasso's. For example, `.mise/tasks/deepseek` runs the bot on DeepSeek's Anthropic-compatible API:
 
@@ -154,7 +154,7 @@ exec mise run bot -- --model sonnet "$@"
 
 Add `DEEPSEEK_API_KEY` as a secret under **Environment**, then pick `deepseek` here. `#MISE interactive=true` is required: without it a task that receives secrets loses the terminal. Keep `"$@"` last, since a restore appends `--resume <id>`. Two limits to know:
 
-- **A conversation started on Anthropic may not resume on another provider.** DeepSeek refuses some of the content Claude Code stores, so after switching, use **Restart fresh**.
+- **A conversation started on Anthropic may not resume on another provider.** DeepSeek refuses some of the content Claude Code stores, so after switching, use **Restart, new conversation**.
 - **claude.ai connectors are off under another provider's token.** Claude Code turns them off whenever `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY` is set, so put any connector the bot needs among its own MCP servers.
 
 A launch task that the folder doesn't define is refused when you save.
@@ -204,7 +204,7 @@ Opening a bot's terminal from the app leaves it for lasso itself. Adding `?app=b
 
 ## Creating a bot
 
-The **+** in the list's header, or **New bot** on the management page, opens the creator. It has the **General** and **Connections** tabs. The bot is created stopped and lands on its settings, so you can write its instructions, add skills and set its environment before you start it.
+The **+** in the list's header, or **New bot** on the management page, opens the creator. It has the **General**, **Instructions** and **Connections** tabs. The bot starts as soon as it is created and lands on its chat. Skills and environment are added from its settings afterwards and take effect when it restarts.
 
 ## Manage bots
 
