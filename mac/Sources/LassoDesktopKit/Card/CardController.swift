@@ -15,7 +15,7 @@ struct CardHost: View {
     var body: some View {
         Group {
             if let model = holder.model {
-                CardView(model: model)
+                CardView(model: model, recording: holder.recording)
             }
         }
         .opacity(presence.shown ? 1 : 0)
@@ -26,6 +26,7 @@ struct CardHost: View {
 @MainActor
 final class CardHolder: ObservableObject {
     @Published var model: CardModel?
+    var recording: RecordingModel = .inert
 }
 
 /// The card's panel: beside the rail, keyboard-driven, through the A.3
@@ -49,10 +50,17 @@ public final class CardController {
         let host = NSHostingView(rootView: CardHost(presence: presence, holder: holder))
         host.frame = NSRect(origin: .zero, size: size)
         panel = RailPanel(content: host, size: size)
+        panel.hasShadow = true
         panel.onKey = { [weak self] e in self?.handle(e) ?? false }
     }
 
     public var isOpen: Bool { holder.model != nil }
+
+    /// The voice turn, shown in the card's composer.
+    var recording: RecordingModel {
+        get { holder.recording }
+        set { holder.recording = newValue }
+    }
 
     public func open(_ pane: HostPane) {
         if let m = holder.model, m.pane.key == pane.key {

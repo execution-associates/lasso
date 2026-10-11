@@ -24,7 +24,7 @@ struct ComposerField<Model: ComposerModel>: NSViewRepresentable {
         f.isBordered = false
         f.drawsBackground = false
         f.focusRingType = .none
-        f.font = .systemFont(ofSize: Theme.Fonts.tree.number("size"))
+        f.font = Theme.Fonts.body.nsFont
         f.textColor = Theme.Text.primary.nsColor
         f.lineBreakMode = .byTruncatingTail
         f.cell?.usesSingleLineMode = true
@@ -51,8 +51,8 @@ struct ComposerField<Model: ComposerModel>: NSViewRepresentable {
         f.placeholderAttributedString = NSAttributedString(
             string: model.composerPlaceholder,
             attributes: [
-                .foregroundColor: Theme.Text.secondary.nsColor,
-                .font: NSFont.systemFont(ofSize: Theme.Fonts.tree.number("size")),
+                .foregroundColor: Theme.Text.placeholder.nsColor,
+                .font: Theme.Fonts.body.nsFont,
             ])
     }
 

@@ -12,61 +12,48 @@ public struct OnboardingView: View {
         fleet = model.setup.fleet
     }
 
-    private var pad: CGFloat { Theme.Card.pad.pt }
+    private var pad: CGFloat { Theme.Panel.inset.pt }
 
     public var body: some View {
-        let size = Theme.Card.size.size
         let _ = model.tick
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Set up Lasso")
-                    .font(Theme.Fonts.name.font)
+                    .font(Theme.Fonts.title.font)
                     .foregroundStyle(Theme.Text.primary.color)
                 Spacer()
-                Button { model.finish() } label: { Keycap(Keys.esc) }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Close setup (esc)")
+                RoundButton(symbol: "xmark", label: "Close setup (esc)") { model.finish() }
+                    .keyHint(Keys.esc)
             }
             .padding(.horizontal, pad)
-            .frame(height: Theme.Card.headerHeight.pt)
+            .padding(.top, 12.5)
 
             ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 18) {
                     section("lasso") { lassoSection }
                     section("Assistant") { assistantSection }
                     section("Voice") { voiceSection }
                     section("Permissions") { permissionsSection }
                 }
                 .padding(.horizontal, pad)
-                .padding(.bottom, 12)
+                .padding(.vertical, 14)
             }
 
+            Rectangle().fill(Theme.Panel.divider.color).frame(height: 1)
             HStack(spacing: 10) {
                 Text(model.notice ?? setup.status ?? "")
-                    .font(Theme.Fonts.secondLine.font)
+                    .font(Theme.Fonts.small.font)
                     .foregroundStyle(Theme.Text.secondary.color)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Button { model.finish() } label: {
-                    HStack(spacing: 6) {
-                        Text("Done")
-                            .font(Theme.Fonts.tree.font)
-                            .foregroundStyle(Theme.Text.primary.color)
-                        Keycap(Keys.send)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Done (⏎)")
+                PillButton(title: "Done", primary: true, label: "Done (⏎)") { model.finish() }
+                    .keyHint(Keys.send)
             }
             .padding(.horizontal, pad)
-            .frame(height: Theme.Card.footerHeight.pt)
-            .background(Theme.Card.footer.color)
+            .padding(.vertical, 14)
             .parityAnchor("onboarding.footer")
         }
-        .frame(width: size.width, height: size.height)
-        .background(Theme.Card.surface.color)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Card.radius.pt, style: .continuous))
-        .parityAnchor("onboarding")
+        .panelChrome(Theme.Card.size.size, anchor: "onboarding")
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Set up Lasso")
     }
@@ -74,9 +61,8 @@ public struct OnboardingView: View {
     private func section<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(
-                    .system(size: Theme.List.groupHeaderFont.number("size"), weight: Theme.List.groupHeaderFont.weight))
-                .foregroundStyle(Theme.List.groupHeaderFont.textColor)
+                .font(Theme.Fonts.header.font)
+                .foregroundStyle(Theme.Text.secondary.color)
                 .accessibilityAddTraits(.isHeader)
             content()
         }
@@ -84,7 +70,7 @@ public struct OnboardingView: View {
 
     private func line(_ s: String, secondary: Bool = false) -> some View {
         Text(s)
-            .font(secondary ? Theme.Fonts.secondLine.font : Theme.Fonts.tree.font)
+            .font(secondary ? Theme.Fonts.small.font : Theme.Fonts.body.font)
             .foregroundStyle(secondary ? Theme.Text.secondary.color : Theme.Text.primary.color)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -116,30 +102,24 @@ public struct OnboardingView: View {
                         AgentGlyph(slot: .agent(botPane(bot)))
                         Text(bot.name).font(Theme.Fonts.name.font).foregroundStyle(Theme.Text.primary.color)
                         Text("\(bot.runtime) · \(bot.state)")
-                            .font(Theme.Fonts.secondLine.font)
+                            .font(Theme.Fonts.small.font)
                             .foregroundStyle(Theme.Text.secondary.color)
                         Spacer()
                     }
-                    .padding(.vertical, Theme.Row.pad.number("v"))
-                    .padding(.horizontal, Theme.Row.pad.number("h"))
-                    .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(Theme.Row.hover.color))
+                    .padding(.horizontal, 12)
+                    .frame(height: Theme.List.row.number("height"))
+                    .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(Theme.Panel.inner.color("fill")))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Use \(bot.name) as the assistant")
             }
-            Button { Task { await setup.createDefault() } } label: {
-                Text(setup.working ? "Creating…" : "Create an assistant bot")
-                    .font(Theme.Fonts.tree.font)
-                    .foregroundStyle(Theme.Text.primary.color)
-                    .padding(.vertical, Theme.Row.pad.number("v"))
-                    .padding(.horizontal, Theme.Row.pad.number("h"))
-                    .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(Theme.accent.color))
-            }
-            .buttonStyle(.plain)
+            PillButton(
+                title: setup.working ? "Creating…" : "Create an assistant bot", primary: true,
+                label: "Create an assistant bot on lasso"
+            ) { Task { await setup.createDefault() } }
             .disabled(setup.working)
             .parityAnchor("onboarding.create")
-            .accessibilityLabel("Create an assistant bot on lasso")
         }
     }
 
@@ -158,7 +138,7 @@ public struct OnboardingView: View {
                 let on = model.engine == e
                 Button { model.select(e) } label: {
                     Text(e == .parakeet ? "Parakeet" : e.displayName)
-                        .font(Theme.Fonts.tree.font)
+                        .font(Theme.Fonts.body.font)
                         .foregroundStyle(Theme.Text.primary.color)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 5)
@@ -171,7 +151,7 @@ public struct OnboardingView: View {
             }
         }
         .padding(2)
-        .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(Theme.Row.hover.color))
+        .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(Theme.Panel.inner.color("fill")))
         switch model.engine {
         case .lasso:
             if let t = model.transcribe {
@@ -188,26 +168,18 @@ public struct OnboardingView: View {
             HStack(spacing: 8) {
                 SecureField("API key", text: $model.keyDraft)
                     .textFieldStyle(.plain)
-                    .font(Theme.Fonts.tree.font)
+                    .font(Theme.Fonts.body.font)
                     .foregroundStyle(Theme.Text.primary.color)
-                    .padding(.horizontal, 8)
-                    .frame(height: Theme.Card.composer.number("height"))
-                    .background(
-                        RoundedRectangle(cornerRadius: Theme.Card.composer.number("radius"))
-                            .fill(RGBA(parsing: Theme.Card.composer.value["fill"]?.string ?? "")?.color ?? .clear))
+                    .padding(.horizontal, 14)
+                    .frame(height: Theme.Control.composer.number("height"))
+                    .background(Capsule().fill(Theme.Control.composer.color("fill")))
                     .onSubmit { model.saveKey() }
                     .accessibilityLabel("\(model.engine.displayName) API key")
-                Button("Save") { model.saveKey() }
-                    .buttonStyle(.plain)
-                    .font(Theme.Fonts.tree.font)
-                    .foregroundStyle(Theme.Text.primary.color)
-                    .accessibilityLabel("Save the key")
+                PillButton(title: "Save", label: "Save the key") { model.saveKey() }
                 if set {
-                    Button("Remove") { model.removeKey() }
-                        .buttonStyle(.plain)
-                        .font(Theme.Fonts.tree.font)
-                        .foregroundStyle(Theme.dangerText.color)
-                        .accessibilityLabel("Remove the key")
+                    PillButton(title: "Remove", textColor: Theme.dangerText.color, label: "Remove the key") {
+                        model.removeKey()
+                    }
                 }
             }
         case .parakeet:
@@ -241,21 +213,14 @@ public struct OnboardingView: View {
                 .padding(.top, 5)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
-                    Text(name).font(Theme.Fonts.tree.font).foregroundStyle(Theme.Text.primary.color)
-                    Text(state.label).font(Theme.Fonts.secondLine.font).foregroundStyle(Theme.Text.secondary.color)
+                    Text(name).font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
+                    Text(state.label).font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color)
                 }
-                Text(why).font(Theme.Fonts.secondLine.font).foregroundStyle(Theme.Text.secondary.color)
+                Text(why).font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color)
             }
             Spacer()
             if let action {
-                Button(action, action: act)
-                    .buttonStyle(.plain)
-                    .font(Theme.Fonts.tree.font)
-                    .foregroundStyle(Theme.Text.primary.color)
-                    .padding(.horizontal, Theme.Row.pad.number("h"))
-                    .padding(.vertical, 3)
-                    .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(Theme.Card.keycapFill.color))
-                    .accessibilityLabel("\(action): \(name)")
+                PillButton(title: action, label: "\(action): \(name)", action: act)
             }
         }
         .accessibilityElement(children: .contain)

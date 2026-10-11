@@ -27,6 +27,7 @@ public final class SidePanel {
         let host = NSHostingView(rootView: SidePanelHost(presence: presence, content: content))
         host.frame = NSRect(origin: .zero, size: size)
         panel = RailPanel(content: host, size: size)
+        panel.hasShadow = true
         panel.onKey = { [weak self] e in self?.onKey(e) ?? false }
         panel.onKeyUp = { [weak self] e in self?.onKeyUp(e) ?? false }
     }

@@ -100,9 +100,9 @@ public final class ParityRunner {
     }
 
     private func railSize() -> CGSize {
-        let m = Theme.Rail.panelMargin.pt
-        return CGSize(
-            width: RailMetrics.outer + 2 * m, height: RailMetrics.expandedHeight(Theme.Rail.maxSlots.int) + 2 * m)
+        CGSize(
+            width: RailMetrics.panelWidth,
+            height: RailMetrics.expandedHeight(Theme.Rail.maxSlots.int) + 2 * RailMetrics.margin)
     }
 
     private func runState(_ state: String) async throws {
@@ -113,6 +113,7 @@ public final class ParityRunner {
         let cap: Capture
         var card: CardModel?
         var bindings: Set<KeyBinding>?
+        var recapture: (@MainActor () async throws -> Capture)?
         if fixture.ui.onboarding == true {
             let setup = AssistantSetup(fleet: fleet, client: nil)
             let hosts = fixture.server.hosts
@@ -123,7 +124,9 @@ public final class ParityRunner {
                 usableHosts: { (usable, hosts.hosts.count + 1) })
             m.show(transcribe: fixture.transcribe)
             bindings = [Keys.esc, Keys.send]
-            cap = try await Capturer.capture(OnboardingView(model: m), size: Theme.Card.size.size)
+            let make: @MainActor () async throws -> Capture = { try await Capturer.capture(OnboardingView(model: m), size: Theme.Card.size.size) }
+            cap = try await make()
+            recapture = make
         } else if fixture.ui.chat == true, let name = fixture.ui.bot,
                   let bot = fixture.server.bots.bots.first(where: { $0.name == name })
         {
@@ -139,31 +142,38 @@ public final class ParityRunner {
                     level: r["level"]?.double ?? 0.5)
                 model.recording = true
                 let gap = Theme.Card.placement.number("gap")
-                let view = HStack(alignment: .top, spacing: gap) {
+                let view = HStack(alignment: .top, spacing: gap - RailMetrics.margin) {
                     ChatView(model: m, recording: rec)
                     RailView(model: model)
                 }
-                .padding(Theme.Rail.panelMargin.pt)
                 let size = CGSize(
-                    width: Theme.Card.size.size.width + gap + RailMetrics.outer + 2 * Theme.Rail.panelMargin.pt,
-                    height: max(Theme.Card.size.size.height, railSize().height - 2 * Theme.Rail.panelMargin.pt)
-                        + 2 * Theme.Rail.panelMargin.pt)
-                cap = try await Capturer.capture(view, size: size)
+                    width: Theme.Card.size.size.width + gap - RailMetrics.margin + railSize().width,
+                    height: max(Theme.Card.size.size.height, railSize().height))
+                let make: @MainActor () async throws -> Capture = { try await Capturer.capture(view, size: size) }
+                cap = try await make()
+                recapture = make
             } else {
-                cap = try await Capturer.capture(ChatView(model: m), size: Theme.Card.size.size)
+                let make: @MainActor () async throws -> Capture = { try await Capturer.capture(ChatView(model: m), size: Theme.Card.size.size) }
+                cap = try await make()
+                recapture = make
             }
         } else if fixture.ui.list == true {
             let l = ListModel(fleet: fleet, actions: FixtureFleetActions(), now: { fixture.now })
             l.selected = fixture.ui.selected
             l.hovered = fixture.ui.hovered
-            cap = try await Capturer.capture(ListView(model: l), size: Theme.List.size.size)
+            let make: @MainActor () async throws -> Capture = { try await Capturer.capture(ListView(model: l), size: Theme.List.size.size) }
+            cap = try await make()
+            recapture = make
         } else if let key = fixture.ui.card {
             let c = try cardModel(fixture, fleet: fleet, key: key)
             card = c
-            cap = try await Capturer.capture(CardView(model: c), size: Theme.Card.size.size)
+            let make: @MainActor () async throws -> Capture = { try await Capturer.capture(CardView(model: c), size: Theme.Card.size.size) }
+            cap = try await make()
+            recapture = make
         } else {
-            let view = RailView(model: model).padding(Theme.Rail.panelMargin.pt)
-            cap = try await Capturer.capture(view, size: railSize())
+            let make: @MainActor () async throws -> Capture = { try await Capturer.capture(RailView(model: model), size: self.railSize()) }
+            cap = try await make()
+            recapture = make
         }
 
         if let png = cap.image.representation(using: .png, properties: [:]) {
@@ -178,7 +188,17 @@ public final class ParityRunner {
         geometryChecks(state, cap)
         accessibilityChecks(state, cap)
         if let card { bindings = card.activeBindings }
-        if let bindings { keycapChecks(state, cap, bindings) }
+        if let bindings, let again = recapture {
+            // Keycaps show only while ⌘ is held: render again holding it.
+            KeyHints.shared.visible = true
+            let held = try await again()
+            KeyHints.shared.visible = false
+            if let png = held.image.representation(using: .png, properties: [:]) {
+                try png.write(to: out.appendingPathComponent("\(state)-keys.png"))
+            }
+            keycapChecks(state, held, bindings)
+            held.window.orderOut(nil)
+        }
         cap.window.orderOut(nil)
     }
 
@@ -233,6 +253,14 @@ public final class ParityRunner {
                 add(state, "colour", p.token, "(not a colour)", "", "", .fail)
                 continue
             }
+            if let g = p.gradient, g.count == 2, let at = p.at,
+               let top = RGBA(parsing: spec.tokens[g[0]]?.value.string ?? ""),
+               let bottom = RGBA(parsing: spec.tokens[g[1]]?.value.string ?? "")
+            {
+                want = RGBA(
+                    r: top.r + (bottom.r - top.r) * at, g: top.g + (bottom.g - top.g) * at,
+                    b: top.b + (bottom.b - top.b) * at, a: 1)
+            }
             if let over = p.over, let base = RGBA(parsing: spec.tokens[over]?.value.string ?? "") {
                 // Source-over in sRGB, as the window server composites.
                 let a = want.a
@@ -280,6 +308,9 @@ public final class ParityRunner {
             case "pad_top": measured = fr[1].minY - fr[0].minY - rim
             case "pad_bottom": measured = fr[0].maxY - fr[1].maxY - rim
             case "span": measured = fr[1].maxY - fr[0].minY
+            case "x": measured = fr[0].minX
+            case "y": measured = fr[0].minY
+            case "right_inset": measured = Double(cap.image.size.width) - fr[0].maxX
             case "pixel_width": measured = pixelWidth(cap, fr[0])
             case "pixel_fill_width": measured = pixelRims(cap, fr[0], row: g.row ?? Double(fr[0].height / 2)).fill
             case "pixel_rim_width": measured = pixelRims(cap, fr[0], row: g.row ?? Double(fr[0].height / 2)).rim
@@ -303,9 +334,19 @@ public final class ParityRunner {
         return Double(px.filter { $0.a > 0.5 }.count) / Double(cap.scale)
     }
 
-    /// Fill and rim widths across a capsule at a row, by nearest colour.
+    /// A vertical gradient's colour a fraction of the way down.
+    static func mix(_ a: Token, _ b: Token, _ t: Double) -> RGBA {
+        let x = a.rgba, y = b.rgba
+        let u = max(0, min(1, t))
+        return RGBA(r: x.r + (y.r - x.r) * u, g: x.g + (y.g - x.g) * u, b: x.b + (y.b - x.b) * u, a: 1)
+    }
+
+    /// Fill and rim widths across a capsule at a row, by nearest colour (the
+    /// gradients' colours at that row).
     private func pixelRims(_ cap: Capture, _ f: CGRect, row: Double) -> (fill: Double, rim: Double) {
-        let fill = Theme.Rail.capsuleFill.rgba, rim = Theme.Rail.capsuleRim.rgba
+        let t = row / Double(f.height)
+        let fill = Self.mix(Theme.Rail.fillTop, Theme.Rail.fillBottom, t)
+        let rim = Self.mix(Theme.Rail.rimTop, Theme.Rail.rimBottom, t)
         let px = cap.row(y: f.minY + row, from: f.minX - 2, to: f.maxX + 2).filter { $0.a > 0.5 }
         var nFill = 0, nRim = 0
         for p in px {
@@ -318,7 +359,7 @@ public final class ParityRunner {
     /// Width of whatever differs from the capsule fill across a glyph's
     /// middle row, in points.
     private func pixelDiameter(_ cap: Capture, _ f: CGRect) -> Double {
-        let fill = Theme.Rail.capsuleFill.rgba
+        let fill = Self.mix(Theme.Rail.fillTop, Theme.Rail.fillBottom, 0.3)
         let px = cap.row(y: f.midY, from: f.minX - 3, to: f.maxX + 3)
         let mark = px.filter { $0.a > 0.5 && ColorMath.deltaE2000($0, fill) > 10 }
         return Double(mark.count) / Double(cap.scale)
@@ -490,7 +531,7 @@ public final class ParityRunner {
         let clockProbe = MotionProbe()
         model.animationProbe = clockProbe
         let size = railSize()
-        let view = RailView(model: model).padding(Theme.Rail.panelMargin.pt).environment(\.revealProbe, probe)
+        let view = RailView(model: model).environment(\.revealProbe, probe)
         let host = NSHostingView(rootView: view)
         host.frame = NSRect(origin: .zero, size: size)
         let screen = NSScreen.main?.visibleFrame ?? .zero

@@ -22,6 +22,9 @@ public struct Spec: Decodable, Sendable {
         public var token: String
         /// For a translucent token: the token it is composited over.
         public var over: String?
+        /// A vertical gradient [top, bottom] and how far down it to read.
+        public var gradient: [String]?
+        public var at: Double?
     }
 
     public struct Geometry: Decodable, Sendable {
@@ -63,4 +66,26 @@ public struct ParityRow: Codable, Sendable {
     public var measured: String
     public var delta: String
     public var result: Result
+}
+
+extension Theme {
+    /// Theme.all in tokens.json's shape, to seed the spec when the tokens
+    /// are reworked (`LassoDesktop --dump-tokens`). The spec is then edited
+    /// by hand and checked against the code like any other spec.
+    public static func dumpTokens() -> Data {
+        var out: [String: Any] = [:]
+        for t in all {
+            let note: String
+            switch t.provenance {
+            case .measured(let n), .unmeasured(let n), .inferred(let n): note = n
+            }
+            var row: [String: Any] = [
+                "value": (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(t.value), options: [.fragmentsAllowed])) ?? NSNull(),
+                "provenance": t.provenance.kind, "source": note,
+            ]
+            if t.proposed { row["proposed"] = true }
+            out[t.id] = row
+        }
+        return (try? JSONSerialization.data(withJSONObject: out, options: [.prettyPrinted, .sortedKeys])) ?? Data()
+    }
 }

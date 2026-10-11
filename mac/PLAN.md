@@ -506,3 +506,17 @@ M1–M7 are built and every named state passes parity on minime: 192 checks, 0 f
 - Creating the assistant bot: onboarding's Create button does it (`POST /api/bots`, omp, started); it was not clicked, since it makes a real bot.
 - On-device transcription (Q3), native notifications, generated next steps, a Settings tab section for `transcribe` in the web client.
 
+## 10. Design rework from the reference screenshots (2026-10-11)
+
+The user supplied reference screenshots of the intended look (kept out of git). The tokens were re-measured from them by pixel scans: ref a2/a3/a5 at 2 px per point, ref b2 at 1 px per point. Neutrals are taken as sampled; saturated hues stay the brief's, because the screenshots carry the display's own colour profile, which moves saturated colours and leaves greys alone.
+
+- **At rest the rail is a peek**: a rail pill mostly past the screen edge, 12 pt showing, with the most urgent state as a dot. The rail panel now sits flush against the screen edge. Resting the pointer on the peek for 80 ms reveals the rail. With nothing open beside it, 450 ms off the rail hides it again. The pointer is polled at 20 Hz, because a non-activating panel of a background app gets no hover events.
+- **The rail's groups are lit from above.** The fill shades from `#2E3032` to `#0C0E10`, and the 1 pt rim from `#8F8F8F` to `#1F2021`. The badge is a 10 pt dot in the most urgent state's colour, ringed in near-black, with no count. Idle is `#98989D`. The geometry is the brief's and is unchanged.
+- **The card is 516×587 on `#040306`.** It has round 28 pt buttons (paging chevrons on the left, close on the right), a 16 pt semibold title, and an identity line with an avatar. The conversation sits in an inner `#1B191C` box with a 12 pt radius. The composer row is 32 pt round controls with the microphone inside the field. A divider sits above the footer, which holds "Next steps", a Kill agent pill and a white Discard pill.
+- **The unread bar** is a 6×18 accent pill for the open card and 6 pt grey dots for the others.
+- **The list** has group headers, then rows of dot, avatar, name, microphone and ×.
+- **The chat** puts your messages in `#1D1C1E` bubbles, with a "Talking to …" line over the composer.
+- **Keycaps are hidden**, since the references show none, and appear over their controls while ⌘ is held. Parity renders each state a second time with ⌘ held (`<state>-keys.png`) and checks every legend against its live binding.
+- **Parity covers all seven states: 211 checks pass.** New checks include colour patches read along a gradient, `x`/`right_inset` measures, the peek's visible width, and the ⌘-held keycap pass.
+- **The app traces state changes to its log** (`dev.sh logs`): events only, never typed or spoken text. The hover reveal was verified live on minime by moving the pointer onto the peek from inside the Aqua session.
+

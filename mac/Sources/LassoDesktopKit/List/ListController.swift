@@ -27,6 +27,7 @@ public final class ListController {
         let host = NSHostingView(rootView: ListHost(presence: presence, model: model))
         host.frame = NSRect(origin: .zero, size: size)
         panel = RailPanel(content: host, size: size)
+        panel.hasShadow = true
         panel.onKey = { [weak self] e in self?.handle(e) ?? false }
         model.onClose = { [weak self] in self?.close() }
     }

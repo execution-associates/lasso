@@ -1,25 +1,5 @@
 import SwiftUI
 
-/// A keycap: drawn from a KeyBinding, never from a string, so its legend is
-/// the key the card's handler matches.
-public struct Keycap: View {
-    let binding: KeyBinding
-
-    public init(_ binding: KeyBinding) { self.binding = binding }
-
-    public var body: some View {
-        let min = Theme.Card.keycapMinSize.size
-        Text(binding.legend)
-            .font(.system(size: Theme.Card.keycapFont.number("size"), weight: Theme.Card.keycapFont.weight))
-            .foregroundStyle(Theme.Text.primary.color)
-            .padding(.horizontal, Theme.Card.keycapPadH.pt)
-            .frame(minWidth: min.width, minHeight: min.height)
-            .background(RoundedRectangle(cornerRadius: Theme.Card.keycapRadius.pt).fill(Theme.Card.keycapFill.color))
-            .parityAnchor("keycap[\(binding.id)]")
-            .accessibilityHidden(true)
-    }
-}
-
 /// "3m ago" from a unix-millisecond timestamp.
 public func relativeAge(_ ms: Int64?, now: Date) -> String? {
     guard let ms else { return nil }
@@ -43,47 +23,101 @@ public func statusPhrase(_ p: HostPane, now: Date) -> String {
     }
 }
 
+/// An agent's small avatar: a symbol by agent kind, with its state as a
+/// dot on the corner (ref a2 identity line, a3 rows).
+struct AgentAvatar: View {
+    let agent: String
+    let state: AgentState
+    var size: CGFloat = Theme.List.row.number("avatar")
+
+    var body: some View {
+        let symbol =
+            switch agent {
+            case "claude": "asterisk"
+            case "codex": "chevron.left.forwardslash.chevron.right"
+            case "omp", "pi": "circle.hexagongrid"
+            default: "terminal"
+            }
+        Image(systemName: symbol)
+            .font(.system(size: size * 0.62, weight: .semibold))
+            .foregroundStyle(Theme.Text.primary.color)
+            .frame(width: size, height: size)
+            .background(RoundedRectangle(cornerRadius: size * 0.28).fill(Theme.Control.round.color("fill")))
+            .overlay(alignment: .bottomTrailing) {
+                Circle()
+                    .fill(StateStyle.color(state))
+                    .frame(width: size * 0.42, height: size * 0.42)
+                    .overlay(Circle().strokeBorder(Theme.Panel.surface.color, lineWidth: 1.5))
+                    .offset(x: size * 0.12, y: size * 0.12)
+            }
+            .accessibilityHidden(true)
+    }
+}
+
 public struct CardView: View {
     @ObservedObject var model: CardModel
     @ObservedObject var fleet: FleetModel
+    let recording: RecordingModel
 
-    public init(model: CardModel) {
+    public init(model: CardModel, recording: RecordingModel? = nil) {
         self.model = model
         fleet = model.fleet
+        self.recording = recording ?? RecordingModel.inert
     }
 
-    private var pad: CGFloat { Theme.Card.pad.pt }
+    private var inset: CGFloat { Theme.Panel.inset.pt }
+    private var contentX: CGFloat { Theme.Card.contentX.pt }
 
     public var body: some View {
-        let size = Theme.Card.size.size
         let pane = model.current
+        let pages = model.pages
+        let index = pages.firstIndex { $0.key == pane.key } ?? 0
         ZStack(alignment: .topLeading) {
-            VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                 header(pane)
                 identity(pane)
-                    .padding(.horizontal, pad)
-                    .padding(.bottom, Theme.Card.sectionGap.pt)
+                    .padding(.top, 9)
                 Group {
                     conversation
-                    statusLine
                 }
                 .id(pane.key)
                 .transition(
                     .asymmetric(
                         insertion: .opacity.combined(with: .offset(y: 12 * CGFloat(model.pageDirection))),
                         removal: .opacity))
-                steps
-                composer
+                .padding(.top, 16)
+                ComposerRow(
+                    model: model, recording: recording, attach: model.attachScreenshot, record: model.record
+                )
+                .padding(.top, 22)
+                Rectangle().fill(Theme.Panel.divider.color).frame(height: 1)
+                    .parityAnchor("card.divider")
+                    .padding(.top, 12)
                 footer
+                    .padding(.top, 14)
             }
-            unreadBar
-                .padding(.leading, Theme.Card.unreadInset.pt)
-                .padding(.top, Theme.Card.headerHeight.pt)
+            .padding(.leading, contentX)
+            .padding(.trailing, inset)
+            .padding(.top, 12.5)
+            .padding(.bottom, 14)
+
+            // The paging column: K above, J below, then the unread bar.
+            VStack(spacing: 5) {
+                RoundButton(symbol: "chevron.up", enabled: pages.count > 1 && index > 0, label: "Previous card (K)") {
+                    model.page(-1)
+                }
+                .keyHint(Keys.previous)
+                RoundButton(
+                    symbol: "chevron.down", enabled: pages.count > 1 && index < pages.count - 1, label: "Next card (J)"
+                ) { model.page(1) }
+                .keyHint(Keys.next)
+                unreadBar(pages)
+                    .padding(.top, 22)
+            }
+            .padding(.leading, 10)
+            .padding(.top, 12.5)
         }
-        .frame(width: size.width, height: size.height)
-        .background(Theme.Card.surface.color)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Card.radius.pt, style: .continuous))
-        .parityAnchor("card")
+        .panelChrome(Theme.Card.size.size, anchor: "card")
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(pane.displayName), \(pane.state.label)")
     }
@@ -93,67 +127,75 @@ public struct CardView: View {
     private func header(_ pane: HostPane) -> some View {
         HStack(spacing: 8) {
             Text(pane.displayName)
-                .font(Theme.Fonts.name.font)
+                .font(Theme.Fonts.title.font)
                 .foregroundStyle(Theme.Text.primary.color)
                 .lineLimit(1)
+                .parityAnchor("card.title")
+                .padding(.leading, Theme.Card.titleX.pt - contentX)
             Spacer(minLength: 8)
-            Button { model.onClose() } label: { Keycap(Keys.esc) }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close (esc)")
+            RoundButton(symbol: "xmark", label: "Close (esc)") { model.onClose() }
+                .keyHint(Keys.esc)
+                .parityAnchor("card.close")
         }
-        .padding(.horizontal, pad)
-        .frame(height: Theme.Card.headerHeight.pt)
+        .frame(height: Theme.Control.round.number("size"))
     }
 
     private func identity(_ pane: HostPane) -> some View {
-        let repo = pane.repo_label ?? pane.repo ?? pane.workspace_label
-        return HStack(spacing: 6) {
-            Text([statusPhrase(pane, now: model.now()), pane.agent, repo].filter { !$0.isEmpty }.joined(separator: " · "))
-                .font(Theme.Fonts.secondLine.font)
+        let group = pane.repo_label ?? pane.repo ?? pane.workspace_label
+        return HStack(spacing: 8) {
+            AgentAvatar(agent: pane.agent, state: pane.state, size: 16)
+            Text([statusPhrase(pane, now: model.now()), group].filter { !$0.isEmpty }.joined(separator: " · "))
+                .font(Theme.Fonts.body.font)
                 .foregroundStyle(Theme.Text.secondary.color)
                 .lineLimit(1)
-            Text(pane.host_label)
-                .font(.system(size: Theme.Card.machineChip.number("font_size")))
-                .foregroundStyle(Theme.Text.primary.color)
-                .padding(.horizontal, Theme.Card.machineChip.number("pad_h"))
-                .padding(.vertical, Theme.Card.machineChip.number("pad_v"))
-                .background(
-                    RoundedRectangle(cornerRadius: Theme.Card.machineChip.number("radius"))
-                        .fill(RGBA(parsing: Theme.Card.machineChip.value["fill"]?.string ?? "")?.color ?? .clear)
-                )
-                .parityAnchor("card.machine_chip")
-                .accessibilityLabel("on \(pane.host_label)")
+            if pane.host != "local" {
+                Text(pane.host_label)
+                    .font(.system(size: Theme.Card.machineChip.number("font_size")))
+                    .foregroundStyle(Theme.Text.primary.color)
+                    .padding(.horizontal, Theme.Card.machineChip.number("pad_h"))
+                    .padding(.vertical, Theme.Card.machineChip.number("pad_v"))
+                    .background(
+                        RoundedRectangle(cornerRadius: Theme.Card.machineChip.number("radius"))
+                            .fill(Theme.Card.machineChip.color("fill"))
+                    )
+                    .parityAnchor("card.machine_chip")
+                    .accessibilityLabel("on \(pane.host_label)")
+            }
             Spacer(minLength: 0)
         }
+        .padding(.leading, Theme.Card.titleX.pt - contentX)
         .parityAnchor("card.identity")
     }
 
     // MARK: unread bar
 
-    private var unreadBar: some View {
+    private func unreadBar(_ pages: [HostPane]) -> some View {
         let seg = Theme.Card.unreadSegment
+        let dot = Theme.Card.unreadDot
         return VStack(spacing: Theme.Card.unreadGap.pt) {
-            ForEach(Array(model.pages.enumerated()), id: \.element.key) { i, p in
-                RoundedRectangle(cornerRadius: seg.number("w") / 2)
-                    .fill(segmentColor(p))
-                    .frame(width: seg.number("w"), height: seg.number("h"))
-                    .parityAnchor("card.unread_bar.segment[\(i)]")
+            ForEach(Array(pages.enumerated()), id: \.element.key) { i, p in
+                Group {
+                    if p.key == model.pane.key {
+                        Capsule().fill(seg.color("color")).frame(width: seg.number("w"), height: seg.number("h"))
+                    } else {
+                        Circle()
+                            .fill(dot.color("color").opacity(model.read.contains(p.key) ? 0.45 : 1))
+                            .frame(width: dot.number("size"), height: dot.number("size"))
+                    }
+                }
+                .parityAnchor("card.unread_bar.segment[\(i)]")
             }
         }
+        .frame(width: Theme.Control.round.number("size"))
         .accessibilityElement()
-        .accessibilityLabel("\(model.pages.filter { !model.read.contains($0.key) }.count) unread cards")
-    }
-
-    private func segmentColor(_ p: HostPane) -> Color {
-        if p.key == model.pane.key { return Theme.Card.unreadCurrent.color }
-        if model.read.contains(p.key) { return Theme.Card.unreadRead.color }
-        return RGBA(parsing: Theme.Card.unreadSegment.value["color"]?.string ?? "")?.color ?? Theme.accent.color
+        .accessibilityLabel("Card \((pages.firstIndex { $0.key == model.pane.key } ?? 0) + 1) of \(pages.count)")
     }
 
     // MARK: conversation
 
     private var conversation: some View {
-        ScrollViewReader { proxy in
+        let inner = Theme.Panel.inner
+        return ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 6) {
                     if let chat = model.chat {
@@ -169,8 +211,8 @@ public struct CardView: View {
                         placeholder("Loading…")
                     }
                 }
-                .padding(.horizontal, pad)
-                .padding(.vertical, 4)
+                .padding(inner.number("pad"))
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .onChange(of: model.chat?.items.last?.id) { _, last in
                 if let last { proxy.scrollTo(last, anchor: .bottom) }
@@ -180,169 +222,89 @@ public struct CardView: View {
             }
         }
         .frame(maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: inner.number("radius"), style: .continuous).fill(inner.color("fill")))
+        .clipShape(RoundedRectangle(cornerRadius: inner.number("radius"), style: .continuous))
         .parityAnchor("card.conversation")
     }
 
     private func placeholder(_ s: String) -> some View {
         Text(s)
-            .font(Theme.Fonts.terminal.font)
+            .font(Theme.Fonts.body.font)
             .foregroundStyle(Theme.Text.secondary.color)
     }
 
-    private var statusLine: some View {
-        let c = model.chat
-        var parts: [String] = []
-        if let m = c?.model, !m.isEmpty { parts.append(m) }
-        if let t = c?.tokens, t > 0 { parts.append("\(t.formatted()) tokens") }
-        parts.append(c?.running == true ? "working" : model.current.state.label)
-        return HStack(spacing: 6) {
-            Circle().fill(StateStyle.color(model.current.state)).frame(width: 6, height: 6)
-            Text(parts.joined(separator: " · "))
-                .font(Theme.Fonts.secondLine.font)
-                .foregroundStyle(Theme.Text.secondary.color)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, pad)
-        .padding(.vertical, 6)
-        .accessibilityElement(children: .combine)
-    }
-
-    // MARK: next steps
-
-    @ViewBuilder private var steps: some View {
-        let steps = model.nextSteps
-        if !steps.isEmpty {
-            VStack(alignment: .leading, spacing: 2) {
-                if let q = model.openQuestion?.question {
-                    Text(q)
-                        .font(Theme.Fonts.secondLine.font)
-                        .foregroundStyle(Theme.Text.secondary.color)
-                        .lineLimit(2)
-                        .padding(.horizontal, Theme.Row.pad.number("h"))
-                }
-                ForEach(steps) { step in
-                    let on = (model.highlighted ?? 0) == step.index
-                    Button { model.highlighted = step.index } label: {
-                        HStack(spacing: 8) {
-                            Text("\(step.index + 1)")
-                                .font(Theme.Fonts.terminal.font)
-                                .foregroundStyle(Theme.Text.secondary.color)
-                            Text(step.label)
-                                .font(Theme.Fonts.tree.font)
-                                .foregroundStyle(Theme.Text.primary.color)
-                                .lineLimit(1)
-                            Spacer(minLength: 8)
-                            if on {
-                                Keycap(Keys.editStep)
-                                Keycap(Keys.takeStep)
-                            }
-                        }
-                        .padding(.vertical, Theme.Row.pad.number("v"))
-                        .padding(.horizontal, Theme.Row.pad.number("h"))
-                        .background(
-                            RoundedRectangle(cornerRadius: Theme.Row.radius.pt)
-                                .fill(on ? Theme.Row.selected.color : .clear))
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Step \(step.index + 1): \(step.label)")
-                    .accessibilityHint("→ answers with it, ↳ edits it first")
-                }
-            }
-            .padding(.horizontal, pad - Theme.Row.pad.number("h"))
-            .padding(.bottom, Theme.Card.sectionGap.pt)
-            .parityAnchor("card.steps")
-        }
-    }
-
-    // MARK: composer
-
-    private var composer: some View {
-        let c = Theme.Card.composer
-        return HStack(spacing: 8) {
-            iconButton("camera.viewfinder", Keys.attach) { model.attachScreenshot() }
-            ComposerField(model: model)
-                .frame(height: c.number("height"))
-                .padding(.horizontal, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: c.number("radius"))
-                        .fill(RGBA(parsing: c.value["fill"]?.string ?? "")?.color ?? .clear))
-                .parityAnchor("card.composer")
-            iconButton("mic", Keys.record) { model.record() }
-            iconButton("arrow.up", Keys.send) { model.send() }
-        }
-        .padding(.horizontal, pad)
-        .padding(.bottom, Theme.Card.sectionGap.pt)
-    }
-
-    private func iconButton(_ symbol: String, _ key: KeyBinding, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                RailIcon(symbol: symbol)
-                Keycap(key)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(model.busy)
-        .accessibilityLabel("\(key.action) (\(key.legend))")
-    }
-
-    // MARK: footer
+    // MARK: footer: next steps and the end actions
 
     private var footer: some View {
-        HStack(spacing: 10) {
-            Button { model.kill() } label: {
-                HStack(spacing: 6) {
-                    Text(model.killArmed ? "Press X again" : "Kill agent")
-                        .font(Theme.Fonts.tree.font)
-                        .foregroundStyle(Theme.dangerText.color)
-                    Keycap(Keys.kill)
-                }
-                .padding(.vertical, Theme.Row.pad.number("v") - 2)
-                .padding(.horizontal, Theme.Row.pad.number("h"))
-                .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(Theme.dangerFill.color))
+        let steps = model.nextSteps
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Text("Next steps")
+                    .font(Theme.Fonts.label.font)
+                    .foregroundStyle(Theme.Text.secondary.color)
+                Spacer(minLength: 8)
+                PillButton(
+                    title: model.killArmed ? "Confirm kill" : "Kill agent", textColor: Theme.dangerText.color,
+                    label: model.killArmed ? "Confirm kill agent (X)" : "Kill agent (X)"
+                ) { model.kill() }
+                .keyHint(Keys.kill)
                 .parityAnchor("action.kill")
+                if model.actions.canDismiss {
+                    PillButton(title: "Discard", primary: true, label: "Discard card (E)") { model.discard() }
+                        .keyHint(Keys.discard)
+                        .parityAnchor("action.discard")
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(model.killArmed ? "Confirm kill agent (X)" : "Kill agent (X)")
-            if model.actions.canDismiss {
-                Button { model.discard() } label: {
-                    HStack(spacing: 6) {
-                        Text("Discard")
-                            .font(Theme.Fonts.tree.font)
-                            .foregroundStyle(Theme.Text.primary.color)
-                        Keycap(Keys.discard)
+            .padding(.leading, Theme.Card.titleX.pt - contentX)
+            if steps.isEmpty {
+                Text(model.notice ?? (model.chat == nil ? " " : "No open question to answer."))
+                    .font(Theme.Fonts.body.font)
+                    .foregroundStyle(Theme.Text.secondary.color)
+                    .lineLimit(1)
+                    .padding(.leading, Theme.Card.titleX.pt - contentX)
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(steps.prefix(3)) { step in
+                        let on = (model.highlighted ?? 0) == step.index
+                        Button { model.highlighted = step.index } label: {
+                            HStack(spacing: 8) {
+                                Text("\(step.index + 1).")
+                                    .foregroundStyle(Theme.Text.secondary.color)
+                                Text(step.label)
+                                    .foregroundStyle(Theme.Text.primary.color)
+                                    .lineLimit(1)
+                                Spacer(minLength: 8)
+                                if on {
+                                    Image(systemName: "arrow.right")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(Theme.Text.secondary.color)
+                                        .keyHint(Keys.takeStep)
+                                }
+                            }
+                            .font(Theme.Fonts.body.font)
+                            .padding(.vertical, 3)
+                            .padding(.horizontal, Theme.Card.titleX.pt - contentX)
+                            .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(on ? Theme.Row.selected.color : .clear))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Step \(step.index + 1): \(step.label)")
+                        .accessibilityHint("Right arrow answers with it; tab edits it first")
+                        .keyHint(Keys.editStep, .topTrailing)
                     }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Discard card (E)")
+                .parityAnchor("card.steps")
             }
-            Text(model.notice ?? "")
-                .font(Theme.Fonts.secondLine.font)
-                .foregroundStyle(Theme.Text.secondary.color)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Button { model.page(1) } label: { Keycap(Keys.next) }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Next card (J)")
-            Button { model.page(-1) } label: { Keycap(Keys.previous) }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Previous card (K)")
         }
-        .padding(.horizontal, pad)
-        .frame(height: Theme.Card.footerHeight.pt)
-        .frame(maxWidth: .infinity)
-        .background(Theme.Card.footer.color)
         .parityAnchor("card.footer")
     }
 }
 
-/// One row of the conversation: user and agent text in the terminal face,
-/// a tool call as a one-line card.
+/// One row of a conversation: user and agent text in the body face, a tool
+/// call as a one-line card.
 struct ChatRow: View {
     let item: ChatItem
+    var font: Font = Theme.Fonts.body.font
 
     var body: some View {
         switch item.kind {
@@ -350,17 +312,17 @@ struct ChatRow: View {
             if let t = item.tool { ToolRow(tool: t) }
         case "marker":
             Text("— \(item.marker ?? "marker") —")
-                .font(Theme.Fonts.terminal.font)
+                .font(font)
                 .foregroundStyle(Theme.Text.secondary.color)
         case "user", "incoming":
             Text("› " + (item.text ?? ""))
-                .font(Theme.Fonts.terminal.font)
+                .font(font)
                 .foregroundStyle(Theme.Text.primary.color)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         default:
             Text(item.text ?? "")
-                .font(Theme.Fonts.terminal.font)
+                .font(font)
                 .foregroundStyle(item.thinking == true ? Theme.Text.secondary.color : Theme.Text.primary.color)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -392,11 +354,9 @@ struct ToolRow: View {
         }
         .font(Theme.Fonts.terminal.font)
         .lineLimit(1)
-        .padding(.horizontal, Theme.Row.pad.number("h"))
+        .padding(.horizontal, 8)
         .frame(height: r.number("height"))
-        .background(
-            RoundedRectangle(cornerRadius: r.number("radius"))
-                .fill(RGBA(parsing: r.value["fill"]?.string ?? "")?.color ?? .clear))
+        .background(RoundedRectangle(cornerRadius: r.number("radius")).fill(RGBA(parsing: r.value["fill"]?.string ?? "")?.color ?? .clear))
         .accessibilityElement(children: .combine)
     }
 }

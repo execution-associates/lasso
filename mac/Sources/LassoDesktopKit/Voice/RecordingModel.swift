@@ -164,11 +164,10 @@ struct RecordingStrip: View {
                 }
                 Spacer(minLength: 0)
             }
-            .font(Theme.Fonts.secondLine.font)
+            .font(Theme.Fonts.small.font)
             .foregroundStyle(Theme.Text.secondary.color)
             .padding(.horizontal, 2)
             .frame(maxHeight: .infinity)
-            .background(Theme.Card.surface.color.opacity(0))
             .accessibilityElement(children: .combine)
             .accessibilityLabel(
                 model.phase == .transcribing ? "Transcribing with \(model.engineName)" : "Recording with \(model.engineName)")

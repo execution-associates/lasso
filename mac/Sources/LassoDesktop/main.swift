@@ -11,6 +11,11 @@ if let i = args.firstIndex(of: "--smoke") {
     dispatchMain()
 }
 
+if args.contains("--dump-tokens") {
+    FileHandle.standardOutput.write(Theme.dumpTokens())
+    exit(0)
+}
+
 // An accessory app: no Dock icon or menu bar (PLAN Q2); the rail is the UI.
 let app = NSApplication.shared
 let delegate = AppDelegate(arguments: args)

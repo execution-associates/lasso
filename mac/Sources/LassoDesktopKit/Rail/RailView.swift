@@ -1,8 +1,9 @@
 import SwiftUI
 
-// The rail: an inbox circle that is always on the screen edge and, expanded,
-// the agents capsule, the tools capsule and the ellipsis below it. Each group
-// floats on its own (no backing). Layout numbers all come from Theme.Rail.
+// The rail. At rest only a sliver of a pill shows at the screen edge (the
+// peek); hovering it reveals the rail: the inbox circle, the agents capsule,
+// the tools capsule and the ellipsis, each floating on its own (no backing).
+// Layout numbers all come from Theme.Rail.
 
 enum RailMetrics {
     static var outer: CGFloat { Theme.Rail.outer.pt }
@@ -11,6 +12,10 @@ enum RailMetrics {
     static var glyph: CGFloat { Theme.Rail.glyphSize.pt }
     static var pitch: CGFloat { Theme.Rail.glyphPitch.pt }
     static var cell: CGFloat { Theme.Rail.toolsCell.pt }
+    static var margin: CGFloat { Theme.Rail.panelMargin.pt }
+
+    /// The panel spans from the rail's leading margin to the screen edge.
+    static var panelWidth: CGFloat { margin + outer + Theme.Rail.edgeInset.pt }
 
     /// Each agent slot is a pitch-tall row with the glyph centred in it, so
     /// the space above the first row is pad_top less half the row's slack.
@@ -32,13 +37,21 @@ enum RailMetrics {
     static func expandedHeight(_ slots: Int) -> CGFloat { outer + revealHeight(slots) }
 }
 
-/// A rail group's shape: fully rounded, capsule fill with a 1 pt rim inside
-/// the outer edge.
+/// A rail group's shape: fully rounded, a fill that is lit from above and a
+/// 1 pt rim that catches the light on top and fades below (ref a2).
 struct GroupBackground: View {
     var body: some View {
+        let shape = Capsule(style: .circular)
         ZStack {
-            Capsule(style: .circular).fill(Theme.Rail.capsuleFill.color)
-            Capsule(style: .circular).strokeBorder(Theme.Rail.capsuleRim.color, lineWidth: RailMetrics.rim)
+            shape.fill(
+                LinearGradient(
+                    colors: [Theme.Rail.fillTop.color, Theme.Rail.fillBottom.color], startPoint: .top,
+                    endPoint: .bottom))
+            shape.strokeBorder(
+                LinearGradient(
+                    colors: [Theme.Rail.rimTop.color, Theme.Rail.rimBottom.color], startPoint: .top,
+                    endPoint: .bottom),
+                lineWidth: RailMetrics.rim)
         }
     }
 }
@@ -61,10 +74,7 @@ struct FocusRing: ViewModifier {
         content.overlay {
             if on {
                 Capsule(style: .circular)
-                    .stroke(
-                        RGBA(parsing: Theme.focusRing.value["color"]?.string ?? "")?.color ?? .accentColor,
-                        lineWidth: Theme.focusRing.number("width")
-                    )
+                    .stroke(Theme.focusRing.color("color"), lineWidth: Theme.focusRing.number("width"))
                     .padding(-Theme.focusRing.number("outset") - Theme.focusRing.number("width") / 2)
             }
         }
@@ -90,6 +100,19 @@ struct RevealHeight: ViewModifier, @preconcurrency Animatable {
     }
 }
 
+/// The most urgent state among what waits on the human, for the badge dot
+/// and the peek's dot.
+extension FleetModel {
+    public var attention: AgentState? {
+        let states = agents.map(\.state) + bots.compactMap { $0.state == "blocked" ? AgentState.blocked : nil }
+        return states.min(by: { $0.urgency < $1.urgency }).flatMap { $0 == .blocked || $0 == .done ? $0 : nil }
+    }
+
+    public var attentionCount: Int {
+        agents.filter { $0.state == .blocked || $0.state == .done }.count + bots.filter { $0.state == "blocked" }.count
+    }
+}
+
 public struct RailView: View {
     @ObservedObject var model: RailModel
     @ObservedObject var fleet: FleetModel
@@ -102,23 +125,64 @@ public struct RailView: View {
 
     public var body: some View {
         let slots = model.slots
-        VStack(spacing: 0) {
-            inbox
-            VStack(spacing: RailMetrics.gap) {
-                if !slots.isEmpty { agents(slots) }
-                tools
-                ellipsis
+        ZStack(alignment: .topLeading) {
+            peek
+                .offset(x: RailMetrics.panelWidth - Theme.Rail.peek.number("visible"), y: peekTop)
+                .opacity(model.expanded ? 0 : 1)
+            VStack(spacing: 0) {
+                inbox
+                VStack(spacing: RailMetrics.gap) {
+                    if !slots.isEmpty { agents(slots) }
+                    tools
+                    ellipsis
+                }
+                .padding(.top, RailMetrics.gap)
+                .frame(height: RailMetrics.revealHeight(slots.count), alignment: .top)
+                .modifier(
+                    RevealHeight(height: model.expanded ? RailMetrics.revealHeight(slots.count) : 0, probe: probe))
+                .accessibilityHidden(!model.expanded)
             }
-            .padding(.top, RailMetrics.gap)
-            .frame(height: RailMetrics.revealHeight(slots.count), alignment: .top)
-            .modifier(
-                RevealHeight(height: model.expanded ? RailMetrics.revealHeight(slots.count) : 0, probe: probe))
+            .frame(width: RailMetrics.outer, alignment: .top)
+            .padding(.top, RailMetrics.margin)
+            // Slides in from the screen edge as it is revealed.
+            .offset(x: model.expanded ? RailMetrics.margin : RailMetrics.panelWidth + RailMetrics.margin)
             .accessibilityHidden(!model.expanded)
         }
-        .frame(width: RailMetrics.outer, alignment: .top)
+        .frame(
+            width: RailMetrics.panelWidth,
+            height: RailMetrics.expandedHeight(Theme.Rail.maxSlots.int) + 2 * RailMetrics.margin, alignment: .topLeading
+        )
+        .clipped()
     }
 
+    /// The peek's top, so it sits where the inbox will appear.
+    private var peekTop: CGFloat { RailMetrics.margin + RailMetrics.outer / 2 - Theme.Rail.peek.number("height") / 2 }
+
     private func focused(_ item: RailModel.Item) -> Bool { model.focusVisible && model.focus == item }
+
+    /// The sliver at rest: a rail pill mostly past the screen edge, with the
+    /// most urgent state as a dot.
+    private var peek: some View {
+        let p = Theme.Rail.peek
+        return Button { model.activate(.inbox) } label: {
+            ZStack(alignment: .topLeading) {
+                GroupBackground()
+                    .frame(width: RailMetrics.outer, height: p.number("height"))
+                Circle()
+                    .fill(StateStyle.color(fleet.attention ?? .idle))
+                    .frame(width: p.number("dot"), height: p.number("dot"))
+                    .parityAnchor("rail.peek.dot")
+                    .padding(.leading, (p.number("visible") - p.number("dot")) / 2)
+                    .padding(.top, p.number("dot_top"))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .parityAnchor("rail.peek")
+        .accessibilityLabel("Show lasso controls")
+        .accessibilityValue(fleet.attentionCount > 0 ? "\(fleet.attentionCount) waiting on you" : "")
+        .help("Show lasso controls")
+    }
 
     private var inbox: some View {
         Button { model.activate(.inbox) } label: {
@@ -133,25 +197,25 @@ public struct RailView: View {
         .parityAnchor("rail.inbox")
         .overlay(alignment: .topLeading) { badge }
         .modifier(FocusRing(on: focused(.inbox)))
-        .accessibilityLabel(model.expanded ? "Show the fleet" : "Show lasso controls")
-        .accessibilityValue(fleet.badgeCount > 0 ? "\(fleet.badgeCount) waiting on you" : "")
-        .help(model.expanded ? "Show the fleet" : "Show lasso controls")
+        .accessibilityLabel("Show the fleet")
+        .accessibilityValue(fleet.attentionCount > 0 ? "\(fleet.attentionCount) waiting on you" : "")
+        .help("Show the fleet")
     }
 
     @ViewBuilder private var badge: some View {
-        let n = fleet.badgeCount
-        if n > 0 {
+        if let state = fleet.attention {
             let size = Theme.Rail.badgeSize.pt
-            Text("\(n)")
-                .font(.system(size: Theme.Rail.badgeFont.number("size"), weight: Theme.Rail.badgeFont.weight))
-                .foregroundStyle(Theme.Rail.badgeFont.textColor)
+            let ring = Theme.Rail.badgeRing
+            let c = Theme.Rail.badgeCenter.size
+            Circle()
+                .fill(StateStyle.color(state))
                 .frame(width: size, height: size)
-                .background(Circle().fill(Theme.Rail.badgeFill.color))
                 .parityAnchor("rail.badge")
-                // Centred a quarter of its size in from the inbox's top-leading
-                // corner. position, not offset: offset would leave the anchor's
+                .padding(ring.number("width"))
+                .background(Circle().fill(ring.color("color")))
+                // position, not offset: offset would leave the anchor's
                 // reported frame behind.
-                .position(x: size / 4, y: size / 4)
+                .position(x: c.width, y: c.height)
                 .accessibilityHidden(true)
         }
     }
@@ -185,7 +249,7 @@ public struct RailView: View {
             tool(
                 .record, symbol: model.recording ? "mic.fill" : "mic",
                 label: model.recording ? "Stop recording" : "Record a message for the assistant")
-            tool(.attach, symbol: "camera.viewfinder", label: "Attach a screenshot to a message")
+            tool(.attach, symbol: "camera", label: "Attach a screenshot to a message")
         }
         .padding(RailMetrics.rim)
         .frame(width: RailMetrics.outer, height: RailMetrics.toolsHeight)

@@ -73,6 +73,11 @@ public final class AppCoordinator {
     }
 
     private func wire(_ railModel: RailModel) {
+        rail.keepOpen = { [weak self] in
+            guard let self else { return false }
+            return self.card.isOpen || self.list.isOpen || self.chat?.panel.isOpen == true || self.onboarding.isOpen
+                || self.recording.isRecording
+        }
         let railFrame = { [weak self] in self?.rail.panel.frame ?? .zero }
         card.railFrame = railFrame
         list.railFrame = railFrame
@@ -88,6 +93,14 @@ public final class AppCoordinator {
             self?.chat?.model.attachScreenshot()
         }
         list.model.onOpen = { [weak self] p in self?.openCard(p) }
+        list.model.onDictate = { [weak self] p in
+            guard let self else { return }
+            self.openCard(p)
+            self.voiceTarget = .card
+            self.recording.toggle()
+        }
+        card.recording = recording
+        KeyHints.shared.start()
         card.onRecord = { [weak self] in
             self?.voiceTarget = .card
             self?.recording.keyDown()

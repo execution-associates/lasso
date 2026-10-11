@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The fleet panel: the same row anatomy as the card (state glyph, name,
-/// second line), grouped machine → repo → agent, pins on top.
+/// The fleet panel (ref a3): group headers, then rows of state dot, agent
+/// avatar, name, and a microphone and close at the end. Pins come first.
 public struct ListView: View {
     @ObservedObject var model: ListModel
     @ObservedObject var fleet: FleetModel
@@ -11,152 +11,133 @@ public struct ListView: View {
         fleet = model.fleet
     }
 
-    private var pad: CGFloat { Theme.Card.pad.pt }
+    private var row: Token { Theme.List.row }
 
     public var body: some View {
-        let size = Theme.List.size.size
-        VStack(spacing: 0) {
-            HStack {
-                Text("Fleet")
-                    .font(Theme.Fonts.name.font)
-                    .foregroundStyle(Theme.Text.primary.color)
-                Text("\(fleet.agents.count) agents")
-                    .font(Theme.Fonts.secondLine.font)
-                    .foregroundStyle(Theme.Text.secondary.color)
-                Spacer()
-                Button { model.onClose() } label: { Keycap(Keys.esc) }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Close (esc)")
-            }
-            .padding(.horizontal, pad)
-            .frame(height: Theme.Card.headerHeight.pt)
-
-            ScrollViewReader { proxy in
-                ScrollView(.vertical) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        if !model.pinned.isEmpty {
-                            header("Pinned", anchor: "list.header.pinned")
-                            ForEach(model.pinned) { row($0, pinnedSection: true) }
-                        }
-                        ForEach(Array(model.groups.enumerated()), id: \.element.id) { gi, g in
-                            header(g.machine, anchor: "list.header.machine[\(gi)]")
-                            ForEach(g.repos) { r in
-                                Text(r.name)
-                                    .font(Theme.Fonts.tree.font)
-                                    .foregroundStyle(Theme.Text.secondary.color)
-                                    .padding(.horizontal, Theme.Row.pad.number("h"))
-                                    .padding(.top, 4)
-                                    .accessibilityAddTraits(.isHeader)
-                                ForEach(r.agents) { row($0, pinnedSection: false) }
-                            }
-                        }
-                        if fleet.agents.isEmpty {
-                            Text("No agents running")
-                                .font(Theme.Fonts.secondLine.font)
-                                .foregroundStyle(Theme.Text.secondary.color)
-                                .padding(Theme.Row.pad.number("h"))
+        ScrollViewReader { proxy in
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 0) {
+                    if !model.pinned.isEmpty {
+                        header("Pinned", anchor: "list.header.pinned")
+                        ForEach(model.pinned) { rowView($0, pinnedSection: true) }
+                    }
+                    ForEach(Array(model.groups.enumerated()), id: \.element.id) { gi, g in
+                        ForEach(Array(g.repos.enumerated()), id: \.element.id) { ri, r in
+                            let machine = model.groups.count > 1 ? " · \(g.machine)" : ""
+                            header(r.name + machine, anchor: "list.header[\(gi).\(ri)]")
+                            ForEach(r.agents) { rowView($0, pinnedSection: false) }
                         }
                     }
-                    .padding(.horizontal, pad - Theme.Row.pad.number("h"))
-                    .padding(.bottom, 8)
+                    if fleet.agents.isEmpty {
+                        Text("No agents running")
+                            .font(Theme.Fonts.body.font)
+                            .foregroundStyle(Theme.Text.secondary.color)
+                            .padding(row.number("pad_h"))
+                    }
+                    if let n = model.notice {
+                        Text(n)
+                            .font(Theme.Fonts.small.font)
+                            .foregroundStyle(Theme.Text.secondary.color)
+                            .padding(.horizontal, row.number("pad_h"))
+                            .padding(.vertical, 8)
+                    }
                 }
-                .onChange(of: model.selected) { _, key in
-                    if let key { proxy.scrollTo(key) }
-                }
+                .padding(.vertical, 8)
             }
-
-            Text(model.notice ?? " ")
-                .font(Theme.Fonts.secondLine.font)
-                .foregroundStyle(Theme.Text.secondary.color)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, pad)
-                .frame(height: Theme.Card.footerHeight.pt)
-                .background(Theme.Card.footer.color)
+            .onChange(of: model.selected) { _, key in
+                if let key { proxy.scrollTo(key) }
+            }
         }
-        .frame(width: size.width, height: size.height)
-        .background(Theme.Card.surface.color)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Card.radius.pt, style: .continuous))
-        .parityAnchor("list")
+        .panelChrome(Theme.List.size.size, anchor: "list")
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Fleet")
     }
 
     private func header(_ title: String, anchor: String) -> some View {
         Text(title)
-            .font(
-                .system(size: Theme.List.groupHeaderFont.number("size"), weight: Theme.List.groupHeaderFont.weight))
-            .foregroundStyle(Theme.List.groupHeaderFont.textColor)
-            .padding(.horizontal, Theme.Row.pad.number("h"))
-            .padding(.top, 10)
-            .padding(.bottom, 2)
+            .font(Theme.Fonts.header.font)
+            .foregroundStyle(Theme.Text.secondary.color)
+            .lineLimit(1)
+            .padding(.horizontal, row.number("pad_h"))
+            .padding(.top, 12)
+            .padding(.bottom, 4)
             .parityAnchor(anchor)
             .accessibilityAddTraits(.isHeader)
     }
 
-    private func row(_ p: HostPane, pinnedSection: Bool) -> some View {
+    private func rowView(_ p: HostPane, pinnedSection: Bool) -> some View {
         let key = p.key
         let selected = model.selected == key
+        let hovered = model.hovered == key
         let pinned = model.pinnedKeys.contains(key)
-        let fill =
-            selected ? Theme.Row.selected.color : (model.hovered == key ? Theme.Row.hover.color : Color.clear)
         return Group {
             if model.confirmEnd == key {
-                HStack(spacing: 8) {
+                HStack(spacing: 10) {
                     Text("End \(p.displayName)?")
                         .font(Theme.Fonts.name.font)
                         .foregroundStyle(Theme.Text.primary.color)
                         .lineLimit(1)
                     Spacer()
-                    Button("End") { model.end(p) }
-                        .buttonStyle(.plain)
-                        .font(Theme.Fonts.tree.font)
-                        .foregroundStyle(Theme.dangerText.color)
-                        .padding(.horizontal, Theme.Row.pad.number("h"))
-                        .padding(.vertical, 3)
-                        .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(Theme.dangerFill.color))
-                        .accessibilityLabel("Confirm: end \(p.displayName)")
-                    Button("Cancel") { model.confirmEnd = nil }
-                        .buttonStyle(.plain)
-                        .font(Theme.Fonts.tree.font)
-                        .foregroundStyle(Theme.Text.secondary.color)
-                        .accessibilityLabel("Cancel ending \(p.displayName)")
-                }
-                .padding(.vertical, Theme.Row.pad.number("v"))
-                .padding(.horizontal, Theme.Row.pad.number("h"))
-            } else {
-                Button {
-                    model.selected = key
-                    model.onOpen(p)
-                } label: {
-                    HStack(alignment: .top, spacing: 8) {
-                        AgentGlyph(slot: .agent(p))
-                            .padding(.top, 3)
-                        VStack(alignment: .leading, spacing: 1) {
-                            HStack(spacing: 4) {
-                                Text(p.displayName)
-                                    .font(Theme.Fonts.name.font)
-                                    .foregroundStyle(Theme.Text.primary.color)
-                                    .lineLimit(1)
-                                if pinned && !pinnedSection {
-                                    Image(systemName: "pin.fill")
-                                        .font(.system(size: Theme.Fonts.secondLine.number("size")))
-                                        .foregroundStyle(Theme.Text.secondary.color)
-                                }
-                            }
-                            Text([statusPhrase(p, now: model.now()), p.agent].filter { !$0.isEmpty }.joined(separator: " · "))
-                                .font(Theme.Fonts.secondLine.font)
-                                .foregroundStyle(Theme.Text.secondary.color)
-                                .lineLimit(1)
-                        }
-                        Spacer(minLength: 0)
+                    PillButton(title: "End", textColor: Theme.dangerText.color, label: "Confirm: end \(p.displayName)") {
+                        model.end(p)
                     }
-                    .padding(.vertical, Theme.Row.pad.number("v"))
-                    .padding(.horizontal, Theme.Row.pad.number("h"))
-                    .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(fill))
-                    .contentShape(Rectangle())
+                    PillButton(title: "Cancel", label: "Cancel ending \(p.displayName)") { model.confirmEnd = nil }
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, row.number("pad_h"))
+                .frame(height: row.number("height"))
+            } else {
+                HStack(spacing: 0) {
+                    Button {
+                        model.selected = key
+                        model.onOpen(p)
+                    } label: {
+                        HStack(spacing: 0) {
+                            Circle()
+                                .fill(StateStyle.color(p.state))
+                                .frame(width: row.number("dot"), height: row.number("dot"))
+                                .parityAnchor(pinnedSection ? "list.dot.pinned[\(key)]" : "list.dot[\(key)]")
+                                .frame(width: 38 - row.number("pad_h"), alignment: .leading)
+                            AgentAvatar(agent: p.agent, state: p.state)
+                            Text(p.displayName)
+                                .font(Theme.Fonts.name.font)
+                                .foregroundStyle(Theme.Text.primary.color)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .padding(.leading, row.number("name_x") - 38 - row.number("avatar"))
+                            if pinned && !pinnedSection {
+                                Image(systemName: "pin.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(Theme.Text.secondary.color)
+                                    .padding(.leading, 6)
+                            }
+                            Spacer(minLength: 8)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        "\(p.displayName), \(p.state.label), \(p.agent) on \(p.host_label)\(pinned ? ", pinned" : "")")
+                    Button { model.dictate(p) } label: {
+                        Image(systemName: "mic").frame(width: 30, height: row.number("height")).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Dictate to \(p.displayName)")
+                    Button { model.askEnd(p) } label: {
+                        Image(systemName: "xmark").frame(width: 30, height: row.number("height")).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("End \(p.displayName)")
+                }
+                .font(.system(size: 14))
+                .foregroundStyle(Theme.Text.secondary.color)
+                .padding(.leading, row.number("pad_h"))
+                .padding(.trailing, row.number("pad_h") - 8)
+                .frame(height: row.number("height"))
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Row.radius.pt)
+                        .fill(selected ? Theme.Row.selected.color : (hovered ? Theme.Row.hover.color : .clear))
+                        .padding(.horizontal, 8)
+                )
                 .onHover { model.hovered = $0 ? key : (model.hovered == key ? nil : model.hovered) }
                 .contextMenu {
                     Button(pinned ? "Unpin" : "Pin") { model.togglePin(p) }
@@ -164,10 +145,8 @@ public struct ListView: View {
                     Divider()
                     Button("End agent…") { model.askEnd(p) }
                 }
-                .accessibilityLabel("\(p.displayName), \(p.state.label), \(p.agent) on \(p.host_label)\(pinned ? ", pinned" : "")")
                 .accessibilityAction(named: pinned ? "Unpin" : "Pin") { model.togglePin(p) }
                 .accessibilityAction(named: "Focus in herdr") { model.focus(p) }
-                .accessibilityAction(named: "End agent") { model.askEnd(p) }
             }
         }
         .id(pinnedSection ? "pinned:\(key)" : key)

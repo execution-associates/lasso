@@ -38,6 +38,8 @@ public final class ListModel: ObservableObject {
     public let now: () -> Date
     public var onOpen: (HostPane) -> Void = { _ in }
     public var onClose: () -> Void = {}
+    /// The row's microphone: open the agent's card and dictate into it.
+    public var onDictate: (HostPane) -> Void = { _ in }
 
     public init(fleet: FleetModel, actions: FleetActions, now: @escaping () -> Date = Date.init) {
         self.fleet = fleet
@@ -110,6 +112,8 @@ public final class ListModel: ObservableObject {
             }
         }
     }
+
+    public func dictate(_ p: HostPane) { onDictate(p) }
 
     /// End asks first: the row turns into a confirm, and only that ends it.
     public func askEnd(_ p: HostPane) { confirmEnd = p.key }
