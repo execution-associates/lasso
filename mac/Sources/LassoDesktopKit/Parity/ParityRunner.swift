@@ -118,6 +118,9 @@ public final class ParityRunner {
         fleet.apply(panes: fixture.server.all_panes)
         fleet.apply(bots: fixture.server.bots)
         fleet.apply(uiState: fixture.server.ui_state)
+        // Finished turns count from an hour before the fixture's now, as they
+        // would an hour after a first launch.
+        fleet.inboxSince = Int64((fixture.now.timeIntervalSince1970 - 3600) * 1000)
         return fleet
     }
 
@@ -149,7 +152,7 @@ public final class ParityRunner {
             recapture = make
         } else if fixture.ui.inbox == true {
             // The inbox opens on its newest message; only an empty one is a panel.
-            let m = InboxModel(fleet: fleet, reads: BotReads(), now: { fixture.now })
+            let m = InboxModel(fleet: fleet, now: { fixture.now })
             if let first = m.panes.first {
                 let c = try cardModel(fixture, fleet: fleet, key: first.key)
                 c.inbox = m
@@ -268,8 +271,8 @@ public final class ParityRunner {
     private func fixtureChecks(_ state: String, _ fx: Fixture, fleet: FleetModel, model: RailModel) {
         if let badge = fx.expect?.badge {
             add(
-                state, "fixture", "badge", "\(badge)", "\(fleet.badgeCount)", "",
-                badge == fleet.badgeCount ? .pass : .fail)
+                state, "fixture", "badge", "\(badge)", "\(fleet.attentionCount)", "",
+                badge == fleet.attentionCount ? .pass : .fail)
         }
         if let slots = fx.expect?.rail_slots {
             let got = model.slots.map(\.id)

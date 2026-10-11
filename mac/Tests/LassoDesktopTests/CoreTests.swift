@@ -54,7 +54,8 @@ private let specDir = packageDir.appendingPathComponent("Spec")
     let fleet = FleetModel()
     fleet.apply(panes: fx.server.all_panes)
     fleet.apply(bots: fx.server.bots)
-    #expect(fleet.badgeCount == fx.expect?.badge)
+    fleet.inboxSince = Int64((fx.now.timeIntervalSince1970 - 3600) * 1000)
+    #expect(fleet.attentionCount == fx.expect?.badge)
     #expect(fleet.railSlots(maxSlots: Theme.Rail.maxSlots.int).map(\.id) == fx.expect?.rail_slots)
 }
 
@@ -131,15 +132,35 @@ private let specDir = packageDir.appendingPathComponent("Spec")
     #expect(InboxShortcutChoice.doubleTap(.option).needsAccessibility)
 }
 
-/// A new turn on the same agent is a new arrival; the same state is not.
-@Test func arrivalKeysMoveWithTheTranscript() {
-    var p = HostPane(
-        host: "local", host_label: "titan", pane_id: "w1:p1", workspace_id: "w1", workspace_label: "Agents",
-        tab_id: "w1:t1", tab_label: "stub", cwd: "/", agent: "claude", agent_status: "done", has_agent: true,
-        focused: false)
-    p.transcript_at = 10
-    let a = InboxItem.agent(p).arrivalKey
-    #expect(InboxItem.agent(p).arrivalKey == a)
-    p.transcript_at = 11
-    #expect(InboxItem.agent(p).arrivalKey != a)
+/// The inbox (PLAN 13.2): waiting first, then finished turns; claude and
+/// omp only; a Discard hides an entry until its transcript moves; a new turn
+/// is unseen again (the badge).
+@MainActor @Test func inboxMembershipDiscardAndSeen() {
+    func pane(_ id: String, _ agent: String, _ status: String, _ at: Int64) -> HostPane {
+        var p = HostPane(
+            host: "local", host_label: "titan", pane_id: id, workspace_id: "w1", workspace_label: "Agents",
+            tab_id: "w1:t1", tab_label: id, cwd: "/", agent: agent, agent_status: status, has_agent: true, focused: false)
+        p.transcript_at = at
+        return p
+    }
+    let fleet = FleetModel()
+    fleet.apply(panes: AllPanes(panes: [
+        pane("w1:p1", "claude", "done", 10), pane("w1:p2", "omp", "blocked", 5),
+        pane("w1:p3", "codex", "blocked", 20), pane("w1:p4", "claude", "working", 30),
+    ]))
+    #expect(fleet.inbox.map(\.pane.pane_id) == ["w1:p2", "w1:p1"])
+    #expect(fleet.attention == .blocked && fleet.attentionCount == 2)
+
+    let inbox = InboxModel(fleet: fleet)
+    inbox.markSeen(fleet.inbox[0].pane)
+    inbox.markSeen(fleet.inbox[1].pane)
+    #expect(fleet.attention == nil && fleet.attentionCount == 0)
+
+    var ui = UIStateSlice()
+    ui.dismissed_cards = ["local\u{0}w1:p1": 10]
+    fleet.apply(uiState: ui)
+    #expect(fleet.inbox.map(\.pane.pane_id) == ["w1:p2"])
+    fleet.apply(panes: AllPanes(panes: [pane("w1:p1", "claude", "done", 11), pane("w1:p2", "omp", "blocked", 5)]))
+    #expect(fleet.inbox.map(\.pane.pane_id) == ["w1:p2", "w1:p1"])
+    #expect(fleet.unseen.map(\.pane.pane_id) == ["w1:p1"])
 }

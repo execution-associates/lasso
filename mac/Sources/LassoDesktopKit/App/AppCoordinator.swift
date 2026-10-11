@@ -15,7 +15,6 @@ public final class AppCoordinator {
     let list: ListController
     let permissions: Permissions
     let botActions: BotChatActions
-    let reads = BotReads()
     private let inboxModel: InboxModel
     private let inbox: SidePanel
     private let settingsModel: SettingsModel
@@ -61,7 +60,11 @@ public final class AppCoordinator {
         rail = RailController(model: RailModel(fleet: fleet))
         card = CardController(fleet: fleet, actions: cardActions)
         list = ListController(model: ListModel(fleet: fleet, actions: fleetActions))
-        inboxModel = InboxModel(fleet: fleet, reads: reads)
+        inboxModel = InboxModel(fleet: fleet)
+        if sync != nil {
+            InboxMemory.load(into: fleet)
+            inboxModel.persist = true
+        }
         inbox = SidePanel(size: Theme.List.size.size, content: InboxView(model: inboxModel))
         let baseURL = (client ?? .configured()).baseURL
         settingsModel = SettingsModel(
@@ -121,8 +124,7 @@ public final class AppCoordinator {
             guard let self, self.preview.isOpen else { return false }
             return self.preview.engaged || self.preview.panel.frame.contains(NSEvent.mouseLocation)
         }
-        inboxModel.onOpenAgent = { [weak self] p in self?.openCard(p) }
-        inboxModel.onOpenBot = { [weak self] b in self?.openChat(b) }
+        inboxModel.onOpen = { [weak self] p in self?.openCard(p) }
         inboxModel.onClose = { [weak self] in self?.inbox.close() }
         inbox.onKey = { [weak self] e in
             guard Keys.esc.matches(e) else { return false }
@@ -159,7 +161,7 @@ public final class AppCoordinator {
         // Something new in the inbox makes the arrival sound. The first
         // reading is a baseline; a live lasso only (fixtures make no sound).
         if sync != nil {
-            Publishers.CombineLatest3(fleet.$panes, fleet.$bots, fleet.$uiState)
+            Publishers.CombineLatest4(fleet.$panes, fleet.$bots, fleet.$uiState, fleet.$notices)
                 .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
                 .sink { [weak self] _ in self?.noteArrivals() }
                 .store(in: &subs)
@@ -217,6 +219,7 @@ public final class AppCoordinator {
         } else {
             closeAll(except: inbox)
             inbox.open(takeKey: takeKey)
+            inboxModel.markNoticesSeen()
         }
     }
 
@@ -244,7 +247,7 @@ public final class AppCoordinator {
 
     /// Play the arrival sound when the inbox holds something it did not.
     private func noteArrivals() {
-        let now = Set(inboxModel.items.map(\.arrivalKey))
+        let now = inboxModel.arrivalKeys
         defer { inboxSeen = now }
         guard let before = inboxSeen, !now.subtracting(before).isEmpty else { return }
         InboxSound.play()
@@ -330,7 +333,6 @@ public final class AppCoordinator {
 
     /// A bot's chat.
     func openChat(_ bot: BotView) {
-        reads.markRead(bot)
         if chat?.model.bot.name != bot.name {
             chat?.model.stopPolling()
             chat?.panel.close()

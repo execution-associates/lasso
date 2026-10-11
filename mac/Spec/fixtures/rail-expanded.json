@@ -293,7 +293,7 @@
     }
   },
   "expect": {
-    "badge": 3,
+    "badge": 4,
     "rail_slots": [
       "local\u0000w1:p3",
       "local\u0000w1:p1",

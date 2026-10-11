@@ -1,5 +1,5 @@
 {
-  "about": "The inbox opens straight into its newest message: jessica (a bot, waiting on an approval) comes first, so the card opens on her pane, showing her question as next steps. J/K page on through stub and notarize (blocked) and clem (finished), in the inbox's order; the unread bar shows all four.",
+  "about": "The inbox opens straight into its newest message: jessica (a bot, waiting on an approval) comes first, so the card opens on her pane, showing her question as next steps. J/K page on through stub (blocked), then homie's reply and clem's finished turn, in the inbox's order; notarize, a Codex agent, is not the inbox's (claude and omp only). The unread bar shows all four.",
   "state": "inbox-open",
   "extends": "rail-expanded",
   "ui": {
@@ -10,7 +10,7 @@
     "inbox": true
   },
   "expect": {
-    "badge": 3
+    "badge": 4
   },
   "chats": {
     "local\u0000w1:p3": {

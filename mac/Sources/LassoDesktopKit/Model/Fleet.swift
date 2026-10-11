@@ -9,6 +9,12 @@ public final class FleetModel: ObservableObject {
     @Published public private(set) var bots: [BotView] = []
     @Published public private(set) var uiState = UIStateSlice()
     @Published public private(set) var hostErrors: [String: String] = [:]
+    /// The inbox's seen marks on this Mac, by entry (InboxMemory).
+    @Published public var seen: [String: String] = [:]
+    /// lasso's notices since launch, newest last (at most 50).
+    @Published public var notices: [InboxNotice] = []
+    /// Finished turns count from here (unix ms); 0 counts them all.
+    public var inboxSince: Int64 = 0
 
     public init() {}
 
@@ -42,10 +48,11 @@ public final class FleetModel: ObservableObject {
         return a.key < b.key
     }
 
-    /// What is waiting on the human: blocked agents that are not a bot's own
-    /// pane, plus blocked bots (a bot and its pane count once).
-    public var badgeCount: Int {
-        agents.filter { $0.state == .blocked && bot(for: $0) == nil }.count + bots.filter { $0.state == "blocked" }.count
+    /// A notice from lasso's event stream: kept once by id, the last 50.
+    public func add(notice n: InboxNotice) {
+        guard !notices.contains(where: { $0.id == n.id }) else { return }
+        notices.append(n)
+        if notices.count > 50 { notices.removeFirst(notices.count - 50) }
     }
 
     /// The agents capsule's slots: at most `maxSlots`; when the fleet is

@@ -80,6 +80,8 @@ public final class FleetSync: ObservableObject {
             if f.panes_rev != revs.panes_rev { Task { await refreshPanes() } }
             if f.ui_state_rev != revs.ui_state_rev { Task { await refreshUIState() } }
             revs = f
+        case "notice":
+            if let n = try? JSONDecoder().decode(InboxNotice.self, from: Data(e.data.utf8)) { fleet.add(notice: n) }
         case "bot-chat":
             struct B: Decodable { var bot: String }
             Task { await refreshBots() }

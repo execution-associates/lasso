@@ -146,20 +146,6 @@ struct PeekShape: Shape {
     }
 }
 
-/// The most urgent state among what waits on the human, for the badge dot
-/// and the peek's dot.
-extension FleetModel {
-    public var attention: AgentState? {
-        let states = agents.map(\.state) + bots.compactMap { $0.state == "blocked" ? AgentState.blocked : nil }
-        return states.min(by: { $0.urgency < $1.urgency }).flatMap { $0 == .blocked || $0 == .done ? $0 : nil }
-    }
-
-    public var attentionCount: Int {
-        agents.filter { ($0.state == .blocked || $0.state == .done) && bot(for: $0) == nil }.count
-            + bots.filter { $0.state == "blocked" }.count
-    }
-}
-
 public struct RailView: View {
     @ObservedObject var model: RailModel
     @ObservedObject var fleet: FleetModel

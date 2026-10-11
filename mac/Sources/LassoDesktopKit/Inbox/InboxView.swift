@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The inbox panel, for when the card has nothing to open on: empty, or only
-/// bots with no pane to show. A row opens the agent's card or the bot's chat.
+/// The inbox panel, for when the card has no message to open: lasso's
+/// notices, newest first, each dismissed with ×, or the empty state.
 public struct InboxView: View {
     @ObservedObject var model: InboxModel
     @ObservedObject var fleet: FleetModel
@@ -14,15 +14,12 @@ public struct InboxView: View {
     private var row: Token { Theme.List.row }
 
     public var body: some View {
-        let items = model.items
+        let notices = fleet.notices.reversed()
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Inbox")
                     .font(Theme.Fonts.title.font)
                     .foregroundStyle(Theme.Text.primary.color)
-                Text(items.isEmpty ? "" : "\(items.count)")
-                    .font(Theme.Fonts.body.font)
-                    .foregroundStyle(Theme.Text.secondary.color)
                 Spacer()
                 RoundButton(symbol: "xmark", label: "Close (esc)") { model.onClose() }
                     .keyHint(Keys.esc)
@@ -31,7 +28,7 @@ public struct InboxView: View {
             .padding(.top, Theme.Layout.card.number("top"))
             .padding(.bottom, Theme.space("m"))
 
-            if items.isEmpty {
+            if notices.isEmpty {
                 VStack(alignment: .leading, spacing: Theme.space("xs")) {
                     Text("Nothing waiting on you.")
                         .font(Theme.Fonts.body.font)
@@ -48,7 +45,7 @@ public struct InboxView: View {
             } else {
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 0) {
-                        ForEach(items) { item in rowView(item) }
+                        ForEach(Array(notices)) { n in noticeRow(n) }
                     }
                     .padding(.bottom, Theme.space("m"))
                 }
@@ -56,52 +53,43 @@ public struct InboxView: View {
         }
         .panelChrome(Theme.List.size.size, anchor: "inbox")
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Inbox, \(items.count) waiting")
+        .accessibilityLabel(notices.isEmpty ? "Inbox, nothing waiting" : "Inbox, \(notices.count) notices")
     }
 
-    private func rowView(_ item: InboxItem) -> some View {
-        let (name, detail, state, agent): (String, String, AgentState, String) =
-            switch item {
-            case .agent(let p): (p.displayName, [statusPhrase(p, now: model.now()), p.group].joined(separator: " · "), p.state, p.agent)
-            case .bot(let b):
-                (
-                    b.name,
-                    b.state == "blocked" ? "Waiting on you: \(b.waiting_for ?? "a question")" : (b.last_text ?? "New message"),
-                    b.state == "blocked" ? .blocked : .done, b.runtime
-                )
-            }
-        return Button { model.open(item) } label: {
-            HStack(alignment: .center, spacing: 0) {
-                Circle()
-                    .fill(StateStyle.color(state))
-                    .frame(width: row.number("dot"), height: row.number("dot"))
-                    .parityAnchor("inbox.dot[\(item.id)]")
-                    .frame(width: row.number("dot_col") - row.number("pad_h"), alignment: .leading)
-                AgentAvatar(agent: agent, state: state)
-                VStack(alignment: .leading, spacing: Theme.space("2xs")) {
-                    Text(name)
-                        .font(Theme.Fonts.name.font)
-                        .foregroundStyle(Theme.Text.primary.color)
-                        .lineLimit(1)
-                    Text(detail)
+    private func noticeRow(_ n: InboxNotice) -> some View {
+        let state: AgentState = n.level == "error" ? .blocked : (n.level == "success" ? .done : .idle)
+        return HStack(alignment: .top, spacing: 0) {
+            Circle()
+                .fill(StateStyle.color(state))
+                .frame(width: row.number("dot"), height: row.number("dot"))
+                .padding(.top, Theme.space("s"))
+                .frame(width: row.number("dot_col") - row.number("pad_h"), alignment: .leading)
+                .parityAnchor("inbox.notice.dot[\(n.id)]")
+            VStack(alignment: .leading, spacing: Theme.space("2xs")) {
+                Text(n.title)
+                    .font(Theme.Fonts.name.font)
+                    .foregroundStyle(Theme.Text.primary.color)
+                if let d = n.detail, !d.isEmpty {
+                    Text(d)
                         .font(Theme.Fonts.small.font)
                         .foregroundStyle(Theme.Text.secondary.color)
-                        .lineLimit(1)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.leading, row.number("name_x") - row.number("dot_col") - row.number("avatar"))
-                Spacer(minLength: Theme.space("m"))
-                if case .bot = item {
-                    Image(systemName: "bubble.left")
-                        .font(.system(size: Theme.icon.number("control")))
-                        .foregroundStyle(Theme.Text.secondary.color)
-                }
+                Text(Date(timeIntervalSince1970: Double(n.at) / 1000), style: .relative)
+                    .font(Theme.Fonts.small.font)
+                    .foregroundStyle(Theme.Text.secondary.color)
             }
-            .padding(.horizontal, row.number("pad_h"))
-            .padding(.vertical, Theme.space("s"))
-            .contentShape(Rectangle())
+            Spacer(minLength: Theme.space("m"))
+            Button { model.dismiss(n) } label: {
+                Image(systemName: "xmark").frame(width: row.number("action_w"), height: row.number("height")).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Theme.Text.secondary.color)
+            .accessibilityLabel("Dismiss \(n.title)")
         }
-        .buttonStyle(.plain)
-        .parityAnchor("inbox.row[\(item.id)]")
-        .accessibilityLabel("\(name): \(detail)")
+        .padding(.horizontal, row.number("pad_h"))
+        .padding(.vertical, Theme.space("s"))
+        .parityAnchor("inbox.notice[\(n.id)]")
+        .accessibilityElement(children: .contain)
     }
 }
