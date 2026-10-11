@@ -897,7 +897,12 @@ func botOmpChat(b Backend, r *botRecord, before string) chatPayload {
 	s := ompBotFor(r.Name).snapshot()
 	path := botOmpSessionFile(b, r)
 	if path == "" {
-		out.Starting = s.connected
+		// A wait only while omp is still coming up: a ready bot with no
+		// session file is waiting for its first message, not loading.
+		bots.mu.Lock()
+		t, launching := bots.starting[r.Name]
+		bots.mu.Unlock()
+		out.Starting = (s.connected && !s.ready) || (!s.connected && launching && time.Since(t) < botStartGrace)
 		out.Note = "No conversation yet."
 		return out
 	}
