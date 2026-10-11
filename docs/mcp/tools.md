@@ -125,7 +125,7 @@ A level the chosen harness does not list is **dropped** and the agent launches a
 - claude and opencode show a numbered "Would you like to proceed?" prompt; option `1` accepts. herdr reports `blocked` natively.
 - omp shows a Plan Review overlay chosen with the arrow keys, not numbers. herdr's own detection reports it as idle, so lasso recognizes the overlay itself and reports `blocked`; poll `get_agent` for an omp gate rather than waiting on herdr. Enter accepts the highlighted default, "Approve and execute". Revising an omp plan ("Refine plan") needs a human in the pane.
 
-Returns an [agent object](#the-agent-object). Poll `get_agent` and watch `boot_status` to tell a still-booting agent from one that is up.
+Returns an [agent object](#the-agent-object) with `status` `booting`. To wait for the agent to finish its task, call `wait_agent` right away: it does not match `idle` until the boot is done and the prompt's first turn has started (see [`wait_agent`](#wait_agent)).
 
 ### `list_agents`
 
@@ -151,7 +151,7 @@ Gets one agent's details and live status. It does not read the agent's terminal;
 
 One of `agent_id` or `to` is needed. Targets resolve in order: exact lasso id, then exact pane id, then a case-insensitive name. A name that matches more than one agent is refused with the candidates listed; re-target by id or pane id.
 
-Returns `agent`, an [agent object](#the-agent-object). `status` is `working`, `idle`, `blocked` or `unknown`, or `failed` for a boot that never came up.
+Returns `agent`, an [agent object](#the-agent-object). `status` is `working`, `idle`, `done`, `blocked` or `unknown`, `booting` for a lasso agent that has not started yet, or `failed` for a boot that never came up.
 
 ### `close_agent`
 
@@ -188,7 +188,7 @@ Use `close_agent` rather than `herdr pane close` on a pane lasso created; closin
 | `repo`, `branch`, `base_branch` | for a git agent |
 | `work_dir` | the agent's working directory |
 | `workspace_id`, `root_pane` | its herdr workspace and the pane it runs in |
-| `status` | live herdr status: `working`, `idle`, `blocked`, `unknown`, or `failed` for a failed boot |
+| `status` | live herdr status (`working`, `idle`, `done`, `blocked`, `unknown`); `booting` while a lasso agent's boot runs and, when it was given a prompt, until its first turn has started; `failed` for a failed boot |
 | `boot_status`, `boot_error` | the async boot's phase (`booting`, `ready`, `failed`) and, when failed, why |
 | `created_at` | RFC 3339 timestamp |
 | `lasso_created` | true for agents lasso spawned; false for foreign herdr sessions |
@@ -235,6 +235,8 @@ The agent's terminal. `source` is `recent_unwrapped` (default, scrollback with s
 ### `wait_agent`
 
 Waits until the agent reaches `status` (default `idle`, which also matches `done`) or `timeout_ms` passes (default 60000, max 600000). Returns `status` and `matched`.
+
+Safe to call right after `create_agent`. A lasso agent reads `booting` until its boot is done and, when it was given a prompt, until its first turn has started: lasso has seen it `working`, `blocked` or `done`, or herdr's `agent.get` reports a `completion_seq` (a turn that started and finished between two polls). So `idle` means the task's turn finished, not that the CLI just drew its first screen. `booting` gives way after 10 minutes, so a boot stranded by a lasso restart, or a prompt that never took, does not hold every wait to its timeout. A failed boot returns at once with `status` `failed` and `matched` false. An agent created without a prompt matches `idle` as soon as its boot is done and the CLI is at rest.
 
 ### `reply_message`
 
@@ -397,13 +399,13 @@ Returns `closed` (the tab id) and `browser`.
 
 ## Bots
 
-These manage lasso's [bots](../web-ui/bots.md): long-lived Claude Code sessions lasso launches in herdr and keeps running. A bot is named by `name`, as `list_bots` shows it. A bot on a host outside your reach is answered as if it did not exist. Every bot on lasso's own machine has these tools through an MCP server named `lasso`, so a bot can change its own settings when its human asks. Creating and deleting a bot, and signing one in to an OAuth server, stay in the Bots view. Design: [bots.md](../design/bots.md).
+These manage lasso's [bots](../web-ui/bots.md): long-lived agent sessions lasso keeps running. A bot's runtime is `omp` (omp in RPC mode under lasso's bot host, on lasso's own machine) or `claude` (Claude Code in a herdr pane). A bot is named by `name`, as `list_bots` shows it. A bot on a host outside your reach is answered as if it did not exist. Every bot on lasso's own machine has these tools through an MCP server named `lasso`, so a bot can change its own settings when its human asks. Creating and deleting a bot, and signing one in to an OAuth server, stay in the Bots view. Design: [bots.md](../design/bots.md).
 
 To talk to a running bot, use [`send_agent`](#send_agent) with its name as `to`.
 
 ### `list_bots`
 
-Lists the bots on hosts within your reach. No parameters. Each entry has `name`, `host`, `dir`, `workspace`, `model`, `state` (`stopped`, `starting`, `idle`, `working` or `blocked`), `waiting_for` (why a blocked bot waits), `pane_id`, `keep_running`, `channels`, and its conversation's newest line as `last_text` and `last_at`.
+Lists the bots on hosts within your reach. No parameters. Each entry has `name`, `host`, `dir`, `workspace`, `runtime`, `model`, `state` (`stopped`, `starting`, `idle`, `working` or `blocked`), `waiting_for` (why a blocked bot waits), `pane_id` (claude bots), `keep_running`, `channels`, and its conversation's newest line as `last_text` and `last_at`.
 
 ### `get_bot`
 
@@ -416,18 +418,18 @@ Changes a bot's settings. Only the fields you pass change.
 | parameter | type | | description |
 | --- | --- | --- | --- |
 | `name` | string | | The bot. |
-| `model` | string | optional | Claude model, alias or full name. `""` for Claude Code's default. |
-| `effort` | string | optional | `low`, `medium`, `high`, `xhigh` or `max`. `""` for the default. |
-| `permission_mode` | string | optional | `acceptEdits`, `auto`, `bypassPermissions`, `manual`, `dontAsk` or `plan`. `""` for the default. |
+| `model` | string | optional | A claude bot's Claude model (alias or full name), or an omp bot's provider/model selector such as `anthropic/claude-opus-5`. `""` for the default. |
+| `effort` | string | optional | claude: `low`, `medium`, `high`, `xhigh` or `max`. omp: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` or `auto`. `""` for the default. |
+| `permission_mode` | string | optional | claude: `acceptEdits`, `auto`, `bypassPermissions`, `manual`, `dontAsk` or `plan`. omp (its approval mode): `yolo`, `write` or `always-ask`. `""` for the default. |
 | `mcp` | array | optional | The **complete** list of MCP servers. It replaces the current one, so read it with `get_bot` first. `channel: true` makes a server a channel; a server that needs OAuth takes `oauth: true` and the human signs in from the Bots view. |
-| `strict_mcp` | boolean | optional | Only these MCP servers, without claude.ai connectors or user-level servers. |
-| `extra_args` | array | optional | Extra `claude` arguments, one element per argument. |
+| `strict_mcp` | boolean | optional | claude bots: only these MCP servers, without claude.ai connectors or user-level servers. |
+| `extra_args` | array | optional | Extra `claude` or `omp` arguments, one element per argument. |
 | `launch_task` | string | optional | The mise task in the bot's folder that launches it: a mode, such as another provider, that sets its environment and ends with `exec mise run bot -- "$@"`. `""` or `bot` for the generated one. Refused unless the folder defines it. |
 | `keep_running` | boolean | optional | Relaunch the bot when it stops unexpectedly. |
 | `notify` | boolean | optional | Push a notification to the human's devices each time the bot finishes a reply. |
 | `workspace` | string | optional | The herdr workspace it opens in, from its next start. |
 
-lasso rewrites the bot's launch script and MCP config. Returns `ok` and `restart_needed`, true when the bot is running and reads the change only at launch. A bot restarting itself runs `mise run restart` in its folder. Its `CLAUDE.md` and skills are files in its folder, edited directly rather than through this tool.
+lasso rewrites the bot's launch script and MCP config. Returns `ok` and `restart_needed`, true when the bot is running and reads the change only at launch. A bot restarting itself runs `mise run restart` in its folder. Its instructions (`AGENTS.md` for an omp bot, `CLAUDE.md` for a claude bot) and skills are files in its folder, edited directly rather than through this tool. The runtime is the human's to change, in the Bots view.
 
 ### `set_bot_env`
 
@@ -449,7 +451,7 @@ Sets a bot's picture, shown in the Bots view and on its notifications, from an i
 
 ### `list_bot_jobs`, `create_bot_job`, `update_bot_job`, `delete_bot_job`, `run_bot_job`
 
-A bot's jobs: messages lasso delivers into its session through its `lasso-channel`, on a schedule, from a webhook, or when run by hand. A job with a `command` is a watch: each firing runs the command in the bot's folder (as lasso's user, minimal environment) and delivers only what it prints, with failures reported damped (1st, 2nd, 4th, 8th… in a row, plus one recovery notice). Each takes the bot's `name`, and all but `list_bot_jobs` take `job`. Changes apply at once, with no restart.
+A bot's jobs: messages lasso delivers into its session (a claude bot's through its `lasso-channel`, an omp bot's as prompts), on a schedule, from a webhook, or when run by hand. A job with a `command` is a watch: each firing runs the command in the bot's folder (as lasso's user, minimal environment) and delivers only what it prints, with failures reported damped (1st, 2nd, 4th, 8th… in a row, plus one recovery notice). Each takes the bot's `name`, and all but `list_bot_jobs` take `job`. Changes apply at once, with no restart.
 
 - `list_bot_jobs` returns `jobs` (each with `message`, `cron`, `once_at`, `timezone`, `enabled`, `webhook`, `webhook_path`, `webhook_key`, `next_at`, `last`, `queued`, and for a watch `command`, `timeout`, `running`, `fail_streak` and the newest run's `last_run_at`, `last_run_result` (`quiet`, `output`, `error`, `timeout`), `last_run_exit`, `last_run_ms`, `last_run_note`) and `channel` (`available`, `connected`). A webhook's URL is lasso's own origin + `webhook_path` + `?key=` + `webhook_key`.
 - `create_bot_job` takes `message`, `cron` (5-field cron, several joined with `;`; empty for none), `once_at` (a single run instead of `cron`: `2026-11-20T08:00` read in `timezone`, or RFC 3339; must be in the future), `timezone` (IANA, default UTC), `webhook`, `paused`, `command` and `timeout` (seconds one run may take, 1-3600, default 60).
@@ -460,7 +462,7 @@ Jobs are only for bots on lasso's own machine.
 
 ### `start_bot`, `stop_bot`, `restart_bot`
 
-Each takes `name`. `start_bot` and `restart_bot` resume the bot's last conversation unless `fresh` is true. `stop_bot` closes its pane and keeps it stopped (keep-running leaves it alone) until it is started again; the conversation stays on disk. Each returns `bot`, the bot's `list_bots` entry after the change.
+Each takes `name`. `start_bot` and `restart_bot` resume the bot's last conversation unless `fresh` is true. `stop_bot` ends its process (a claude bot's pane closes) and keeps it stopped (keep-running leaves it alone) until it is started again; the conversation stays on disk. Each returns `bot`, the bot's `list_bots` entry after the change.
 
 ## Settings
 

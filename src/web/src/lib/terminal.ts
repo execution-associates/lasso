@@ -14,8 +14,8 @@ import {
   startTermThemeReconciler,
 } from "@/lib/theme"
 
-// Behavior attached to the same-origin ttyd terminal iframes (/terminal/ and
-// /shell/). All of this is ported faithfully from the original index.html —
+// Behavior attached to the same-origin ttyd terminal iframe (/terminal/). All
+// of this is ported faithfully from the original index.html —
 // xterm.js can only paste text, sends a bare CR for both Enter and Shift+Enter,
 // and starts from ttyd's theme on every reconnect, so we patch around each.
 
@@ -55,11 +55,6 @@ interface XTerm {
   __herdrOsc52?: boolean
   __herdrResizeGate?: boolean
 }
-export type TerminalInputMode = "herdr" | "shell"
-// The herdr terminal may display a pane attached to another host even though
-// ttyd itself runs on the active host. ActiveState.cwd_host is Lasso's
-// structured answer for that focused pane's filesystem; the plain shell still
-// belongs to the active backend.
 // Respawning the herdr terminal is the only way to move it off a saved
 // machine: a live herdr client switches machine on user input alone, and a new
 // one boots on whatever endpoint-selection.json names (see the server's
@@ -69,14 +64,14 @@ export function reattachHerdrTerminal() {
   window.dispatchEvent(new Event(HERDR_REATTACH_EVENT))
 }
 
+// The herdr terminal may display a pane attached to another host even though
+// ttyd itself runs on the active host. ActiveState.cwd_host is Lasso's
+// structured answer for that focused pane's filesystem, so a paste lands there.
 export function terminalPasteHost(
-  inputMode: TerminalInputMode,
   activeHost: string | null,
   paneFilesystemHost: string | null
 ): string | undefined {
-  const host =
-    inputMode === "herdr" ? paneFilesystemHost || activeHost : activeHost
-  return host || undefined
+  return paneFilesystemHost || activeHost || undefined
 }
 
 interface TermWindow extends Window {
@@ -100,22 +95,16 @@ function frameWindow(id: string): TermWindow | null {
 // ttyd's xterm.js collapses Shift+Enter and Ctrl+Enter into a bare Enter.
 // Herdr can decode a Kitty CSI-u key event and re-encode it for the focused
 // pane's negotiated keyboard mode, which lets OMP and Claude Code receive the
-// real chord. The raw /shell/ iframe has no Herdr decoder, so it keeps the
-// backslash+CR line-continuation fallback for Shift+Enter and leaves the other
-// chords to xterm.
-const SHELL_NEWLINE_SEQ = "\\\r"
+// real chord.
 
 // enterChordSeq returns the bytes for a modified Enter that xterm would
 // flatten, or null to let xterm handle the key. The CSI-u modifier is
 // 1 + shift + 2*alt + 4*ctrl. Meta is left alone (Cmd+Enter belongs to the
 // browser/OS), and so is Alt alone, which xterm already sends as ESC CR.
 export function enterChordSeq(
-  e: Pick<KeyboardEvent, "shiftKey" | "altKey" | "ctrlKey" | "metaKey">,
-  inputMode: TerminalInputMode
+  e: Pick<KeyboardEvent, "shiftKey" | "altKey" | "ctrlKey" | "metaKey">
 ): string | null {
   if (e.metaKey || !(e.shiftKey || e.ctrlKey)) return null
-  if (inputMode === "shell")
-    return e.shiftKey && !e.ctrlKey && !e.altKey ? SHELL_NEWLINE_SEQ : null
   const mod =
     1 + (e.shiftKey ? 1 : 0) + (e.altKey ? 2 : 0) + (e.ctrlKey ? 4 : 0)
   return `\x1b[13;${mod}u`
@@ -156,11 +145,7 @@ function isPasteChord(e: KeyboardEvent): boolean {
   )
 }
 
-function wireShiftEnter(
-  id: string,
-  inputMode: TerminalInputMode,
-  tries: number
-) {
+function wireShiftEnter(id: string, tries: number) {
   let term: XTerm | undefined
   try {
     term = frameWindow(id)?.term
@@ -179,7 +164,7 @@ function wireShiftEnter(
           e.code === "NumpadEnter" ||
           e.keyCode === 13
         const seq =
-          e.type === "keydown" && enterish ? enterChordSeq(e, inputMode) : null
+          e.type === "keydown" && enterish ? enterChordSeq(e) : null
         if (seq !== null) {
           // preventDefault is essential — without it the browser runs Enter's
           // default on the helper textarea, which xterm re-reads as a 2nd Enter.
@@ -193,7 +178,7 @@ function wireShiftEnter(
     return
   }
   if (tries < 20)
-    setTimeout(() => wireShiftEnter(id, inputMode, tries + 1), 150)
+    setTimeout(() => wireShiftEnter(id, tries + 1), 150)
 }
 
 // herdr copies (copy-mode, double-click token, mouse selection in a pane) by
@@ -861,7 +846,6 @@ function wireLinkOpen(doc: Document, win: Window) {
 export function wireTerminalIframe(
   id: string,
   suppressContext: boolean,
-  inputMode: TerminalInputMode,
   pasteHost: () => string | undefined
 ) {
   let win: TermWindow | null
@@ -950,7 +934,7 @@ export function wireTerminalIframe(
   )
 
   if (win) wireLinkOpen(doc, win)
-  wireShiftEnter(id, inputMode, 0)
+  wireShiftEnter(id, 0)
   wireOsc52(id, 0)
   wireResizeGate(id, 0)
 }
@@ -960,7 +944,6 @@ export function wireTerminalIframe(
 export function bootTermFrame(
   id: string,
   suppressContext: boolean,
-  inputMode: TerminalInputMode,
   pasteHost: () => string | undefined
 ) {
   const el = document.getElementById(id) as HTMLIFrameElement | null
@@ -974,7 +957,7 @@ export function bootTermFrame(
     applyTermFont(0)
     applyTermFit(0)
     applyTermAtmosphere(0)
-    wireTerminalIframe(id, suppressContext, inputMode, pasteHost)
+    wireTerminalIframe(id, suppressContext, pasteHost)
     releaseDial()
     releaseDial = mountTerminalInputDial(id)
   }
@@ -986,7 +969,7 @@ export function bootTermFrame(
   applyTermFont(0) // in case it already loaded
   applyTermFit(0) // in case it already loaded
   applyTermAtmosphere(0) // in case it already loaded
-  wireTerminalIframe(id, suppressContext, inputMode, pasteHost) // in case it already loaded
+  wireTerminalIframe(id, suppressContext, pasteHost) // in case it already loaded
   return () => {
     el.removeEventListener("load", onLoad)
     releaseDial()
@@ -1008,7 +991,7 @@ export function refitTerminal(id: string) {
 
 // pasteIntoTerminal pastes text into a same-origin terminal iframe without
 // submitting, so the user can review and press Enter. Retries while xterm is
-// still loading. typeIntoShell / typeIntoHerdr are the per-frame shorthands.
+// still loading. typeIntoHerdr is the herdr terminal's shorthand.
 export function pasteIntoTerminal(id: string, text: string, tries = 0) {
   try {
     const w = frameWindow(id)
@@ -1043,11 +1026,6 @@ export function pasteAndSubmitTerminal(id: string, text: string, tries = 0) {
   if (tries < 20) {
     setTimeout(() => pasteAndSubmitTerminal(id, text, tries + 1), 150)
   }
-}
-
-// typeIntoShell pastes into the out-of-herdr shell (/shell/).
-export function typeIntoShell(text: string) {
-  pasteIntoTerminal("shellframe", text)
 }
 
 // typeIntoHerdr pastes into the herdr terminal (/terminal/), where agents run.

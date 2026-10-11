@@ -240,6 +240,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         seen()
         handleBrowserOpenEvent((e as MessageEvent).data)
       })
+      // An omp bot's turn moved (a message, a question, the end of a turn):
+      // refetch its chat now rather than on the next poll.
+      src.addEventListener("bot-chat", (e) => {
+        seen()
+        try {
+          const { bot } = JSON.parse((e as MessageEvent).data) as {
+            bot?: string
+          }
+          if (bot)
+            void queryClient.invalidateQueries({
+              queryKey: qk.chat("bot", bot),
+            })
+        } catch {
+          // A malformed event changes nothing; the poll still runs.
+        }
+      })
       src.addEventListener("browser-profiles", () => {
         seen()
         handleBrowserProfilesEvent()

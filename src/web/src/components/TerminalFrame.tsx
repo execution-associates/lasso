@@ -5,14 +5,12 @@ import {
   bootTermFrame,
   HERDR_REATTACH_EVENT,
   refitTerminal,
-  type TerminalInputMode,
   terminalPasteHost,
 } from "@/lib/terminal"
 import { termDocParams } from "@/lib/theme"
 
-// A ttyd terminal iframe (the herdr terminal under /terminal/ or the
-// out-of-herdr shell under /shell/). It stays mounted across tab switches — only
-// hidden via CSS — so the WebSocket never reconnects. When shown again, nudge
+// A ttyd terminal iframe (the herdr terminal under /terminal/). It stays
+// mounted across view switches — only hidden via CSS — so the WebSocket never reconnects. When shown again, nudge
 // xterm to refit.
 //
 // `base` is the role's path prefix; the host this tab is on supplies the rest,
@@ -23,14 +21,12 @@ export function TerminalFrame({
   base,
   title,
   suppressContext,
-  inputMode,
   hidden,
 }: {
   id: string
-  base: "/terminal" | "/shell"
+  base: "/terminal"
   title: string
   suppressContext: boolean
-  inputMode: TerminalInputMode
   hidden: boolean
 }) {
   const { host, cwdHost, hostSlug } = useApp()
@@ -38,7 +34,7 @@ export function TerminalFrame({
   // without remounting ttyd. Keep the upload target live behind the one paste
   // listener installed in the iframe document.
   const pasteHostRef = React.useRef<string | undefined>(undefined)
-  pasteHostRef.current = terminalPasteHost(inputMode, host, cwdHost)
+  pasteHostRef.current = terminalPasteHost(host, cwdHost)
 
   // The slug is the React key as well as the path, so moving this tab to
   // another host swaps in a fresh <iframe> element pointed at that host's ttyd.
@@ -86,13 +82,8 @@ export function TerminalFrame({
   // so bootTermFrame must re-run to wire the new one.
   React.useEffect(() => {
     if (!frameKey) return
-    return bootTermFrame(
-      id,
-      suppressContext,
-      inputMode,
-      () => pasteHostRef.current
-    )
-  }, [id, suppressContext, inputMode, frameKey])
+    return bootTermFrame(id, suppressContext, () => pasteHostRef.current)
+  }, [id, suppressContext, frameKey])
 
   React.useEffect(() => {
     if (!hidden) refitTerminal(id)

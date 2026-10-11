@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/tooltip"
 import { api, type FileEntry } from "@/lib/api"
 import { useApp } from "@/lib/app-store"
+import { useFilesFollowTarget } from "@/lib/files-follow"
 import { fmtSize } from "@/lib/format"
 import { patchUIState, useUIState } from "@/lib/ui-state"
 import { cn } from "@/lib/utils"
@@ -123,7 +124,12 @@ export function FilesTab({
   // the Files/Diff row outside this component.
   uploadRef?: React.MutableRefObject<((files: File[]) => void) | null>
 }) {
-  const { activeCwd } = useApp()
+  const { activeCwd: paneCwd } = useApp()
+  // Follow mode's target: the focused pane's cwd and host, unless a view has
+  // named a better one (the open bot's folder, lib/files-follow.ts).
+  const followTarget = useFilesFollowTarget()
+  const activeCwd = followTarget?.cwd ?? paneCwd
+  const followHost = followTarget ? followTarget.host : host
   // When true, clicking a folder re-roots the tree into it; when false it
   // expands in place. Persisted server-side and toggled from the header.
   const clickNavigates = useUIState().files_click_navigates
@@ -142,7 +148,7 @@ export function FilesTab({
   // ssh window onto another host would otherwise fetch once against the active
   // host before the follow effect below corrected it.
   const [curHost, setCurHost] = React.useState<string | null>(
-    initial?.host ?? host
+    initial?.host ?? followHost
   )
   const [follow, setFollow] = React.useState(initial?.follow ?? true)
   const [pathValue, setPathValue] = React.useState(initial?.pathValue ?? "")
@@ -202,8 +208,8 @@ export function FilesTab({
   React.useEffect(() => {
     if (!follow) return
     if (activeCwd && activeCwd !== curPath) setCurPath(activeCwd)
-    if (host !== curHost) setCurHost(host)
-  }, [follow, activeCwd, curPath, host, curHost])
+    if (followHost !== curHost) setCurHost(followHost)
+  }, [follow, activeCwd, curPath, followHost, curHost])
 
   // Turn following back on and jump straight to the active pane's cwd (on its
   // own host). Done explicitly (not left to the effect above) because the
@@ -219,7 +225,7 @@ export function FilesTab({
       setCurPath(activeCwd)
       setPathValue(activeCwd)
     }
-    setCurHost(host)
+    setCurHost(followHost)
   }
 
   // (Re)load the root whenever it changes — collapse everything and refetch.
@@ -562,14 +568,20 @@ export function FilesTab({
           <Tooltip>
             <TooltipTrigger asChild>
               <Checkbox
-                aria-label="Follow active pane"
+                aria-label={
+                  followTarget ? "Follow the open bot" : "Follow active pane"
+                }
                 checked={follow}
                 onCheckedChange={(v) =>
                   v === true ? followActive() : setFollow(false)
                 }
               />
             </TooltipTrigger>
-            <TooltipContent>follow active pane</TooltipContent>
+            <TooltipContent>
+              {followTarget
+                ? "follow the open bot's folder"
+                : "follow active pane"}
+            </TooltipContent>
           </Tooltip>
         </TooltipProvider>
       </header>

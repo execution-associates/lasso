@@ -238,6 +238,9 @@ type chatPayload struct {
 	// session whose log was looked for, which hosts were asked. Set exactly
 	// when no transcript was read.
 	Unavailable *chatUnavailable `json:"unavailable,omitempty"`
+	// PendingUI is what an omp bot is waiting on the human for (a question or
+	// an approval), answered through /api/bots/<name>/chat/answer.
+	PendingUI []ompUIRequest `json:"pending_ui,omitempty"`
 }
 
 // chatUnavailable says why a chat has no transcript to show.
@@ -1909,19 +1912,7 @@ func buildChatPayload(be Backend, p pane, before string, withIncoming bool) chat
 	}
 	path, info, src := tx.Path, lg.info, lg.be
 	out.ServedBy = lg.host
-	// `before` asks for the window ENDING at that transcript offset — the page
-	// above the one already on screen. Absent (or out of range) means the tail,
-	// which is what a view opens on.
-	end := info.Size()
-	if before != "" {
-		if n, err := strconv.ParseInt(before, 10, 64); err == nil && n > 0 && n < end {
-			end = n
-		}
-	}
-	parsed := readLogPage(src, path, tx.Harness, info.Size(), end, withIncoming)
-	out.Items = parsed.items
-	out.Model = parsed.model
-	out.Tokens = parsed.tokens
+	run, parsedTitle := fillChatLog(&out, src, path, tx.Harness, info.Size(), before, withIncoming)
 	// Either source is enough to say the agent is working: herdr because it
 	// watches the pane, the transcript because a call it recorded is still
 	// unanswered. herdr's "idle" deliberately does not override an outstanding
@@ -1929,7 +1920,38 @@ func buildChatPayload(be Backend, p pane, before string, withIncoming bool) chat
 	// is a window where the file still shows the call and the agent is done with
 	// it, and a card that flickers back to finished reads worse than a spare
 	// "working" beat.
-	out.Running = parsed.run || paneStatus == "working"
+	out.Running = run || paneStatus == "working"
+	// The harness's own name for the session, when herdr's workspace has none: a
+	// labelled workspace is the name this agent goes by everywhere else in lasso
+	// (the panel, the creator, the auto-titler's target), and two names for one
+	// agent is worse than the less specific one.
+	if parsedTitle != "" && label == "" {
+		out.Title = parsedTitle
+	}
+	if out.Agent == "" {
+		out.Agent = "agent"
+	}
+	return out
+}
+
+// fillChatLog reads the page of the transcript at path that ends at `before`
+// into out, and returns whether a call it recorded is still unanswered and
+// the session's own title. Shared by a pane's chat and an omp bot's
+// (botomp.go), which has a transcript but no pane.
+func fillChatLog(out *chatPayload, src Backend, path, harness string, size int64, before string, withIncoming bool) (bool, string) {
+	// `before` asks for the window ENDING at that transcript offset — the page
+	// above the one already on screen. Absent (or out of range) means the tail,
+	// which is what a view opens on.
+	end := size
+	if before != "" {
+		if n, err := strconv.ParseInt(before, 10, 64); err == nil && n > 0 && n < end {
+			end = n
+		}
+	}
+	parsed := readLogPage(src, path, harness, size, end, withIncoming)
+	out.Items = parsed.items
+	out.Model = parsed.model
+	out.Tokens = parsed.tokens
 	out.More = parsed.more || parsed.startOffset > 0
 	out.StartOffset = parsed.startOffset
 	// The transcript itself, so a client accumulating pages can tell "more of
@@ -1937,17 +1959,7 @@ func buildChatPayload(be Backend, p pane, before string, withIncoming bool) chat
 	// instead of splicing two conversations together.
 	out.Path = path
 	out.Note = parsed.note
-	// The harness's own name for the session, when herdr's workspace has none: a
-	// labelled workspace is the name this agent goes by everywhere else in lasso
-	// (the panel, the creator, the auto-titler's target), and two names for one
-	// agent is worse than the less specific one.
-	if parsed.title != "" && label == "" {
-		out.Title = parsed.title
-	}
-	if out.Agent == "" {
-		out.Agent = "agent"
-	}
-	return out
+	return parsed.run, parsed.title
 }
 
 // writeChat answers a chat request. Every path funnels through here so that

@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { BotModelBar, ContextMeter } from "@/components/BotModelBar"
 import {
   BotAvatar,
   BotStateMark,
@@ -22,6 +23,7 @@ import {
   startBot,
   stopBot,
 } from "@/components/BotParts"
+import { BotSessionsMenu } from "@/components/BotSessionsMenu"
 import { BotSettings } from "@/components/BotSettings"
 import { BotsManage } from "@/components/BotsManage"
 import { ChatView } from "@/components/ChatView"
@@ -55,6 +57,7 @@ import {
   useBotsSeen,
   useMinuteClock,
 } from "@/lib/bots"
+import { setFilesFollowTarget } from "@/lib/files-follow"
 import {
   disablePush,
   enablePush,
@@ -275,8 +278,8 @@ function StoppedBot({
         ) : (
           <>
             <p className="max-w-sm text-[13px] text-muted-foreground">
-              {bot.name} is stopped. Start it to pick up where it left off, or
-              start fresh for a new session.
+              {bot.name} is stopped. Start it to carry on its last conversation,
+              or start a new one.
             </p>
             {bot.error && (
               <p className="max-w-sm text-[12px] text-destructive">
@@ -294,7 +297,7 @@ function StoppedBot({
                 onClick={() => void start(true)}
               >
                 <RotateCcw />
-                Start fresh
+                Start a new conversation
               </Button>
             </div>
           </>
@@ -638,6 +641,17 @@ export function BotsView({
     if (!bots.some((b) => b.name === routeName)) go({ page: "list" }, false)
   }, [routeName, bots, isPending, error, go])
 
+  // While a bot is open here, the file viewer's follow mode shows its folder
+  // rather than whichever herdr pane was focused last.
+  const followHost = current?.host
+  const followDir = current?.dir_path
+  const botOpen = active && (route.page === "chat" || route.page === "settings")
+  React.useEffect(() => {
+    if (!botOpen || !followHost || !followDir) return
+    setFilesFollowTarget({ host: followHost, cwd: followDir })
+    return () => setFilesFollowTarget(null)
+  }, [botOpen, followHost, followDir])
+
   // Reading a bot's conversation marks what it has said as seen.
   React.useEffect(() => {
     if (!active || route.page !== "chat" || !current) return
@@ -683,7 +697,7 @@ export function BotsView({
         key="new"
         mode="new"
         lead={back}
-        onCreated={(name) => go({ page: "settings", name })}
+        onCreated={(name) => go({ page: "chat", name })}
         onClose={toList}
       />
     )
@@ -700,11 +714,18 @@ export function BotsView({
       />
     )
   } else if (route.page === "chat" && current) {
+    // An omp bot has no pane: its chat is addressed by name, and it is there
+    // whenever the bot is not stopped.
+    const omp = current.runtime === "omp"
     page =
-      current.pane_id && current.state !== "stopped" ? (
+      (omp || current.pane_id) && current.state !== "stopped" ? (
         <ChatView
-          key={`${current.name}\u0000${current.host}\u0000${current.pane_id}`}
-          address={{ host: current.host, paneID: current.pane_id }}
+          key={`${current.name}\u0000${current.host}\u0000${omp ? "omp" : current.pane_id}`}
+          address={
+            omp
+              ? { bot: current.name }
+              : { host: current.host, paneID: current.pane_id ?? "" }
+          }
           incoming
           variant="bot"
           active={active}
@@ -723,13 +744,27 @@ export function BotsView({
             )
           }
           placeholder={`Message ${current.name}…`}
+          // Model, thinking and context: beside the title with room, one
+          // chip row under the header in the compact layout.
+          hideTokens
+          headerMeta={compact ? undefined : <BotModelBar bot={current} />}
+          headerBelow={
+            compact ? <BotModelBar bot={current} compact /> : undefined
+          }
           headerExtra={
             <>
+              {/* Context use leads the right-hand group, so the space opens
+                  between it and the model chips; in the compact layout it is
+                  in the model chip's line instead. */}
+              {!compact && <ContextMeter bot={current} />}
               <BotStateMark bot={current} words />
+              <BotSessionsMenu bot={current} />
               <SettingsButton
                 onClick={() => go({ page: "settings", name: current.name })}
               />
-              <TerminalButton onClick={() => void openTerminal(current)} />
+              {current.pane_id && (
+                <TerminalButton onClick={() => void openTerminal(current)} />
+              )}
               <ViewsButton onOpen={onOpenViews} />
             </>
           }
@@ -752,8 +787,8 @@ export function BotsView({
         ) : bots.length === 0 ? (
           <>
             <p className="max-w-sm">
-              A bot is a Claude Code session lasso keeps running in its own
-              folder, with its own instructions, connections and secrets.
+              A bot is an agent session lasso keeps running in its own folder,
+              with its own instructions, connections and secrets.
             </p>
             <Button onClick={() => go({ page: "new" })}>
               <Plus />
@@ -761,7 +796,14 @@ export function BotsView({
             </Button>
           </>
         ) : (
-          <p>Pick a bot to talk to it.</p>
+          <Button
+            variant="outline"
+            className="border-border/40 bg-background/10 text-muted-foreground backdrop-blur-sm"
+            onClick={() => go({ page: "new" })}
+          >
+            <Plus />
+            New bot
+          </Button>
         )}
       </div>
     )

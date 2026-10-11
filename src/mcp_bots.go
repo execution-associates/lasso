@@ -24,10 +24,11 @@ type botSummary struct {
 	Host        string   `json:"host"`
 	Dir         string   `json:"dir"`
 	Workspace   string   `json:"workspace"`
+	Runtime     string   `json:"runtime" jsonschema:"omp (omp in RPC mode under lasso's bot host, no herdr pane) or claude (Claude Code in a herdr pane)"`
 	Model       string   `json:"model,omitempty"`
 	State       string   `json:"state" jsonschema:"stopped, starting, idle, working or blocked"`
-	WaitingFor  string   `json:"waiting_for,omitempty" jsonschema:"why a blocked bot is waiting, in Claude Code's words"`
-	PaneID      string   `json:"pane_id,omitempty" jsonschema:"the bot's herdr pane; message it with send_agent (to = the bot's name)"`
+	WaitingFor  string   `json:"waiting_for,omitempty" jsonschema:"why a blocked bot is waiting, in its own words"`
+	PaneID      string   `json:"pane_id,omitempty" jsonschema:"a claude bot's herdr pane; message any bot with send_agent (to = the bot's name)"`
 	KeepRunning bool     `json:"keep_running"`
 	Channels    []string `json:"channels,omitempty"`
 	LastText    string   `json:"last_text,omitempty"`
@@ -49,7 +50,7 @@ type botStateOut struct {
 
 func summarizeBot(v botView) botSummary {
 	return botSummary{
-		Name: v.Name, Host: v.Host, Dir: v.Dir, Workspace: v.Workspace, Model: v.Model,
+		Name: v.Name, Host: v.Host, Dir: v.Dir, Workspace: v.Workspace, Runtime: v.Runtime, Model: v.Model,
 		State: v.State, WaitingFor: v.WaitingFor, PaneID: v.PaneID, KeepRunning: v.KeepRunning,
 		Channels: v.channels(), LastText: v.LastText, LastAt: v.LastAt,
 	}
@@ -59,15 +60,15 @@ func registerBotTools(s *mcp.Server) {
 	registerBotJobTools(s)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_bots",
-		Description: "List lasso's bots: long-lived Claude Code sessions, each with its own folder, MCP servers and channels, that lasso launches in herdr and brings back after a restart. Each entry has its live state (stopped/starting/idle/working/blocked) and the newest line of its conversation. Only bots on hosts your credential reaches are listed. Talk to a running bot with send_agent, its name as `to`.",
+		Description: "List lasso's bots: long-lived agent sessions, each with its own folder and MCP servers, that lasso keeps running. A bot's runtime is omp (omp in RPC mode under lasso's bot host) or claude (Claude Code in a herdr pane). Each entry has its live state (stopped/starting/idle/working/blocked) and the newest line of its conversation. Only bots on hosts your credential reaches are listed. Talk to a running bot with send_agent, its name as `to`.",
 	}, listBotsTool)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_bot",
-		Description: "Read one bot's whole configuration: model, effort, permission mode, MCP servers (and which are channels), extra args, its folder, its environment variables (a secret's value is never shown), its own skills and its OAuth sign-ins. A bot asked to change itself reads this first.",
+		Description: "Read one bot's whole configuration: runtime, model, effort, permission mode, MCP servers (and which are channels), extra args, its folder, its environment variables (a secret's value is never shown), its own skills and its OAuth sign-ins. A bot asked to change itself reads this first.",
 	}, getBotTool)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "update_bot",
-		Description: "Change a bot's settings: model, effort, permission mode, MCP servers (the complete list, replacing the current one), strict MCP, extra args, keep-running, notifications, workspace. Only the fields you pass change. Lasso rewrites the bot's launch script and MCP config; a running bot picks the change up when it restarts (restart_needed). Its CLAUDE.md and skills are files in its folder, edited directly, not through this tool.",
+		Description: "Change a bot's settings: model, effort, permission mode, MCP servers (the complete list, replacing the current one), strict MCP, extra args, keep-running, notifications, workspace. Only the fields you pass change. Lasso rewrites the bot's launch script and MCP config; a running bot picks the change up when it restarts (restart_needed). Its instructions (AGENTS.md for an omp bot, CLAUDE.md for a claude bot) and skills are files in its folder, edited directly, not through this tool. The runtime is changed only by the human, in lasso's Bots view.",
 	}, updateBotTool)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "set_bot_env",
@@ -89,7 +90,7 @@ func registerBotTools(s *mcp.Server) {
 	})
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "stop_bot",
-		Description: "Stop a bot: close its herdr pane and keep it stopped (keep-running will not relaunch it) until it is started again. Its conversation stays on disk.",
+		Description: "Stop a bot: end its process (a claude bot's herdr pane closes) and keep it stopped (keep-running will not relaunch it) until it is started again. Its conversation stays on disk.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in botNameIn) (*mcp.CallToolResult, botStateOut, error) {
 		return botLifecycleTool(req, in, "stop")
 	})
@@ -104,7 +105,7 @@ func registerBotTools(s *mcp.Server) {
 type getBotOut struct {
 	Bot    botSummary     `json:"bot"`
 	Config *botRecord     `json:"config"`
-	Folder string         `json:"folder" jsonschema:"the bot's folder on its host: CLAUDE.md and .claude/skills/ are files there to edit directly"`
+	Folder string         `json:"folder" jsonschema:"the bot's folder on its host: its instructions (AGENTS.md for omp, CLAUDE.md for claude) and .claude/skills/ are files there to edit directly"`
 	Env    []botEnvVar    `json:"env" jsonschema:"the bot's environment variables; a secret's value is never shown"`
 	Skills []botSkill     `json:"skills" jsonschema:"the bot's own project skills"`
 	OAuth  map[string]any `json:"oauth,omitempty" jsonschema:"OAuth sign-ins by MCP server; signing in needs the human, in lasso's Bots view"`
@@ -112,12 +113,12 @@ type getBotOut struct {
 
 type updateBotIn struct {
 	Name           string          `json:"name" jsonschema:"the bot's name"`
-	Model          *string         `json:"model,omitempty" jsonschema:"claude model (alias or full name); empty for claude's default"`
-	Effort         *string         `json:"effort,omitempty" jsonschema:"low, medium, high, xhigh or max; empty for the default"`
-	PermissionMode *string         `json:"permission_mode,omitempty" jsonschema:"acceptEdits, auto, bypassPermissions, manual, dontAsk or plan; empty for the default"`
+	Model          *string         `json:"model,omitempty" jsonschema:"model: a claude alias or full name for a claude bot, an omp provider/model selector (e.g. anthropic/claude-opus-5) for an omp bot; empty for the default"`
+	Effort         *string         `json:"effort,omitempty" jsonschema:"claude: low, medium, high, xhigh or max. omp: off, minimal, low, medium, high, xhigh, max or auto. Empty for the default"`
+	PermissionMode *string         `json:"permission_mode,omitempty" jsonschema:"claude: acceptEdits, auto, bypassPermissions, manual, dontAsk or plan. omp (its approval mode): yolo, write or always-ask. Empty for the default"`
 	MCP            *[]botMCPServer `json:"mcp,omitempty" jsonschema:"the COMPLETE list of MCP servers (it replaces the current one, so read it with get_bot first). channel:true makes a server a Claude Code channel; for a server that needs OAuth set oauth:true and ask the human to sign in from lasso's Bots view"`
-	StrictMCP      *bool           `json:"strict_mcp,omitempty" jsonschema:"true: only these MCP servers, no claude.ai connectors or user-level servers"`
-	ExtraArgs      *[]string       `json:"extra_args,omitempty" jsonschema:"extra claude CLI arguments, one element per argument"`
+	StrictMCP      *bool           `json:"strict_mcp,omitempty" jsonschema:"claude bots: true for only these MCP servers, no claude.ai connectors or user-level servers"`
+	ExtraArgs      *[]string       `json:"extra_args,omitempty" jsonschema:"extra CLI arguments (claude's or omp's), one element per argument"`
 	LaunchTask     *string         `json:"launch_task,omitempty" jsonschema:"the mise task in the bot's folder that launches it (a mode, such as another provider); empty or bot for the generated one. It must exist, set its environment, and end with exec mise run bot -- \"$@\""`
 	KeepRunning    *bool           `json:"keep_running,omitempty" jsonschema:"relaunch the bot if it stops unexpectedly"`
 	Notify         *bool           `json:"notify,omitempty" jsonschema:"push a notification to the human's devices each time the bot finishes a reply"`

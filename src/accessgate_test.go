@@ -43,7 +43,7 @@ func TestAccessGateRequiresHeader(t *testing.T) {
 
 	for _, path := range []string{
 		"/", "/api/active", "/api/file", "/api/file-write", "/api/file-upload",
-		"/mcp", "/mcp/messages", "/terminal/", "/shell/",
+		"/mcp", "/mcp/messages", "/terminal/",
 		"/.well-known/oauth-authorization-server", "/oauth/token",
 	} {
 		code, reached := doGate(t, g, path, "")
@@ -65,12 +65,12 @@ func TestAccessGateRequiresHeader(t *testing.T) {
 }
 
 // A websocket upgrade is an ordinary HTTP request until a handler hijacks it,
-// so the gate must answer first for /terminal/ and /shell/ upgrades too.
+// so the gate must answer first for /terminal/ upgrades too.
 func TestAccessGateCoversWebsocketUpgrade(t *testing.T) {
 	g := newAccessGate(true, "")
 	ws := []string{"Connection", "Upgrade", "Upgrade", "websocket", "Sec-WebSocket-Version", "13"}
 
-	for _, path := range []string{"/terminal/ws", "/shell/ws"} {
+	for _, path := range []string{"/terminal/ws"} {
 		if code, reached := doGate(t, g, path, "", ws...); code != http.StatusForbidden || reached {
 			t.Errorf("%s upgrade without header: code=%d reached=%v, want 403/false", path, code, reached)
 		}

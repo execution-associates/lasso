@@ -60,7 +60,6 @@ var (
 	termCmd     = flag.String("term-cmd", "herdr", "command ttyd runs in the terminal")
 	termNice    = flag.Int("term-nice", 0, "if non-zero, launch the herdr terminal at this nice level (reset-on-fork + nice, needs RLIMIT_NICE); 0 disables")
 	termNoSwap  = flag.Bool("term-no-swap", false, "launch the herdr terminal in a transient systemd scope with MemorySwapMax=0 so its pages are never swapped out (mirrors the ccp alias)")
-	shellCmd    = flag.String("shell-cmd", "", "command for the out-of-herdr Terminal tab (right column); empty = $SHELL, then bash, then sh")
 	spawnTtyd   = flag.Bool("spawn-ttyd", true, "spawn and supervise ttyd as a child process")
 	pollEvery   = flag.Duration("poll", 2*time.Second, "fallback poll interval for cwd changes")
 	allowNoAuth = flag.Bool("insecure-no-auth", false, "permit a non-loopback bind without auth (tailnet-only use; never on a public interface)")
@@ -227,13 +226,10 @@ func runServer() {
 	// TCP port — so a prod instance and several dev instances can run at once
 	// without ever colliding on a port or, worse, silently proxying onto each
 	// other's terminal. Only the external-ttyd path (-spawn-ttyd=false) still
-	// uses *ttydPort. The paths belong to the ttydRoles (switch.go), which own
-	// one ttyd per host for each of the two roles: the herdr terminal
-	// (/terminal/) and a plain out-of-herdr shell (/shell/, the right-column
-	// Terminal tab). The spawn is deferred until after the web port binds, so a
-	// startup failure doesn't leak an orphaned ttyd. The external-ttyd path only
-	// wires the herdr terminal to *ttydPort; the shell terminal is
-	// viewer-spawned only, so it's absent in that mode.
+	// uses *ttydPort. The paths belong to the herdr terminal's ttydRole
+	// (switch.go), which owns one ttyd per host under /terminal/. The spawn is
+	// deferred until after the web port binds, so a startup failure doesn't leak
+	// an orphaned ttyd.
 
 	hub := newHub()
 	srvHub = hub
@@ -299,9 +295,6 @@ func runServer() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/terminal/", withLiveTtydTheme(proxy))
-	if *spawnTtyd {
-		mux.Handle("/shell/", withLiveTtydTheme(ttydProxy(func() *ttydRole { return terminals.shell })))
-	}
 	mux.HandleFunc("/api/active", func(w http.ResponseWriter, r *http.Request) {
 		a, err := hub.snapshot(requestHost(r))
 		if err != nil {
@@ -492,24 +485,20 @@ func runServer() {
 	// never leaves an orphaned ttyd behind (its cleanup is tied to ctx, which
 	// log.Fatalf bypasses).
 	if *spawnTtyd {
-		// Each role owns one ttyd PER HOST (left: herdr / `herdr --remote`,
-		// right: local shell / `ssh <host>`), so a host switch points the role at
-		// another instance instead of respawning one in place. The first spawn
-		// here is the local host's pair; a switch spawns the target's on its
-		// first visit and reuses it forever after (see switch.go's ttydRole).
+		// The role owns one ttyd PER HOST (herdr / `herdr --remote`), so a host
+		// switch points it at another instance instead of respawning one in
+		// place. The first spawn here is the local host's; a switch spawns the
+		// target's on its first visit and reuses it forever after (see
+		// switch.go's ttydRole).
 		terminals.herdr = newTtydRole(ctx, "ttyd", "/terminal")
-		terminals.shell = newTtydRole(ctx, "shell", "/shell")
-		// The default host's pair, spawned eagerly so the first tab's iframes
-		// find a bound socket. A tab moving to another host spawns that host's
-		// pair through POST /api/host (serveHostAttach), and both stay resident.
-		// The shell's env is stripped of the HERDR_* session markers so commands
-		// like `herdr update` (which refuse to run inside a session) work.
+		// The default host's terminal, spawned eagerly so the first tab's iframe
+		// finds a bound socket. A tab moving to another host spawns that host's
+		// through POST /api/host (serveHostAttach), and both stay resident.
 		if err := ensureTerminals(defaultBackend()); err != nil {
 			log.Fatalf("ttyd: %v", err)
 		}
 		// Retire terminals for hosts that drop out of rotation (see ttydIdle).
 		go terminals.herdr.sweepIdle()
-		go terminals.shell.sweepIdle()
 	}
 
 	// Probe the ssh-config hosts in the background from startup and keep
@@ -579,7 +568,6 @@ func runServer() {
 	if *spawnTtyd {
 		slug := hostSlug(defaultBackend().Name())
 		log.Printf("terminal: ttyd running %q (proxied at /terminal/%s/)", *termCmd, slug)
-		log.Printf("shell:    ttyd running %q (proxied at /shell/%s/)", shellCommand(), slug)
 	} else {
 		log.Printf("terminal: ttyd@127.0.0.1:%d (external) running %q (proxied at /terminal/)", *ttydPort, *termCmd)
 	}
@@ -652,8 +640,7 @@ type ttydSlugKey struct{}
 // it is a SNAPSHOT, and every theme change after that spawn leaves the process
 // serving the palette of whenever it started. That instance then survives the
 // change: nothing retires a resident ttyd on a re-theme (and nothing should —
-// killing it drops an open terminal's websocket, and its /shell/ child with
-// it), so a dark-themed lasso kept handing out a light canvas until the host
+// killing it drops an open terminal's websocket), so a dark-themed lasso kept handing out a light canvas until the host
 // was switched away from or the instance idled out. Observed on titan: three
 // terminals still serving rose-pine-DAWN hours after herdr moved to rose-pine,
 // with herdr's own chrome painting dark over a cream background.
@@ -825,24 +812,9 @@ func ttydProxy(role func() *ttydRole) *httputil.ReverseProxy {
 // request that beat the first spawn.
 var errNoTtyd = errors.New("no ttyd for that host")
 
-// shellCommand resolves the command for the out-of-herdr Terminal tab:
-// -shell-cmd if set, else $SHELL, else bash, else sh.
-func shellCommand() string {
-	if c := strings.TrimSpace(*shellCmd); c != "" {
-		return c
-	}
-	if sh := os.Getenv("SHELL"); sh != "" {
-		return sh
-	}
-	if _, err := exec.LookPath("bash"); err == nil {
-		return "bash"
-	}
-	return "sh"
-}
-
 // startTtyd spawns one ttyd serving command under basePath on its own private
 // unix socket. command is split on whitespace into the child argv. env, if
-// non-nil, overrides the child environment (the shell terminal passes
+// non-nil, overrides the child environment (a remote host's terminal passes
 // outsideHerdrEnv); nil inherits the viewer's env.
 func startTtyd(ctx context.Context, sock, basePath, command string, env []string) error {
 	// Bind a private unix socket (one per instance) rather than a shared TCP
@@ -1807,10 +1779,10 @@ func termPrefix() string {
 
 // outsideHerdrEnv returns the current environment minus the markers herdr uses
 // to detect it's running *inside* a session (HERDR_ENV is set to "1" in every
-// pane; HERDR_PANE_ID / HERDR_SESSION identify the pane/session). The viewer's
-// out-of-herdr shell terminal runs with this env so commands that refuse to run
-// inside a session — notably `herdr update` — work there, even when the viewer
-// itself was launched from a herdr pane and inherited the markers.
+// pane; HERDR_PANE_ID / HERDR_SESSION identify the pane/session). A remote
+// host's `herdr --remote` terminal and `lasso doctor`'s herdr probe run with
+// this env so herdr does not think it is nested, even when the viewer itself
+// was launched from a herdr pane and inherited the markers.
 func outsideHerdrEnv() []string {
 	drop := map[string]bool{"HERDR_ENV": true, "HERDR_PANE_ID": true, "HERDR_SESSION": true}
 	src := os.Environ()

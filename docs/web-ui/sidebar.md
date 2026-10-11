@@ -15,7 +15,6 @@ The built-in tabs, in their default order:
 | **Files** | A file browser, viewer and editor for the focused pane's directory, with a **Diff** view of its git changes. |
 | **Scratch** | A notepad you can send to the terminal or save to a file. |
 | **Browser** | A shared Chromium your agents can drive, or a plain iframe. |
-| **Terminal** | A plain shell outside herdr. See [The Terminal tab](./terminal.md#the-terminal-tab). |
 | **Usage** | Every tracked provider's quota windows in full. |
 | **Settings** | lasso's settings, in a **General** and a **Themes** pane. |
 

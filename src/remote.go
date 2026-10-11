@@ -33,8 +33,8 @@ import (
 //   - file ops: the SFTP subsystem (`ssh host -s sftp`), driven by pkg/sftp.
 //   - git: `ssh host "git -C <dir> ..."`.
 //
-// The left terminal and shell tab use herdr's own `herdr --remote <host>` and
-// `ssh <host>` (wired in startTtyd via the active backend's TermCmd/ShellCmd).
+// The terminal uses herdr's own `herdr --remote <host>` (wired in startTtyd
+// via the active backend's TermCmd).
 type remoteBackend struct {
 	alias      string // ssh-config host alias
 	remoteSock string // absolute herdr socket path on the remote host
@@ -704,13 +704,11 @@ func (b *remoteBackend) killMaster() {
 	_ = os.Remove(b.localSock)
 }
 
-// TermCmd / ShellCmd / TermEnv give the per-host commands the two ttyd
-// terminals run. A remote backend attaches the left terminal through herdr's own
-// SSH remote mode and opens the right shell tab as a plain ssh session. The left
-// terminal runs with the HERDR_* session markers stripped (outsideHerdrEnv) so
-// `herdr --remote` doesn't think it's nested inside the local session.
+// TermCmd / TermEnv give the per-host command the herdr terminal's ttyd runs.
+// A remote backend attaches it through herdr's own SSH remote mode, with the
+// HERDR_* session markers stripped (outsideHerdrEnv) so `herdr --remote`
+// doesn't think it's nested inside the local session.
 func (b *remoteBackend) TermCmd() string   { return herdrBinary() + " --remote " + b.alias }
-func (b *remoteBackend) ShellCmd() string  { return "ssh " + b.alias }
 func (b *remoteBackend) TermEnv() []string { return outsideHerdrEnv() }
 
 var _ Backend = (*remoteBackend)(nil)

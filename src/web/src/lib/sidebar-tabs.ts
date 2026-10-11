@@ -26,7 +26,6 @@ export const BUILTIN_TABS = [
   "files",
   "scratch",
   "browser",
-  "terminal",
   "usage",
   "settings",
 ] as const
@@ -38,7 +37,6 @@ export const BUILTIN_LABELS: Record<BuiltinTab, string> = {
   files: "Files",
   scratch: "Scratch",
   browser: "Browser",
-  terminal: "Terminal",
   usage: "Usage",
   settings: "Settings",
 }

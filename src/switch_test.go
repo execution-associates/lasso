@@ -197,10 +197,6 @@ func TestTtydRoleSockPathIsPerHost(t *testing.T) {
 			t.Errorf("sockPath = %q, want the role's filename stem", p)
 		}
 	}
-	shell := newTtydRole(context.Background(), "shell", "/shell")
-	if shell.sockPath("local") == local {
-		t.Error("the two roles share a socket path for one host")
-	}
 }
 
 // A nil role (spawn-ttyd=false) answers the proxy without panicking.

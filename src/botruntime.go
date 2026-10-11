@@ -46,10 +46,11 @@ type botRuntime struct {
 }
 
 type botLastLine struct {
-	key  string
-	text string
-	at   string
-	kind string
+	key    string
+	text   string
+	at     string
+	kind   string
+	tokens int64
 }
 
 var bots = &botRuntime{
@@ -82,9 +83,15 @@ func findBotPane(b Backend, r *botRecord) (pane, bool) {
 	if err != nil {
 		return pane{}, false
 	}
+	// An omp bot's pane is its viewer (lasso bot-attach), which reports itself
+	// to herdr as omp-bot.
+	want := "claude"
+	if r.isOmp() {
+		want = botAttachAgent
+	}
 	for _, p := range panes {
 		kind, _ := paneAgentPresence(p)
-		if kind == "claude" && inDir(p) {
+		if kind == want && inDir(p) {
 			return p, true
 		}
 	}
@@ -95,6 +102,9 @@ func findBotPane(b Backend, r *botRecord) (pane, bool) {
 // workspace. It resumes the last session unless fresh, or unless that
 // session's transcript is gone (claude would exit on an unknown id).
 func startBot(b Backend, r *botRecord, fresh bool) error {
+	if r.isOmp() {
+		return botOmpStart(b, r, fresh)
+	}
 	if _, ok := findBotPane(b, r); ok {
 		return errBotRunning
 	}
@@ -158,6 +168,9 @@ func openBotTab(b Backend, r *botRecord, dir string) (string, error) {
 // it be. Closing the pane ends the claude process; the session stays on disk
 // and the next Start resumes it.
 func stopBot(b Backend, r *botRecord) error {
+	if r.isOmp() {
+		return botOmpStop(r)
+	}
 	if err := setBotStopped(r.Name, true); err != nil {
 		return err
 	}
@@ -178,6 +191,9 @@ func stopBot(b Backend, r *botRecord) error {
 
 // restartBot stops the bot, waits for its pane to go, and starts it again.
 func restartBot(b Backend, r *botRecord, fresh bool) error {
+	if r.isOmp() {
+		return botOmpRestart(b, r, fresh)
+	}
 	if err := stopBot(b, r); err != nil {
 		return err
 	}
@@ -197,7 +213,10 @@ func restartBot(b Backend, r *botRecord, fresh bool) error {
 // botView is a bot as the Bots view shows it.
 type botView struct {
 	*botRecord
-	State      string `json:"state"` // stopped | starting | idle | working | blocked
+	State string `json:"state"` // stopped | starting | idle | working | blocked
+	// DirPath is the folder with ~ expanded on the bot's host: what the file
+	// viewer follows while the bot is open in the Bots view.
+	DirPath    string `json:"dir_path,omitempty"`
 	PaneID     string `json:"pane_id,omitempty"`
 	SessionID  string `json:"session_id,omitempty"`
 	WaitingFor string `json:"waiting_for,omitempty"`
@@ -205,10 +224,24 @@ type botView struct {
 	LastKind   string `json:"last_kind,omitempty"`
 	LastAt     string `json:"last_at,omitempty"`
 	Error      string `json:"error,omitempty"`
+	// An omp bot's host: the lasso version it runs, and whether it speaks
+	// another protocol than this lasso (restarted onto this binary once idle).
+	HostVersion  string `json:"host_version,omitempty"`
+	HostOutdated bool   `json:"host_outdated,omitempty"`
+	// What the bot runs right now, as omp reports it (omp bots only), and how
+	// full its context is. A claude bot reports only its context's tokens:
+	// Claude Code says nothing of its window.
+	LiveModel      *ompModelInfo    `json:"live_model,omitempty"`
+	Thinking       string           `json:"thinking,omitempty"`
+	ThinkingLevels []string         `json:"thinking_levels,omitempty"`
+	Context        *ompContextUsage `json:"context,omitempty"`
 }
 
 func botStatus(b Backend, r *botRecord, sessions []claudeSessionEntry) botView {
-	v := botView{botRecord: r, State: "stopped"}
+	if r.isOmp() {
+		return botOmpStatus(b, r)
+	}
+	v := botView{botRecord: r, State: "stopped", DirPath: expandTildeOn(b, r.Dir)}
 	p, ok := findBotPane(b, r)
 	if !ok {
 		bots.mu.Lock()
@@ -234,6 +267,9 @@ func botStatus(b Backend, r *botRecord, sessions []claudeSessionEntry) botView {
 		v.State = "starting"
 	}
 	v.LastText, v.LastKind, v.LastAt = botLastLineFor(b, r.Name, p)
+	if t := botCachedTokens(r.Name); t > 0 {
+		v.Context = &ompContextUsage{Tokens: t}
+	}
 	return v
 }
 
@@ -251,6 +287,7 @@ func botLastLineFor(b Backend, name string, p pane) (string, string, string) {
 	payload := buildChatPayload(b, p, "", true)
 	var line botLastLine
 	line.key = key
+	line.tokens = int64(payload.Tokens)
 	for i := len(payload.Items) - 1; i >= 0; i-- {
 		it := payload.Items[i]
 		if it.Text == "" || it.Thinking || (it.Kind != "agent" && it.Kind != "user" && it.Kind != "incoming") {
@@ -263,6 +300,14 @@ func botLastLineFor(b Backend, name string, p pane) (string, string, string) {
 	bots.lines[name] = line
 	bots.mu.Unlock()
 	return line.text, line.kind, line.at
+}
+
+// botCachedTokens is the newest turn's prompt size from the last read of a
+// claude bot's transcript.
+func botCachedTokens(name string) int64 {
+	bots.mu.Lock()
+	defer bots.mu.Unlock()
+	return bots.lines[name].tokens
 }
 
 func botCachedLine(name string) (string, string, string) {
@@ -299,6 +344,10 @@ func botStatuses(list []*botRecord) []botView {
 		b, err := botBackend(r.Host)
 		if err != nil {
 			out = append(out, botView{botRecord: r, State: "stopped", Error: err.Error()})
+			continue
+		}
+		if r.isOmp() {
+			out = append(out, botOmpStatus(b, r))
 			continue
 		}
 		if _, ok := sessions[r.Host]; !ok {
@@ -373,6 +422,10 @@ func botTick() {
 			continue
 		}
 		botOAuthTick(b, r)
+		if r.isOmp() {
+			botOmpTick(b, r, time.Now())
+			continue
+		}
 		p, ok := findBotPane(b, r)
 		if ok {
 			bots.mu.Lock()
@@ -427,7 +480,11 @@ func botSyncChannelFiles(list []*botRecord) {
 			continue
 		}
 		dir := expandTildeOn(b, r.Dir)
-		if _, err := b.Stat(botMCPPath(dir)); err != nil {
+		mcpPath := botMCPPath(dir)
+		if r.isOmp() {
+			mcpPath = botOmpMCPPath(dir)
+		}
+		if _, err := b.Stat(mcpPath); err != nil {
 			continue
 		}
 		if err := botWriteTask(b, r, dir); err != nil {

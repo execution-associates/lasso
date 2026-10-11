@@ -13,7 +13,7 @@ The short version: **whoever can reach lasso's port can act as you on every mach
 
 | surface | what it can do |
 | --- | --- |
-| **The terminals** (`/terminal/`, `/shell/`) | A writable shell on lasso's machine, and on any SSH host the tab switches to. Type anything you could type yourself. |
+| **The terminal** (`/terminal/`) | A writable shell on lasso's machine, and on any SSH host the tab switches to. Type anything you could type yourself. |
 | **The file endpoints** (`/api/file`, `/api/files`, `/api/file-write`, `/api/file-rename`, `/api/file-delete`, `/api/file-upload`) | Read, write, rename, delete and upload **any absolute path** the lasso user can access, on lasso's machine or on any host lasso can reach over SSH (a request can name the host). |
 | **`/mcp`** | Create and close agents on any reachable host, list repositories and branches, push notifications to your phone, open files in your sidebar, manage the shared browsers. Enabled plugins add their own tools. |
 | **`/herdr-mcp`** | herdr's whole socket API on any reachable host: split and close panes, type into any terminal (`pane_send_text`, `pane_send_keys`), start and prompt agents, run herdr plugin actions. Typing into a terminal is running commands as you. |

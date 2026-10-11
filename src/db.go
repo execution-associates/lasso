@@ -170,6 +170,7 @@ func openDB() error {
 		`ALTER TABLE bots ADD COLUMN launch_task TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE bots ADD COLUMN channel_token TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE bots ADD COLUMN channel_seen_at TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE bots ADD COLUMN runtime TEXT NOT NULL DEFAULT 'claude'`,
 		`ALTER TABLE bot_jobs ADD COLUMN command TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE bot_jobs ADD COLUMN timeout INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE bot_jobs ADD COLUMN once_at TEXT NOT NULL DEFAULT ''`,
@@ -465,7 +466,7 @@ type sidebarTab struct {
 }
 
 // sidebarBuiltinTabs are the right sidebar's own tabs, in default order.
-var sidebarBuiltinTabs = []string{"agents", "files", "scratch", "browser", "terminal", "usage", "settings"}
+var sidebarBuiltinTabs = []string{"agents", "files", "scratch", "browser", "usage", "settings"}
 
 const (
 	sidebarTabsMax  = 64

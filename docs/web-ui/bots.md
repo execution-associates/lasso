@@ -1,11 +1,18 @@
 ---
 title: Bots
-description: The Bots view, where lasso's long-lived Claude Code sessions read like a messaging app, and every setting a bot runs with.
+description: The Bots view, where lasso's long-lived agent sessions read like a messaging app, and every setting a bot runs with.
 order: 35
 nav_title: Bots
 ---
 
-A **bot** is a Claude Code session that lasso launches in a herdr pane and keeps running. Each bot has its own folder with its instructions (`CLAUDE.md`), skills and environment, plus its own model, MCP servers and channels. An assistant that answers your mail is a bot, and so is a watcher that runs on a schedule. The **Bots** view lists them like a messaging app: the bots down the left, and the selected one's conversation on the right.
+A **bot** is an agent session that lasso launches and keeps running. Each bot has its own folder with its instructions, skills and environment, plus its own model and MCP servers.
+
+A bot's **runtime** is one of two:
+
+- **omp** (the default for a new bot): omp in RPC mode, kept running by lasso on its own machine. It survives lasso restarts and updates mid-turn. It also gets a herdr pane, where you can watch it, type to it (Esc stops a turn, a number answers a question) and reach it with herdr's own agent commands. Its instructions are `AGENTS.md`, and the questions and approvals it asks wait in its chat for you to answer.
+- **Claude Code**: Claude Code in a herdr pane, on any host lasso drives, with channels. Its instructions are `CLAUDE.md`.
+
+The rest of this page describes both, and says where they differ. An assistant that answers your mail is a bot, and so is a watcher that runs on a schedule. The **Bots** view lists them like a messaging app: the bots down the left, and the selected one's conversation on the right.
 
 Open it with `⌘.` (press it again to go back to the terminal), from the footer's view menu (it names the view you are in) on a desktop, or from the view picker on a phone (see [On a phone](#on-a-phone)). It can also be [its own app](#the-bots-app) on your phone or desktop. Like Chat and the Grid, Bots covers the terminal without unmounting it. Leaving the view and coming back finds it on the same page, with the conversation's scroll and draft where you left them.
 
@@ -40,17 +47,20 @@ The list folds away when the Bots view itself is narrower than 760 px. That happ
 
 ## Talking to a bot
 
-The conversation is the [chat view](./terminal.md#chat-view) pointed at the bot's pane, with two differences:
+The conversation is the [chat view](./terminal.md#chat-view) pointed at the bot (a Claude Code bot's pane, or an omp bot's session), with these differences:
 
 - **Messages from its channels appear as cards.** A bot with channels (mail, Mattermost, iMessage and texts, its own scheduled loops) is mostly answering messages that arrive by themselves. Each one shows where it came from (**Email**, **Mattermost**, **Scheduled** and so on), who sent it, and its subject or thread. A long one is clamped, with **Show more**.
 - **The header is the bot's.** It shows the bot's name and state and a gear that opens its settings. Pinning and ending the pane are not offered here: a bot is started and stopped from its settings, and lasso relaunches it if its pane is closed under it.
 
 Everything else works as in Chat, including two composer features that apply to every conversation:
 
-- **Stop.** While the agent works, an empty composer's send button becomes **Stop**, which interrupts the turn (one `Esc` in its pane). If the agent was not working, or lasso could not tell whether the interrupt landed, it says so above the composer.
+- **Model, thinking and context in the header.** A chip shows the model (with **(default)** when the bot names none) and opens a picker of your omp models plus free text; another shows the thinking level and lists the levels that model takes; a meter shows how full the context is (used / window and a share, amber from 70%, red from 90%; a Claude Code bot shows tokens only). An omp bot switches at once and keeps the change; a Claude Code bot saves it and offers **Restart now**. In a narrow view the three fold into one chip. In an omp bot's herdr pane, a status line shows the same, and `/model` and `/thinking` change them. Closed the pane's view by accident? `mise run attach` in the bot's folder brings it back.
+- **New conversation, or resume one.** The New icon in the header starts an empty conversation (Undo in the toast goes back) or resumes any earlier one, newest first. An omp bot switches at once; a Claude Code bot restarts into it. Not while it is mid-turn. In the pane: `/new` (or `/clear`), `/sessions`, `/resume <n>`.
+- **An omp bot takes a message mid-turn.** It goes in at once as a steer rather than waiting for the turn to end, and a question or approval it asks shows above the composer as buttons to answer (an approval is **Approve** or **Deny**).
+- **Stop.** While the agent works, an empty composer's send button becomes **Stop**, which interrupts the turn (one `Esc` in a Claude Code bot's pane, an abort for an omp bot). If the agent was not working, or lasso could not tell whether the interrupt landed, it says so above the composer.
 - **Up next.** A message sent while the agent works is held, shown as **Up next** above the composer, and sent once the agent is idle, one at a time and in order. Remove one with its ✕. Pressing **Stop** puts the held messages **on hold**: nothing goes out until you press **Send queued messages**. The queue lives in this browser tab, so it is lost if you close the tab first. When lasso cannot confirm that a held message was delivered, the queue pauses and says so, and nothing is resent automatically.
 
-A stopped bot has no conversation to show. Its page offers **Start**, which resumes its last session, and **Start fresh**, which begins a new one.
+A stopped bot has no conversation to show. Its page offers **Start**, which carries on its last conversation, and **Start a new conversation**.
 
 ## Settings
 
@@ -63,11 +73,12 @@ The gear in the conversation's header opens `/bots/<name>/settings`. **General**
 | **Name** | Set when the bot is created, then fixed: lowercase letters, digits and dashes, up to 40. It names the herdr agent, the default folder and the address. |
 | **Avatar** | A picture, set once the bot exists by clicking the avatar (see [Pictures](#pictures)). Without one it shows the name's first letter on a colour taken from the name. |
 | **Host** | Set when the bot is created: the machine it runs on and where its folder lives. |
-| **Workspace** | The herdr workspace its pane opens in. Default **Bots**. |
+| **Runtime** | **omp** or **Claude Code** (see above). Changed only while the bot is stopped, and a change starts a new conversation. An omp bot runs on lasso's own machine. |
+| **Workspace** | Claude Code bots: the herdr workspace its pane opens in. Default **Bots**. |
 | **Folder** | Its working directory. Default `~/bots/<name>`. |
-| **Model** | Free text with Claude Code's model suggestions. Blank uses Claude Code's default. |
-| **Thinking effort** | Claude Code's effort level, or default. |
-| **Permission mode** | What it may do without asking (`acceptEdits`, `auto`, `plan`, `dontAsk`, `manual`, `bypassPermissions`, or Claude Code's default). |
+| **Model** | Free text with the runtime's model suggestions (an omp bot's are provider/model selectors). Blank uses the runtime's default. |
+| **Thinking effort** | The runtime's effort level, or default. |
+| **Permission mode** | What it may do without asking. Claude Code: `acceptEdits`, `auto`, `plan`, `dontAsk`, `manual`, `bypassPermissions`, or its default. omp (**Approval mode**): `yolo` (the default, never asks), `write` (asks before running commands) or `always-ask`. |
 | **Extra CLI args** | Added to its `claude` command, one argument per line. |
 | **Keep running** | Relaunch it when its session ends or herdr restarts, resuming the same conversation. |
 | **Notify me when it answers** | Send a notification each time it finishes a reply. On by default. See [Notifications](#notifications). |
@@ -118,7 +129,7 @@ The line under the description says whether the bot is listening. Jobs reach a b
 
 ### Instructions
 
-The bot's `CLAUDE.md`: who it is and how it works. Edit it here and **Save CLAUDE.md** (or `⌘S`). A running bot reads it again on its next restart.
+The bot's `CLAUDE.md` (an omp bot's `AGENTS.md`): who it is and how it works. Edit it here and save it (or `⌘S`). A running bot reads it again on its next restart.
 
 ### Environment
 
@@ -128,7 +139,7 @@ A host with no age key yet cannot store secrets. The page says so and offers **C
 
 ### Launch
 
-Start, stop and restart the bot (**Restart fresh** begins a new session), and **Open terminal** to switch to its pane in the terminal. The bot can also restart itself: ask it to, and it runs `mise run restart`, which relaunches it in the same pane on the same conversation once its turn ends. Below them is the launch script lasso generates from the settings. The bot runs as `mise run bot` in its folder, and lasso rewrites the script on every save, so edit the settings rather than the file.
+Start, stop and restart the bot: **Restart, same conversation** carries on where it was, **Restart, new conversation** begins an empty one (the old one stays on disk); and **Open terminal** to switch to its pane in the terminal. The bot can also restart itself: ask it to, and it runs `mise run restart`, which relaunches it in the same pane on the same conversation once its turn ends. Below them is the launch script lasso generates from the settings. The bot runs as `mise run bot` in its folder, and lasso rewrites the script on every save, so edit the settings rather than the file.
 
 **Launch task** picks the mise task that starts the bot: `bot`, or a mode of your own in its folder. Start, keep-running, herdr's restore and the bot's own restart all go through it. A mode is a task that sets an environment and hands off to `bot`, so the channel grants and launch dialogs stay lasso's. For example, `.mise/tasks/deepseek` runs the bot on DeepSeek's Anthropic-compatible API:
 
@@ -145,14 +156,14 @@ exec mise run bot -- --model sonnet "$@"
 
 Add `DEEPSEEK_API_KEY` as a secret under **Environment**, then pick `deepseek` here. `#MISE interactive=true` is required: without it a task that receives secrets loses the terminal. Keep `"$@"` last, since a restore appends `--resume <id>`. Two limits to know:
 
-- **A conversation started on Anthropic may not resume on another provider.** DeepSeek refuses some of the content Claude Code stores, so after switching, use **Restart fresh**.
+- **A conversation started on Anthropic may not resume on another provider.** DeepSeek refuses some of the content Claude Code stores, so after switching, use **Restart, new conversation**.
 - **claude.ai connectors are off under another provider's token.** Claude Code turns them off whenever `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY` is set, so put any connector the bot needs among its own MCP servers.
 
 A launch task that the folder doesn't define is refused when you save.
 
 ### Deleting a bot
 
-**Delete bot…** in the footer works in any state: a running bot is stopped first, which closes its pane. lasso forgets the bot, but its folder stays on the host with its `CLAUDE.md`, skills and environment.
+**Delete bot…** in the footer works in any state: a running bot is stopped first, which closes its pane. lasso forgets the bot, and its folder stays on the host with its instructions, skills and environment unless you tick **Also delete its folder**, which removes the folder and everything in it. lasso refuses that for a folder that holds your home directory or lasso's own.
 
 **Right-click a bot in the list** (long-press on a touch screen) for the same actions without opening it: Open chat, Settings…, Start, or Restart and Stop while it runs, and Delete….
 
@@ -195,7 +206,7 @@ Opening a bot's terminal from the app leaves it for lasso itself. Adding `?app=b
 
 ## Creating a bot
 
-The **+** in the list's header, or **New bot** on the management page, opens the creator. It has the **General** and **Connections** tabs. The bot is created stopped and lands on its settings, so you can write its instructions, add skills and set its environment before you start it.
+The **+** in the list's header, or **New bot** on the management page, opens the creator. It has the **General**, **Instructions** and **Connections** tabs. The bot starts as soon as it is created and lands on its chat. Skills and environment are added from its settings afterwards and take effect when it restarts.
 
 ## Manage bots
 
