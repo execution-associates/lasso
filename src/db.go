@@ -418,7 +418,25 @@ type uiState struct {
 	// human does not need a welcome after an upgrade. Settings can replay the
 	// tour at any time without touching this.
 	OnboardingDone bool `json:"onboarding_done"`
+	// AssistantBot is the bot a desktop client talks to as its assistant: a
+	// bot name (botNameRE) or "" for none. Replaced whole on write, and a
+	// name that is not a valid bot name refuses the whole patch, like
+	// browser_mode. The bot need not exist: it may be created after, or
+	// deleted since, and the client says so rather than lasso forgetting it.
+	AssistantBot string `json:"assistant_bot"`
+	// DismissedCards are the agent cards a client dismissed, each as the
+	// paneKey PinnedAgents uses (host + NUL + pane id) mapped to the pane's
+	// transcript_at (unix ms) at the moment of dismissal: the card stays
+	// dismissed until that pane's transcript moves past it. Written only
+	// through the card_dismiss OPS (see uiStateWriter), never as a map, for
+	// the reason pins are: a stale copy would undo another device's dismissal.
+	// Capped at maxDismissedCards, smallest transcript_at dropped first.
+	DismissedCards map[string]int64 `json:"dismissed_cards"`
 }
+
+// maxDismissedCards caps DismissedCards. A dismissal outlives its pane until
+// it is the oldest past the cap, so the map cannot grow without bound.
+const maxDismissedCards = 256
 
 // typographySlots are the keys ui_state.typography may hold. Where each one
 // applies is the frontend's business (lib/typography.ts); the server only
@@ -665,6 +683,7 @@ func getUIState() (uiState, error) {
 		Typography:             map[string]string{},
 		ChatText:               map[string]any{},
 		TerminalText:           map[string]any{},
+		DismissedCards:         map[string]int64{},
 	}
 	var v string
 	err := db.QueryRow(`SELECT value FROM settings WHERE key='ui_state'`).Scan(&v)
@@ -714,6 +733,10 @@ func getUIState() (uiState, error) {
 	}
 	us.ChatText = sanitizeChatText(us.ChatText)
 	us.TerminalText = terminalTextKind.sanitize(us.TerminalText)
+	if !validAssistantBot(us.AssistantBot) {
+		us.AssistantBot = "" // a hand-edited blob
+	}
+	us.DismissedCards = mergeDismissedCards(us.DismissedCards, nil)
 	return us, nil
 }
 

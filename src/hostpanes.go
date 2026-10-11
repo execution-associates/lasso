@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -407,6 +408,11 @@ type uiStateWriter struct {
 	// a client coalesces queued writes into one patch, and two pins clicked in
 	// one round trip must both land.
 	AgentPins map[string]bool `json:"agent_pins"`
+	// CardDismiss are OPS on DismissedCards, per paneKey: a number (the
+	// pane's transcript_at in unix ms) dismisses the card until the
+	// transcript moves past it, null forgets the dismissal. A map for the
+	// same coalescing reason as AgentPins.
+	CardDismiss map[string]*int64 `json:"card_dismiss"`
 }
 
 // atmospherePatch is one theme's backdrop as a CALLER sends it: every field
@@ -483,6 +489,9 @@ func serveUIState(w http.ResponseWriter, r *http.Request) {
 		// Detached, and whatever the body says about it is discarded below: it
 		// changes only through the agent_pins ops.
 		us.PinnedAgents = nil
+		// Same as the pins: dismissed_cards changes only through card_dismiss,
+		// and detaching keeps the decode from writing into stored's map.
+		us.DismissedCards = nil
 		if err := json.Unmarshal(body, &us); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -497,6 +506,10 @@ func serveUIState(w http.ResponseWriter, r *http.Request) {
 		}
 		if !validBrowserMode(us.BrowserMode) {
 			http.Error(w, fmt.Sprintf("browser_mode must be one of %s", strings.Join(browserModes, ", ")), http.StatusBadRequest)
+			return
+		}
+		if !validAssistantBot(us.AssistantBot) {
+			http.Error(w, "assistant_bot must be empty or a bot name (lowercase letters, digits and dashes, at most 40)", http.StatusBadRequest)
 			return
 		}
 		if !validTexture(us.Texture) {
@@ -536,6 +549,17 @@ func serveUIState(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		us.PinnedAgents = mergePinnedAgents(stored.PinnedAgents, who.AgentPins)
+		for k, at := range who.CardDismiss {
+			if k == "" || len(k) > pinnedAgentKeyMax {
+				http.Error(w, fmt.Sprintf("card_dismiss: every key must be 1-%d bytes", pinnedAgentKeyMax), http.StatusBadRequest)
+				return
+			}
+			if at != nil && *at < 0 {
+				http.Error(w, "card_dismiss: a value is a transcript_at in unix ms (>= 0) or null", http.StatusBadRequest)
+				return
+			}
+		}
+		us.DismissedCards = mergeDismissedCards(stored.DismissedCards, who.CardDismiss)
 
 		// The sidebar layout is the one field group several clients write
 		// unprompted, so it is arbitrated rather than merged (see uilock.go).
@@ -675,6 +699,47 @@ func mergePinnedAgents(stored []string, ops map[string]bool) []string {
 	out = append(out, adds...)
 	if len(out) > maxPinnedAgents {
 		out = out[len(out)-maxPinnedAgents:]
+	}
+	return out
+}
+
+// validAssistantBot reports whether name may be stored as assistant_bot: ""
+// (none) or a well-formed bot name. Existence is not checked.
+func validAssistantBot(name string) bool {
+	return name == "" || botNameRE.MatchString(name)
+}
+
+// mergeDismissedCards applies dismissal ops to the stored map: a value sets
+// (or moves) a card's dismissal, null removes it. Past maxDismissedCards the
+// entries with the smallest transcript_at go first, ties broken by key so one
+// patch always yields one result. With no ops it just repairs a stored map:
+// drops blank or oversized keys and negative values, applies the cap.
+func mergeDismissedCards(stored map[string]int64, ops map[string]*int64) map[string]int64 {
+	out := make(map[string]int64, len(stored)+len(ops))
+	for k, at := range stored {
+		if k == "" || len(k) > pinnedAgentKeyMax || at < 0 {
+			continue
+		}
+		out[k] = at
+	}
+	for k, at := range ops {
+		if at == nil {
+			delete(out, k)
+		} else {
+			out[k] = *at
+		}
+	}
+	if extra := len(out) - maxDismissedCards; extra > 0 {
+		keys := slices.Collect(maps.Keys(out))
+		sort.Slice(keys, func(i, j int) bool {
+			if out[keys[i]] != out[keys[j]] {
+				return out[keys[i]] < out[keys[j]]
+			}
+			return keys[i] < keys[j]
+		})
+		for _, k := range keys[:extra] {
+			delete(out, k)
+		}
 	}
 	return out
 }
