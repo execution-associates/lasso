@@ -244,7 +244,7 @@ func (r *botRecord) normalize() error {
 	if r.LaunchTask == "bot" {
 		r.LaunchTask = ""
 	}
-	if r.LaunchTask != "" && (!botTaskRE.MatchString(r.LaunchTask) || r.LaunchTask == "restart") {
+	if r.LaunchTask != "" && (!botTaskRE.MatchString(r.LaunchTask) || r.LaunchTask == "restart" || r.LaunchTask == "attach") {
 		return fmt.Errorf("launch task %q is not usable", r.LaunchTask)
 	}
 	if len(r.ExtraArgs) > 32 {

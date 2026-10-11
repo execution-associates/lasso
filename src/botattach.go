@@ -90,6 +90,8 @@ type botAttachHerdr struct {
 	last             botAttachState
 	reported         bool
 	renamed          bool
+	renaming         bool // a retry loop is claiming the name
+	holds            bool // our source holds the pane (a report was accepted)
 }
 
 func newBotAttachHerdr(name string) botAttachReporter {
@@ -128,17 +130,61 @@ func (h *botAttachHerdr) report(st botAttachState) {
 	if st.sessionPath != "" {
 		params["agent_session_path"] = st.sessionPath
 	}
+	// herdr takes a resume_argv only from a reporter that already holds the
+	// pane, and in a pane its own detection got to first (a view reopened
+	// with `mise run attach`) we do not yet. So the first report claims the
+	// pane with the state alone; the full one follows at once.
+	if !h.holds {
+		claim := map[string]any{"pane_id": h.pane, "source": botAttachSource, "agent": botAttachAgent,
+			"state": st.state, "seq": time.Now().UnixNano()}
+		if _, err := herdrCallSock(h.sock, "pane.report_agent", claim); err != nil {
+			return
+		}
+		h.holds = true
+		params["seq"] = time.Now().UnixNano()
+	}
 	if _, err := herdrCallSock(h.sock, "pane.report_agent", params); err != nil {
-		return
+		if !strings.Contains(err.Error(), "resume_not_accepted") {
+			return
+		}
+		// herdr takes a restore command only from the pane's foreground
+		// process, which this is not when something started it as a child
+		// (`mise run attach` does not; see botOmpAttachScript). Report the
+		// state alone, without the session either: the pane stays named and
+		// promptable, and herdr is never handed a session it could resume as
+		// a second omp.
+		delete(params, "resume_argv")
+		delete(params, "agent_session_id")
+		delete(params, "agent_session_path")
+		params["seq"] = time.Now().UnixNano()
+		if _, err := herdrCallSock(h.sock, "pane.report_agent", params); err != nil {
+			return
+		}
 	}
 	h.last, h.reported = st, true
 	// The pane goes by the bot's name, which is how herdr's agent commands
-	// and lasso's own lookup (findBotPane) address it.
-	if !h.renamed {
-		if _, err := herdrCallSock(h.sock, "agent.rename", map[string]any{"target": h.pane, "name": h.name}); err == nil {
-			h.renamed = true
-		}
+	// and lasso's own lookup (findBotPane) address it. herdr can refuse it
+	// for a moment after a report (a view reopened in a pane whose last view
+	// just released it), so it is retried until it lands.
+	if !h.renamed && !h.renaming {
+		h.renaming = true
+		go h.claimName()
 	}
+}
+
+func (h *botAttachHerdr) claimName() {
+	for i := 0; i < 30; i++ {
+		if _, err := herdrCallSock(h.sock, "agent.rename", map[string]any{"target": h.pane, "name": h.name}); err == nil {
+			h.mu.Lock()
+			h.renamed, h.renaming = true, false
+			h.mu.Unlock()
+			return
+		}
+		time.Sleep(time.Second)
+	}
+	h.mu.Lock()
+	h.renaming = false
+	h.mu.Unlock()
 }
 
 func (h *botAttachHerdr) release() {

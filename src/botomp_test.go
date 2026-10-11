@@ -568,6 +568,9 @@ func TestBotOmpFiles(t *testing.T) {
 	if !strings.Contains(s, `if [ "${LASSO_BOT_RPC:-}" = fd ]; then exec 0<&3 1>&4 3<&- 4>&-; fi`) {
 		t.Errorf("task script does not move the RPC fds:\n%s", s)
 	}
+	if att := botOmpAttachScript(r); !strings.Contains(att, " bot-attach a\n") || !strings.Contains(att, `[ -x "$exe" ] || exe=lasso`) {
+		t.Errorf("attach task:\n%s", att)
+	}
 	if strings.Contains(s, "herdr") || strings.Contains(s, "dangerously") {
 		t.Errorf("task script has claude-pane parts:\n%s", s)
 	}
