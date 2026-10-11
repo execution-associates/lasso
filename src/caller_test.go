@@ -314,6 +314,17 @@ func TestWithCaller(t *testing.T) {
 	if w := serveAs(t, h, roleServe, req("/api/version", "127.0.0.1:5555", nil)); w.Code != 403 {
 		t.Fatalf("serve without header: %d", w.Code)
 	}
+	// Webhooks and the bot channel carry their own key: no proof needed, and
+	// a key sent as a bearer survives.
+	hook := req("/hooks/bots/b/j", "127.0.0.1:5555", map[string]string{"Authorization": "Bearer job-key"})
+	var sawAuth string
+	hh := withCaller(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusNoContent)
+	}), cfg)
+	if w := serveAs(t, hh, roleAccess, hook); w.Code != 204 || sawAuth != "Bearer job-key" {
+		t.Fatalf("webhook on the access listener: %d, Authorization %q", w.Code, sawAuth)
+	}
 	// A listener with no configuration fails closed.
 	if w := serveAs(t, withCaller(http.NotFoundHandler(), &edgeConfig{}), roleAccess, req("/", "127.0.0.1:1", nil)); w.Code != 403 {
 		t.Fatalf("unconfigured access listener: %d", w.Code)

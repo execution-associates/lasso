@@ -123,24 +123,7 @@ This works whether or not `MCP_OAUTH` is set. Without Managed OAuth, the connect
 
 A [bot job's webhook](../web-ui/bots.md#jobs) carries its own key in the URL, but a sender on the internet (GitHub, say) cannot sign in to Access. Skip this step unless webhooks come from outside your devices.
 
-An Access **Bypass** request carries no assertion, so the access listener refuses it. Give the webhook path a route of its own to the loopback listener instead:
-
-1. Add a second self-hosted Access application for `lasso.example.com/hooks/bots/` with a single **Bypass** policy that includes everyone.
-2. Send that path to `-listen`, ahead of the catch-all rule:
-
-   ```yaml
-   ingress:
-     - hostname: lasso.example.com
-       path: ^/hooks/bots/
-       service: http://127.0.0.1:8090
-     - hostname: lasso.example.com
-       service: http://127.0.0.1:8091
-     - service: http_status:404
-   ```
-
-3. Add the hostname to `LASSO_HOSTNAMES` (`LASSO_HOSTNAMES=lasso.example.com`), so the loopback listener answers to it.
-
-Only `/hooks/bots/` reaches the loopback listener this way, and each hook checks its own key.
+Add a second self-hosted Access application for `lasso.example.com/hooks/bots/` with a single **Bypass** policy that includes everyone. The more specific path wins, so only webhooks skip the login. A bypassed request carries no Access assertion, and the access listener lets `/hooks/bots/` and `/bot-channel/` through without one: each hook checks its own key, and nothing else on the listener is reachable that way.
 
 ## Turning off the in-app update
 

@@ -507,6 +507,9 @@ func runServer() {
 	// state-changing browser request from another origin is refused whatever
 	// it carries.
 	guard := defaultHostGuard(*listenAddr)
+	// The node's own MagicDNS name, from tailscaled itself: on a Mac with only
+	// the Tailscale app there is no `tailscale` on PATH for the guard to ask.
+	guard.add(tsSelf.DNSName)
 	log.Printf("guard:    answers to IPs, localhost and %s (add names with %s)", strings.Join(guard.list(), ", "), hostnamesEnv)
 	handler = withLocalGuard(handler, guard)
 	// Who is calling (caller.go): outside the guard, so a network listener's
@@ -605,14 +608,27 @@ func runServer() {
 		extra = append(extra, lns...)
 		log.Printf("tailnet:  %s (callers identified by tailscaled's whois)", u)
 	}
-	if len(extra) > 0 {
-		who := "the node owner " + edge.owner
-		if edge.allow.set {
-			who = allowEnv
-		} else if edge.owner == "" {
-			who = "nobody on the tailnet until " + allowEnv + " names them (this node is tagged)"
+	switch {
+	case len(extra) == 0:
+	case edge.allow.set:
+		log.Printf("allow:    %s decides who the network listeners admit", allowEnv)
+	default:
+		if *listenAccess != "" {
+			log.Printf("allow:    access: whoever Cloudflare Access admits (%s unset)", allowEnv)
 		}
-		log.Printf("allow:    access: %s; tailnet/serve: %s", map[bool]string{true: allowEnv, false: "whoever Access admits"}[edge.allow.set], who)
+		if *tailnetOn || *listenServe != "" {
+			if edge.owner != "" {
+				log.Printf("allow:    tailnet: only this node's owner, %s (%s unset)", edge.owner, allowEnv)
+			} else {
+				log.Printf("allow:    tailnet: nobody until %s names them (this node is tagged, so it has no owner)", allowEnv)
+			}
+		}
+	}
+	if *allowNoAuth {
+		log.Printf("auth:     -insecure-no-auth is deprecated: use -tailnet, which identifies every caller (docs/deployment/tailnet.md)")
+	}
+	if gate.require && gate.verifier == nil {
+		log.Printf("access:   -require-access-header without %s/%s only checks that a header is present, which anything reaching the port can send; set them, or use -listen-access (docs/deployment/cloudflare.md)", accessTeamEnv, accessAUDEnv)
 	}
 	for _, l := range extra {
 		go func(l net.Listener) {

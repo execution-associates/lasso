@@ -176,6 +176,13 @@ var machinePaths = []string{
 	"/.well-known/oauth-authorization-server",
 }
 
+// selfCredentialed are paths that carry their own credential (a bot job's
+// webhook key, a bot's channel token) and are reached by senders with no
+// identity to prove: a webhook service, say, behind an Access Bypass policy.
+// The network listeners pass them through unproven, untouched, and with no
+// caller; their handlers check the key.
+var selfCredentialed = []string{"/hooks/bots", "/bot-channel"}
+
 // edgeConfig is what the network listeners verify against.
 type edgeConfig struct {
 	access  *accessVerifier
@@ -191,6 +198,10 @@ type edgeConfig struct {
 func withCaller(next http.Handler, cfg *edgeConfig) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		role := roleOf(r)
+		if role != roleLocal && pathUnder(r.URL.Path, selfCredentialed) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		c, why := resolveCaller(r, role, cfg)
 		if why != "" {
 			http.Error(w, "forbidden: "+why, http.StatusForbidden)

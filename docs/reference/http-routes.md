@@ -17,7 +17,7 @@ Who is calling depends on the listener the request arrived on:
 | tailnet (`-tailnet`) | tailscaled's whois of the connection's peer address | a person (the device owner's login) or a machine (the device's tags) | the node's owner only | only the entries it lists |
 | serve (`-listen-serve`) | the `Tailscale-User-Login` header `tailscale serve` sets | a person | the node's owner only | only the entries it lists |
 
-A request on a network listener without its proof, or from a caller not admitted, gets 403. A machine caller reaches only `/mcp`, `/herdr-mcp`, `/cdp`, `/hooks/bots`, `/bot-channel`, `/oauth/register`, `/oauth/token` and the two `/.well-known/oauth-*` documents, unless its `LASSO_ALLOW` entry carries `ui:` or it sends a lasso token with the `ui` scope.
+A request on a network listener without its proof, or from a caller not admitted, gets 403, except on `/hooks/bots` and `/bot-channel`, which pass unproven to handlers that check their own keys. A machine caller reaches only `/mcp`, `/herdr-mcp`, `/cdp`, `/hooks/bots`, `/bot-channel`, `/oauth/register`, `/oauth/token` and the two `/.well-known/oauth-*` documents, unless its `LASSO_ALLOW` entry carries `ui:` or it sends a lasso token with the `ui` scope.
 
 A request passes through these layers, outermost first:
 
