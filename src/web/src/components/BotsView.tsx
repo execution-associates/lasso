@@ -184,7 +184,7 @@ function BotRow({
         {running ? (
           <>
             <ContextMenuItem onSelect={() => void restartBot(bot.name)}>
-              Restart, same conversation
+              Restart
             </ContextMenuItem>
             <ContextMenuItem onSelect={() => void stopBot(bot.name)}>
               Stop
