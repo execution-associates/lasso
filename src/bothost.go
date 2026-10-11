@@ -43,7 +43,7 @@ import (
 // Bump it whenever that changes. A host outlives the lasso that started it,
 // so it reports this in host_hello, and the bot loop restarts an idle bot
 // whose host speaks another version onto the current binary (botOmpTick).
-const botHostProtocol = 1
+const botHostProtocol = 2
 
 // botHostClientQueue bounds what a slow client may fall behind by before the
 // host drops it; omp's stdout must never block on a client.
@@ -350,6 +350,7 @@ func (h *botHost) hello() []byte {
 		"protocol":   h.protocol,
 		"version":    lassoVersion(),
 		"bot":        h.name,
+		"dir":        h.dir,
 		"pid":        os.Getpid(),
 		"child_pid":  childPID,
 		"ready":      h.ready,

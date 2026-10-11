@@ -556,8 +556,6 @@ function GeneralTab({
                   Lowercase letters, digits and dashes, starting with a letter
                   or digit (40 at most).
                 </span>
-              ) : omp ? (
-                "Its folder and its address here. Fixed once created."
               ) : (
                 "Its herdr pane, its folder and its address here. Fixed once created."
               )
@@ -582,7 +580,7 @@ function GeneralTab({
             runtimeLocked
               ? "Stop the bot to change it."
               : omp
-                ? "omp in RPC mode, kept running by lasso on this machine. Its questions and approvals come to its chat."
+                ? "omp in RPC mode, kept running by lasso on this machine, with a herdr pane to watch and talk to it. Its questions and approvals come to its chat and its pane."
                 : "Claude Code in a herdr pane, on any host lasso drives."
           }
         >
@@ -638,22 +636,20 @@ function GeneralTab({
               />
             </Field>
           )}
-          {!omp && (
-            <Field
-              label="Workspace"
-              htmlFor="bot-workspace"
-              hint="The herdr workspace its pane opens in."
-            >
-              <input
-                {...NO_AUTOCORRECT}
-                id="bot-workspace"
-                value={draft.workspace}
-                onChange={(e) => set({ workspace: e.target.value })}
-                placeholder="Bots"
-                className={fieldClass}
-              />
-            </Field>
-          )}
+          <Field
+            label="Workspace"
+            htmlFor="bot-workspace"
+            hint="The herdr workspace its pane opens in."
+          >
+            <input
+              {...NO_AUTOCORRECT}
+              id="bot-workspace"
+              value={draft.workspace}
+              onChange={(e) => set({ workspace: e.target.value })}
+              placeholder="Bots"
+              className={fieldClass}
+            />
+          </Field>
           <Field
             label="Folder"
             htmlFor="bot-dir"
@@ -740,7 +736,7 @@ function GeneralTab({
           Keep running
           <span className="block text-[11.5px] text-muted-foreground">
             {omp
-              ? "Bring it back if it stops unexpectedly, resuming the same conversation."
+              ? "Bring it back, and its herdr pane, if either goes away, resuming the same conversation."
               : "Bring it back when its session ends or herdr restarts, resuming the same conversation."}
           </span>
         </Check>

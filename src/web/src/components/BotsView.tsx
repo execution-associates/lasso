@@ -736,7 +736,7 @@ export function BotsView({
               <SettingsButton
                 onClick={() => go({ page: "settings", name: current.name })}
               />
-              {!omp && (
+              {current.pane_id && (
                 <TerminalButton onClick={() => void openTerminal(current)} />
               )}
               <ViewsButton onOpen={onOpenViews} />

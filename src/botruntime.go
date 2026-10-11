@@ -82,9 +82,15 @@ func findBotPane(b Backend, r *botRecord) (pane, bool) {
 	if err != nil {
 		return pane{}, false
 	}
+	// An omp bot's pane is its viewer (lasso bot-attach), which reports itself
+	// to herdr as omp-bot.
+	want := "claude"
+	if r.isOmp() {
+		want = botAttachAgent
+	}
 	for _, p := range panes {
 		kind, _ := paneAgentPresence(p)
-		if kind == "claude" && inDir(p) {
+		if kind == want && inDir(p) {
 			return p, true
 		}
 	}

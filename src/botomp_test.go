@@ -99,13 +99,15 @@ func runFakeOmp() int {
 			go func() {
 				emit(map[string]any{"type": "agent_start"})
 				record("user", msg)
+				emit(map[string]any{"type": "message_end", "message": map[string]any{"role": "user", "content": msg}})
 				reply := "done: " + strings.SplitN(msg, "\n", 2)[0]
 				if strings.Contains(msg, "ASK") {
 					emit(map[string]any{"type": "extension_ui_request", "id": "q1", "method": "select", "title": "Pick one", "options": []string{"A", "B"}})
 					reply = "picked " + <-answers
 				}
 				record("assistant", reply)
-				emit(map[string]any{"type": "message_end"})
+				emit(map[string]any{"type": "message_end", "message": map[string]any{
+					"role": "assistant", "content": []map[string]any{{"type": "text", "text": reply}}}})
 				emit(map[string]any{"type": "agent_end"})
 			}()
 		default:
@@ -362,6 +364,11 @@ func useOmpBotEnvL(t *testing.T, name string) (*botRecord, string, *inProcessLau
 	l := &inProcessLauncher{hosts: map[string]*botHost{}}
 	prev := botOmpLaunch
 	botOmpLaunch = l
+	prevOpen, prevClose, prevPane := botOmpOpenViewer, botOmpCloseViewer, botOmpViewerPane
+	botOmpOpenViewer = func(Backend, *botRecord, string) error { return nil }
+	botOmpCloseViewer = func(Backend, *botRecord) {}
+	botOmpViewerPane = func(Backend, *botRecord) (string, bool) { return "", false }
+	t.Cleanup(func() { botOmpOpenViewer, botOmpCloseViewer, botOmpViewerPane = prevOpen, prevClose, prevPane })
 	t.Cleanup(func() {
 		for n := range l.hosts {
 			l.stop(n)
@@ -620,5 +627,142 @@ func TestOmpBotHostProtocolUpgrade(t *testing.T) {
 	launches := strings.Count(readLog(logPath), "argv")
 	if launches != 2 || !strings.Contains(readLog(logPath), "argv -c") {
 		t.Errorf("launches = %d; log:\n%s", launches, readLog(logPath))
+	}
+}
+
+func TestAttachDecoder(t *testing.T) {
+	var d attachDecoder
+	kinds := func(keys []attachKey) string {
+		var out []string
+		for _, k := range keys {
+			if k.kind == "text" {
+				out = append(out, "text:"+k.text)
+			} else {
+				out = append(out, k.kind)
+			}
+		}
+		return strings.Join(out, ",")
+	}
+	if got := kinds(d.feed([]byte("hé\r"))); got != "text:h,text:é,enter" {
+		t.Errorf("typed = %s", got)
+	}
+	// A paste is one text key with its newlines, even split across reads.
+	got := kinds(d.feed([]byte("\x1b[200~line one\r\nline")))
+	got += kinds(d.feed([]byte(" two\x1b[201~\r")))
+	if got != "text:line one\nline two,enter" {
+		t.Errorf("paste = %q", got)
+	}
+	if got := kinds(d.feed([]byte("\x1b[A\x1b"))); got != "esc" {
+		t.Errorf("arrow then esc = %s", got)
+	}
+	if got := kinds(d.feed([]byte("a\x7f\x15\x03"))); got != "text:a,backspace,clear,interrupt" {
+		t.Errorf("controls = %s", got)
+	}
+}
+
+func TestAttachAnswer(t *testing.T) {
+	approve := ompUIRequest{Method: "select", Options: []string{"Approve", "Deny"}}
+	if a, ok := attachAnswer(approve, "1"); !ok || a["value"] != "Approve" {
+		t.Errorf("1 = %v %v", a, ok)
+	}
+	if a, ok := attachAnswer(approve, "deny"); !ok || a["value"] != "Deny" {
+		t.Errorf("deny = %v %v", a, ok)
+	}
+	if _, ok := attachAnswer(approve, "maybe"); ok {
+		t.Error("free text answered a closed select")
+	}
+	own := ompUIRequest{Method: "select", Options: []string{"Red", "Other (type your own)"}}
+	if a, ok := attachAnswer(own, "teal"); !ok || a["value"] != "teal" {
+		t.Errorf("own = %v %v", a, ok)
+	}
+	if a, ok := attachAnswer(ompUIRequest{Method: "confirm"}, "n"); !ok || a["confirmed"] != false {
+		t.Errorf("confirm n = %v %v", a, ok)
+	}
+}
+
+type fakeAttachHerdr struct {
+	mu     sync.Mutex
+	states []botAttachState
+}
+
+func (f *fakeAttachHerdr) report(st botAttachState) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if n := len(f.states); n == 0 || f.states[n-1] != st {
+		f.states = append(f.states, st)
+	}
+}
+func (f *fakeAttachHerdr) release() {}
+func (f *fakeAttachHerdr) last() botAttachState {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.states) == 0 {
+		return botAttachState{}
+	}
+	return f.states[len(f.states)-1]
+}
+
+type syncBuf struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *syncBuf) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+func (s *syncBuf) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+func TestBotAttachDrivesTheBot(t *testing.T) {
+	r, _ := useOmpBotEnv(t, "viewme")
+	b, _ := botBackend("local")
+	h := &fakeAttachHerdr{}
+	out := &syncBuf{}
+	a := newBotAttach(r.Name, out)
+	a.herdr = h
+	// Not running yet: herdr hears unknown, and the viewer waits for it.
+	go a.connectLoop()
+	ompWaitFor(t, "unknown", func() bool { return h.last().state == "unknown" })
+	if err := startBot(b, r, true); err != nil {
+		t.Fatal(err)
+	}
+	ompWaitFor(t, "idle with its session", func() bool {
+		st := h.last()
+		return st.state == "idle" && st.sessionID == "sess-1" && strings.HasSuffix(st.sessionPath, "_sess-1.jsonl")
+	})
+	// A typed message is a prompt; its answer prints in the pane.
+	for _, k := range (&attachDecoder{}).feed([]byte("hello pane\r")) {
+		a.key(k)
+	}
+	ompWaitFor(t, "the answer on screen", func() bool { return strings.Contains(out.String(), "done: hello pane") })
+	ompWaitFor(t, "idle again", func() bool { return h.last().state == "idle" })
+	// A question blocks the pane until it is answered by number.
+	for _, k := range (&attachDecoder{}).feed([]byte("ASK\r")) {
+		a.key(k)
+	}
+	ompWaitFor(t, "blocked", func() bool { return h.last().state == "blocked" && h.last().message == "Pick one" })
+	if !strings.Contains(out.String(), "1) A") {
+		t.Errorf("question not shown:\n%s", out.String())
+	}
+	for _, k := range (&attachDecoder{}).feed([]byte("2\r")) {
+		a.key(k)
+	}
+	ompWaitFor(t, "picked B", func() bool { return strings.Contains(out.String(), "picked B") })
+	ompWaitFor(t, "idle after the answer", func() bool { return h.last().state == "idle" })
+	// The chat sees what the pane did.
+	if v := botStatus(b, r, nil); v.LastText != "picked B" {
+		t.Errorf("bot's last line = %q", v.LastText)
+	}
+	a.mu.Lock()
+	a.closed = true
+	conn := a.conn
+	a.mu.Unlock()
+	if conn != nil {
+		conn.Close()
 	}
 }

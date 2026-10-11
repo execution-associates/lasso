@@ -542,10 +542,44 @@ func botOmpStart(b Backend, r *botRecord, fresh bool) error {
 		bots.mu.Unlock()
 		return err
 	}
+	// The bot in herdr. A failure costs only the pane: the bot runs, and
+	// its chat works, without one.
+	if err := botOmpOpenViewer(b, r, dir); err != nil {
+		log.Printf("bots:     %s: open its herdr pane: %v", r.Name, err)
+	}
 	return nil
 }
 
+// botOmpOpenViewer opens the bot's herdr pane, `lasso bot-attach <name>` in
+// a tab of its workspace, when it has none. Typed with this binary's own path
+// (the lasso on PATH may be an older one); herdr restores it with the plain
+// `lasso bot-attach <name>` the viewer reports. A seam for tests.
+var botOmpOpenViewer = func(b Backend, r *botRecord, dir string) error {
+	if _, ok := findBotPane(b, r); ok {
+		return nil
+	}
+	paneID, err := openBotTab(b, r, dir)
+	if err != nil {
+		return err
+	}
+	invalidatePaneList(b.Name())
+	waitPaneReady(b, paneID)
+	return paneRun(b, paneID, shellQuote(botLassoExe())+" bot-attach "+r.Name)
+}
+
+// botOmpCloseViewer closes the bot's herdr pane. A seam for tests.
+var botOmpCloseViewer = func(b Backend, r *botRecord) {
+	if p, ok := findBotPane(b, r); ok {
+		if _, err := b.HerdrCall("pane.close", map[string]any{"pane_id": p.PaneID}); err == nil {
+			invalidatePaneList(b.Name())
+		}
+	}
+}
+
 func botOmpStop(r *botRecord) error {
+	if b, err := botBackend(r.Host); err == nil {
+		defer botOmpCloseViewer(b, r)
+	}
 	if err := setBotStopped(r.Name, true); err != nil {
 		return err
 	}
@@ -587,6 +621,9 @@ func botOmpStatus(b Backend, r *botRecord) botView {
 	ob.ensure()
 	s := ob.snapshot()
 	v.SessionID = s.sessionID
+	if p, ok := botOmpViewerPane(b, r); ok {
+		v.PaneID = p
+	}
 	if s.connected && s.hello {
 		v.HostVersion = s.hostVersion
 		v.HostOutdated = s.hostProto != botHostProtocol
@@ -783,6 +820,7 @@ func botOmpTick(b Backend, r *botRecord, now time.Time) {
 		if s.hello && s.hostProto != botHostProtocol {
 			go botOmpUpgrade(b, r)
 		}
+		botOmpKeepViewer(b, r)
 		return
 	}
 	if r.Stopped || !r.KeepRunning || botOmpLaunch.active(r.Name) {
@@ -916,5 +954,39 @@ func botOmpUpgrade(b Backend, r *botRecord) {
 	}
 	if err := botOmpStart(b, r, false); err != nil && !errors.Is(err, errBotRunning) {
 		log.Printf("bots:     %s: upgrade: start: %v", r.Name, err)
+	}
+}
+
+// botOmpViewerPane is the bot's herdr pane, if it has one. A seam for tests.
+var botOmpViewerPane = func(b Backend, r *botRecord) (string, bool) {
+	p, ok := findBotPane(b, r)
+	return p.PaneID, ok
+}
+
+// botOmpKeepViewer reopens a keep-running bot's herdr pane once it has been
+// missing for as long as a claude bot's pane may be before a relaunch, which
+// gives herdr's own restore (resume_argv) the first chance.
+func botOmpKeepViewer(b Backend, r *botRecord) {
+	if !r.KeepRunning {
+		return
+	}
+	if _, ok := botOmpViewerPane(b, r); ok {
+		bots.mu.Lock()
+		bots.misses[r.Name] = 0
+		bots.mu.Unlock()
+		return
+	}
+	bots.mu.Lock()
+	bots.misses[r.Name]++
+	due := bots.misses[r.Name] >= botMissesBeforeRelaunch
+	if due {
+		bots.misses[r.Name] = 0
+	}
+	bots.mu.Unlock()
+	if !due {
+		return
+	}
+	if err := botOmpOpenViewer(b, r, expandTildeOn(b, r.Dir)); err != nil {
+		log.Printf("bots:     %s: reopen its herdr pane: %v", r.Name, err)
 	}
 }

@@ -1,0 +1,863 @@
+package main
+
+// `lasso bot-attach <name>`: an omp bot in a herdr pane (docs/design/bots.md,
+// "omp bots in herdr"). The bot itself runs headless under its bot host; this
+// is a viewer that makes it a herdr agent like any other:
+//
+//   - It prints the conversation as plain lines on the normal screen, so
+//     `herdr agent read` (and a human looking at the pane) sees it.
+//   - Typed or pasted input becomes a prompt (a steer while the bot works), so
+//     `herdr agent prompt` reaches it; Esc aborts the turn; a question or an
+//     approval is answered by number, so `herdr agent send-keys 1 Enter` works.
+//   - It reports the bot's state, session and resume command to herdr
+//     (pane.report_agent, source lasso:bot), so the sidebar, `agent wait` and
+//     herdr's restore all work. herdr restores the pane by running this again;
+//     the bot host, a separate systemd unit, never stopped.
+//
+// Ctrl-C detaches the viewer; the bot keeps running.
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"os/signal"
+	"strconv"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+	"unicode/utf8"
+
+	"golang.org/x/sys/unix"
+)
+
+const (
+	botAttachSource = "lasso:bot"
+	// botAttachAgent is the agent herdr is told runs in the pane: omp, which
+	// is what it is. herdr prompts only an agent it knows, whose process is the
+	// pane's foreground, so the viewer runs with HERDR_AGENT=omp (herdr's hint
+	// for a wrapper). herdr's own omp resume never runs here: the resume_argv
+	// we report with every state wins, and it reruns this viewer, not omp.
+	botAttachAgent = "omp"
+)
+
+func cliBotAttach(args []string) {
+	name := ""
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--bot" && i+1 < len(args):
+			name = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--bot="):
+			name = strings.TrimPrefix(a, "--bot=")
+		case !strings.HasPrefix(a, "-") && name == "":
+			name = a
+		}
+	}
+	if !botNameRE.MatchString(name) {
+		fmt.Fprintln(os.Stderr, "usage: lasso bot-attach <bot name>")
+		os.Exit(2)
+	}
+	// herdr reads HERDR_AGENT from the foreground process's own environment,
+	// so it is set by exec'ing again rather than with Setenv. In place: the
+	// pid herdr sees in the pane stays this one.
+	if os.Getenv("HERDR_PANE_ID") != "" && os.Getenv("HERDR_AGENT") != botAttachAgent {
+		if exe, err := os.Executable(); err == nil {
+			_ = syscall.Exec(exe, os.Args, append(os.Environ(), "HERDR_AGENT="+botAttachAgent))
+		}
+	}
+	a := newBotAttach(name, os.Stdout)
+	a.herdr = newBotAttachHerdr(name)
+	os.Exit(a.run(os.Stdin))
+}
+
+// --- herdr ---------------------------------------------------------------------
+
+// botAttachHerdr is what the viewer tells herdr. A seam for tests.
+type botAttachReporter interface {
+	report(st botAttachState)
+	release()
+}
+
+type botAttachHerdr struct {
+	name, pane, sock string
+	mu               sync.Mutex
+	last             botAttachState
+	reported         bool
+	renamed          bool
+}
+
+func newBotAttachHerdr(name string) botAttachReporter {
+	pane := os.Getenv("HERDR_PANE_ID")
+	if pane == "" {
+		return nil
+	}
+	return &botAttachHerdr{name: name, pane: pane, sock: defaultSock()}
+}
+
+// botAttachState is the bot as herdr should see it.
+type botAttachState struct {
+	state       string // idle | working | blocked | unknown
+	message     string
+	sessionID   string
+	sessionPath string
+}
+
+func (h *botAttachHerdr) report(st botAttachState) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.reported && st == h.last {
+		return
+	}
+	params := map[string]any{
+		"pane_id": h.pane, "source": botAttachSource, "agent": botAttachAgent,
+		"state": st.state, "seq": time.Now().UnixNano(),
+		"resume_argv": []string{"lasso", "bot-attach", h.name},
+	}
+	if st.message != "" {
+		params["message"] = st.message
+	}
+	if st.sessionID != "" {
+		params["agent_session_id"] = st.sessionID
+	}
+	if st.sessionPath != "" {
+		params["agent_session_path"] = st.sessionPath
+	}
+	if _, err := herdrCallSock(h.sock, "pane.report_agent", params); err != nil {
+		return
+	}
+	h.last, h.reported = st, true
+	// The pane goes by the bot's name, which is how herdr's agent commands
+	// and lasso's own lookup (findBotPane) address it.
+	if !h.renamed {
+		if _, err := herdrCallSock(h.sock, "agent.rename", map[string]any{"target": h.pane, "name": h.name}); err == nil {
+			h.renamed = true
+		}
+	}
+}
+
+func (h *botAttachHerdr) release() {
+	_, _ = herdrCallSock(h.sock, "pane.release_agent", map[string]any{
+		"pane_id": h.pane, "source": botAttachSource, "agent": botAttachAgent, "seq": time.Now().UnixNano(),
+	})
+}
+
+// --- the viewer ------------------------------------------------------------------
+
+type botAttach struct {
+	name    string
+	out     io.Writer
+	herdr   botAttachReporter
+	outMu   sync.Mutex // one writer on the terminal
+	mu      sync.Mutex
+	conn    net.Conn
+	dir     string
+	ready   bool
+	busy    bool
+	sid     string
+	asks    []ompUIRequest
+	line    []rune // what the human is typing
+	closed  bool
+	restore func() // the terminal as it was
+	seq     int
+	tools   map[string]string // running tool calls, by id, for their result line
+}
+
+func newBotAttach(name string, out io.Writer) *botAttach {
+	return &botAttach{name: name, out: out, tools: map[string]string{}}
+}
+
+func (a *botAttach) run(in *os.File) int {
+	a.restore = attachRawTerminal(in)
+	sigs := make(chan os.Signal, 2)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGINT)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-sigs:
+		case <-done:
+		}
+		a.shutdown()
+	}()
+	a.say(fmt.Sprintf("omp bot %s, through lasso. Type a message and press Enter; Esc stops a turn; Ctrl-C closes this view (the bot keeps running).", a.name))
+	go a.connectLoop()
+	a.readInput(bufio.NewReader(in))
+	close(done)
+	a.shutdown()
+	return 0
+}
+
+func (a *botAttach) shutdown() {
+	a.mu.Lock()
+	if a.closed {
+		a.mu.Unlock()
+		return
+	}
+	a.closed = true
+	conn := a.conn
+	a.mu.Unlock()
+	if conn != nil {
+		conn.Close()
+	}
+	if a.herdr != nil {
+		a.herdr.release()
+	}
+	if a.restore != nil {
+		a.restore()
+	}
+	_, _ = io.WriteString(a.out, "\r\n")
+	os.Exit(0)
+}
+
+// attachRawTerminal puts a terminal stdin in raw mode with bracketed paste on,
+// so a paste (herdr's agent.prompt sends one) is one message and Esc reaches
+// us. Not a terminal: nothing to do.
+func attachRawTerminal(in *os.File) func() {
+	fd := int(in.Fd())
+	old, err := unix.IoctlGetTermios(fd, unix.TCGETS)
+	if err != nil {
+		return func() {}
+	}
+	raw := *old
+	raw.Lflag &^= unix.ECHO | unix.ICANON | unix.ISIG | unix.IEXTEN
+	raw.Iflag &^= unix.IXON | unix.ICRNL | unix.INLCR
+	raw.Cc[unix.VMIN], raw.Cc[unix.VTIME] = 1, 0
+	if err := unix.IoctlSetTermios(fd, unix.TCSETS, &raw); err != nil {
+		return func() {}
+	}
+	fmt.Fprint(os.Stdout, "\x1b[?2004h")
+	return func() {
+		fmt.Fprint(os.Stdout, "\x1b[?2004l")
+		_ = unix.IoctlSetTermios(fd, unix.TCSETS, old)
+	}
+}
+
+// --- output ----------------------------------------------------------------------
+
+const attachPrompt = "› "
+
+// say prints lines above the input line and redraws what the human is typing.
+func (a *botAttach) say(text string) {
+	a.outMu.Lock()
+	defer a.outMu.Unlock()
+	a.mu.Lock()
+	line := string(a.line)
+	a.mu.Unlock()
+	var b strings.Builder
+	b.WriteString("\r\x1b[K")
+	for _, l := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
+		b.WriteString(l)
+		b.WriteString("\r\n")
+	}
+	b.WriteString(attachPrompt + line)
+	_, _ = io.WriteString(a.out, b.String())
+}
+
+func (a *botAttach) redraw() {
+	a.outMu.Lock()
+	defer a.outMu.Unlock()
+	a.mu.Lock()
+	line := string(a.line)
+	a.mu.Unlock()
+	_, _ = io.WriteString(a.out, "\r\x1b[K"+attachPrompt+line)
+}
+
+func indent(text, prefix string) string {
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	for i := range lines {
+		lines[i] = prefix + lines[i]
+	}
+	return strings.Join(lines, "\n")
+}
+
+// --- the connection --------------------------------------------------------------
+
+func (a *botAttach) connectLoop() {
+	backoff := 500 * time.Millisecond
+	waiting := false
+	for {
+		a.mu.Lock()
+		closed := a.closed
+		a.mu.Unlock()
+		if closed {
+			return
+		}
+		conn, err := net.DialTimeout("unix", botSocketPath(a.name), 2*time.Second)
+		if err != nil {
+			if !waiting {
+				a.say("— the bot is not running; waiting for it —")
+				a.report()
+				waiting = true
+			}
+			time.Sleep(backoff)
+			backoff = min(backoff*2, 5*time.Second)
+			continue
+		}
+		backoff, waiting = 500*time.Millisecond, false
+		a.mu.Lock()
+		a.conn = conn
+		a.mu.Unlock()
+		a.read(conn)
+		a.mu.Lock()
+		a.conn, a.ready, a.busy, a.asks = nil, false, false, nil
+		a.mu.Unlock()
+		a.report()
+	}
+}
+
+func (a *botAttach) read(conn net.Conn) {
+	r := bufio.NewReaderSize(conn, 256*1024)
+	for {
+		line, err := r.ReadBytes('\n')
+		if len(line) > 0 {
+			a.handle(line)
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func (a *botAttach) send(v map[string]any) error {
+	a.mu.Lock()
+	conn := a.conn
+	if _, ok := v["id"]; !ok {
+		a.seq++
+		v["id"] = fmt.Sprintf("attach-%d-%d", os.Getpid(), a.seq)
+	}
+	a.mu.Unlock()
+	if conn == nil {
+		return errOmpNotConnected
+	}
+	b, _ := json.Marshal(v)
+	_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	_, err := conn.Write(append(b, '\n'))
+	return err
+}
+
+type attachFrame struct {
+	ompFrame
+	Dir        string          `json:"dir"`
+	Message    json.RawMessage `json:"message"`
+	ToolCallID string          `json:"toolCallId"`
+	ToolName   string          `json:"toolName"`
+	Args       json.RawMessage `json:"args"`
+	IsError    bool            `json:"isError"`
+	Command    string          `json:"command"`
+	Text       string          `json:"text"`
+}
+
+func (a *botAttach) handle(line []byte) {
+	var f attachFrame
+	if json.Unmarshal(line, &f) != nil {
+		return
+	}
+	// ompFrame's Message is a string field, shadowed here by the raw one:
+	// read the UI request's own text from the line again.
+	var ui ompFrame
+	_ = json.Unmarshal(line, &ui)
+	switch f.Type {
+	case "host_hello":
+		a.mu.Lock()
+		a.dir, a.ready, a.busy, a.asks = f.Dir, f.Ready, f.Streaming, nil
+		for _, raw := range f.Pending {
+			var p ompFrame
+			if json.Unmarshal(raw, &p) == nil {
+				if q, ok := p.uiRequest(); ok {
+					a.asks = append(a.asks, q)
+				}
+			}
+		}
+		asks := append([]ompUIRequest(nil), a.asks...)
+		a.mu.Unlock()
+		if f.Ready {
+			a.fetchState(true)
+		}
+		for _, q := range asks {
+			a.showAsk(q)
+		}
+	case "ready":
+		a.mu.Lock()
+		a.ready = true
+		a.mu.Unlock()
+		a.fetchState(false)
+	case "agent_start":
+		a.setBusy(true)
+	case "agent_end":
+		if f.IsTerminal == nil || *f.IsTerminal {
+			a.setBusy(false)
+			a.fetchState(false)
+		}
+	case "message_end":
+		a.showMessage(f.Message)
+	case "tool_execution_start":
+		title := attachToolTitle(f.ToolName, f.Args)
+		a.mu.Lock()
+		a.tools[f.ToolCallID] = title
+		a.mu.Unlock()
+		a.say("  · " + title)
+	case "tool_execution_end":
+		a.mu.Lock()
+		title := a.tools[f.ToolCallID]
+		delete(a.tools, f.ToolCallID)
+		a.mu.Unlock()
+		if f.IsError {
+			a.say("  ✗ " + firstNonEmpty(title, f.ToolName) + " failed")
+		}
+	case "extension_ui_request":
+		if q, ok := ui.uiRequest(); ok {
+			a.mu.Lock()
+			a.asks = append(a.asks, q)
+			a.mu.Unlock()
+			a.showAsk(q)
+			a.report()
+		} else if f.Method == "cancel" {
+			a.dropAsk(f.TargetID)
+			a.dropAsk(f.ID)
+		}
+	case "host_ui_answered":
+		a.dropAsk(f.ID)
+	case "command_output":
+		if f.Text != "" {
+			a.say(indent(f.Text, "  "))
+		}
+	case "host_restarting":
+		a.mu.Lock()
+		a.ready, a.busy, a.asks = false, false, nil
+		a.mu.Unlock()
+		a.say("— restarting —")
+		a.report()
+	case "host_exit":
+		a.say("— the bot stopped —")
+	case "response":
+		if !f.Success && f.Error != "" {
+			a.say("  (" + f.Error + ")")
+		}
+		var st struct {
+			SessionID string `json:"sessionId"`
+		}
+		if f.ompFrame.Data != nil && json.Unmarshal(f.ompFrame.Data, &st) == nil && st.SessionID != "" {
+			a.mu.Lock()
+			changed := a.sid != st.SessionID
+			a.sid = st.SessionID
+			a.mu.Unlock()
+			if changed {
+				a.report()
+			}
+		}
+	}
+}
+
+func (a *botAttach) setBusy(b bool) {
+	a.mu.Lock()
+	a.busy = b
+	a.mu.Unlock()
+	a.report()
+}
+
+func (a *botAttach) dropAsk(id string) {
+	if id == "" {
+		return
+	}
+	a.mu.Lock()
+	for i, q := range a.asks {
+		if q.ID == id {
+			a.asks = append(a.asks[:i:i], a.asks[i+1:]...)
+			break
+		}
+	}
+	a.mu.Unlock()
+	a.report()
+}
+
+// fetchState asks omp for its session id; with history, it first prints the
+// end of the conversation so far.
+func (a *botAttach) fetchState(history bool) {
+	if history {
+		a.mu.Lock()
+		dir := a.dir
+		a.mu.Unlock()
+		if dir != "" {
+			a.showHistory(dir)
+		}
+	}
+	_ = a.send(map[string]any{"type": "get_state"})
+	a.report()
+}
+
+// showHistory prints the newest rows of the session the host continues.
+func (a *botAttach) showHistory(dir string) {
+	r := &botRecord{Name: a.name, Dir: dir, Runtime: botRuntimeOmp}
+	path := botOmpSessionFile(&localBackend{}, r)
+	if path == "" {
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return
+	}
+	parsed := readLogPage(&localBackend{}, path, "omp", info.Size(), info.Size(), false)
+	items := parsed.items
+	if len(items) > 30 {
+		items = items[len(items)-30:]
+	}
+	var b strings.Builder
+	for _, it := range items {
+		switch {
+		case it.Thinking:
+		case it.Kind == "user":
+			b.WriteString(attachPrompt + it.Text + "\n")
+		case it.Kind == "agent" && it.Text != "":
+			b.WriteString(it.Text + "\n")
+		case it.Kind == "tool" && it.Tool != nil:
+			b.WriteString("  · " + firstNonEmpty(it.Tool.Title, it.Tool.Name) + "\n")
+		case it.Kind == "marker":
+			b.WriteString("  (" + firstNonEmpty(it.Marker, "interrupted") + ")\n")
+		}
+	}
+	if b.Len() > 0 {
+		a.say(strings.TrimRight(b.String(), "\n") + "\n— now —")
+	}
+}
+
+// showMessage prints a finished message: the human's, or the bot's prose.
+func (a *botAttach) showMessage(raw json.RawMessage) {
+	var m struct {
+		Role    string          `json:"role"`
+		Content json.RawMessage `json:"content"`
+	}
+	if json.Unmarshal(raw, &m) != nil {
+		return
+	}
+	text := ompMessageText(m.Content)
+	switch m.Role {
+	case "user":
+		if text != "" {
+			a.say(attachPrompt + text)
+		}
+	case "assistant":
+		if text != "" {
+			a.say(text)
+		}
+	}
+}
+
+// ompMessageText is a message's text blocks, joined; thinking and tool calls
+// are left out (a tool call shows as its own line).
+func ompMessageText(content json.RawMessage) string {
+	var s string
+	if json.Unmarshal(content, &s) == nil {
+		return strings.TrimSpace(s)
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(content, &blocks) != nil {
+		return ""
+	}
+	var parts []string
+	for _, b := range blocks {
+		if b.Type == "text" && strings.TrimSpace(b.Text) != "" {
+			parts = append(parts, strings.TrimSpace(b.Text))
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// attachToolTitle is one line for a tool call: its name and its most telling
+// argument.
+func attachToolTitle(name string, args json.RawMessage) string {
+	var m map[string]any
+	_ = json.Unmarshal(args, &m)
+	for _, k := range []string{"command", "path", "file_path", "url", "query", "pattern", "intent"} {
+		if v, ok := m[k].(string); ok && strings.TrimSpace(v) != "" {
+			v = strings.Join(strings.Fields(v), " ")
+			if utf8.RuneCountInString(v) > 100 {
+				v = string([]rune(v)[:99]) + "…"
+			}
+			return name + " " + v
+		}
+	}
+	return name
+}
+
+func (a *botAttach) showAsk(q ompUIRequest) {
+	var b strings.Builder
+	b.WriteString("? " + q.Title + "\n")
+	if q.Message != "" {
+		b.WriteString(indent(q.Message, "  ") + "\n")
+	}
+	switch q.Method {
+	case "select":
+		for i, o := range q.Options {
+			fmt.Fprintf(&b, "  %d) %s\n", i+1, o)
+		}
+		b.WriteString("  answer with its number, or type your own where it offers one")
+	case "confirm":
+		b.WriteString("  1) yes  2) no")
+	default:
+		b.WriteString("  type the answer and press Enter")
+	}
+	a.say(b.String())
+}
+
+// --- herdr state -------------------------------------------------------------------
+
+func (a *botAttach) state() botAttachState {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := botAttachState{sessionID: a.sid}
+	if a.dir != "" && a.sid != "" {
+		st.sessionPath = botOmpSessionFile(&localBackend{}, &botRecord{Name: a.name, Dir: a.dir})
+	}
+	switch {
+	case a.conn == nil:
+		st.state, st.message = "unknown", "the bot is not running"
+	case len(a.asks) > 0:
+		st.state, st.message = "blocked", ompFirstLine(a.asks[0].Title)
+	case !a.ready:
+		st.state = "unknown"
+	case a.busy:
+		st.state = "working"
+	default:
+		st.state = "idle"
+	}
+	return st
+}
+
+func (a *botAttach) report() {
+	if a.herdr != nil {
+		a.herdr.report(a.state())
+	}
+}
+
+// --- input -------------------------------------------------------------------------
+
+// attachKey is one decoded input event.
+type attachKey struct {
+	kind string // text | enter | backspace | esc | interrupt | eof | clear
+	text string
+}
+
+// attachDecoder turns terminal input bytes into keys. A bracketed paste is
+// one text key, its newlines kept, so a multi-line message is one message.
+type attachDecoder struct {
+	buf     []byte
+	pasting bool
+	paste   []byte
+}
+
+func (d *attachDecoder) feed(p []byte) []attachKey {
+	d.buf = append(d.buf, p...)
+	var out []attachKey
+	for len(d.buf) > 0 {
+		if d.pasting {
+			end := strings.Index(string(d.buf), "\x1b[201~")
+			if end < 0 {
+				d.paste = append(d.paste, d.buf...)
+				d.buf = d.buf[:0]
+				break
+			}
+			d.paste = append(d.paste, d.buf[:end]...)
+			d.buf = d.buf[end+6:]
+			d.pasting = false
+			text := strings.ReplaceAll(strings.ReplaceAll(string(d.paste), "\r\n", "\n"), "\r", "\n")
+			d.paste = nil
+			out = append(out, attachKey{kind: "text", text: text})
+			continue
+		}
+		c := d.buf[0]
+		switch {
+		case c == 0x1b:
+			if strings.HasPrefix(string(d.buf), "\x1b[200~") {
+				d.pasting = true
+				d.buf = d.buf[6:]
+				continue
+			}
+			if len(d.buf) == 1 {
+				out = append(out, attachKey{kind: "esc"})
+				d.buf = d.buf[1:]
+				continue
+			}
+			if d.buf[1] == '[' || d.buf[1] == 'O' {
+				// A CSI or SS3 sequence (an arrow key, say): skipped whole.
+				i := 2
+				for i < len(d.buf) && (d.buf[i] < 0x40 || d.buf[i] > 0x7e) {
+					i++
+				}
+				if i >= len(d.buf) {
+					return out // incomplete: wait for the rest
+				}
+				d.buf = d.buf[i+1:]
+				continue
+			}
+			out = append(out, attachKey{kind: "esc"})
+			d.buf = d.buf[1:]
+		case c == '\r' || c == '\n':
+			out = append(out, attachKey{kind: "enter"})
+			d.buf = d.buf[1:]
+		case c == 0x7f || c == 0x08:
+			out = append(out, attachKey{kind: "backspace"})
+			d.buf = d.buf[1:]
+		case c == 0x03:
+			out = append(out, attachKey{kind: "interrupt"})
+			d.buf = d.buf[1:]
+		case c == 0x04:
+			out = append(out, attachKey{kind: "eof"})
+			d.buf = d.buf[1:]
+		case c == 0x15:
+			out = append(out, attachKey{kind: "clear"})
+			d.buf = d.buf[1:]
+		case c < 0x20 || c == 0x7f:
+			d.buf = d.buf[1:]
+		default:
+			r, size := utf8.DecodeRune(d.buf)
+			if r == utf8.RuneError && !utf8.FullRune(d.buf) {
+				return out
+			}
+			out = append(out, attachKey{kind: "text", text: string(r)})
+			d.buf = d.buf[size:]
+		}
+	}
+	return out
+}
+
+func (a *botAttach) readInput(r *bufio.Reader) {
+	var d attachDecoder
+	buf := make([]byte, 4096)
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			for _, k := range d.feed(buf[:n]) {
+				if !a.key(k) {
+					return
+				}
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// key handles one key; false ends the viewer.
+func (a *botAttach) key(k attachKey) bool {
+	switch k.kind {
+	case "text":
+		a.mu.Lock()
+		a.line = append(a.line, []rune(k.text)...)
+		a.mu.Unlock()
+		a.redraw()
+	case "backspace":
+		a.mu.Lock()
+		if len(a.line) > 0 {
+			a.line = a.line[:len(a.line)-1]
+		}
+		a.mu.Unlock()
+		a.redraw()
+	case "clear":
+		a.mu.Lock()
+		a.line = nil
+		a.mu.Unlock()
+		a.redraw()
+	case "esc":
+		a.mu.Lock()
+		busy := a.busy
+		a.mu.Unlock()
+		if busy {
+			_ = a.send(map[string]any{"type": "abort"})
+			a.say("  (stopping)")
+		}
+	case "interrupt":
+		return false
+	case "eof":
+		a.mu.Lock()
+		empty := len(a.line) == 0
+		a.mu.Unlock()
+		if empty {
+			return false
+		}
+	case "enter":
+		a.mu.Lock()
+		text := strings.TrimSpace(string(a.line))
+		a.line = nil
+		a.mu.Unlock()
+		a.redraw()
+		if text != "" {
+			a.submit(text)
+		}
+	}
+	return true
+}
+
+// submit sends what the human typed: an answer when a question is open, else
+// a message.
+func (a *botAttach) submit(text string) {
+	a.mu.Lock()
+	var q *ompUIRequest
+	if len(a.asks) > 0 {
+		qq := a.asks[0]
+		q = &qq
+	}
+	busy := a.busy
+	a.mu.Unlock()
+	if q != nil {
+		ans, ok := attachAnswer(*q, text)
+		if !ok {
+			a.say("  (answer with one of the numbers above)")
+			return
+		}
+		ans["type"], ans["id"] = "extension_ui_response", q.ID
+		if err := a.send(ans); err != nil {
+			a.say("  (not sent: " + err.Error() + ")")
+		}
+		return
+	}
+	cmd := map[string]any{"type": "prompt", "message": text}
+	if busy {
+		cmd["streamingBehavior"] = "steer"
+	}
+	if err := a.send(cmd); err != nil {
+		a.say("  (not sent: " + err.Error() + ")")
+		return
+	}
+	// Working from the moment it is sent: herdr's `agent prompt --wait` gives
+	// up if it does not see working within seconds of the submit.
+	a.setBusy(true)
+}
+
+// attachAnswer reads an answer to a question: an option by number (or its
+// label), yes/no for a confirm, free text where the question takes it.
+func attachAnswer(q ompUIRequest, text string) (map[string]any, bool) {
+	switch q.Method {
+	case "confirm":
+		switch strings.ToLower(text) {
+		case "1", "y", "yes":
+			return map[string]any{"confirmed": true}, true
+		case "2", "n", "no":
+			return map[string]any{"confirmed": false}, true
+		}
+		return nil, false
+	case "select":
+		if n, err := strconv.Atoi(text); err == nil && n >= 1 && n <= len(q.Options) {
+			return map[string]any{"value": q.Options[n-1]}, true
+		}
+		for _, o := range q.Options {
+			if strings.EqualFold(o, text) {
+				return map[string]any{"value": o}, true
+			}
+		}
+		for _, o := range q.Options {
+			if strings.Contains(strings.ToLower(o), "type your own") {
+				return map[string]any{"value": text}, true
+			}
+		}
+		return nil, false
+	default:
+		return map[string]any{"value": text}, true
+	}
+}

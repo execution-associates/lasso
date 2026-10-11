@@ -8,6 +8,7 @@ Code:
 - `botomp_files.go`: an omp bot's generated files, system prompt and job-event message.
 - `bothost.go`: `lasso bot-host`, the process that owns an omp bot's pipes.
 - `botomp.go`: lasso's side of an omp bot: the socket connection, start/stop, status, keep-running and job delivery.
+- `botattach.go`: `lasso bot-attach`, an omp bot's herdr pane.
 - `botenv.go`: env and secrets (fnox, through mise).
 - `botkey.go`: lasso's own age identity.
 - `claudesessions.go`: Claude Code's session registry.
@@ -175,4 +176,14 @@ lasso (either instance) --unix socket--> lasso bot-host (systemd user unit lasso
 - **Extra args go on the omp command, minus the ones that would take it away from lasso.** `--mode`, `-p`/`--print`, `--no-session`, `--session-dir`, `-c`/`--continue`, `-r`/`--resume`, `--fork`, `--export`, `--cwd`, `--profile` and `--alias` are refused (`botOmpReservedArgs`); an `--append-system-prompt` is joined onto lasso's note.
 - **Local only, runtime fixed while running.** An omp bot must be on `local` (the socket is on lasso's machine). A save that changes `runtime` is refused while the bot runs, and switching starts a new conversation, since the two runtimes keep different session files.
 - **Signed-in MCP servers use omp's `!command` header.** omp has no `headersHelper`; the Authorization value is `!printf 'Bearer %s' "$(fnox … get LASSO_OAUTH_<S>_ACCESS)"`. omp also loads the user's own `~/.omp/agent/mcp.json` servers, so strict MCP does not apply to an omp bot.
+
+### omp bots in herdr
+
+An omp bot has no terminal of its own, so lasso gives it a herdr pane running **`lasso bot-attach <name>`** (`botattach.go`), a viewer connected to the bot host's socket. That makes the bot a herdr agent like any other: the sidebar shows its state, `herdr agent prompt`/`read`/`wait`/`send-keys` work on it, and herdr's restore brings the pane back.
+
+- **The viewer is the reporter.** It calls `pane.report_agent` (source `lasso:bot`, agent `omp`) on every state change, with `agent_session_id`, `agent_session_path` (the session file, so lasso's own chat overlay can read the pane too) and `resume_argv` `["lasso","bot-attach","<name>"]`. It renames the pane to the bot's name, which is what herdr's commands and `findBotPane` address, and calls `pane.release_agent` on exit. State: blocked while a question is open (the question as `message`), working from the moment it sends a prompt (herdr's `agent prompt --wait` gives up if it does not see working within seconds), unknown while the bot host is unreachable, else idle.
+- **Agent `omp`, with `HERDR_AGENT=omp`.** herdr prompts only an agent it knows whose process is the pane's foreground, so a custom label is report-only (`agent_not_ready`). The viewer re-execs itself with `HERDR_AGENT=omp`, herdr's documented hint for a wrapper, so the foreground process counts. **herdr never starts its own omp in the pane:** the `resume_argv` reported with every state wins over herdr's built-in omp resume. Measured on an isolated herdr 0.9.3 server (separate socket and state): after `herdr server stop` and a fresh start, herdr re-ran `lasso bot-attach` in the restored pane, the bot still had exactly one omp (its host's), and the restored pane took prompts.
+- **What the pane does.** It prints the end of the session file on connect, then each finished message and tool call as plain lines on the normal screen (so `agent read` sees the conversation). Input runs raw with bracketed paste on: a paste is one message, Enter sends a prompt (a steer while the bot works), Esc aborts, a question is answered by its number (or an option's label, or free text where it offers one), Ctrl-C closes the viewer and leaves the bot running. It reconnects by itself across a host restart or upgrade.
+- **lasso owns the pane's lifecycle.** Start opens it in a tab of the bot's workspace (typed with this binary's own path; the `lasso` on PATH may be older), failure costing only the pane. Stop and Delete close it. A keep-running bot whose pane has been missing for `botMissesBeforeRelaunch` ticks gets it reopened, after herdr's own restore has had its chance. The bot's view carries the pane as `pane_id`, so the Bots view's terminal button opens it.
+- **send_agent still goes over RPC**, never through the pane: a bot's name resolves to the bot before any pane lookup.
 

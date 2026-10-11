@@ -9,7 +9,7 @@ A **bot** is an agent session that lasso launches and keeps running. Each bot ha
 
 A bot's **runtime** is one of two:
 
-- **omp** (the default for a new bot): omp in RPC mode, kept running by lasso on its own machine with no terminal. It survives lasso restarts and updates mid-turn. Its instructions are `AGENTS.md`, and the questions and approvals it asks wait in its chat for you to answer.
+- **omp** (the default for a new bot): omp in RPC mode, kept running by lasso on its own machine. It survives lasso restarts and updates mid-turn. It also gets a herdr pane, where you can watch it, type to it (Esc stops a turn, a number answers a question) and reach it with herdr's own agent commands. Its instructions are `AGENTS.md`, and the questions and approvals it asks wait in its chat for you to answer.
 - **Claude Code**: Claude Code in a herdr pane, on any host lasso drives, with channels. Its instructions are `CLAUDE.md`.
 
 The rest of this page describes both, and says where they differ. An assistant that answers your mail is a bot, and so is a watcher that runs on a schedule. The **Bots** view lists them like a messaging app: the bots down the left, and the selected one's conversation on the right.
