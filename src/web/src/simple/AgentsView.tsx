@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { ChevronLeft, ChevronRight, Monitor, Power } from "lucide-react"
+import { ChevronLeft, ChevronRight, Power } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 
@@ -230,17 +230,6 @@ export function AgentChat({
       toast.error(`Could not end ${name}: ${(e as Error).message}`)
     }
   }
-  const focus = async () => {
-    try {
-      await api.focusOn(host, {
-        pane_id: paneID,
-        workspace_id: pane?.workspace_id,
-      })
-      toast.success(`Focused ${name} in herdr`)
-    } catch (e) {
-      toast.error(`Could not focus ${name}: ${(e as Error).message}`)
-    }
-  }
   const icon =
     "flex size-10 items-center justify-center rounded-full text-muted-foreground active:bg-muted"
 
@@ -253,24 +242,14 @@ export function AgentChat({
         title={name}
         headerLead={<BackButton label="Agents" onClick={back} />}
         headerExtra={
-          <>
-            <button
-              type="button"
-              aria-label="Focus in herdr"
-              onClick={() => void focus()}
-              className={icon}
-            >
-              <Monitor className="size-[18px]" />
-            </button>
-            <button
-              type="button"
-              aria-label="End agent"
-              onClick={() => setConfirmKill(true)}
-              className={icon}
-            >
-              <Power className="size-[18px]" />
-            </button>
-          </>
+          <button
+            type="button"
+            aria-label="End agent"
+            onClick={() => setConfirmKill(true)}
+            className={icon}
+          >
+            <Power className="size-[18px]" />
+          </button>
         }
         placeholder={`Message ${name}…`}
         className="min-h-0 flex-1"
