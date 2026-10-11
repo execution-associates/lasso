@@ -254,9 +254,8 @@ struct StepList: View {
 
     var body: some View {
         let steps = model.nextSteps
-        if !steps.isEmpty {
-            VStack(alignment: .leading, spacing: Theme.space("2xs")) {
-                ForEach(steps) { step in
+        VStack(alignment: .leading, spacing: Theme.space("2xs")) {
+            ForEach(steps) { step in
                     let on = (model.highlighted ?? 0) == step.index
                     HStack(spacing: Theme.space("m")) {
                         Button { model.highlighted = step.index } label: {
@@ -283,10 +282,57 @@ struct StepList: View {
                     .padding(.vertical, Theme.space("2xs"))
                     .padding(.horizontal, Theme.space("m"))
                     .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(on ? Theme.Row.selected.color : .clear))
-                }
             }
-            .padding(.horizontal, Theme.Panel.inset.pt)
-            .parityAnchor("agent.steps")
+            AnswerExtras(model: model)
+        }
+        .padding(.horizontal, Theme.Panel.inset.pt)
+        .parityAnchor("agent.steps")
+    }
+}
+
+/// Under the choices: "Other…" where the dialog takes the human's own words,
+/// and, for a question lasso cannot read, the way to answer it in herdr.
+struct AnswerExtras: View {
+    @ObservedObject var model: CardModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.space("s")) {
+            if model.blockedWithoutChoices {
+                HStack(spacing: Theme.space("m")) {
+                    Text("Waiting on you in the terminal, with no choices lasso can read.")
+                        .font(Theme.Fonts.body.font)
+                        .foregroundStyle(Theme.Text.secondary.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: Theme.space("m"))
+                    PillButton(title: "Focus in herdr", label: "Focus \(model.current.displayName) in herdr to answer it") {
+                        model.focusInHerdr()
+                    }
+                }
+                .parityAnchor("agent.blocked")
+            } else if model.answeringCustom {
+                HStack(spacing: Theme.space("m")) {
+                    Text("Answering in your own words: type it below, ⏎ sends it to the question.")
+                        .font(Theme.Fonts.small.font)
+                        .foregroundStyle(Theme.Text.secondary.color)
+                    Spacer(minLength: Theme.space("m"))
+                    PillButton(title: "Cancel", label: "Back to a message") { model.answeringCustom = false }
+                }
+            } else if model.allowsCustom {
+                Button { model.answerInOwnWords() } label: {
+                    HStack(spacing: Theme.space("m")) {
+                        Text("\(model.nextSteps.count + 1).").foregroundStyle(Theme.Text.secondary.color)
+                        Text("Other: answer in your own words").foregroundStyle(Theme.Text.primary.color)
+                        Spacer(minLength: Theme.space("m"))
+                    }
+                    .font(Theme.Fonts.body.font)
+                    .padding(.vertical, Theme.space("2xs"))
+                    .padding(.horizontal, Theme.space("m"))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Answer in your own words")
+                .parityAnchor("agent.steps.other")
+            }
         }
     }
 }

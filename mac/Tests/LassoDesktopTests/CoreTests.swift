@@ -164,3 +164,30 @@ private let specDir = packageDir.appendingPathComponent("Spec")
     #expect(fleet.inbox.map(\.pane.pane_id) == ["w1:p2", "w1:p1"])
     #expect(fleet.unseen.map(\.pane.pane_id) == ["w1:p1"])
 }
+
+/// An answer is built from the question as drawn (PLAN 13.4): a new question
+/// drops the pick in progress, and Other sends free text where the dialog
+/// has that row (S4), never where claude lays out previews.
+@MainActor @Test func answersUseTheDrawnQuestion() throws {
+    func chat(_ question: String, previews: Bool = false) throws -> ChatPayload {
+        let preview = previews ? #","preview":"x""# : ""
+        return try JSONDecoder().decode(
+            ChatPayload.self,
+            from: Data(
+                #"{"pane_id":"w1:p1","agent":"claude","host":"local","items":[{"kind":"tool","id":"t\#(question.count)","tool":{"name":"AskUserQuestion","state":"running","ask":{"questions":[{"question":"\#(question)","options":[{"label":"Yes"\#(preview)},{"label":"No"}]}]}}}]}"#
+                    .utf8))
+    }
+    let pane = HostPane(
+        host: "local", host_label: "titan", pane_id: "w1:p1", workspace_id: "w1", workspace_label: "Agents",
+        tab_id: "w1:t1", tab_label: "stub", cwd: "/", agent: "claude", agent_status: "blocked", has_agent: true, focused: false)
+    let actions = FixtureCardActions(chats: [:], canDismiss: true)
+    let m = CardModel(pane: pane, fleet: FleetModel(), actions: actions)
+    m.show(chat: try chat("Deploy?"))
+    #expect(m.captured?.question == "Deploy?" && m.allowsCustom)
+    m.highlight(2)
+    #expect(m.highlighted == 1)
+    m.show(chat: try chat("Deploy to production?"))
+    #expect(m.captured?.question == "Deploy to production?" && m.highlighted == nil)
+    m.show(chat: try chat("Pick a layout", previews: true))
+    #expect(!m.allowsCustom)
+}

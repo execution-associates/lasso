@@ -726,6 +726,22 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 - `J`/`K` and the empty state.
 - S4, if taken.
 
+### 13.8a As built (M8)
+
+- **One computation:** `FleetModel.inbox` serves the card, the badge, the peek's dot and the arrival sound.
+  - **Waiting:** a claude or omp pane that is blocked, or an omp bot with `pending_ui`.
+  - **Finished:** a turn newer than this Mac's `inboxSince` (its first launch) and not discarded.
+  - **Order:** newest first within each group.
+- **Seen marks** are per entry and kept in UserDefaults (`inboxSeen`). The badge counts unseen entries plus unseen notices.
+- **Draw-time capture:** `CardModel.captured` freezes the question when it is first drawn, and an answer is built only from it.
+- **"Other: answer in your own words"** (where the dialog has an Other row) turns the composer into the answer (S4); ↳ does the same with a choice's words. An omp bot's `input`/`editor` request answers the same way.
+- **Blocked with no readable choices** shows "Waiting on you in the terminal" and Focus in herdr.
+- **Discard keys:** Discard writes the entry's own key (§13.6).
+- **Notices** arrive from the event stream and list in the inbox panel, each dismissed with ×.
+- **Not yet built:**
+  - Answering a multi-question ask in one request; only the first question is answered, and the dialog then shows the next.
+  - The card's Other row, since the card shows three choices; ↳ covers it there.
+
 ### 13.9 Harness and tests
 
 **Parity states:**

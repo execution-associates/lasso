@@ -7,11 +7,15 @@ import Foundation
 public protocol CardActions: AnyObject {
     func chat(_ pane: HostPane) async throws -> ChatPayload
     func send(_ pane: HostPane, text: String) async throws -> Outcome
-    func answer(_ pane: HostPane, question: ChatTool.Question, option: Int) async throws -> Outcome
+    /// Answer `question` (as captured when it was drawn) with an option, or
+    /// with free text in the dialog's own Other row (S4).
+    func answer(_ pane: HostPane, question: ChatTool.Question, option: Int?, custom: String?) async throws -> Outcome
     /// An omp bot's open request (`pending_ui`), answered by its id.
     func answer(_ pane: HostPane, pending: ChatPayload.PendingUI, value: String) async throws -> Outcome
     func kill(_ pane: HostPane) async throws -> String
     func dismiss(_ pane: HostPane) async throws
+    /// Bring the pane forward in herdr: how a question lasso cannot read is answered.
+    func focus(_ pane: HostPane) async throws
     /// Upload a file to the agent's machine; the path to put in the message.
     func attach(_ file: URL, to pane: HostPane) async throws -> String
     /// Whether the server keeps shared card dismissals (S1).
@@ -55,6 +59,13 @@ public final class CardModel: ComposerModel {
     @Published public private(set) var notice: String?
     @Published public private(set) var killArmed = false
     @Published public var highlighted: Int?
+    /// The open question as it was when drawn (PLAN 13.4): an answer is
+    /// built from this, never from the chat re-read at send time, so one
+    /// cannot land on a question the agent has moved past.
+    @Published public private(set) var captured: ChatTool.Question?
+    private var capturedID: String?
+    /// The composer is answering the question in its own words (Other).
+    @Published public var answeringCustom = false
     /// Cards seen this session, for the unread bar.
     @Published public private(set) var read: Set<String> = []
     /// +1 paging forward, -1 back: the direction the content slides.
@@ -100,15 +111,6 @@ public final class CardModel: ComposerModel {
     /// The live row for this pane (the fleet refreshes underneath the card).
     public var current: HostPane { fleet.panes.first { $0.key == pane.key } ?? pane }
 
-    /// The open question, if the agent is asking one: the last tool row with
-    /// an ask that is still running.
-    public var openQuestion: ChatTool.Question? {
-        guard let item = chat?.items.last(where: { $0.tool?.ask != nil }), item.tool?.state != "completed",
-              item.tool?.state != "error"
-        else { return nil }
-        return item.tool?.ask?.questions.first
-    }
-
     /// The machine whose files the conversation names: the one its
     /// transcript was read from (served_by), else the pane's.
     public var mediaHost: String { chat?.served_by ?? chat?.host ?? pane.host }
@@ -131,7 +133,7 @@ public final class CardModel: ComposerModel {
         if pending != nil {
             return pendingOptions.prefix(9).enumerated().map { NextStep(index: $0.offset, label: $0.element, detail: nil) }
         }
-        return (openQuestion?.options ?? []).prefix(9).enumerated().map {
+        return (captured?.options ?? []).prefix(9).enumerated().map {
             NextStep(index: $0.offset, label: $0.element.label, detail: $0.element.description)
         }
     }
@@ -147,7 +149,55 @@ public final class CardModel: ComposerModel {
         return b
     }
 
-    public func show(chat: ChatPayload?) { self.chat = chat }
+    public func show(chat: ChatPayload?) {
+        self.chat = chat
+        recapture()
+    }
+
+    /// Take the question as it is drawn now, if it is a new one: a changed
+    /// question drops a pick in progress.
+    private func recapture() {
+        guard let item = chat?.items.last(where: { $0.tool?.ask != nil }), item.tool?.state != "completed",
+              item.tool?.state != "error", let q = item.tool?.ask?.questions.first
+        else {
+            if captured != nil { captured = nil; capturedID = nil; answeringCustom = false }
+            return
+        }
+        let id = item.id + "\u{0}" + (q.question ?? "")
+        guard id != capturedID else { return }
+        captured = q
+        capturedID = id
+        highlighted = nil
+        answeringCustom = false
+    }
+
+    /// The dialog has an Other row lasso can type into: claude lays out a
+    /// question with previews side by side, with none (S4).
+    public var allowsCustom: Bool {
+        if let p = pending { return p.method == "input" || p.method == "editor" }
+        guard let q = captured else { return false }
+        return !(q.options ?? []).contains { !($0.preview ?? "").isEmpty }
+    }
+
+    /// Blocked with nothing lasso can read to answer (PLAN 13.5): the human
+    /// answers in the terminal; lasso never types blind keys.
+    public var blockedWithoutChoices: Bool {
+        current.state == .blocked && chat != nil && captured == nil && pending == nil
+    }
+
+    public func focusInHerdr() {
+        run("Focus") { [self] in
+            try await actions.focus(pane)
+            return "Focused \(pane.displayName) in herdr: answer it there"
+        }
+    }
+
+    /// Answer in your own words: the composer sends to the dialog's Other row.
+    public func answerInOwnWords() {
+        guard allowsCustom else { return }
+        answeringCustom = true
+        focusComposer()
+    }
 
     // MARK: loading
 
@@ -167,6 +217,7 @@ public final class CardModel: ComposerModel {
         do {
             let c = try await actions.chat(pane)
             if c != chat { chat = c }
+            recapture()
             loadError = nil
         } catch {
             loadError = String(describing: error)
@@ -191,6 +242,10 @@ public final class CardModel: ComposerModel {
     public func send() {
         let text = composer.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        if answeringCustom {
+            answer(custom: text)
+            return
+        }
         run("Send") { [self] in
             let o = try await actions.send(pane, text: text)
             if o.ok { composer = "" }
@@ -214,12 +269,32 @@ public final class CardModel: ComposerModel {
             }
             return
         }
-        guard let q = openQuestion else { return }
+        guard let q = captured else { return }
         run("Answer") { [self] in
-            let o = try await actions.answer(pane, question: q, option: i)
+            let o = try await actions.answer(pane, question: q, option: i, custom: nil)
             highlighted = nil
             await load()
             return o.ok ? "Answered: \(nextSteps.first { $0.index == i }?.label ?? "")" : "Refused: \(o.detail ?? "")"
+        }
+    }
+
+    /// Send the composer's text as the answer itself.
+    private func answer(custom text: String) {
+        if let p = pending {
+            run("Answer") { [self] in
+                let o = try await actions.answer(pane, pending: p, value: text)
+                if o.ok { composer = ""; answeringCustom = false }
+                await load()
+                return o.ok ? "Answered" : "Refused: \(o.detail ?? "")"
+            }
+            return
+        }
+        guard let q = captured else { return }
+        run("Answer") { [self] in
+            let o = try await actions.answer(pane, question: q, option: nil, custom: text)
+            if o.ok { composer = ""; answeringCustom = false }
+            await load()
+            return o.ok ? "Answered in your words" : "Refused: \(o.detail ?? "")"
         }
     }
 
@@ -228,6 +303,8 @@ public final class CardModel: ComposerModel {
         let i = highlighted ?? 0
         guard let step = nextSteps.first(where: { $0.index == i }) else { return }
         composer = step.label
+        // Edited, it is the answer in your own words where the dialog takes one.
+        answeringCustom = allowsCustom
         focusComposer()
     }
 
@@ -287,7 +364,10 @@ public final class CardModel: ComposerModel {
 
     public func focusComposer() { focusRequest += 1 }
 
-    public var composerPlaceholder: String { "Reply to \(current.displayName)" }
+    public var composerPlaceholder: String {
+        guard answeringCustom else { return "Reply to \(current.displayName)" }
+        return "Your answer: \(captured?.question ?? pending?.title ?? "")"
+    }
 
     public func say(_ s: String?) { notice = s }
 

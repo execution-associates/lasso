@@ -255,12 +255,14 @@ public struct CardView: View {
                 }
             }
             .padding(.leading, Theme.Card.titleX.pt - contentX)
-            if steps.isEmpty {
+            if steps.isEmpty, !model.blockedWithoutChoices, !model.allowsCustom {
                 Text(model.notice ?? (model.chat == nil ? " " : "No open question to answer."))
                     .font(Theme.Fonts.body.font)
                     .foregroundStyle(Theme.Text.secondary.color)
                     .lineLimit(1)
                     .padding(.leading, Theme.Card.titleX.pt - contentX)
+            } else if steps.isEmpty {
+                AnswerExtras(model: model)
             } else {
                 VStack(alignment: .leading, spacing: Theme.space("2xs")) {
                     ForEach(steps.prefix(3)) { step in

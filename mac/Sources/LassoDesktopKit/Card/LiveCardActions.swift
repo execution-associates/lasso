@@ -63,6 +63,8 @@ public final class LiveCardActions: CardActions {
             var selected: [Int]
             var multi: Bool
             var options: Int
+            /// Free text for the dialog's Other row (S4).
+            var custom: String?
         }
 
         var pane_id: String
@@ -71,11 +73,11 @@ public final class LiveCardActions: CardActions {
         var answers: [Pick]
     }
 
-    public func answer(_ pane: HostPane, question: ChatTool.Question, option: Int) async throws -> Outcome {
+    public func answer(_ pane: HostPane, question: ChatTool.Question, option: Int?, custom: String?) async throws -> Outcome {
         let labels = (question.options ?? []).map(\.label)
         let body = AnswerBody(
             pane_id: pane.pane_id, expect: question.question ?? "", labels: labels,
-            answers: [.init(selected: [option], multi: question.multi ?? false, options: labels.count)])
+            answers: [.init(selected: option.map { [$0] } ?? [], multi: question.multi ?? false, options: labels.count, custom: custom)])
         return try await client.post("/api/chat/answer", query: ["host": pane.host], json: body)
     }
 
@@ -119,10 +121,20 @@ public final class LiveCardActions: CardActions {
         var card_dismiss: [String: Int64]
     }
 
+    /// Discard by the inbox entry's own key (PLAN 13.6): a pane by its
+    /// transcript, an omp bot's question by its id, a bot's reply by its time.
     public func dismiss(_ pane: HostPane) async throws {
+        let e = fleet.inbox.first { $0.id == pane.key }
         let _: UIStateSlice = try await client.post(
-            "/api/ui-state", json: Dismiss(card_dismiss: [pane.key: pane.transcript_at ?? 0]))
+            "/api/ui-state", json: Dismiss(card_dismiss: [e?.dismissKey ?? pane.key: e?.dismissAt ?? pane.transcript_at ?? 0]))
         await refreshUIState()
+    }
+
+    struct Focus: Encodable { var pane_id: String }
+    struct Focused: Decodable { var ok: Bool? }
+
+    public func focus(_ pane: HostPane) async throws {
+        let _: Focused = try await client.post("/api/focus", query: ["host": pane.host], json: Focus(pane_id: pane.pane_id))
     }
 
     struct Pasted: Decodable { var path: String }
@@ -164,8 +176,8 @@ public final class FixtureCardActions: CardActions {
         return Outcome(outcome: "confirmed")
     }
 
-    public func answer(_ pane: HostPane, question: ChatTool.Question, option: Int) async throws -> Outcome {
-        calls.append("answer")
+    public func answer(_ pane: HostPane, question: ChatTool.Question, option: Int?, custom: String?) async throws -> Outcome {
+        calls.append(custom == nil ? "answer" : "answer-custom")
         return Outcome(outcome: "sent")
     }
 
@@ -175,6 +187,8 @@ public final class FixtureCardActions: CardActions {
     }
 
     public func dismiss(_ pane: HostPane) async throws { calls.append("dismiss") }
+
+    public func focus(_ pane: HostPane) async throws { calls.append("focus") }
 
 
     public func answer(_ pane: HostPane, pending: ChatPayload.PendingUI, value: String) async throws -> Outcome {
