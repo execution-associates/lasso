@@ -104,10 +104,14 @@ func unavailable(format string, a ...any) error {
 	return fmt.Errorf("%w: %s", errPluginUnavailable, fmt.Sprintf(format, a...))
 }
 
-// pluginSecretLookup resolves one approved secret's value: lasso's own
-// environment first, then the operator's `secret` CLI. A var so tests can
-// stand in for the CLI.
-var pluginSecretLookup = func(ctx context.Context, name string) (string, error) {
+// pluginSecretLookup resolves one approved secret's value (lookupSecret). A
+// var so tests can stand in for the CLI.
+var pluginSecretLookup = lookupSecret
+
+// lookupSecret resolves a secret by name: lasso's own environment first, then
+// the operator's `secret` CLI, bounded at 10s. The value is never logged; an
+// error says only that the lookup failed.
+func lookupSecret(ctx context.Context, name string) (string, error) {
 	if v := os.Getenv(name); v != "" {
 		return v, nil
 	}

@@ -340,6 +340,9 @@ func runServer() {
 	mux.HandleFunc("/api/agent/reopen", serveAgentReopen)
 	mux.HandleFunc("/api/agent-history", serveAgentHistory)
 	mux.HandleFunc("/api/paste-file", servePasteFile)
+	// Speech to text (transcribe.go): behind UI_AUTH like every /api route.
+	mux.HandleFunc("/api/transcribe", serveTranscribe)
+	mux.HandleFunc("/api/transcribe/config", serveTranscribeConfig)
 	mux.HandleFunc("/api/frameable", serveFrameable)
 	mux.HandleFunc("/api/browser", sharedBrowsers.serveStatus)
 	mux.HandleFunc("/api/browser/profiles", sharedBrowsers.serveProfiles)
