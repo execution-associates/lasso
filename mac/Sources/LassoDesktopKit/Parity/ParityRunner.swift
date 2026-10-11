@@ -16,6 +16,8 @@ public final class ParityRunner {
 
     let spec: Spec
     let specDir: URL
+    /// Media the fixtures show: files in Spec/fixtures/media.
+    lazy var media: MediaSource = FixtureMediaSource(dir: specDir.appendingPathComponent("fixtures/media"))
     let out: URL
     let wanted: Set<String>?
     var rows: [ParityRow] = []
@@ -181,7 +183,8 @@ public final class ParityRunner {
             let c = try cardModel(fixture, fleet: fleet, key: key)
             card = c
             let make: @MainActor () async throws -> Capture = {
-                try await Capturer.capture(AgentPreviewView(model: c), size: Theme.Agent.preview.size2("size"))
+                try await Capturer.capture(
+                    AgentPreviewView(model: c).environment(\.mediaSource, self.media), size: Theme.Agent.preview.size2("size"))
             }
             cap = try await make()
             recapture = make
@@ -193,7 +196,7 @@ public final class ParityRunner {
             if !chrome.collapsed { card = c }
             let size = chrome.collapsed ? Theme.Agent.collapsed.size2("size") : Theme.Agent.window.size2("size")
             let make: @MainActor () async throws -> Capture = {
-                try await Capturer.capture(AgentWindowView(model: c, chrome: chrome), size: size)
+                try await Capturer.capture(AgentWindowView(model: c, chrome: chrome).environment(\.mediaSource, self.media), size: size)
             }
             cap = try await make()
             recapture = make

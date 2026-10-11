@@ -832,6 +832,14 @@ The user's lasso is `https://lasso.orangecountyai.com`, behind Cloudflare Zero T
 - Below it are the whole conversation (the last 160 items), the choices, the composer and the footer.
 - It is a non-activating panel at the floating level, on every Space, and over full-screen apps (`.canJoinAllSpaces`, `.fullScreenAuxiliary`). So it stays put while the user switches desktops or maximizes other windows.
 - It moves by dragging its header and resizes by its corner (at least 360 × 320). **Minimize collapses it to its header** (`agent.window.collapsed`, 416 × 60 pt) with ⤢ to expand. The top edge stays fixed both ways.
+- **Media:** the files an agent shows the human render in its window and preview. That covers Claude Code's `SendUserFile` (lasso puts its files on the chat row as `tool.files`, each typed image, audio, video or file), and the images an agent writes as markdown (`![](path)`, resolved against the session's folder).
+  - An image renders inline; a click opens it in its app.
+  - Audio gets a play button; video gets AVKit's inline player.
+  - Anything else is a chip that opens the file.
+  - The bytes come through `/api/file` (`download=1`) from the host that served the transcript. They are cached in `~/Library/Caches/LassoDesktop/Media` per path and showing, since an agent may overwrite a file in place.
+- **Choices need a confirm.** A click (or 1–9) only selects a choice; the selected one shows **Answer**, and that button (or →) sends it. An answer cannot be taken back, and the preview appears under a moving pointer.
+- **No header menu:** the window's header is minimize and close. X X kills from the keyboard.
+- The composer's paperclip (A) attaches any files: each goes through `/api/paste-file` to the agent's machine and its path into the message.
 - One window per agent; a second click brings it forward. Where each agent's window was is kept in UserDefaults `agentWindowFrames`.
 - Keys while it has the keyboard: 1–9, →, ↳, ⏎, S, and X X to kill.
 

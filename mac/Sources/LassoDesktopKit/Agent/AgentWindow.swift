@@ -41,7 +41,9 @@ struct AgentWindowView: View {
                 .parityAnchor("agent.header")
             if !chrome.collapsed {
                 Rectangle().fill(Theme.Panel.divider.color).frame(height: Theme.space("hair"))
-                AgentConversation(entries: ConversationEntry.fold(model.chat?.items.suffix(160).map { $0 } ?? []), pending: model.pending)
+                AgentConversation(
+                    entries: ConversationEntry.fold(model.chat?.items.suffix(160).map { $0 } ?? [], cwd: model.chat?.cwd),
+                    pending: model.pending, host: model.mediaHost)
                 StepList(model: model)
                 AgentComposer(model: model)
             }
@@ -115,7 +117,7 @@ final class AgentWindowController {
 
     static let framesKey = "agentWindowFrames"
 
-    init(model: CardModel, near anchor: NSRect) {
+    init(model: CardModel, near anchor: NSRect, media: MediaSource?) {
         self.model = model
         let w = Theme.Agent.window
         let size = w.size2("size")
@@ -131,7 +133,7 @@ final class AgentWindowController {
         frame.origin.x = max(vis.minX, min(frame.origin.x, vis.maxX - frame.width))
         frame.origin.y = max(vis.minY, min(frame.origin.y, vis.maxY - frame.height))
         expandedFrame = frame
-        let host = NSHostingView(rootView: AgentWindowView(model: model, chrome: chrome))
+        let host = NSHostingView(rootView: AgentWindowView(model: model, chrome: chrome).environment(\.mediaSource, media))
         host.frame = NSRect(origin: .zero, size: frame.size)
         panel = AgentWindowPanel(content: host, frame: frame)
         panel.onKey = { [weak self] e in self?.handle(e) ?? false }

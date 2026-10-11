@@ -56,7 +56,14 @@
               "custom": "x"
             }
           ]
-        }
+        },
+        "files": [
+          {
+            "path": "x",
+            "kind": "x",
+            "caption": "x"
+          }
+        ]
       },
       "source": "x",
       "meta": {

@@ -135,7 +135,38 @@ type chatTool struct {
 	// path for th…" and had to open the terminal to find out what it was being
 	// asked, let alone answer it.
 	Ask *chatAsk `json:"ask,omitempty"`
+	// Files are what the call showed the human: Claude Code's SendUserFile
+	// hands a person files to look at (an image, a recording, a report), and a
+	// client renders them — an image inline, audio and video as players —
+	// rather than as one more tool line. Paths are on the transcript's host
+	// (served_by, else host); the bytes come through /api/file.
+	Files []chatFile `json:"files,omitempty"`
 }
+
+// chatFile is one file a call put in front of the human.
+type chatFile struct {
+	Path string `json:"path"`
+	// Kind is image, audio, video or file, from the extension, so a client
+	// picks its viewer before fetching anything.
+	Kind    string `json:"kind"`
+	Caption string `json:"caption,omitempty"`
+}
+
+// chatFileKind classifies a shared file by its extension.
+func chatFileKind(path string) string {
+	switch strings.ToLower(strings.TrimPrefix(filepath.Ext(path), ".")) {
+	case "png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "bmp", "tif", "tiff", "svg":
+		return "image"
+	case "mp3", "wav", "m4a", "aac", "aif", "aiff", "flac", "ogg", "oga", "opus", "caf":
+		return "audio"
+	case "mp4", "mov", "m4v", "webm", "mkv":
+		return "video"
+	}
+	return "file"
+}
+
+// chatFileCap bounds one call's files: a list, not an archive.
+const chatFileCap = 20
 
 // chatAsk is a question an agent stopped to ask: the choices it offered and,
 // once it has them, what was picked.
@@ -1260,6 +1291,26 @@ func describeTool(t *chatTool, args map[string]json.RawMessage) {
 		t.Ask = parseAskQuestions(args["questions"])
 		if t.Ask != nil && len(t.Ask.Questions) > 0 {
 			t.Subject = clipLine(t.Ask.Questions[0].Question, chatSubjectCap)
+			return
+		}
+	}
+
+	// SendUserFile (Claude Code): the files themselves, with the caption as
+	// the subject. A shape it does not recognise stays an ordinary row.
+	if strings.EqualFold(t.Name, "SendUserFile") {
+		var files []string
+		if json.Unmarshal(args["files"], &files) == nil && len(files) > 0 {
+			caption := str("caption")
+			for _, f := range files[:min(len(files), chatFileCap)] {
+				if f = strings.TrimSpace(f); f != "" {
+					t.Files = append(t.Files, chatFile{Path: f, Kind: chatFileKind(f), Caption: caption})
+				}
+			}
+			t.Title = "Shared"
+			t.Subject = clipLine(caption, chatSubjectCap)
+			if t.Subject == "" {
+				t.Subject = clipLine(shortPath(files[0]), chatSubjectCap)
+			}
 			return
 		}
 	}

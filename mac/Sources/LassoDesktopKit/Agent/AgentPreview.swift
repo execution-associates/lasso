@@ -19,7 +19,7 @@ struct AgentPreviewView: View {
                     .parityAnchor("preview.state")
                     .accessibilityLabel(p.state.label)
             }
-            AgentConversation(entries: Self.latestTurn(model.chat?.items ?? []), pending: model.pending)
+            AgentConversation(entries: Self.latestTurn(model.chat?.items ?? [], cwd: model.chat?.cwd), pending: model.pending, host: model.mediaHost)
             StepList(model: model)
             AgentComposer(model: model)
         }
@@ -30,10 +30,10 @@ struct AgentPreviewView: View {
 
     /// The agent's side of the latest turn: everything after the last
     /// message you sent, folded.
-    static func latestTurn(_ items: [ChatItem]) -> [ConversationEntry] {
+    static func latestTurn(_ items: [ChatItem], cwd: String? = nil) -> [ConversationEntry] {
         let start = items.lastIndex { $0.kind == "user" }.map { $0 + 1 } ?? 0
         let turn = Array(items[min(start, items.count)...])
-        return ConversationEntry.fold(turn.isEmpty ? Array(items.suffix(1)) : turn)
+        return ConversationEntry.fold(turn.isEmpty ? Array(items.suffix(1)) : turn, cwd: cwd)
     }
 }
 
@@ -45,9 +45,10 @@ final class PreviewHolder: ObservableObject {
 struct PreviewHost: View {
     @ObservedObject var presence: CardPresence
     @ObservedObject var holder: PreviewHolder
+    let media: MediaSource?
 
     var body: some View {
-        Group { if let m = holder.model { AgentPreviewView(model: m) } }
+        Group { if let m = holder.model { AgentPreviewView(model: m).environment(\.mediaSource, media) } }
             .opacity(presence.shown ? 1 : 0)
             .offset(x: presence.shown ? 0 : Theme.Motion.cardOpen.number("slide"))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -62,10 +63,10 @@ final class AgentPreviewController {
     private let holder = PreviewHolder()
     private let make: (HostPane) -> CardModel
 
-    init(make: @escaping (HostPane) -> CardModel) {
+    init(media: MediaSource?, make: @escaping (HostPane) -> CardModel) {
         self.make = make
         let size = Theme.Agent.preview.size2("size")
-        let host = NSHostingView(rootView: PreviewHost(presence: presence, holder: holder))
+        let host = NSHostingView(rootView: PreviewHost(presence: presence, holder: holder, media: media))
         host.frame = NSRect(origin: .zero, size: size)
         panel = RailPanel(content: host, size: size)
         panel.hasShadow = true

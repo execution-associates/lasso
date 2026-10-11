@@ -2147,3 +2147,26 @@ func TestClaudePagesAcrossGiantImageRecord(t *testing.T) {
 		t.Fatalf("history = %q, want %q", strings.Join(texts, "|"), want)
 	}
 }
+
+// Claude Code's SendUserFile puts files in front of the human: the row carries
+// them, each typed by its extension, with the caption as the subject.
+func TestClaudeSendUserFileCarriesItsFiles(t *testing.T) {
+	in := json.RawMessage(`{"files":["/tmp/a/shot.PNG","/tmp/a/take.m4a","/tmp/a/demo.mov","/tmp/a/report.pdf"],"caption":"Before and after","display":"render"}`)
+	tool := claudeTool(claudeBlock{ID: "c1", Name: "SendUserFile", Input: in})
+	if tool.Title != "Shared" || tool.Subject != "Before and after" {
+		t.Fatalf("title/subject = %q / %q", tool.Title, tool.Subject)
+	}
+	want := []string{"image", "audio", "video", "file"}
+	if len(tool.Files) != len(want) {
+		t.Fatalf("files = %+v", tool.Files)
+	}
+	for i, f := range tool.Files {
+		if f.Kind != want[i] || f.Caption != "Before and after" {
+			t.Errorf("file %d = %+v, want kind %s", i, f, want[i])
+		}
+	}
+	// A shape it does not know stays an ordinary row.
+	if odd := claudeTool(claudeBlock{ID: "c2", Name: "SendUserFile", Input: json.RawMessage(`{"files":"x"}`)}); len(odd.Files) != 0 {
+		t.Errorf("a string files argument made files: %+v", odd.Files)
+	}
+}

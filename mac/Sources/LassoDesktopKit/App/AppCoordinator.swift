@@ -27,6 +27,7 @@ public final class AppCoordinator {
     private var preview: AgentPreviewController!
     private var windows: [String: AgentWindowController] = [:]
     private let cardActions: CardActions
+    private let media: MediaSource?
     private var shortcut: InboxShortcut?
     /// What was in the inbox last time it changed, to hear what is new.
     private var inboxSeen: Set<String>?
@@ -56,6 +57,7 @@ public final class AppCoordinator {
             permissions = FixedPermissions(fixture?.permissions ?? [:])
         }
         self.cardActions = cardActions
+        media = client.map { LiveMediaSource(client: $0) }
         rail = RailController(model: RailModel(fleet: fleet))
         card = CardController(fleet: fleet, actions: cardActions)
         list = ListController(model: ListModel(fleet: fleet, actions: fleetActions))
@@ -69,7 +71,7 @@ public final class AppCoordinator {
             settingsModel.probe = { url in try? await client.probe(url).get("/api/version", as: VersionInfo.self) }
         }
         settings = SidePanel(size: Theme.Card.size.size, content: SettingsView(model: settingsModel))
-        preview = AgentPreviewController { [fleet, cardActions] p in CardModel(pane: p, fleet: fleet, actions: cardActions) }
+        preview = AgentPreviewController(media: media) { [fleet, cardActions] p in CardModel(pane: p, fleet: fleet, actions: cardActions) }
         wire()
     }
 
@@ -318,7 +320,8 @@ public final class AppCoordinator {
             return
         }
         let w = AgentWindowController(
-            model: CardModel(pane: p, fleet: fleet, actions: cardActions), near: list.isOpen ? list.panel.frame : rail.panel.frame)
+            model: CardModel(pane: p, fleet: fleet, actions: cardActions), near: list.isOpen ? list.panel.frame : rail.panel.frame,
+            media: media)
         w.onClosed = { [weak self] in self?.windows[p.key] = nil }
         windows[p.key] = w
         w.show()

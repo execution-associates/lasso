@@ -109,6 +109,10 @@ public final class CardModel: ComposerModel {
         return item.tool?.ask?.questions.first
     }
 
+    /// The machine whose files the conversation names: the one its
+    /// transcript was read from (served_by), else the pane's.
+    public var mediaHost: String { chat?.served_by ?? chat?.host ?? pane.host }
+
     /// A bot's pane: lasso keeps it running, so the card offers no Kill.
     public var isBot: Bool { fleet.bot(for: current) != nil }
 

@@ -273,6 +273,22 @@ public struct ChatTool: Codable, Sendable, Equatable {
     public var images: Int?
     public var duration_ms: Int64?
     public var ask: Ask?
+    /// What the call put in front of the human (Claude Code's SendUserFile).
+    public var files: [SharedFile]?
+}
+
+/// A file an agent showed the human: src/chatview.go chatFile.
+public struct SharedFile: Codable, Sendable, Equatable, Hashable {
+    public var path: String
+    /// image, audio, video or file.
+    public var kind: String
+    public var caption: String?
+
+    public init(path: String, kind: String, caption: String? = nil) {
+        self.path = path
+        self.kind = kind
+        self.caption = caption
+    }
 }
 
 /// One `active` frame of /api/events (src/main.go:1069): the fields the app

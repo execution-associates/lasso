@@ -129,20 +129,25 @@ func messageTime(_ at: String?) -> String? {
 
 /// One thing in the conversation, after folding.
 enum ConversationEntry: Identifiable {
-    case message(ChatItem, mine: Bool)
+    case message(ChatItem, text: String, mine: Bool)
     case tools(id: String, [ChatTool])
     case ask(ChatItem, ChatTool.Ask)
     case marker(ChatItem)
+    /// Files shown to the human: a SendUserFile call's, or the images an
+    /// agent's message wrote as markdown. `version` is the item they came with.
+    case media(id: String, version: String, [SharedFile])
 
     var id: String {
         switch self {
-        case .message(let i, _), .ask(let i, _), .marker(let i): i.id
-        case .tools(let id, _): id
+        case .message(let i, _, _), .ask(let i, _), .marker(let i): i.id
+        case .tools(let id, _), .media(let id, _, _): id
         }
     }
 
-    /// Fold consecutive tool calls into one entry; thinking is left out.
-    static func fold(_ items: [ChatItem]) -> [ConversationEntry] {
+    /// Fold consecutive tool calls into one entry, and lift media out of
+    /// tool calls and messages; thinking is left out. `cwd` resolves a
+    /// relative image path.
+    static func fold(_ items: [ChatItem], cwd: String? = nil) -> [ConversationEntry] {
         var out: [ConversationEntry] = []
         var run: [ChatTool] = []
         var runID = ""
@@ -152,7 +157,10 @@ enum ConversationEntry: Identifiable {
         }
         for item in items {
             if item.kind == "tool", let t = item.tool {
-                if let ask = t.ask {
+                if let files = t.files, !files.isEmpty {
+                    flush()
+                    out.append(.media(id: item.id, version: item.id, files))
+                } else if let ask = t.ask {
                     flush()
                     out.append(.ask(item, ask))
                 } else {
@@ -163,9 +171,13 @@ enum ConversationEntry: Identifiable {
             }
             flush()
             switch item.kind {
-            case "user", "incoming": out.append(.message(item, mine: true))
+            case "user", "incoming": out.append(.message(item, text: item.text ?? "", mine: true))
             case "marker": out.append(.marker(item))
-            default: if item.thinking != true, !(item.text ?? "").isEmpty { out.append(.message(item, mine: false)) }
+            default:
+                guard item.thinking != true, let raw = item.text, !raw.isEmpty else { break }
+                let (text, images) = extractMarkdownImages(raw, cwd: cwd)
+                if !text.isEmpty { out.append(.message(item, text: text, mine: false)) }
+                if !images.isEmpty { out.append(.media(id: item.id + "#media", version: item.id, images)) }
             }
         }
         flush()
@@ -178,6 +190,8 @@ enum ConversationEntry: Identifiable {
 struct AgentConversation: View {
     let entries: [ConversationEntry]
     var pending: ChatPayload.PendingUI?
+    /// The machine holding the transcript, whose files media are read from.
+    var host = "local"
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -195,6 +209,9 @@ struct AgentConversation: View {
             }
             .onAppear { proxy.scrollTo("end", anchor: .bottom) }
             .onChange(of: entries.last?.id) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
+            .onReceive(NotificationCenter.default.publisher(for: .lassoMediaLoaded)) { _ in
+                proxy.scrollTo("end", anchor: .bottom)
+            }
         }
         .parityAnchor("agent.conversation")
     }
@@ -206,9 +223,9 @@ struct AgentConversation: View {
 
     @ViewBuilder private func entry(_ e: ConversationEntry, last: Bool) -> some View {
         switch e {
-        case .message(let item, let mine):
+        case .message(let item, let text, let mine):
             VStack(alignment: mine ? .trailing : .leading, spacing: Theme.space("xs")) {
-                MessageBubble(text: item.text ?? "", mine: mine)
+                MessageBubble(text: text, mine: mine)
                 if last, let t = messageTime(item.at) {
                     Text(t)
                         .font(Theme.Fonts.small.font)
@@ -218,6 +235,7 @@ struct AgentConversation: View {
             }
             .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
         case .tools(_, let tools): ToolRunRow(tools: tools)
+        case .media(_, let version, let files): SharedFilesView(files: files, host: host, version: version)
         case .ask(_, let ask): AskRow(ask: ask, font: Theme.Fonts.chat.font)
         case .marker(let item):
             Text("— \(item.marker ?? "marker") —")
@@ -227,7 +245,10 @@ struct AgentConversation: View {
     }
 }
 
-/// The open question's choices: 1–9 highlight, → takes, a click takes.
+/// The open question's choices. A click (or 1–9) only selects one; the
+/// selected choice shows Answer, and that button (or →) sends it. An answer
+/// cannot be taken back, and the preview appears under a moving pointer, so a
+/// stray click must never be one.
 struct StepList: View {
     @ObservedObject var model: CardModel
 
@@ -237,26 +258,31 @@ struct StepList: View {
             VStack(alignment: .leading, spacing: Theme.space("2xs")) {
                 ForEach(steps) { step in
                     let on = (model.highlighted ?? 0) == step.index
-                    Button {
-                        model.highlighted = step.index
-                        model.takeStep()
-                    } label: {
-                        HStack(spacing: Theme.space("m")) {
-                            Text("\(step.index + 1).").foregroundStyle(Theme.Text.secondary.color)
-                            Text(step.label).foregroundStyle(Theme.Text.primary.color).lineLimit(1).layoutPriority(1)
-                            if let d = step.detail, !d.isEmpty {
-                                Text(d).foregroundStyle(Theme.Text.secondary.color).lineLimit(1)
+                    HStack(spacing: Theme.space("m")) {
+                        Button { model.highlighted = step.index } label: {
+                            HStack(spacing: Theme.space("m")) {
+                                Text("\(step.index + 1).").foregroundStyle(Theme.Text.secondary.color)
+                                Text(step.label).foregroundStyle(Theme.Text.primary.color).lineLimit(1).layoutPriority(1)
+                                if let d = step.detail, !d.isEmpty {
+                                    Text(d).foregroundStyle(Theme.Text.secondary.color).lineLimit(1)
+                                }
+                                Spacer(minLength: Theme.space("m"))
                             }
-                            Spacer(minLength: Theme.space("m"))
+                            .contentShape(Rectangle())
                         }
-                        .font(Theme.Fonts.body.font)
-                        .padding(.vertical, Theme.space("2xs"))
-                        .padding(.horizontal, Theme.space("m"))
-                        .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(on ? Theme.Row.selected.color : .clear))
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Choose: \(step.label)")
+                        .accessibilityAddTraits(on ? .isSelected : [])
+                        if on {
+                            PillButton(title: "Answer", primary: true, label: "Answer: \(step.label)") { model.takeStep() }
+                                .keyHint(Keys.takeStep)
+                                .parityAnchor("agent.steps.answer")
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Answer: \(step.label)")
+                    .font(Theme.Fonts.body.font)
+                    .padding(.vertical, Theme.space("2xs"))
+                    .padding(.horizontal, Theme.space("m"))
+                    .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(on ? Theme.Row.selected.color : .clear))
                 }
             }
             .padding(.horizontal, Theme.Panel.inset.pt)
