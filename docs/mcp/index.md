@@ -50,6 +50,12 @@ When both ends are Claude Code sessions that Claude Code's own agent messaging r
 
 An enabled [plugin](../plugins/index.md) with an MCP server has its tools mirrored onto `/mcp` as `<plugin>__<tool>`, for example `hello__greet`. They appear and disappear as plugins are enabled and disabled, and connected clients are told the tool list changed. Calling one requires a caller whose reach includes lasso's own machine, like the browser tools.
 
+## The lasso skill
+
+`/mcp` also serves lasso's agent skill, the `SKILL.md` at the root of the repo, over the MCP [Skills extension](https://modelcontextprotocol.io/extensions/skills/overview) (`io.modelcontextprotocol/skills`). A client that supports the extension finds it with `skills/list` (or `skills/get` on `skill://lasso/SKILL.md`) and reads it, and the docs it links to, with `resources/read` under `skill://lasso/`. The paths match the repo's, so `docs/mcp/tools.md` is `skill://lasso/docs/mcp/tools.md`. Only the Markdown in `docs/` is included. A client without the extension still sees `skill://lasso/SKILL.md` in its resource list.
+
+The skill is built into the binary, so it always matches the lasso version that serves it.
+
 ## What the server tells the model
 
 Every MCP session receives a short set of instructions at `initialize`, so an agent learns the house rules without reading these docs:

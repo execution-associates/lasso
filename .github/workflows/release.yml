@@ -38,6 +38,9 @@ jobs:
         working-directory: src/web
         run: bun install --frozen-lockfile && bun run build
 
+      - name: Stage the embedded MCP skill (SKILL.md + docs)
+        run: ./scripts/stage-skill.sh
+
       - name: Cross-compile release binaries
         run: |
           set -euo pipefail

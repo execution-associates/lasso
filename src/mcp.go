@@ -62,17 +62,27 @@ To show the human what you are working on, put a one-line summary (under ~60 cha
 // the SDK tells every connected session with tools/list_changed.
 var sharedMCPServer atomic.Pointer[mcp.Server]
 
-func newMCPHandler() *mcp.StreamableHTTPHandler {
+func newMCPHandler() http.Handler {
+	// The SDK's own default is logging alone; the skills extension is added
+	// when there is a skill to serve (mcpskill.go).
+	caps := &mcp.ServerCapabilities{Logging: &mcp.LoggingCapabilities{}}
+	skills := mcpSkills()
+	if len(skills) > 0 {
+		caps.AddExtension(mcpSkillsExtension, map[string]any{})
+	}
 	srv := mcp.NewServer(&mcp.Implementation{
 		Name:    "lasso",
 		Title:   "Lasso agent orchestrator",
 		Version: lassoSemver,
-	}, &mcp.ServerOptions{Instructions: mcpInstructions})
+	}, &mcp.ServerOptions{Instructions: mcpInstructions, Capabilities: caps})
 	registerMCPTools(srv)
+	if len(skills) > 0 {
+		registerMCPSkills(srv, skills)
+	}
 	sharedMCPServer.Store(srv)
 	// chrome-devtools-mcp's tools, as browser_* (browsermcp.go).
 	browserMCP.attach(srv)
-	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, &mcp.StreamableHTTPOptions{
+	return withMCPSkills(skills, mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, &mcp.StreamableHTTPOptions{
 		// lasso binds to loopback and is reached over the Cloudflare tunnel under a
 		// public hostname (e.g. lasso.knowsuchagency.ai). The SDK's default DNS-
 		// rebinding guard rejects any non-loopback Host header when the listener is
@@ -82,7 +92,7 @@ func newMCPHandler() *mcp.StreamableHTTPHandler {
 		// The trust gate here is Cloudflare Access (OAuth + policy) / the tailnet,
 		// not the Host header, so disable the loopback guard. See CLAUDE.md.
 		DisableLocalhostProtection: true,
-	})
+	}))
 }
 
 // resolveBackend maps a tool's optional `host` argument to a Backend. An empty

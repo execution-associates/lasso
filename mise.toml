@@ -112,14 +112,22 @@ dir = "{{config_root}}"
 usage = 'flag "-y --yes" help="Actually delete (default is a dry run)"'
 run = './scripts/container-admin.sh prune ${usage_yes:+-y}'
 
+# Plain copies on the host (no third-party code), so no container: go:embed
+# cannot reach SKILL.md and docs/ above src/, so they are staged into src/skill.
+[tasks."build:skill"]
+description = "Stage SKILL.md and docs/ into src/skill for the binary's embedded MCP skill"
+dir = "{{config_root}}"
+run = "./scripts/stage-skill.sh"
+
 [tasks.build]
 description = "Build the frontend then the lasso binary"
-depends = ["build:web"]
+depends = ["build:web", "build:skill"]
 dir = "src"
 run = "go build -o ../lasso ."
 
 [tasks.test]
 description = "Run the Go test suite"
+depends = ["build:skill"]
 dir = "src"
 run = "go test ."
 

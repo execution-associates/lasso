@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Lasso is a Go backend (`src/main.go` and friends) that serves a React/TypeScript SPA. All Go code lives under `src/` (the Go module root — `src/go.mod`). The frontend in `src/web/` is **built and embedded into the Go binary** — `go build` embeds `src/web/dist/`, so it must exist locally (run `mise run build`) but is **not** committed (it's gitignored). CI builds the frontend and produces release binaries.
+Lasso is a Go backend (`src/main.go` and friends) that serves a React/TypeScript SPA. All Go code lives under `src/` (the Go module root — `src/go.mod`). The frontend in `src/web/` is **built and embedded into the Go binary** — `go build` embeds `src/web/dist/`, so it must exist locally (run `mise run build`) but is **not** committed (it's gitignored). CI builds the frontend and produces release binaries. The binary also embeds `src/skill/` (gitignored), a copy of `SKILL.md` and the Markdown in `docs/` that `/mcp` serves over the MCP Skills extension (`src/mcpskill.go`). `scripts/stage-skill.sh` makes it, run by `mise run build`/`test` and by CI and release, because go:embed cannot reach above `src/`. go-sdk 1.6 rejects unknown JSON-RPC methods in its HTTP transport, so `withMCPSkills` answers `skills/list` and `skills/get` before the SDK sees them. `resources/read` stays the SDK's.
 
 ## Commands
 
 Backend (run from repo root, via [mise](https://mise.jdx.dev); Go sources are in `src/`):
 - `mise run build` — builds the frontend then `go build` in `src/` (binary → `./lasso`)
 - `mise run dev` — Vite dev server with HMR, proxying to the Go backend (requires tailscale up; auto-bumps the dev port from 8190 if busy)
-- `mise run test` — `go test .` in `src/`
+- `mise run test` — stages `src/skill`, then `go test .` in `src/`
 - `mise run typecheck` / `mise run lint` / `mise run check` — the frontend checks (typecheck and lint also cover the OpenBot example plugin)
 - `mise run openbot:build` / `mise run openbot:check` — build the OpenBot example plugin's page into `examples/plugins/openbot/ui` (committed, so the plugin needs no build to install) / biome-fix it
 - `mise run icons` — re-render the favicons and home-screen icons from the raster mascot in `brand/icon/`
