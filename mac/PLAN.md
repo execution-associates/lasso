@@ -857,11 +857,12 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
   - Settings › Inbox lists **Notify me about** from the server's catalog (`GET /api/notify?device=`), and each On/Off is written per kind (`POST /api/notify/device`).
   - The arrival sound plays only for a kind this Mac wants. Each arrival maps to a kind:
     - a waiting entry is `agent_blocked`
-    - a finished turn is `agent_finished` (off by default), or `bot_message` for a bot
+    - a finished turn is `agent_finished` (off by default)
+    - a bot's turn is announced once, under lasso's `notifDelivers` rule: as `bot_message` when the Mac takes replies, else as `agent_finished`. When the bot's own `notify` is off, its turn makes no sound. A bot's question is `agent_blocked`.
     - a notice is `lasso_notice` or `agent_message`
   - A choice never hides anything from the inbox.
   - lasso's notices and agents' pings arrive as the `notification` event when the server has kinds, and as the older `notice` event otherwise; the app takes one or the other, never both.
-  - Against a lasso without kinds (titan's production lasso until that branch is built into it), the list is absent and every arrival sounds.
+  - Against a lasso without kinds, the list is absent and every arrival sounds.
 
 ## 20. Launching agents (the web app's ⌘O and ⌘⇧O)
 

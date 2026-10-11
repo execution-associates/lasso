@@ -166,6 +166,27 @@ private let specDir = packageDir.appendingPathComponent("Spec")
     #expect(fleet.unseen.map(\.pane.pane_id) == ["w1:p1"])
 }
 
+/// A bot's turn is announced once (lasso's notifDelivers): as its reply, or
+/// as a finished turn on a Mac that takes no replies, and not at all when the
+/// bot's notify is off. Its question is agent_blocked.
+@MainActor @Test func botArrivalsFollowTheDeliveryRule() throws {
+    func bot(_ notify: Bool) throws -> BotsPayload {
+        try JSONDecoder().decode(BotsPayload.self, from: Data("""
+            {"bots":[{"id":1,"host":"local","name":"stub","runtime":"claude","stopped":false,"notify":\(notify),
+            "state":"idle","pane_id":"w1:p9","last_kind":"agent","last_at":"2026-10-11T12:00:00Z"}]}
+            """.utf8))
+    }
+    let fleet = FleetModel()
+    fleet.apply(panes: AllPanes(panes: [HostPane(
+        host: "local", host_label: "titan", pane_id: "w1:p9", workspace_id: "w1", workspace_label: "Bots",
+        tab_id: "w1:t1", tab_label: "stub", cwd: "/", agent: "claude", agent_status: "done", has_agent: true, focused: false)]))
+    fleet.apply(bots: try bot(true))
+    let inbox = InboxModel(fleet: fleet)
+    #expect(Array(inbox.arrivals.values) == [[NotifyKinds.botMessage, NotifyKinds.agentFinished]])
+    fleet.apply(bots: try bot(false))
+    #expect(Array(inbox.arrivals.values) == [[]])
+}
+
 /// An answer is built from the question as drawn (PLAN 13.4): a new question
 /// drops the pick in progress, and Other sends free text where the dialog
 /// has that row (S4), never where claude lays out previews.

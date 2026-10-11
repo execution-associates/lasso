@@ -313,16 +313,15 @@ public final class AppCoordinator {
         defer { inboxSeen = now }
         guard let before = inboxSeen else { return }
         // Sound only for a kind this Mac wants to be interrupted by.
-        let kinds = Set(now.subtracting(before).compactMap { arrivals[$0] })
+        let kinds = Set(now.subtracting(before).flatMap { arrivals[$0] ?? [] })
         guard kinds.contains(where: { fleet.notify?.wants($0) ?? true }) else { return }
         InboxSound.play()
     }
 
     /// Resting on a rail control opens it, without the keyboard: the user may
     /// be typing in another app, and the card's keys are single letters. A
-    /// click or the summon key gives the panel the keyboard.
-    /// The plus only lights up: the form takes the keyboard, so it opens on
-    /// a click, never under a passing pointer.
+    /// click or the summon key gives the panel the keyboard. The plus only
+    /// lights up: the form takes the keyboard, so it opens on a click.
     func hoverOpen(_ item: RailModel.Item) {
         guard item != .newAgent, shown(item) == nil else { return }
         switch item {
