@@ -35,8 +35,16 @@ public final class SettingsModel: ObservableObject {
     /// Every lasso that answered, plus the one in use whether or not it did.
     @Published public private(set) var lassos: [LassoChoice] = []
 
+    /// The inbox shortcut, and whether the next key press records one.
+    @Published public private(set) var shortcut = InboxShortcutChoice.stored
+    @Published public private(set) var recording = false
+    /// The arrival sound's id, or InboxSound.none.
+    @Published public private(set) var sound = InboxSound.current
+
     public let permissions: Permissions
     public var baseURL: () -> String
+    /// The shortcut changed: watch for the new one.
+    public var onShortcut: (InboxShortcutChoice) -> Void = { _ in }
     public var version: () -> VersionInfo?
     public var usableHosts: () -> (usable: Int, total: Int)?
     public var onClose: () -> Void = {}
@@ -89,6 +97,34 @@ public final class SettingsModel: ObservableObject {
         onUse(url)
         tick += 1
         Task { await scan() }
+    }
+
+    public func choose(_ c: InboxShortcutChoice) {
+        recording = false
+        shortcut = c
+        InboxShortcutChoice.stored = c
+        onShortcut(c)
+    }
+
+    public func startRecording() { recording = true }
+
+    /// The settings panel's key handler, while recording: the next
+    /// combination becomes the shortcut, esc gives up. True when it took the key.
+    public func record(_ e: NSEvent) -> Bool {
+        guard recording else { return false }
+        if Keys.esc.matches(e) {
+            recording = false
+        } else if let c = InboxShortcutChoice.combo(from: e) {
+            choose(c)
+        }
+        return true
+    }
+
+    /// Pick the arrival sound, and play it so the choice is heard.
+    public func choose(sound id: String) {
+        sound = id
+        InboxSound.current = id
+        InboxSound.play(id, force: true)
     }
 
     public func allowScreenRecording() {

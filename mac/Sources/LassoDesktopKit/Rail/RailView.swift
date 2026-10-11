@@ -55,6 +55,9 @@ enum RailMetrics {
 /// A rail group's shape: fully rounded, a fill that is lit from above and a
 /// 1 pt rim that catches the light on top and fades below (ref a2).
 struct GroupBackground: View {
+    /// The pointer is on it: a white overlay, stepped, not animated (rail.hover.fill).
+    var hovered = false
+
     var body: some View {
         let shape = Capsule(style: .circular)
         ZStack {
@@ -67,7 +70,15 @@ struct GroupBackground: View {
                     colors: [Theme.Rail.rimTop.color, Theme.Rail.rimBottom.color], startPoint: .top,
                     endPoint: .bottom),
                 lineWidth: RailMetrics.rim)
+            shape.fill(Theme.Rail.hoverFill.color).opacity(hovered ? 1 : 0).animation(nil, value: hovered)
         }
+    }
+}
+
+/// A rail control while pressed: the whole control dims (rail.pressed).
+struct RailPress: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.opacity(configuration.isPressed ? Theme.Rail.pressed.number("opacity") : 1)
     }
 }
 
@@ -225,13 +236,13 @@ public struct RailView: View {
     private var inbox: some View {
         Button { model.activate(.inbox) } label: {
             ZStack {
-                GroupBackground()
+                GroupBackground(hovered: model.hovered == .inbox)
                 RailIcon(symbol: "tray")
             }
             .frame(width: RailMetrics.outer, height: RailMetrics.outer)
             .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(RailPress())
         .parityAnchor("rail.inbox")
         .overlay(alignment: .topLeading) { badge }
         .modifier(FocusRing(on: focused(.inbox)))
@@ -272,10 +283,10 @@ public struct RailView: View {
             .padding(.top, RailMetrics.rim + RailMetrics.slotInsetTop)
             .padding(.bottom, RailMetrics.rim + RailMetrics.slotInsetBottom)
             .frame(width: RailMetrics.outer, height: RailMetrics.agentsHeight(slots.count))
-            .background(GroupBackground())
+            .background(GroupBackground(hovered: model.hovered == .agents))
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(RailPress())
         .parityAnchor("rail.agents.capsule")
         .modifier(FocusRing(on: focused(.agents)))
         .accessibilityLabel("Agents")
@@ -286,13 +297,13 @@ public struct RailView: View {
     private var ellipsis: some View {
         Button { model.activate(.settings) } label: {
             ZStack {
-                GroupBackground()
+                GroupBackground(hovered: model.hovered == .settings)
                 RailIcon(symbol: "ellipsis")
             }
             .frame(width: Theme.Rail.ellipsisOuter.pt, height: Theme.Rail.ellipsisOuter.pt)
             .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(RailPress())
         .parityAnchor("rail.ellipsis")
         .modifier(FocusRing(on: focused(.settings)))
         .accessibilityLabel("Settings")

@@ -48,6 +48,15 @@ public enum InboxItem: Identifiable, Equatable {
         case .bot(let b): "bot:" + b.name
         }
     }
+
+    /// The item and how recent it is: a new key is something that arrived
+    /// (a new item, a new turn, a new question), worth the arrival sound.
+    public var arrivalKey: String {
+        switch self {
+        case .agent(let p): "\(id)@\(p.transcript_at ?? 0)"
+        case .bot(let b): "\(id)@\(b.last_at ?? "")#\(b.pending_ui?.first?.id ?? "")"
+        }
+    }
 }
 
 /// The inbox: what waits on the human. Agents that are blocked or finished

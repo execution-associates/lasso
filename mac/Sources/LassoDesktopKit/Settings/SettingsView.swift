@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Settings, in the panels' language: the lasso this app talks to, and the
@@ -26,16 +27,58 @@ public struct SettingsView: View {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: Theme.space("4xl")) {
                     section("lasso") { lassoSection }
+                    section("Inbox") { inboxSection }
                     section("Permissions") { permissionsSection }
                 }
                 .padding(.horizontal, pad)
                 .padding(.vertical, Theme.space("2xl"))
             }
+            footer
         }
         .panelChrome(Theme.Card.size.size, anchor: "settings")
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Settings")
     }
+
+    /// Who makes it: the Execution Associates lockup, linking to the site.
+    private var footer: some View {
+        let f = Theme.Settings.footer
+        return VStack(spacing: 0) {
+            Rectangle().fill(Theme.Panel.divider.color).frame(height: Theme.space("hair"))
+            HStack {
+                Button { NSWorkspace.shared.open(Self.site) } label: {
+                    Group {
+                        if let logo = Self.lockup {
+                            Image(nsImage: logo).renderingMode(.template).resizable().scaledToFit()
+                        } else {
+                            Text("Execution Associates").font(Theme.Fonts.small.font)
+                        }
+                    }
+                    .frame(height: f.number("logo_height"))
+                    .foregroundStyle(Theme.Text.secondary.color)
+                    .parityAnchor("settings.footer.logo")
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Execution Associates website")
+                .help("execution.associates")
+                Spacer()
+            }
+            .padding(.horizontal, pad)
+            .padding(.vertical, f.number("pad_v"))
+        }
+    }
+
+    static let site = URL(string: "https://execution.associates")!
+
+    /// The bundled lockup (Resources/Brand), a white mask tinted like text.
+    static let lockup: NSImage? = {
+        guard let url = Bundle.main.resourceURL?.appendingPathComponent("Brand/exa-lockup@3x.png"),
+              let image = NSImage(contentsOf: url)
+        else { return nil }
+        image.isTemplate = true
+        return image
+    }()
 
     private func section<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: Theme.space("s")) {
@@ -86,6 +129,56 @@ public struct SettingsView: View {
         .accessibilityLabel("\(c.title), \(c.detail)\(inUse ? ", in use" : "")")
     }
 
+    @ViewBuilder private var inboxSection: some View {
+        let sc = model.shortcut
+        VStack(alignment: .leading, spacing: Theme.space("s")) {
+            Text("Shortcut").font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
+            HStack(spacing: Theme.space("s")) {
+                ForEach([InboxShortcutChoice.Modifier.option, .command, .control], id: \.self) { m in
+                    choice("\(m.symbol)\(m.symbol)", on: sc == .doubleTap(m), label: "Double \(m.rawValue) opens the inbox") {
+                        model.choose(.doubleTap(m))
+                    }
+                }
+                if case .combo(_, _, let d) = sc, !model.recording {
+                    choice(d, on: true, label: "\(d) opens the inbox") { model.startRecording() }
+                }
+                choice(model.recording ? "Press keys…" : "Record…", on: model.recording, label: "Record a key combination") {
+                    model.startRecording()
+                }
+                choice("Off", on: sc == .off, label: "No inbox shortcut") { model.choose(.off) }
+            }
+            .parityAnchor("settings.shortcut")
+            line(shortcutNote(sc), secondary: true)
+
+            Text("Sound").font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
+                .padding(.top, Theme.space("s"))
+            let sounds = InboxSound.all.map { ($0.id, $0.name) } + [(InboxSound.none, "None")]
+            ForEach([Array(sounds.prefix(4)), Array(sounds.dropFirst(4))], id: \.first?.0) { row in
+                HStack(spacing: Theme.space("s")) {
+                    ForEach(row, id: \.0) { id, name in
+                        choice(name, on: model.sound == id, label: id == InboxSound.none ? "No sound" : "Play \(name) when something arrives") {
+                            model.choose(sound: id)
+                        }
+                    }
+                }
+            }
+            line("Plays when something new lands in the inbox. Picking one plays it.", secondary: true)
+        }
+    }
+
+    private func shortcutNote(_ sc: InboxShortcutChoice) -> String {
+        if model.recording { return "Press the combination, with ⌘, ⌥ or ⌃. esc cancels." }
+        if sc.needsAccessibility, model.permissions.accessibility != .granted {
+            return "A double tap needs Accessibility (below), since it reads modifier keys in every app."
+        }
+        return sc == .off ? "The rail's inbox button still opens it." : "Opens the inbox from any app."
+    }
+
+    private func choice(_ title: String, on: Bool, label: String, _ act: @escaping () -> Void) -> some View {
+        PillButton(title: title, primary: on, label: label, action: act)
+            .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
     @ViewBuilder private var permissionsSection: some View {
         let p = model.permissions
         permissionRow(
@@ -93,7 +186,7 @@ public struct SettingsView: View {
             action: p.screenRecording == .granted ? nil : "Allow"
         ) { model.allowScreenRecording() }
         permissionRow(
-            "Accessibility", "Optional: not used yet.", p.accessibility,
+            "Accessibility", "The double-tap inbox shortcut reads modifier keys in every app.", p.accessibility,
             action: p.accessibility == .granted ? nil : "Settings"
         ) { p.openAccessibilitySettings() }
     }

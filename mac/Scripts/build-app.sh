@@ -26,6 +26,19 @@ cp "$BIN" "$APP/Contents/MacOS/LassoDesktop"
 sed -e "s/@VERSION@/$VERSION/" -e "s/@BUILD@/$(date +%Y%m%d%H%M%S)/" Scripts/Info.plist.in >"$APP/Contents/Info.plist"
 cp -R Spec "$APP/Contents/Resources/Spec"
 cp -R Resources/Fonts "$APP/Contents/Resources/Fonts"
+cp -R Resources/Sounds "$APP/Contents/Resources/Sounds"
+cp -R Resources/Brand "$APP/Contents/Resources/Brand"
+
+# The app icon: Resources/AppIcon.png (the EXA monogram on the rail's ink,
+# 1024 px) cut into an iconset and packed with the macOS tools.
+ICONSET="$(mktemp -d)/AppIcon.iconset"
+mkdir -p "$ICONSET"
+for s in 16 32 128 256 512; do
+  sips -z $s $s Resources/AppIcon.png --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
+  sips -z $((s * 2)) $((s * 2)) Resources/AppIcon.png --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
+done
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+rm -rf "$(dirname "$ICONSET")"
 
 IDENTITY=""
 if [ -f "$KC" ]; then

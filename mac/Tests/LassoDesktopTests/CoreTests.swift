@@ -118,3 +118,27 @@ private let specDir = packageDir.appendingPathComponent("Spec")
         #expect(abs(drawn.minY - frame.minY) <= 1 && abs(drawn.height - frame.height) <= 1, "\(item): \(drawn) vs \(frame)")
     }
 }
+
+/// The inbox shortcut survives a round trip through UserDefaults' string,
+/// and a recorded combination reads the way macOS menus write it.
+@Test func inboxShortcutChoicesRoundTrip() {
+    for c: InboxShortcutChoice in [.off, .doubleTap(.option), .doubleTap(.command), .combo(keyCode: 49, modifiers: 1 << 19, display: "⌥Space")] {
+        #expect(InboxShortcutChoice(stored: c.stored) == c)
+    }
+    #expect(InboxShortcutChoice(stored: "double:hyper") == nil)
+    #expect(InboxShortcutChoice.fallback == .doubleTap(.option))
+    #expect(InboxShortcutChoice.doubleTap(.option).needsAccessibility)
+}
+
+/// A new turn on the same agent is a new arrival; the same state is not.
+@Test func arrivalKeysMoveWithTheTranscript() {
+    var p = HostPane(
+        host: "local", host_label: "titan", pane_id: "w1:p1", workspace_id: "w1", workspace_label: "Agents",
+        tab_id: "w1:t1", tab_label: "stub", cwd: "/", agent: "claude", agent_status: "done", has_agent: true,
+        focused: false)
+    p.transcript_at = 10
+    let a = InboxItem.agent(p).arrivalKey
+    #expect(InboxItem.agent(p).arrivalKey == a)
+    p.transcript_at = 11
+    #expect(InboxItem.agent(p).arrivalKey != a)
+}

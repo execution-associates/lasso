@@ -23,6 +23,13 @@ public final class AppCoordinator {
     private var chat: (model: ChatModel, panel: SidePanel)?
     private var subs: Set<AnyCancellable> = []
     private var hotKey: HotKey?
+    private var shortcut: InboxShortcut?
+    /// What was in the inbox last time it changed, to hear what is new.
+    private var inboxSeen: Set<String>?
+    /// The control whose panel a hover opened and nobody has clicked yet,
+    /// and since when the pointer has been away from both rail and panel.
+    private var hoverShown: RailModel.Item?
+    private var hoverAway: Date?
 
     public init(fleet: FleetModel, sync: FleetSync?, fixture: Fixture?) {
         self.fleet = fleet
@@ -64,6 +71,9 @@ public final class AppCoordinator {
         rail.show()
         KeyHints.shared.start()
         hotKey = HotKey(token: Theme.summonKey) { [weak self] in self?.rail.summon() }
+        let sc = InboxShortcut { [weak self] in self?.inboxShortcut() }
+        sc.apply(InboxShortcutChoice.stored)
+        shortcut = sc
         if sync != nil, !SettingsModel.seen { openSettings() }
     }
 
@@ -90,6 +100,7 @@ public final class AppCoordinator {
         }
         rail.model.onInbox = { [weak self] in self?.openInbox() }
         rail.model.onHoverOpen = { [weak self] item in self?.hoverOpen(item) }
+        rail.onPointer = { [weak self] p in self?.hoverTick(p) }
         rail.model.onAgents = { [weak self] in self?.toggleList() }
         rail.model.onSettings = { [weak self] in self?.openSettings() }
 
@@ -105,12 +116,22 @@ public final class AppCoordinator {
         }
         settingsModel.onClose = { [weak self] in self?.settings.close() }
         settingsModel.onUse = { [weak self] url in self?.use(url) }
+        settingsModel.onShortcut = { [weak self] c in self?.shortcut?.apply(c) }
         settings.onKey = { [weak self] e in
+            if self?.settingsModel.record(e) == true { return true }
             guard Keys.esc.matches(e) else { return false }
             self?.settingsModel.close()
             return true
         }
 
+        // Something new in the inbox makes the arrival sound. The first
+        // reading is a baseline; a live lasso only (fixtures make no sound).
+        if sync != nil {
+            Publishers.CombineLatest3(fleet.$panes, fleet.$bots, fleet.$uiState)
+                .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+                .sink { [weak self] _ in self?.noteArrivals() }
+                .store(in: &subs)
+        }
         fleet.$bots
             .sink { [weak self] bots in
                 guard let self, let c = self.chat?.model, let b = bots.first(where: { $0.name == c.bot.name }) else { return }
@@ -177,15 +198,75 @@ public final class AppCoordinator {
         settings.open(takeKey: takeKey)
     }
 
+    /// The inbox shortcut: open the inbox with the keyboard in it, or close
+    /// it when it already has the keyboard.
+    func inboxShortcut() {
+        if (card.isOpen && card.isKey) || (inbox.isOpen && inbox.isKey) {
+            closeAll()
+            return
+        }
+        hoverShown = nil
+        rail.model.setExpanded(true)
+        if card.isOpen { card.takeKey() } else if inbox.isOpen { inbox.takeKey() } else { openInbox() }
+    }
+
+    /// Play the arrival sound when the inbox holds something it did not.
+    private func noteArrivals() {
+        let now = Set(inboxModel.items.map(\.arrivalKey))
+        defer { inboxSeen = now }
+        guard let before = inboxSeen, !now.subtracting(before).isEmpty else { return }
+        InboxSound.play()
+    }
+
     /// Resting on a rail control opens it, without the keyboard: the user may
     /// be typing in another app, and the card's keys are single letters. A
     /// click or the summon key gives the panel the keyboard.
     func hoverOpen(_ item: RailModel.Item) {
+        guard shown(item) == nil else { return }
         switch item {
-        case .inbox: if !(card.isOpen || inbox.isOpen) { openInbox(takeKey: false) }
-        case .agents: if !list.isOpen { toggleList(takeKey: false) }
-        case .settings: if !settings.isOpen { openSettings(takeKey: false) }
+        case .inbox: openInbox(takeKey: false)
+        case .agents: toggleList(takeKey: false)
+        case .settings: openSettings(takeKey: false)
         }
+        hoverShown = item
+        hoverAway = nil
+    }
+
+    /// What `item` has open beside the rail: whether it has the keyboard,
+    /// and where it is.
+    private func shown(_ item: RailModel.Item) -> (isKey: Bool, frame: NSRect)? {
+        switch item {
+        case .inbox:
+            if card.isOpen { return (card.isKey, card.panel.frame) }
+            if inbox.isOpen { return (inbox.isKey, inbox.panel.frame) }
+        case .agents:
+            if list.isOpen { return (list.isKey, list.panel.frame) }
+        case .settings:
+            if settings.isOpen { return (settings.isKey, settings.panel.frame) }
+        }
+        return nil
+    }
+
+    /// A panel a hover opened is a glance: it closes rail.hover's
+    /// panel_close_ms after the pointer leaves both it and the rail, unless a
+    /// click (which gives it the keyboard) made it the user's.
+    private func hoverTick(_ pointer: NSPoint) {
+        guard let item = hoverShown else { return }
+        guard let s = shown(item), !s.isKey else {
+            hoverShown = nil
+            return
+        }
+        if s.frame.contains(pointer) || rail.panel.frame.contains(pointer) {
+            hoverAway = nil
+            return
+        }
+        let now = Date()
+        if hoverAway == nil { hoverAway = now }
+        guard now.timeIntervalSince(hoverAway!) * 1000 >= Theme.Rail.hover.number("panel_close_ms") else { return }
+        hoverShown = nil
+        hoverAway = nil
+        closeAll()
+        Trace.event("hover panel closed (pointer left)")
     }
 
     /// Switch to another lasso: whatever was open belonged to the old one.

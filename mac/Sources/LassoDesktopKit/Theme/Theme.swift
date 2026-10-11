@@ -142,8 +142,15 @@ public enum Theme {
             .inferred("past a click's jitter before a drag claims the pointer; ⌥↑/⌥↓ moves one control's height"),
             proposed: true)
         public static let hover = Token(
-            "rail.hover", ["open_ms": 80, "close_ms": 450, "item_open_ms": 150],
-            .unmeasured("hover reveal timing; item_open_ms: resting on a revealed control opens it"), proposed: true)
+            "rail.hover", ["open_ms": 80, "close_ms": 370, "item_open_ms": 117, "panel_close_ms": 317],
+            .measured(
+                "reference recording: item_open_ms (resting on a control opens it) frames 655-662; panel_close_ms (a hover-opened panel closes after the pointer leaves) 707-726; close_ms (the rail hides) 959-981. open_ms is ours: the reveal starts with no measurable delay (149-151), and 80 ms keeps a passing pointer from revealing it"))
+        public static let hoverFill = Token(
+            "rail.hover.fill", "rgba(255,255,255,0.20)",
+            .measured("reference recording, frames 655 and 734: a control's fill 43,37,29 -> 85,78,75, a 20% white overlay, stepped in one frame"))
+        public static let pressed = Token(
+            "rail.pressed", ["opacity": 0.71],
+            .measured("reference recording, frames 219-225, 355-361, 452-456: the whole control at 0.71 while pressed"))
     }
 
     public enum State {
@@ -158,6 +165,14 @@ public enum Theme {
     }
 
     /// The surface every panel beside the rail shares: card, lists, chat, settings.
+    public enum Settings {
+        /// The Execution Associates lockup in Settings' footer, sized by height.
+        public static let footer = Token(
+            "settings.footer", ["logo_height": 18, "pad_v": 14],
+            .inferred("isb sizes the lockup by height (h-7, 28 px, in its header); a footer takes it smaller"),
+            proposed: true)
+    }
+
     public enum Panel {
         public static let surface = Token(
             "panel.surface", "#1B0A2C", .measured("EXA: isb web/src/index.css :root.ea --background (ink)"))
@@ -303,10 +318,13 @@ public enum Theme {
         public static let railCollapse = Token(
             "motion.rail_collapse", ["kind": "spring", "response": 0.2, "damping": 0.9],
             .measured("brief A.4; its ~133 ms disagrees, PLAN 2.3-2"))
+        /// A panel beside the rail fades in while sliding `slide` pt away from it.
         public static let cardOpen = Token(
-            "motion.card_open", ["kind": "easeOut", "duration": 0.07], .measured("brief A.4"))
+            "motion.card_open", ["kind": "easeOut", "duration": 0.117, "slide": 4.5],
+            .measured("reference recording, frames 662-669: opacity .16 .44 .66 .80 .87 .94 .97 .98, ease-out, 4.5 pt away from the rail"))
         public static let cardClose = Token(
-            "motion.card_close", ["kind": "easeOut", "duration": 0.07], .measured("brief A.4"))
+            "motion.card_close", ["kind": "easeOut", "duration": 0.067],
+            .measured("reference recording, frames 726-730: 67 ms, 80% in the first frame"))
         public static let toastIn = Token(
             "motion.toast_in", ["kind": "timingCurve", "c": [0, 0, 0.58, 1], "duration": 0.183],
             .inferred("brief A.4: ~183 ms, decelerating, no overshoot"))
@@ -324,10 +342,18 @@ public enum Theme {
             "live.sse.watchdog", 60, .inferred("server pings every 25 s, src/main.go:2847"), proposed: true)
         public static let backoff = Token(
             "live.reconnect.backoff", ["min": 1, "max": 30, "jitter": 0.2], .unmeasured("reconnects"), proposed: true)
+        public static let arrivalSound = Token(
+            "live.arrival_sound", ["gap_ms": 2000], .inferred("arrivals this close make one sound, not a burst"),
+            proposed: true)
     }
 
     public static let summonKey = Token(
         "keys.summon", ["key": "l", "modifiers": ["option", "command"]], .unmeasured("global summon"), proposed: true)
+    /// The inbox shortcut's double tap: two taps of the modifier alone, each
+    /// shorter than tap_ms, the second within gap_ms of the first.
+    public static let inboxDoubleTap = Token(
+        "keys.inbox_double_tap", ["tap_ms": 300, "gap_ms": 400],
+        .inferred("a deliberate double tap, not a held modifier or a chord"), proposed: true)
     /// Keycaps stay hidden (the references show none) until this is held.
     public static let revealKeys = Token(
         "keys.reveal", "command", .unmeasured("hold to show keycaps"), proposed: true)
@@ -338,8 +364,9 @@ public enum Theme {
         Rail.fillWidth, Rail.rimWidth, Rail.outer, Rail.radius, Rail.gap, Rail.backing, Rail.fillTop, Rail.fillBottom,
         Rail.rimTop, Rail.rimBottom, Rail.padTop, Rail.padBottom, Rail.glyphSize, Rail.glyphPitch, Rail.ringStroke,
         Rail.maxSlots, Rail.overflowFont, Rail.icon, Rail.ellipsisOuter, Rail.edge, Rail.edgeInset,
-        Rail.panelMargin, Rail.badgeSize, Rail.badgeRing, Rail.badgeCenter, Rail.peek, Rail.peekFill, Rail.drag, Rail.hover,
+        Rail.panelMargin, Rail.badgeSize, Rail.badgeRing, Rail.badgeCenter, Rail.peek, Rail.peekFill, Rail.drag, Rail.hover, Rail.hoverFill, Rail.pressed,
         State.done, State.working, State.blocked, State.idle,
+        Settings.footer,
         Panel.surface, Panel.border, Panel.radius, Panel.inset, Panel.inner, Panel.divider, Panel.shadow,
         Control.round, Control.composer, Control.pill, Control.pillPrimary,
         Card.size, Card.titleX, Card.contentX, Card.unreadSegment, Card.unreadDot, Card.unreadGap, Card.keycapFill,
@@ -352,8 +379,8 @@ public enum Theme {
         spaceScale, Layout.card, Layout.chat,
         avatar, icon,
         Motion.railExpand, Motion.railCollapse, Motion.cardOpen, Motion.cardClose, Motion.toastIn, Motion.cardPaging,
-        Live.pollAllPanes, Live.pollBots, Live.pollChat, Live.sseWatchdog, Live.backoff,
-        summonKey, revealKeys,
+        Live.pollAllPanes, Live.pollBots, Live.pollChat, Live.sseWatchdog, Live.backoff, Live.arrivalSound,
+        summonKey, inboxDoubleTap, revealKeys,
     ]
 }
 

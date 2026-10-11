@@ -4,6 +4,8 @@
 <dict>
 	<key>CFBundleIdentifier</key>
 	<string>com.orangecountyai.LassoDesktop</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleName</key>
 	<string>LassoDesktop</string>
 	<key>CFBundleDisplayName</key>

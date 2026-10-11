@@ -8,6 +8,8 @@ struct SidePanelHost<Content: View>: View {
     var body: some View {
         content
             .opacity(presence.shown ? 1 : 0)
+            // Fades in moving away from the rail (motion.card_open's slide).
+            .offset(x: presence.shown ? 0 : Theme.Motion.cardOpen.number("slide"))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }

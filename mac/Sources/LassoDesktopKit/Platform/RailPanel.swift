@@ -73,6 +73,9 @@ public final class RailController {
     private var outSince: Date?
     /// Something beside the rail is open (card, list, chat): stay revealed.
     var keepOpen: () -> Bool = { false }
+    /// Every hover poll, with the pointer (screen coordinates): the
+    /// coordinator closes a panel a hover opened once the pointer leaves it.
+    var onPointer: (NSPoint) -> Void = { _ in }
     /// The rail was dragged: whatever is open beside it follows.
     var onMoved: () -> Void = {}
     /// When the pointer came to rest on `model.hovered`, and whether that
@@ -197,6 +200,7 @@ public final class RailController {
     private func pollHover() {
         guard dragFrom == nil else { return }
         pollItemHover()
+        onPointer(NSEvent.mouseLocation)
         let inside = hotRect().contains(NSEvent.mouseLocation)
         let h = Theme.Rail.hover
         let now = Date()

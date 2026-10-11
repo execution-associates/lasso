@@ -764,3 +764,54 @@ The Inbox needs S1, S4 and S5 on the lasso the app talks to, and a dev lasso sha
 - It reports `6.4.0 (dev)`: Go does not stamp a build made in a linked worktree with its commit. It is not a `-dev` instance and never self-updates.
 - **To update it:** `mise run build`, then `install -m 0755 lasso ~/.local/libexec/lasso-desktop/lasso.new && mv ~/.local/libexec/lasso-desktop/lasso.new ~/.local/libexec/lasso-desktop/lasso && sudo systemctl restart lasso`.
 - **To undo it, and once the release ships:** `sudo rm /etc/systemd/system/lasso.service.d/desktop-branch.conf && sudo systemctl daemon-reload && sudo systemctl restart lasso`. That puts back the mise-installed release.
+
+## 16. Hover interaction language (reference recording)
+
+The spec steward supplied a screen recording of an earlier prototype (`~/lasso-desktop-reference/reference-prototype-hover.mp4`, 60 fps, kept out of the repo). Every value below was measured frame by frame from it, and each token's `source` names its frames.
+
+**What the recording actually shows**
+- **Two prototypes are cut together.** One is purple (frames 1–528) and the other graphite (579–992). The recorder also zooms (f198–241, 2×) and pans (f483–660), so geometry was read only while the camera was still, at 2 px per point.
+- **The purple one is clicked, not hovered**: the recorder's click ripples are at f216, 303, 353 and 450. So the hover language comes from the graphite one.
+- **Several things the steward's notes expected are not in it.** No capsule expands on hover, no agent dot becomes a ✕ (the ✕s are per-row buttons in a panel), no neighbour dims, and the card's ✕ circle is always drawn and does not change on hover.
+- **The recorder draws a smoothed cursor** that arrives 33–150 ms after the change it causes. So delays are measured from each control's own highlight, never from the drawn pointer.
+
+**What the app takes from it**
+- **Hover fill** (`rail.hover.fill`): a control under the pointer takes a 20% white overlay, stepped in one frame with no animation (f655, f734). The whole agents capsule takes it, and its neighbours do not change. One value says what is hovered: `RailModel.hovered`.
+- **Pressed** (`rail.pressed`): the whole control drops to 0.71 opacity while pressed (f219–225, f355–361).
+- **Resting opens** (`rail.hover.item_open_ms`, 117 ms, f655→f662): the inbox, the agents capsule and settings open by hover alone. A hover-opened panel is ordered front **without the keyboard**, so typing in another app never lands on the card's one-letter keys. A click on it or on its control, or the summon key or inbox shortcut, gives it the keyboard.
+- **A hover-opened panel is a glance** (`rail.hover.panel_close_ms`, 317 ms, f707→f726): once the pointer has left both the rail and the panel for that long, it closes, unless a click made it the user's.
+- **The rail hides** 370 ms after the pointer leaves (`rail.hover.close_ms`, f959→f981).
+- **Panels fade in over 117 ms, ease-out, sliding 4.5 pt away from the rail**, and fade out over 67 ms (`motion.card_open`, f662–669; `motion.card_close`, f726–730). This replaces the brief's 70 ms.
+- **Not taken:**
+  - The tools capsule and its tooltips ("Start recording", "Take a screenshot of a region, then ask about it") are left out, because the user removed the tools capsule and voice (§12). The tooltips' lesson stands: a control's label says what it does.
+  - Tooltips over the inbox, agents and settings are left out too, because resting on those opens them at 117 ms, before a tooltip could be read.
+
+**Hover comes from polling, not tracking areas.** The steward asked for `NSTrackingArea` with `.activeAlways`. The app instead polls `NSEvent.mouseLocation` at 20 Hz against `RailMetrics.itemFrames`, the same frames the rail draws (a test checks them against the rendered anchors). It does so because a non-activating panel of a background app gets no hover events from SwiftUI, and polling also drives the reveal, the drag and the glance close from one loop.
+
+**Parity states** `rail-hover-inbox` and `rail-hover-agents` check the overlay on the hovered control and the untouched neighbour. The motion pass checks the 117 ms and 67 ms curves.
+
+## 17. Shortcut, sound and brand
+
+- **Inbox shortcut**, in Settings › Inbox (UserDefaults `inboxShortcut`):
+  - **Default ⌥⌥**: double-tap Option. A tap is the modifier alone for at most 300 ms, and the second tap must end within 400 ms of the first (`keys.inbox_double_tap`). Any other key or modifier in between starts over.
+  - **⌘⌘ and ⌃⌃** work the same way.
+  - **Record…** takes any combination with ⌘, ⌥ or ⌃ through Carbon's `RegisterEventHotKey`, which needs no permission.
+  - **Off.**
+  - A double tap reads modifier keys in every app through a global event monitor, which macOS delivers only with **Accessibility**, so Settings says so until it is granted.
+  - The shortcut opens the inbox with the keyboard in it; pressed again while the inbox has the keyboard, it closes it.
+- **Arrival sound**, in Settings › Inbox (UserDefaults `inboxSound`, default Whoosh):
+  - Six sounds made with ElevenLabs on fal (`mac/Resources/Sounds/README.md` has the prompts), all levelled to a −4 dBFS peak. Choosing one plays it.
+  - It plays when the inbox holds an item, a new turn or a new question it did not hold before (`InboxItem.arrivalKey`). The first reading is a baseline, and arrivals within 2 s make one sound (`live.arrival_sound`).
+- **Settings footer**: the Execution Associates lockup as isb ships it (`Resources/Brand`), tinted like secondary text, linking to execution.associates.
+- **App icon**: the EXA monogram, exactly as `exa/brand-assets/logo/exa-mark-white.png` draws it, on a macOS icon plate in the rail's ink gradient (`Resources/AppIcon.png`). `build-app.sh` packs `AppIcon.icns`.
+
+## 18. Later: signing in to a deployed lasso through Cloudflare Access
+
+The user's lasso is `https://lasso.orangecountyai.com`, behind Cloudflare Zero Trust (Access). The app should connect to it by URL and authenticate the way a browser does, rather than needing a tunnel. Not built yet.
+- **Settings › lasso gains a URL field.** For an `https` lasso, the app first probes `/api/version` without credentials. A redirect to `<team>.cloudflareaccess.com` means Access sits in front.
+- **Sign-in through the browser, the way `cloudflared access login` does it.** The app opens the Access login for that hostname in an `ASWebAuthenticationSession`, so the user's identity provider, MFA and device posture all apply as they do for the web app. It keeps the resulting `CF_Authorization` application token in the Keychain, then sends it on every request as the `cf-access-token` header (the event stream included), never in plain storage.
+- **Refresh:** a 401 or 403, or a redirect to the Access login, marks the token expired. The app keeps the user's state, asks once to sign in again, and resumes the event stream afterwards.
+- **lasso's own `UI_AUTH`** still applies behind Access when it is set: basic credentials from the Keychain, as today. A service token (`CF-Access-Client-Id`/`Secret`, which the client already sends when stored) stays the non-interactive alternative for a shared Mac.
+- **Open questions:**
+  - Whether this team's Access application allows the CLI/native login flow, or needs `cloudflared`'s transfer endpoint.
+  - Whether to support several saved deployments at once, alongside the tunnel and dev entries of §14.

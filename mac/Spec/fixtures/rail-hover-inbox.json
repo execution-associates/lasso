@@ -1,0 +1,12 @@
+{
+  "about": "The pointer rests on the inbox: its fill takes a 20% white overlay, stepped (the reference prototype's hover). A moment later it opens.",
+  "state": "rail-hover-inbox",
+  "extends": "rail-expanded",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "hovered": "inbox"
+  }
+}

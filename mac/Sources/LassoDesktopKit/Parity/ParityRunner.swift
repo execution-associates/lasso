@@ -11,7 +11,7 @@ public final class ParityRunner {
     /// States whose surfaces exist. The rest report as pending until their
     /// milestone lands (PLAN 6).
     public static let implemented: Set<String> = [
-        "rail-collapsed", "rail-expanded", "inbox-open", "inbox-empty", "card-open", "list-panel-open", "chat-open", "settings",
+        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "inbox-open", "inbox-empty", "card-open", "list-panel-open", "chat-open", "settings",
     ]
 
     let spec: Spec
@@ -184,6 +184,9 @@ public final class ParityRunner {
             cap = try await make()
             recapture = make
         } else {
+            // A rail control under the pointer (rail-hover-*).
+            let hoverable: [String: RailModel.Item] = ["inbox": .inbox, "agents": .agents, "settings": .settings]
+            model.hovered = fixture.ui.hovered.flatMap { hoverable[$0] }
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(RailView(model: model), size: self.railSize()) }
             cap = try await make()
             recapture = make
@@ -266,15 +269,19 @@ public final class ParityRunner {
                 add(state, "colour", p.token, "(not a colour)", "", "", .fail)
                 continue
             }
+            var shade: RGBA?
             if let g = p.gradient, g.count == 2, let at = p.at,
                let top = RGBA(parsing: spec.tokens[g[0]]?.value.string ?? ""),
                let bottom = RGBA(parsing: spec.tokens[g[1]]?.value.string ?? "")
             {
-                want = RGBA(
+                shade = RGBA(
                     r: top.r + (bottom.r - top.r) * at, g: top.g + (bottom.g - top.g) * at,
                     b: top.b + (bottom.b - top.b) * at, a: 1)
             }
-            if let over = p.over, let base = RGBA(parsing: spec.tokens[over]?.value.string ?? "") {
+            // over "gradient": the token is a translucent layer on the gradient
+            // (a hover overlay); otherwise a gradient is the colour itself.
+            if p.over != "gradient", let shade { want = shade }
+            if let over = p.over, let base = over == "gradient" ? shade : RGBA(parsing: spec.tokens[over]?.value.string ?? "") {
                 // Source-over in sRGB, as the window server composites.
                 let a = want.a
                 want = RGBA(
