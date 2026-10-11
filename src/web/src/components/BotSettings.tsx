@@ -90,7 +90,7 @@ const TABS: { id: Tab; label: string; existing?: boolean }[] = [
   { id: "connections", label: "Connections" },
   { id: "jobs", label: "Jobs", existing: true },
   { id: "skills", label: "Skills", existing: true },
-  { id: "instructions", label: "Instructions", existing: true },
+  { id: "instructions", label: "Instructions" },
   { id: "environment", label: "Environment", existing: true },
   { id: "launch", label: "Launch", existing: true },
 ]
@@ -137,6 +137,9 @@ type Draft = {
   extra_args: string
   strict_mcp: boolean
   mcp: DraftServer[]
+  // The create form's instructions: the bot's first AGENTS.md/CLAUDE.md.
+  // Not part of a save; an existing bot's file is edited in its own tab.
+  instructions: string
 }
 
 let rowSeq = 0
@@ -178,6 +181,7 @@ function draftOf(b?: BotView): Draft {
     notify: b?.notify ?? true,
     extra_args: (b?.extra_args ?? []).join("\n"),
     strict_mcp: b?.strict_mcp ?? false,
+    instructions: "",
     mcp: (b?.mcp ?? []).map((s) => ({
       id: nextID(),
       name: s.name,
@@ -1828,6 +1832,39 @@ function SkillsTab({ bot }: { bot: BotView }) {
 // ---------------------------------------------------------------------------
 // Instructions
 
+// NewInstructions is the create form's half of the Instructions tab: what the
+// bot's instructions file starts as. Empty leaves lasso's one-line stub.
+function NewInstructions({
+  draft,
+  set,
+}: {
+  draft: Draft
+  set: (patch: Partial<Draft>) => void
+}) {
+  const file = draft.runtime === "omp" ? "AGENTS.md" : "CLAUDE.md"
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      <p className="text-[12.5px] text-muted-foreground">
+        Who the bot is and how it works, written to{" "}
+        <code className="font-mono text-[11.5px]">{file}</code> in its folder.
+        You and the bot can edit it later; a folder that already has one keeps
+        its own.
+      </p>
+      <textarea
+        {...NO_AUTOCORRECT}
+        value={draft.instructions}
+        onChange={(e) => set({ instructions: e.target.value })}
+        aria-label={file}
+        placeholder={`# ${draft.name || "my-bot"}\n\nWhat this bot does, who it works for, and what it must never do.`}
+        className={cn(
+          fieldClass,
+          "min-h-[50vh] flex-1 resize-y font-mono text-[13px] leading-relaxed md:text-[12.5px]"
+        )}
+      />
+    </div>
+  )
+}
+
 function InstructionsTab({ bot, path }: { bot: BotView; path: string }) {
   // CLAUDE.md for a claude bot, AGENTS.md for an omp one: the server names it.
   const name = path.split("/").pop() || "CLAUDE.md"
@@ -2364,9 +2401,11 @@ export function BotSettings({
           name: draft.name,
           host: draft.host,
           start: false,
+          instructions: draft.instructions,
         })
         await invalidateBots(res.bot.name)
         if (res.error) toast.warning(`${res.bot.name} created: ${res.error}`)
+        else if (res.note) toast.warning(`${res.bot.name} created: ${res.note}`)
         else toast.success(`${res.bot.name} created`)
         onCreated?.(res.bot.name)
         return
@@ -2391,7 +2430,10 @@ export function BotSettings({
   const createReady = creating && !!draft && BOT_NAME_RE.test(draft.name)
   // The row's own fields are saved by the footer; the folder's tabs save
   // themselves, so the footer only shows where it means something.
-  const rowTab = tab === "general" || tab === "connections"
+  const rowTab =
+    tab === "general" ||
+    tab === "connections" ||
+    (creating && tab === "instructions")
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -2438,6 +2480,8 @@ export function BotSettings({
               lassoMCP={detail.data?.lasso_mcp}
               lassoChannel={!!detail.data?.lasso_channel}
             />
+          ) : creating && tab === "instructions" ? (
+            <NewInstructions draft={draft} set={set} />
           ) : !bot || !detail.data ? null : tab === "jobs" ? (
             <JobsTab bot={bot} />
           ) : tab === "skills" ? (
@@ -2457,8 +2501,8 @@ export function BotSettings({
           )}
           {creating && (
             <p className="mt-6 text-[12px] text-muted-foreground">
-              Skills, instructions and environment are set once the bot exists.
-              It is created stopped, so you can finish setting it up first.
+              Skills and environment are set once the bot exists. It is created
+              stopped, so you can finish setting it up first.
             </p>
           )}
         </div>

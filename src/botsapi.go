@@ -128,7 +128,12 @@ type botInput struct {
 	botRecord
 	Start   bool `json:"start"`
 	Restart bool `json:"restart"`
+	// Instructions (create only) are the bot's first AGENTS.md or CLAUDE.md,
+	// in place of the stub. A folder that already has one keeps it.
+	Instructions string `json:"instructions"`
 }
+
+const botInstructionsMax = 256 << 10
 
 // decodeBotInput reads a create or save body over base, so a field the body
 // leaves out keeps base's value (a create's defaults, or a save's current row).
@@ -162,12 +167,22 @@ func serveBotCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if len(in.Instructions) > botInstructionsMax {
+		http.Error(w, "instructions are longer than 256 KB", http.StatusBadRequest)
+		return
+	}
 	if err := insertBot(&rec); err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
 	// The row stays even when the folder cannot be written: the settings page
-	// is where the human fixes what was wrong.
+	// is where the human fixes what was wrong. The instructions go in first,
+	// so botMaterialize finds the file and writes no stub.
+	note, err := botSeedInstructions(b, &rec, in.Instructions)
+	if err != nil {
+		writeJSON(w, map[string]any{"bot": botStatus(b, &rec, nil), "error": err.Error()})
+		return
+	}
 	if err := botMaterialize(b, &rec); err != nil {
 		writeJSON(w, map[string]any{"bot": botStatus(b, &rec, nil), "error": err.Error()})
 		return
@@ -178,7 +193,35 @@ func serveBotCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, map[string]any{"bot": botStatus(b, &rec, readClaudeSessions(b))})
+	out := map[string]any{"bot": botStatus(b, &rec, readClaudeSessions(b))}
+	if note != "" {
+		out["note"] = note
+	}
+	writeJSON(w, out)
+}
+
+// botSeedInstructions writes a new bot's instructions file from the create
+// form. It never replaces one already in the folder (a bot pointed at an
+// existing folder keeps its file) and says so instead.
+func botSeedInstructions(b Backend, r *botRecord, text string) (string, error) {
+	if strings.TrimSpace(text) == "" {
+		return "", nil
+	}
+	dir := expandTildeOn(b, r.Dir)
+	path := filepath.Join(dir, botInstructionsFile(r))
+	if _, err := b.Stat(path); err == nil {
+		return "the folder already has " + botInstructionsFile(r) + ", which was kept", nil
+	}
+	if err := b.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("create %s: %w", dir, err)
+	}
+	if !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	if err := b.WriteFile(path, []byte(text), 0o644); err != nil {
+		return "", fmt.Errorf("write %s: %w", botInstructionsFile(r), err)
+	}
+	return "", nil
 }
 
 func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botRecord) {

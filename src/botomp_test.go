@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -517,5 +518,37 @@ func TestBotOmpFiles(t *testing.T) {
 	e := botEvent{ID: 7, Job: "sweep", Kind: "webhook", Count: 2, FiredAt: "t", Content: "body", Watch: true, RunStatus: "error"}
 	if got := botOmpEventMessage(e); got != "[lasso job \"sweep\" trigger=webhook event=7 count=2 fired_at=t watch=true status=error]\nbody" {
 		t.Errorf("event message = %q", got)
+	}
+}
+
+func TestBotCreateSeedsInstructions(t *testing.T) {
+	useBotTestEnv(t)
+	root := t.TempDir()
+	do := func(body string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		serveBots(w, httptest.NewRequest("POST", "/api/bots", strings.NewReader(body)))
+		return w
+	}
+	ompDir := filepath.Join(root, "o")
+	if w := do(`{"name":"o","dir":"` + ompDir + `","instructions":"You watch the news."}`); w.Code != 200 {
+		t.Fatalf("create omp: %d %s", w.Code, w.Body)
+	}
+	if b, _ := os.ReadFile(filepath.Join(ompDir, "AGENTS.md")); string(b) != "You watch the news.\n" {
+		t.Errorf("AGENTS.md = %q", b)
+	}
+	claudeDir := filepath.Join(root, "c")
+	if w := do(`{"name":"c","runtime":"claude","dir":"` + claudeDir + `","instructions":"Answer mail."}`); w.Code != 200 {
+		t.Fatalf("create claude: %d %s", w.Code, w.Body)
+	}
+	if b, _ := os.ReadFile(filepath.Join(claudeDir, "CLAUDE.md")); string(b) != "Answer mail.\n" {
+		t.Errorf("CLAUDE.md = %q", b)
+	}
+	// An existing file is kept, and the answer says so.
+	keepDir := filepath.Join(root, "k")
+	os.MkdirAll(keepDir, 0o755)
+	os.WriteFile(filepath.Join(keepDir, "AGENTS.md"), []byte("mine"), 0o644)
+	w := do(`{"name":"k","dir":"` + keepDir + `","instructions":"new"}`)
+	if b, _ := os.ReadFile(filepath.Join(keepDir, "AGENTS.md")); string(b) != "mine" || !strings.Contains(w.Body.String(), "kept") {
+		t.Errorf("existing AGENTS.md: %q, answer %s", b, w.Body)
 	}
 }

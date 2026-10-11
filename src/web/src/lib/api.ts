@@ -1998,8 +1998,15 @@ export const api = {
         name: string
         host?: string
         start?: boolean
+        // The bot's first AGENTS.md (omp) or CLAUDE.md (claude), in place
+        // of the stub. A folder that already has one keeps it (`note`).
+        instructions?: string
       }
-    ) => postJSON<{ bot: BotView; error?: string }>("/api/bots", body),
+    ) =>
+      postJSON<{ bot: BotView; error?: string; note?: string }>(
+        "/api/bots",
+        body
+      ),
     update: (name: string, body: BotFields & { restart?: boolean }) =>
       sendJSON<{ bot: BotView }>("PUT", botURL(name), body),
     // Forgets the bot; its folder stays on the host.
