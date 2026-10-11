@@ -1,23 +1,25 @@
 package main
 
-// Notifications — lasso telling a HUMAN about something that happened while
-// they were not looking at it. Distinct from `notice` (main.go), which is a
-// toast pushed over SSE to tabs that are already open and watching: by
-// construction that reaches nobody when the laptop is shut and the phone is in
-// a pocket, which is the only case a notification is for.
+// Notifications — lasso telling a HUMAN about something that happened. One
+// pipeline carries every event, whether it reaches a locked phone or an open
+// tab:
 //
-// The shape is two registries so that the second of either costs nothing:
+//   - a KIND says what happened (an agent waiting on you, an agent finishing a
+//     turn, a bot replying, one of lasso's own notices). The kinds are a closed
+//     catalog (notifKindCatalog) because each device chooses which of them may
+//     interrupt it.
+//   - a TRANSPORT says how it reaches the human: Web Push (webpush.go) to a
+//     subscribed device, and the live channel (notifylive.go) to every open
+//     tab and the Mac app over SSE. Each transport honours the receiving
+//     device's choices: Web Push filters per subscription on the server, and a
+//     live client filters what it is handed against its own device's choices.
 //
-//   - a KIND says what happened (agent blocked, today). Kinds are what a user
-//     will eventually want to switch on and off individually, so they are a
-//     closed enum rather than free-form strings.
-//   - a TRANSPORT says how it reaches the human. Web Push (webpush.go) is the
-//     only one today; ntfy, email, or an iMessage bridge would each be another
-//     implementation of the same interface and would need no change here.
+// Everything above the transport is deliberately ignorant of how delivery
+// works: a notification carries text, a collapse tag, and the host the event
+// happened on, not endpoints or keys. Transports own their addressing.
 //
-// Everything above the transport is deliberately ignorant of Web Push: a
-// notification carries text, a collapse tag, and the host the event happened
-// on — not endpoints, VAPID keys, or a URL. Transports own their addressing.
+// The choices decide what INTERRUPTS a device (a push, a toast, a sound),
+// never what a client lists: an Inbox shows everything waiting either way.
 
 import (
 	"context"
@@ -29,9 +31,7 @@ import (
 	"time"
 )
 
-// notifKind is what happened. Two producers today: the blocked watcher
-// (notifywatch.go), which nobody asked for explicitly, and an agent that
-// deliberately pings its human (the `notify` MCP tool / `lasso notify`).
+// notifKind is what happened.
 type notifKind string
 
 const (
@@ -40,25 +40,82 @@ const (
 	// one event that costs real time to miss, since nothing moves until someone
 	// answers it.
 	notifAgentBlocked notifKind = "agent_blocked"
+	// notifAgentFinished: an agent stopped working with its turn done
+	// (notifywatch.go). Off by default: a busy fleet finishes turns all day.
+	notifAgentFinished notifKind = "agent_finished"
 	// notifAgentMessage: an agent chose to say something — "the migration is
 	// green", "I need a decision on the schema". Unlike a blocked agent this is
 	// not inferred from a status, so it is never collapsed or rate-limited: the
 	// agent asked once and means it.
 	notifAgentMessage notifKind = "agent_message"
-	// notifTest is the Settings tab's "send a test notification" button. It is a
-	// kind rather than a special case inside a transport so that the button
-	// exercises exactly the path a real notification takes.
-	notifTest notifKind = "test"
 	// notifBotMessage: a bot finished a turn with something new to say
 	// (botNotifyTick). Tagged per bot, so a run of answers leaves the newest.
 	notifBotMessage notifKind = "bot_message"
+	// notifLassoNotice: lasso's own news (notifyUI) — a theme a host refused, an
+	// auto-title that failed. Pushed to a phone only at level error.
+	notifLassoNotice notifKind = "lasso_notice"
+	// notifTest is the Settings tab's "send a test notification" button. It is a
+	// kind rather than a special case inside a transport so that the button
+	// exercises exactly the path a real notification takes. Not in the catalog:
+	// a test always goes through.
+	notifTest notifKind = "test"
 )
+
+// notifKindInfo is one kind as a device's settings list it.
+type notifKindInfo struct {
+	ID          notifKind `json:"id"`
+	Label       string    `json:"label"`
+	Description string    `json:"description"`
+	// Default is whether a device that never chose gets this kind.
+	Default bool `json:"default"`
+}
+
+// notifKindCatalog is every kind a device can choose, in the order settings
+// list them. The defaults are what a device got before choices existed, plus
+// lasso's notices, which every open tab already showed as toasts.
+var notifKindCatalog = []notifKindInfo{
+	{notifAgentBlocked, "An agent is waiting on you", "A question, an approval or a plan gate.", true},
+	{notifAgentFinished, "An agent finished a turn", "Any agent that stops working with its turn done.", false},
+	{notifAgentMessage, "An agent pinged you", "An agent's own message for you (lasso notify).", true},
+	{notifBotMessage, "A bot replied", "A bot finished a turn with something new to say.", true},
+	{notifLassoNotice, "lasso's own notices", "Errors and results from lasso itself, like a theme a host would not take.", true},
+}
+
+func notifKindKnown(k string) bool {
+	for _, c := range notifKindCatalog {
+		if string(c.ID) == k {
+			return true
+		}
+	}
+	return false
+}
+
+// notifWants reports whether a device with these choices takes a kind: its
+// own choice, else the kind's default. Only explicit choices are stored, so a
+// kind added later reaches every device at its default.
+func notifWants(choices map[string]bool, k notifKind) bool {
+	if k == notifTest {
+		return true
+	}
+	if v, ok := choices[string(k)]; ok {
+		return v
+	}
+	for _, c := range notifKindCatalog {
+		if c.ID == k {
+			return c.Default
+		}
+	}
+	return false
+}
 
 // notification is one thing worth telling the user about.
 type notification struct {
 	Kind  notifKind
 	Title string
 	Body  string
+	// Level is a lasso notice's severity ("error", "info", "success"); empty
+	// for every other kind.
+	Level string
 	// Tag collapses re-sends: a notification with a tag REPLACES an earlier one
 	// carrying the same tag on the device rather than stacking beside it. Keyed
 	// per pane by the watcher, so an agent that blocks, unblocks and blocks

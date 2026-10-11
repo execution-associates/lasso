@@ -80,6 +80,10 @@ type pushSubscription struct {
 	CreatedAt string `json:"created_at,omitempty"`
 	LastOK    string `json:"last_ok,omitempty"`
 	LastError string `json:"last_error,omitempty"`
+	// DeviceID is the device (notifydevices.go) whose choices filter what this
+	// subscription is sent. Empty for one registered before devices existed,
+	// which gets every kind's default.
+	DeviceID string `json:"device_id,omitempty"`
 }
 
 // b64 is base64url without padding — the encoding every Web Push field uses
@@ -103,12 +107,12 @@ func upsertPushSubscription(s pushSubscription) error {
 	if db == nil {
 		return errors.New("no db")
 	}
-	_, err := db.Exec(`INSERT INTO push_subscriptions (endpoint, p256dh, auth, origin, label, created_at)
-		VALUES (?,?,?,?,?,?)
+	_, err := db.Exec(`INSERT INTO push_subscriptions (endpoint, p256dh, auth, origin, label, created_at, device_id)
+		VALUES (?,?,?,?,?,?,?)
 		ON CONFLICT(endpoint) DO UPDATE SET
 			p256dh=excluded.p256dh, auth=excluded.auth, origin=excluded.origin,
-			label=excluded.label, last_error=''`,
-		s.Endpoint, s.P256dh, s.Auth, s.Origin, s.Label, time.Now().UTC().Format(time.RFC3339))
+			label=excluded.label, device_id=excluded.device_id, last_error=''`,
+		s.Endpoint, s.P256dh, s.Auth, s.Origin, s.Label, time.Now().UTC().Format(time.RFC3339), s.DeviceID)
 	return err
 }
 
@@ -116,7 +120,7 @@ func listPushSubscriptions() ([]pushSubscription, error) {
 	if db == nil {
 		return nil, nil
 	}
-	rows, err := db.Query(`SELECT endpoint, p256dh, auth, origin, label, created_at, last_ok, last_error
+	rows, err := db.Query(`SELECT endpoint, p256dh, auth, origin, label, created_at, last_ok, last_error, device_id
 		FROM push_subscriptions ORDER BY created_at`)
 	if err != nil {
 		return nil, err
@@ -126,7 +130,7 @@ func listPushSubscriptions() ([]pushSubscription, error) {
 	for rows.Next() {
 		var s pushSubscription
 		if err := rows.Scan(&s.Endpoint, &s.P256dh, &s.Auth, &s.Origin, &s.Label,
-			&s.CreatedAt, &s.LastOK, &s.LastError); err != nil {
+			&s.CreatedAt, &s.LastOK, &s.LastError, &s.DeviceID); err != nil {
 			return nil, err
 		}
 		out = append(out, s)
@@ -510,8 +514,23 @@ func (webPushChannel) deliver(ctx context.Context, n notification) error {
 	if err != nil {
 		return err
 	}
+	// Each subscription's device decides. lasso's own notices reach a phone
+	// only when something went wrong: a "synced" result is a toast's job.
+	if n.Kind == notifLassoNotice && n.Level != "error" {
+		return nil
+	}
+	choices := map[string]map[string]bool{}
 	var errs []error
 	for _, s := range subs {
+		c, ok := choices[s.DeviceID]
+		if !ok {
+			d, _ := loadNotifyDevice(s.DeviceID)
+			c = d.Kinds
+			choices[s.DeviceID] = c
+		}
+		if !notifWants(c, n.Kind) {
+			continue
+		}
 		switch err := sendWebPush(ctx, s, payload); {
 		case errors.Is(err, errPushGone):
 			log.Printf("notify: web-push: dropping dead subscription %s", pushDeviceName(s))
@@ -574,7 +593,10 @@ type pushConfig struct {
 }
 
 type pushDeviceRow struct {
-	ID        string `json:"id"`
+	ID string `json:"id"`
+	// Device is the notify device the subscription belongs to, so a client can
+	// tell its own row.
+	Device    string `json:"device,omitempty"`
 	Label     string `json:"label"`
 	CreatedAt string `json:"created_at,omitempty"`
 	LastOK    string `json:"last_ok,omitempty"`
@@ -601,6 +623,7 @@ func servePushConfig(w http.ResponseWriter, r *http.Request) {
 		sum := sha256.Sum256([]byte(s.Endpoint))
 		cfg.Devices = append(cfg.Devices, pushDeviceRow{
 			ID:        b64.EncodeToString(sum[:4]),
+			Device:    s.DeviceID,
 			Label:     s.Label,
 			CreatedAt: s.CreatedAt,
 			LastOK:    s.LastOK,
@@ -620,6 +643,9 @@ type pushSubscribeReq struct {
 		Auth   string `json:"auth"`
 	} `json:"keys"`
 	Origin string `json:"origin"`
+	// Device is the notify device (notifydevices.go) the browser registered
+	// as; its choices filter what this subscription is sent.
+	Device string `json:"device"`
 }
 
 func servePushSubscribe(w http.ResponseWriter, r *http.Request) {
@@ -658,7 +684,13 @@ func servePushSubscribe(w http.ResponseWriter, r *http.Request) {
 	if origin == "" {
 		origin = r.Header.Get("Origin")
 	}
+	device := strings.TrimSpace(req.Device)
+	if device != "" && !notifyDeviceIDRE.MatchString(device) {
+		http.Error(w, "device: 8-64 characters of A-Z a-z 0-9 _ -", http.StatusBadRequest)
+		return
+	}
 	sub := pushSubscription{
+		DeviceID: device,
 		Endpoint: u.String(),
 		P256dh:   req.Keys.P256dh,
 		Auth:     req.Keys.Auth,

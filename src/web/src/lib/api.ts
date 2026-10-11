@@ -1231,6 +1231,8 @@ export interface CreateTerminalResult {
 // digest of it.
 export interface PushDevice {
   id: string
+  // The notify device the subscription belongs to (lib/notify.ts).
+  device?: string
   label: string
   created_at?: string
   last_ok?: string
@@ -1595,6 +1597,34 @@ function splitLines(s: string): string[] {
   return lines
 }
 
+// One kind of notification a device can choose (notify.go's catalog).
+export interface NotifyKind {
+  id: string
+  label: string
+  description: string
+  default: boolean
+}
+
+export interface NotifyView {
+  kinds: NotifyKind[]
+  device: { id: string; label?: string; wants: Record<string, boolean> }
+}
+
+// A notification as the live channel delivers it to an open client (the
+// `notification` SSE event, notifylive.go).
+export interface LiveNotification {
+  id: string
+  at: number
+  kind: string
+  level?: "error" | "info" | "success"
+  title: string
+  body?: string
+  tag?: string
+  host?: string
+  url?: string
+  icon?: string
+}
+
 export interface PushConfig {
   public_key: string
   devices: PushDevice[]
@@ -1847,11 +1877,24 @@ export const api = {
   // subscribe body is the browser's own PushSubscription JSON, passed through
   // verbatim so nothing here has to understand its key encoding (lib/push.ts).
   pushConfig: () => getJSON<PushConfig>("/api/push"),
-  pushSubscribe: (sub: PushSubscriptionJSON, origin: string) =>
+  // `device` links the subscription to this browser's notify device, whose
+  // choices filter what it is pushed (lib/notify.ts).
+  pushSubscribe: (sub: PushSubscriptionJSON, origin: string, device: string) =>
     postJSON<{ ok: boolean; devices: number }>("/api/push/subscribe", {
       ...sub,
       origin,
+      device,
     }),
+  // Which notifications a device takes (notifydevices.go): the catalog of
+  // kinds and the device's resolved choice for each.
+  notify: (device: string) =>
+    getJSON<NotifyView>(`/api/notify?device=${encodeURIComponent(device)}`),
+  // Merged per kind; null brings a kind back to its default.
+  notifyDevice: (body: {
+    id: string
+    label?: string
+    kinds?: Record<string, boolean | null>
+  }) => postJSON<NotifyView>("/api/notify/device", body),
   pushUnsubscribe: (endpoint: string) =>
     postJSON<{ ok: boolean; devices: number }>("/api/push/unsubscribe", {
       endpoint,

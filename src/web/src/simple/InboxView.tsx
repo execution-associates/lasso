@@ -182,7 +182,10 @@ function KindLabel({ item }: { item: InboxItem }) {
     done: "Finished",
     "bot-ask": "Asks you",
     "bot-reply": "Replied",
-    notice: "Notice",
+    notice:
+      item.kind === "notice" && item.notice.kind === "agent_message"
+        ? "Message"
+        : "Notice",
   }[item.kind]
   return (
     <span
@@ -229,9 +232,9 @@ function ItemCard({
           >
             {item.notice.title}
           </div>
-          {item.notice.detail && (
+          {item.notice.body && (
             <div className="whitespace-pre-wrap break-words text-[14.5px] text-muted-foreground">
-              {item.notice.detail}
+              {item.notice.body}
             </div>
           )}
           <Actions>

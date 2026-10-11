@@ -9,9 +9,11 @@ import {
   type ChatPayload,
   type ChatTool,
   type HostPane,
+  type LiveNotification,
 } from "@/lib/api"
-import { lsGet, lsSet, NOTICE_EVENT, type Notice } from "@/lib/app-store"
+import { lsGet, lsSet } from "@/lib/app-store"
 import { useBots } from "@/lib/bots"
+import { NOTIFICATION_EVENT } from "@/lib/notify"
 import { useUIState } from "@/lib/ui-state"
 
 // The Inbox: what waits on the human, across lasso's claude and omp agents.
@@ -39,7 +41,8 @@ export type InboxItem =
       at: number
       pending?: BotPendingUI
     }
-  | { kind: "notice"; key: string; notice: Notice; at: number }
+  // lasso's own notice, or an agent's deliberate message for the human.
+  | { kind: "notice"; key: string; notice: LiveNotification; at: number }
 
 // The harnesses the Inbox speaks for. No other harness enters it, even when
 // herdr reports it blocked: nothing here is designed for one.
@@ -177,25 +180,27 @@ export function isUnseen(item: InboxItem, seen: Record<string, number>) {
 }
 
 // --- Notices (this tab only, as a toast would be) ---------------------------
+//
+// One-shot notifications the Inbox keeps: lasso's own notices and an agent's
+// deliberate message (the notify tool). Every one is listed, whatever this
+// device's choices: those decide interruptions, not the Inbox.
 
 const MAX_NOTICES = 50
-let notices: (Notice & { key: string; at: number })[] = []
+const KEPT_KINDS = new Set(["lasso_notice", "agent_message"])
+let notices: (LiveNotification & { key: string })[] = []
 const noticeListeners = new Set<() => void>()
-let noticeSeq = 0
 
 function emitNotices() {
   for (const l of noticeListeners) l()
 }
 
 if (typeof window !== "undefined")
-  window.addEventListener(NOTICE_EVENT, (e) => {
-    const n = (e as CustomEvent<Notice>).detail
-    const key = `notice:${n.id ?? `local-${++noticeSeq}`}`
+  window.addEventListener(NOTIFICATION_EVENT, (e) => {
+    const n = (e as CustomEvent<LiveNotification>).detail
+    if (!KEPT_KINDS.has(n.kind)) return
+    const key = `notice:${n.id}`
     if (notices.some((x) => x.key === key)) return
-    notices = [{ ...n, key, at: n.at ?? Date.now() }, ...notices].slice(
-      0,
-      MAX_NOTICES
-    )
+    notices = [{ ...n, key }, ...notices].slice(0, MAX_NOTICES)
     emitNotices()
   })
 

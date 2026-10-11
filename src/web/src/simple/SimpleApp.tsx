@@ -2,7 +2,6 @@ import { Bot, Inbox, List, Settings } from "lucide-react"
 import * as React from "react"
 
 import { AskConfirmContext } from "@/components/ChatView"
-import { setNoticeToasts } from "@/lib/app-store"
 import { AgentChat, AgentsList } from "@/simple/AgentsView"
 import { BotChat, BotsList } from "@/simple/BotsList"
 import { InboxView } from "@/simple/InboxView"
@@ -30,13 +29,6 @@ function tabOf(r: SimpleRoute): Tab {
 }
 
 export function SimpleApp() {
-  // Notices are Inbox items here, not toasts, but only while this app is the
-  // one on screen: the full UI imports this module too and keeps its toasts.
-  React.useEffect(() => {
-    setNoticeToasts(false)
-    return () => setNoticeToasts(true)
-  }, [])
-
   const [route, setRoute] = React.useState<SimpleRoute>(() =>
     parseSimplePath(window.location.pathname)
   )

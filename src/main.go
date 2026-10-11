@@ -242,6 +242,7 @@ func runServer() {
 	// the watcher's first act each tick is to ask whether anything is listening,
 	// and with nothing registered it never polls a host (see notifywatch.go).
 	registerNotifTransport(webPushChannel{})
+	registerNotifTransport(liveChannel{})
 	go startBlockedWatcher(ctx)
 
 	// Agent records: keep them reconciled against herdr's panes without a reader
@@ -376,6 +377,8 @@ func runServer() {
 	mux.HandleFunc("/api/push/subscribe", servePushSubscribe)
 	mux.HandleFunc("/api/push/unsubscribe", servePushUnsubscribe)
 	mux.HandleFunc("/api/push/test", servePushTest)
+	mux.HandleFunc("/api/notify", serveNotify)
+	mux.HandleFunc("/api/notify/device", serveNotifyDevice)
 	// Plugins: the listing and its actions are ordinary UI routes behind
 	// UI_AUTH, and so is /plugins/ — the tab documents, served under a CSP
 	// sandbox so they are an opaque origin (see pluginManager.serveFiles).
@@ -2562,12 +2565,22 @@ var (
 	noticeSeq  atomic.Uint64
 )
 
-// notifyUI raises a notice on every connected tab. A no-op before the server is
+// notifyUI raises one of lasso's own notices. It goes through the
+// notification pipeline as a lasso_notice, so each device's choices decide
+// whether it interrupts (a toast, a push at level error), and it is also sent
+// as the `notice` event older clients listen for. A no-op before the server is
 // up (CLI subcommands, tests), so background code can call it unconditionally.
 func notifyUI(n notice) {
-	if srvHub != nil {
-		srvHub.notify(n)
+	if srvHub == nil {
+		return
 	}
+	srvHub.notify(n)
+	publishNotification(notification{
+		Kind:  notifLassoNotice,
+		Level: n.Level,
+		Title: n.Title,
+		Body:  n.Detail,
+	})
 }
 
 // hub owns what is GLOBAL to the server — the resolved theme, the UI-prefs
@@ -2649,6 +2662,13 @@ func (h *hub) notify(n notice) {
 	n.ID = fmt.Sprintf("%s-%d", noticeBoot, noticeSeq.Add(1))
 	n.At = time.Now().UnixMilli()
 	h.broadcast("notice", n)
+}
+
+// eventClientCount is how many streams are open to take a one-shot event.
+func (h *hub) eventClientCount() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.eventClients)
 }
 
 // broadcast fans a one-shot event out to every connected tab, whatever host it

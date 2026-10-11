@@ -5,6 +5,7 @@ import { toast } from "sonner"
 
 import { api } from "@/lib/api"
 import { getMode, type Mode, setMode } from "@/lib/mode"
+import { setNotifyKind, useNotifyChoices } from "@/lib/notify"
 import {
   disablePush,
   enablePush,
@@ -150,6 +151,47 @@ function Notifications() {
   )
 }
 
+// Which kinds of notification may interrupt this device: a push, a toast. The
+// Inbox lists everything waiting whatever is chosen here.
+function NotifyKinds() {
+  const q = useNotifyChoices()
+  const kinds = q.data?.kinds ?? []
+  return (
+    <>
+      <GroupHeader>Notify me about</GroupHeader>
+      <Card className="overflow-hidden">
+        {kinds.map((k, i) => (
+          <Row
+            key={k.id}
+            label={k.label}
+            detail={k.description}
+            divider={i > 0}
+          >
+            <Switch
+              label={k.label}
+              on={q.data?.device.wants[k.id] ?? k.default}
+              onChange={(on) =>
+                void setNotifyKind(k.id, on).catch((e) =>
+                  toast.error((e as Error).message)
+                )
+              }
+            />
+          </Row>
+        ))}
+        {q.isError && (
+          <Row
+            label="Couldn't load your choices"
+            detail={(q.error as Error).message}
+          />
+        )}
+      </Card>
+      <p className="px-2 pt-2 text-[13px] text-muted-foreground leading-snug">
+        For this device only. The Inbox lists everything waiting either way.
+      </p>
+    </>
+  )
+}
+
 const MODES: { id: Mode; label: string }[] = [
   { id: "system", label: "Auto" },
   { id: "light", label: "Light" },
@@ -199,6 +241,8 @@ export function SimpleSettings() {
           <div className="border-border/60 border-t" />
           <Appearance />
         </Card>
+
+        <NotifyKinds />
 
         <GroupHeader>lasso</GroupHeader>
         <Card className="overflow-hidden">

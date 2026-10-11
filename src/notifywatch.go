@@ -1,6 +1,7 @@
 package main
 
-// The blocked-agent watcher — the one producer of notifications today.
+// The agent watcher: it notices an agent becoming blocked, and an agent
+// finishing a turn.
 //
 // It answers a question nothing else in lasso does: an agent that stops to ask
 // for approval is invisible until someone looks at a screen. The pane feeds
@@ -80,7 +81,7 @@ func startBlockedWatcher(ctx context.Context) {
 }
 
 // observe records this poll's pane statuses and returns a notification for each
-// agent that has just become blocked.
+// agent that has just become blocked or just finished a turn.
 //
 // Deliberately NOT suppressed on the first poll. A silent baseline would mean an
 // agent that blocked while lasso was restarting — or while the user was
@@ -126,6 +127,12 @@ func (w *blockedWatcher) observe(panes []hostPane, now time.Time) []notification
 		if fresh {
 			next.notifiedAt = now
 			out = append(out, blockedNotification(p, key, shared[blockedTitle(p)] > 1))
+		}
+		// A finished turn is working → done (herdr's "finished, nobody looked")
+		// or straight to idle. Only a transition: the first sighting of a pane
+		// says nothing, since there is no turn it was seen to finish.
+		if prev.status == "working" && (p.AgentStatus == "done" || p.AgentStatus == "idle") {
+			out = append(out, finishedNotification(p, key, shared[blockedTitle(p)] > 1))
 		}
 		w.seen[key] = next
 	}
@@ -210,6 +217,30 @@ func blockedNotification(p hostPane, key string, ambiguous bool) notification {
 		Body:  body,
 		Tag:   "blocked:" + key,
 		Host:  host,
+	}
+}
+
+// finishedNotification renders one agent that has finished a turn, named the
+// way a blocked one is.
+func finishedNotification(p hostPane, key string, ambiguous bool) notification {
+	title := blockedTitle(p)
+	if d := paneDiscriminator(p); ambiguous && d != "" {
+		title = clipNotifyText(title, max(20, 70-len([]rune(d))-3)) + " · " + d
+	}
+	agent := p.Agent
+	if agent == "" {
+		agent = "An agent"
+	}
+	body := fmt.Sprintf("%s finished on %s", agent, firstNonEmpty(p.HostLabel, p.Host))
+	if task := strings.TrimSpace(p.TerminalTitle); task != "" && task != blockedTitle(p) {
+		body += " — " + clipNotifyText(task, 90)
+	}
+	return notification{
+		Kind:  notifAgentFinished,
+		Title: clipNotifyText(title, 70),
+		Body:  body,
+		Tag:   "finished:" + key,
+		Host:  p.Host,
 	}
 }
 
