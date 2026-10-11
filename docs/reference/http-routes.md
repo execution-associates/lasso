@@ -4,20 +4,33 @@ description: lasso's route table, and which auth gate guards each route.
 order: 99
 ---
 
-Everything lasso serves comes from one listener (`-listen`). The browser UI uses the `/api/*` routes; agents use `/mcp`, `/herdr-mcp` and `/cdp`. The `/api/*` routes are lasso's own UI API, not a stable public interface: they can change between releases. Script lasso through [`lasso mcp`](../mcp/cli.md) or the MCP server instead.
+Every listener serves the same routes: the local `-listen`, and the network listeners `-tailnet`, `-listen-access` and `-listen-serve` when they are on. The browser UI uses the `/api/*` routes; agents use `/mcp`, `/herdr-mcp` and `/cdp`. The `/api/*` routes are lasso's own UI API, not a stable public interface: they can change between releases. Script lasso through [`lasso mcp`](../mcp/cli.md) or the MCP server instead.
 
 ## Auth gates
+
+Who is calling depends on the listener the request arrived on:
+
+| listener | proof lasso checks | the caller | admitted by default | with `LASSO_ALLOW` set |
+| --- | --- | --- | --- | --- |
+| local (`-listen`) | none | whoever connected | everyone; the gates below decide | not read |
+| access (`-listen-access`) | `Cf-Access-Jwt-Assertion`, verified against `LASSO_ACCESS_TEAM`'s keys and `LASSO_ACCESS_AUD` | a person (the email) or a machine (`service:<client id>`) | whoever Access admitted | only the entries it lists |
+| tailnet (`-tailnet`) | tailscaled's whois of the connection's peer address | a person (the device owner's login) or a machine (the device's tags) | the node's owner only | only the entries it lists |
+| serve (`-listen-serve`) | the `Tailscale-User-Login` header `tailscale serve` sets | a person | the node's owner only | only the entries it lists |
+
+A request on a network listener without its proof, or from a caller not admitted, gets 403. A machine caller reaches only `/mcp`, `/herdr-mcp`, `/cdp`, `/hooks/bots`, `/bot-channel`, `/oauth/register`, `/oauth/token` and the two `/.well-known/oauth-*` documents, unless its `LASSO_ALLOW` entry carries `ui:` or it sends a lasso token with the `ui` scope.
 
 A request passes through these layers, outermost first:
 
 1. **Internal CDP token.** lasso's own chrome-devtools-mcp children reach `/cdp` with a random per-process token, honored on `/cdp` paths only, ahead of every other gate.
-2. **The Access header gate**, when `-require-access-header` is on: every route, with no exemptions, answers 403 without a non-empty `Cf-Access-Authenticated-User-Email` header (or with one not in `-access-allowed-emails`). Off by default, and nothing reads the header while it is off.
-3. **UI_AUTH basic auth**, when `UI_AUTH` is set: every route **except** `/mcp`, `/herdr-mcp`, `/cdp`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/oauth/register` and `/oauth/token` (and their subpaths). `/oauth/authorize` stays behind it on purpose: that is where a human approves a client.
-4. **Per-route gates** on the exempt routes:
+2. **The caller check**, by listener role, as in the table above. It also moves an `X-Lasso-Token` header into `Authorization: Bearer`, and on a network listener drops a bearer token lasso did not issue.
+3. **The local guard**, on every listener: a `Host` lasso does not answer to gets 421 (skipped on the access listener), and a state-changing request or websocket upgrade from another site's page gets 403, except on `/oauth/register`, `/oauth/token`, `/hooks/bots` and `/bot-channel`. See [Security](../security.md#the-local-guard).
+4. **The Access header gate** (deprecated), when `-require-access-header` is on: every route answers 403 without a Cloudflare Access identity (or with one not in `-access-allowed-emails`). With `LASSO_ACCESS_AUD` set it verifies the assertion; otherwise it reads `Cf-Access-Authenticated-User-Email`. A caller a network listener verified passes. Off by default.
+5. **UI_AUTH basic auth**, when `UI_AUTH` is set: every route **except** `/mcp`, `/herdr-mcp`, `/cdp`, `/hooks/bots`, `/bot-channel`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/oauth/register` and `/oauth/token` (and their subpaths). `/oauth/authorize` stays behind it on purpose: that is where a human approves a client. A caller a network listener verified, or a lasso token with the `ui` scope, passes without the password. With `MCP_OAUTH` set, its 401 also carries a `Bearer` challenge naming the resource metadata and the scope `mcp ui`.
+6. **Per-route gates** on the exempt routes:
 
 | route | gate | open by default? | with `UI_AUTH` only | with `MCP_OAUTH` |
 | --- | --- | --- | --- | --- |
-| `/mcp` | `withMCPAuth` | yes | open | bearer token or `UI_AUTH` basic credentials |
+| `/mcp` | `withMCPAuth` | yes | open | bearer token (`Authorization` or `X-Lasso-Token`) or `UI_AUTH` basic credentials |
 | `/mcp`'s `browser_*` tools | `withBrowserToolGate`, checked per call | yes | `UI_AUTH` basic | as `/mcp`; the token's scope must include lasso's own machine |
 | `/herdr-mcp` | `withMCPAuth` | yes | open | same as `/mcp`; each call's host is checked against the token's scope |
 | `/cdp` | `withCDPAuth` | yes | `UI_AUTH` basic | bearer token or `UI_AUTH` basic; the token's scope must include lasso's own machine |
@@ -26,7 +39,9 @@ The `browser_*` tools front `/cdp`, so they meet `/cdp`'s standard rather than `
 
 `/cdp` and the `browser_*` tools also refuse any request whose `Origin` names a different website, before any credential check and whatever the auth settings. That is what stops a page you visit from driving a lasso on your own machine. Under `MCP_OAUTH` without `UI_AUTH`, lasso's own Browser tab (same origin, no `Authorization` header) still reaches `/cdp`.
 
-So on a loopback or tailnet lasso with no `UI_AUTH` and no `MCP_OAUTH`, **everything is open** to whoever can reach the port. That is the intended trust model for a private network; put an edge gate (Cloudflare Access) or `UI_AUTH` in front of anything wider. See [Security](../security.md).
+A caller a network listener verified passes every per-route gate without a credential of its own; a lasso token it also sends still sets its MCP scope.
+
+So on the loopback listener with no `UI_AUTH` and no `MCP_OAUTH`, **everything is open** to whatever can connect to it on lasso's machine. Reach lasso from anywhere else through a network listener, which identifies the caller first. See [Security](../security.md).
 
 ## Routes
 
@@ -96,7 +111,7 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 | `/cdp/browsers` | `GET`: every browser and the CDP address of each, for a client with no MCP. Never starts a browser. Same gates as `/cdp`. `/cdp/profiles` answers the same list under a `profiles` key. See [Discovering browsers over CDP](../mcp/browser.md#discovering-browsers-over-cdp). |
 | `/.well-known/oauth-protected-resource[/…]`, `/.well-known/oauth-authorization-server[/…]` | OAuth discovery documents. 404 unless `MCP_OAUTH` is set. |
 | `/oauth/register`, `/oauth/token` | Dynamic client registration; token endpoint. 404 unless `MCP_OAUTH` is set. |
-| `/oauth/authorize` | The consent screen. Behind `UI_AUTH` and the Access gate. 404 unless `MCP_OAUTH` is set. |
+| `/oauth/authorize` | The consent screen; grants `mcp`, or `mcp ui` when the client asks for `ui`. Behind `UI_AUTH` and the network listeners' caller check. 404 unless `MCP_OAUTH` is set. |
 
 ### Static
 

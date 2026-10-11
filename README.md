@@ -150,10 +150,15 @@ the machine:
 lasso connect
 ```
 
-To reach it from a phone you need an HTTPS origin: see
-[Deployment](docs/deployment/index.md). Read the
-[security model](docs/security.md) first; the terminal is a writable shell and
-lasso never belongs on a public interface.
+### Reach it from your other devices
+
+lasso listens on loopback only. To reach it from your phone or another
+machine, serve it on your tailnet with `lasso serve -tailnet`
+([Tailscale](docs/deployment/tailnet.md)), or publish it through a Cloudflare
+tunnel and Access with `-listen-access` ([Cloudflare](docs/deployment/cloudflare.md)).
+Both serve HTTPS, which the phone app and push need, and lasso checks who is
+calling on every request. Read the [security model](docs/security.md) first;
+the terminal is a writable shell and lasso never belongs on a public interface.
 
 ## Documentation
 

@@ -51,7 +51,7 @@ Read its log with:
 journalctl --user -u lasso -f
 ```
 
-The startup lines say what is guarding it (`auth:`, `mcp:`, and `access:` when the Access gate is on) and where it is listening (`UI:`).
+The startup lines say what is guarding it (`guard:`, `auth:`, `mcp:`, and `access:`, `tailnet:`, `serve:` and `allow:` for the network listeners) and where it is listening (`UI:`).
 
 ### Why `Restart=always`
 
@@ -72,7 +72,7 @@ EOF
 systemctl --user restart lasso
 ```
 
-The leading `-` in `EnvironmentFile=-...` makes the file optional, so the unit still starts when you haven't created it. The other settings lasso reads from the environment (`LASSO_BROWSER`, `LASSO_REQUIRE_ACCESS_HEADER`, and so on) can live in the same file; see [Configuration](../reference/configuration.md).
+The leading `-` in `EnvironmentFile=-...` makes the file optional, so the unit still starts when you haven't created it. The other settings lasso reads from the environment (`LASSO_TAILNET`, `LASSO_ALLOW`, `LASSO_ACCESS_TEAM`, `LASSO_BROWSER`, and so on) can live in the same file; see [Configuration](../reference/configuration.md).
 
 ### Run herdr as its own unit
 

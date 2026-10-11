@@ -1,67 +1,94 @@
 ---
 title: Tailscale
-description: Reach lasso from your own devices over a tailnet, either by binding to the tailscale address or through tailscale serve for real HTTPS.
+description: Serve lasso on your tailnet over HTTPS with -tailnet, with every caller identified by the tailnet and only you let in by default.
 order: 63
 nav_title: Tailnet
 ---
 
-If your devices are already on a [Tailscale](https://tailscale.com) tailnet, you can reach lasso without any public hostname. WireGuard encrypts and authenticates the traffic, and only devices on your tailnet can connect.
+If your devices are on a [Tailscale](https://tailscale.com) tailnet, lasso can serve itself there directly, with no public hostname. With `-tailnet`, lasso binds this node's tailnet addresses, serves HTTPS with the certificate tailscaled issues for the node's MagicDNS name, and asks tailscaled who is behind every connection. By default only you, the node's owner, get in.
 
-There are two ways to do it. Binding to the tailscale address is one flag, but gives you plain HTTP. `tailscale serve` takes one more command and gives you HTTPS, which you need for push notifications.
+## 1. Turn on MagicDNS and HTTPS certificates
 
-Either way, **every device on the tailnet can reach lasso**, with no login in front of the terminal, `/mcp` or `/cdp`. That is fine on a tailnet of your own devices. If the tailnet includes other people or machines you don't fully trust, add [`UI_AUTH`](#adding-a-login) or use [Cloudflare Access](./cloudflare.md) instead.
+In the tailnet admin console, on the **DNS** page, enable **MagicDNS** and **HTTPS Certificates**. lasso needs both: the certificate is issued for the node's MagicDNS name, and that name is the address you open.
 
-## Binding to your tailscale address
+## 2. Let lasso ask tailscaled for the certificate (Linux)
 
-```bash
-lasso serve -listen "$(tailscale ip -4):8090" -insecure-no-auth
-```
-
-lasso refuses a non-loopback bind unless you either set `UI_AUTH` or pass `-insecure-no-auth`. The flag is your statement that the interface is private. Never use it on a public address.
-
-Then open `http://<machine>:8090/` from any tailnet device (the MagicDNS name works).
-
-This is plain HTTP, so the browser does not treat it as a secure context:
-
-- push notifications are impossible (Settings says *"This browser can't do Web Push"*),
-- Files-tab downloads may be blocked by the browser,
-- terminal copy uses a legacy clipboard fallback.
-
-If you want any of those, use `tailscale serve` below.
-
-## Real HTTPS with `tailscale serve`
-
-Tailscale can issue a real certificate for your machine's MagicDNS name and terminate TLS for you. Enable **MagicDNS** and **HTTPS certificates** in the tailnet admin console, then keep lasso on loopback and let `tailscale serve` front it:
+On Linux, tailscaled hands out certificates only to root and to its operator. Make the user lasso runs as the operator:
 
 ```bash
-lasso serve -listen 127.0.0.1:8090
-tailscale serve --bg --https=8090 http://127.0.0.1:8090
+sudo tailscale set --operator=$USER
 ```
 
-lasso is now at `https://<machine>.<tailnet>.ts.net:8090`. That origin has a publicly trusted certificate, so browsers treat it as secure and Apple's push service accepts it. Add *that* URL to your phone's home screen and enable notifications from it; see [On your phone](../getting-started/phone.md).
+On macOS, lasso talks to the Tailscale app through its `tailscale` CLI.
 
-To turn it off:
+## 3. Start lasso with `-tailnet`
+
+```bash
+lasso serve -tailnet
+```
+
+Under systemd, set `LASSO_TAILNET=1` in the unit's environment instead (see [systemd](./systemd.md)). `-listen` stays on `127.0.0.1:8090`, so lasso's own CLI and the agents on this machine keep using loopback. `-tailnet` adds HTTPS listeners on every tailnet address of the node, on the same port as `-listen` unless you pass `-tailnet-port` (env `LASSO_TAILNET_PORT`). Startup logs the address:
+
+```text
+tailnet:  https://myhost.example-tailnet.ts.net:8090 (callers identified by tailscaled's whois)
+```
+
+lasso exits at startup when it cannot serve the tailnet: with no MagicDNS name, no tailnet address, no certificate, or neither tailscaled's socket nor the `tailscale` CLI to ask. The message names the missing piece.
+
+## 4. Open it
+
+Open `https://<node>.<tailnet>.ts.net:8090` from any device on your tailnet. The certificate is publicly trusted, so browsers treat the page as a secure context: push notifications, Files-tab downloads and the clipboard all work. Use the name, not the `100.x` address, which the certificate does not cover.
+
+## Who gets in
+
+lasso asks tailscaled who owns the device on the other end of each connection. Only that answer counts: no forwarded header is read on this listener, so nothing on the path can claim to be someone else.
+
+- **By default, only the node's owner.** The tailnet login that owns this machine gets in from any of its devices. Everyone else on the tailnet, including people a device is shared with and your own tagged servers, gets 403.
+- **A tagged node has no owner**, so on a node tagged in the admin console nobody gets in until `LASSO_ALLOW` names them. Startup says so.
+- **`LASSO_ALLOW` names who may in**, comma-separated, in lasso's environment. Setting it replaces the owner default, so list yourself:
+
+  ```bash
+  LASSO_ALLOW=you@example.com,partner@example.com,tag:ci
+  ```
+
+  A person is their tailnet login. A tagged device is matched by any of its tags (`tag:ci`) and is a **machine**: it reaches `/mcp`, `/herdr-mcp` and `/cdp` only. Prefix the entry with `ui:` (`ui:tag:ci`) to let it into the UI and `/api` as well. [Security](../security.md#lasso_allow) has the full rule.
+- **The tailnet policy is the outer wall.** Grant only the devices that should reach lasso access to this node's port in your tailnet policy file, so the rest cannot open a connection at all. `LASSO_ALLOW` is the wall inside it.
+- **Never forward lasso's port onto a machine lasso drives.** An agent machine joins as itself, through the tailnet, as a tagged machine or under its owner's login. See [Deployment](./index.md#a-machine-lasso-drives-is-not-a-client).
+
+Agents on a tagged machine get the whole fleet once admitted. To narrow one to its own host, set `MCP_OAUTH` and give it a per-host lasso token; see [Agent scope](../mcp/agent-scope.md).
+
+`UI_AUTH` basic auth is still supported, and a caller the tailnet identified never needs it.
+
+## Your phone, push and the Mac app
+
+Nothing more to set up. A phone with Tailscale connected opens the `ts.net` URL, adds it to the home screen and turns on push like any HTTPS origin (see [On your phone](../getting-started/phone.md)). The Mac app, given the same URL, sends no credentials: the tailnet identifies it.
+
+## Already using `tailscale serve`?
+
+The simplest move is to switch: turn the old forward off and serve on the same port.
 
 ```bash
 tailscale serve --https=8090 off
+lasso serve -tailnet
 ```
 
-Because lasso still binds to loopback, it needs neither `UI_AUTH` nor `-insecure-no-auth`. But the loopback check protects nothing here: `tailscale serve` hands every tailnet device a path to it. Treat this exactly like the plain tailnet bind for access purposes.
+The URL is unchanged, so phones keep their home-screen app and their push subscription.
+
+To keep `tailscale serve` in front instead, give it a loopback port of its own with `-listen-serve` (env `LASSO_LISTEN_SERVE`):
+
+```bash
+lasso serve -listen-serve 127.0.0.1:8092
+tailscale serve --bg --https=8090 http://127.0.0.1:8092
+```
+
+On that port lasso trusts the `Tailscale-User-Login` header `tailscale serve` sets, so **point nothing else at it**. lasso refuses a non-loopback `-listen-serve`. A request with no user (a tagged device, or Funnel traffic) is refused, and the same owner default and `LASSO_ALLOW` apply. Never point `tailscale serve` at the `-listen` port: that hands every tailnet device the loopback listener's trust.
 
 ## Push and origins
 
-A push subscription belongs to the **origin** it was made on. `https://<machine>.<tailnet>.ts.net:8090` and `https://lasso.example.com` are two different apps as far as the phone is concerned, even though they reach the same lasso. If you enable notifications in both, the phone is registered twice and gets every notification twice. Pick one origin per device.
+A push subscription belongs to the **origin** it was made on. `https://<node>.<tailnet>.ts.net:8090` and `https://lasso.example.com` are two different apps as far as the phone is concerned, even though they reach the same lasso. If you enable notifications in both, the phone is registered twice and gets every notification twice. Pick one origin per device.
 
 Notifications still arrive when the phone is off the tailnet. They are delivered by the phone's push service, not by lasso, and the payload carries everything needed to show them. Only opening one needs the tailnet, since that loads the app.
 
-## Adding a login
+## The bare tailnet bind (deprecated)
 
-To put a password in front of the UI, set `UI_AUTH` in lasso's environment, never on the command line:
-
-```bash
-UI_AUTH='you:a-long-random-password' lasso serve -listen "$(tailscale ip -4):8090"
-```
-
-(With `UI_AUTH` set, `-insecure-no-auth` is not needed.) In a systemd unit, put it in an `EnvironmentFile`; see [systemd](./systemd.md#secrets-go-in-an-environment-file).
-
-`UI_AUTH` covers the UI, the API, the terminals, `/cdp` and `/mcp`'s `browser_*` tools. It does **not** cover the rest of `/mcp`, which stays open so agent CLIs keep working without credentials. To gate `/mcp` too, set `MCP_OAUTH`; see [MCP OAuth](../mcp/oauth.md). Agent CLIs then authenticate with a bearer token or the same `UI_AUTH` credentials.
+`lasso serve -listen "$(tailscale ip -4):8090" -insecure-no-auth` still works, but it is deprecated: it is plain HTTP, so push cannot work, and every device on the tailnet gets in with no identity at all. Use `-tailnet`.

@@ -17,7 +17,19 @@ It prints one line per check, with ✓ for pass, ⚠ for a warning and ✗ for a
 ## lasso won't start
 
 **`refusing to listen on non-loopback "..." without auth`**
-You passed a `-listen` address that isn't loopback. Set `UI_AUTH=user:pass` in the environment, pass `-require-access-header` if Cloudflare Access fronts the hostname, or pass `-insecure-no-auth` if the address is on a private network such as your tailnet. See [Deployment](./deployment/index.md#the-rule-never-bind-it-publicly).
+You passed a `-listen` address that isn't loopback. Keep `-listen` on loopback and reach lasso from other devices through `-tailnet` or `-listen-access`, which identify every caller. See [Deployment](./deployment/index.md#the-listeners).
+
+**`-listen-access needs LASSO_ACCESS_TEAM and LASSO_ACCESS_AUD`**
+The access listener verifies Cloudflare Access's assertion, and needs your team name and the Access application's Audience tag to do it. Set both in lasso's environment. See [Cloudflare](./deployment/cloudflare.md#3-copy-the-applications-audience-tag).
+
+**`-listen-access "..." must be a loopback address`** (or the same for `-listen-serve`)
+Only `cloudflared` (or `tailscale serve`) should reach that listener. Give it an address like `127.0.0.1:8091`.
+
+**`tailnet: this node has no MagicDNS name: enable MagicDNS in the tailnet`**, or **`tailnet: getting a certificate for ...`**
+`-tailnet` needs MagicDNS and HTTPS certificates enabled in the tailnet admin console, and on Linux the user lasso runs as must be tailscale's operator: `sudo tailscale set --operator=$USER`. See [Tailscale](./deployment/tailnet.md).
+
+**`tailnet: neither tailscaled's LocalAPI socket nor the tailscale CLI was found`**
+lasso looks for tailscaled's socket (`$TS_SOCKET`, `/var/run/tailscale/tailscaled.sock`, `/run/tailscale/tailscaled.sock`) and then for the `tailscale` CLI. Install Tailscale, or under systemd check the unit's `PATH`.
 
 **`listen 127.0.0.1:8090: ... address already in use`**
 Another process holds the port, often a second lasso (a `lasso start` daemon beside a systemd unit, for example). Find it with `ss -ltnp 'sport = :8090'` (`lasso status` only knows about a `lasso start` daemon), or pick another port with `-listen`.
@@ -58,7 +70,7 @@ Each host keeps its own New dialog settings in its own `~/.lasso/lasso.db`, whic
 ## Push notifications
 
 **Settings says "This browser can't do Web Push"**
-The page isn't in a secure context. Push needs `https://` (or `localhost`); a plain-HTTP tailnet address like `http://myhost:8090` cannot do it at all. Reach lasso through a [Cloudflare tunnel](./deployment/cloudflare.md) or [`tailscale serve`](./deployment/tailnet.md#real-https-with-tailscale-serve).
+The page isn't in a secure context. Push needs `https://` (or `localhost`); a plain-HTTP tailnet address like `http://myhost:8090` cannot do it at all. Reach lasso over HTTPS with [`-tailnet`](./deployment/tailnet.md) or through a [Cloudflare tunnel](./deployment/cloudflare.md).
 
 **On iOS, Settings asks you to add lasso to the Home Screen**
 iOS only allows Web Push for a site launched from the Home Screen. Use Safari's Share sheet, **Add to Home Screen**, then enable notifications from the installed app. See [On your phone](./getting-started/phone.md).
@@ -151,13 +163,36 @@ Run `lasso plugin log <name>`: `isb create`'s output and the server's stderr are
 **Requests from inside the sandbox fail**
 Only the hosts in the manifest are reachable. On a host with ufw, the egress proxy also needs `sudo isb host setup --sandbox-egress`. TLS to a secret's hosts goes through isb's proxy, so a runtime with its own trust store must be told to trust `/etc/isb/egress-ca.crt`, a client that pins certificates fails, and only HTTP/1.1 works toward those hosts (gRPC does not).
 
+## Reaching lasso
+
+**`misdirected request: lasso does not answer to the host ...`** (421)
+The request named a host name lasso doesn't know. lasso answers to IP addresses, `localhost`, this machine's hostname, its tailnet names, and the names in `LASSO_HOSTNAMES`, which keeps a web page from reaching it by DNS rebinding. If you publish lasso under that name through a reverse proxy or a tunnel to `-listen`, add it to `LASSO_HOSTNAMES` (comma-separated, `*.example.com` for a domain) and restart. For a Cloudflare hostname, point the tunnel at `-listen-access` instead, which needs no listing. Startup logs the names lasso answers to on its `guard:` line.
+
+**`forbidden: cross-site request`** (403)
+A browser sent a request that changes something (a `POST`, a websocket) from a page on another site. That is the guard working: one site's page may not drive lasso. If it is your own page, a proxy in front of lasso is likely rewriting the `Host` header without passing `X-Forwarded-Host`; keep the browser's `Host` (in Vite, `changeOrigin: false`).
+
+**`forbidden: this listener takes only requests through Cloudflare Access (...)`** (403)
+A request reached the access listener without a valid Access assertion. The reason in brackets says which: no `Cf-Access-Jwt-Assertion` (the hostname has no Access application, or a Bypass policy matched), an assertion *for another Access application* (`LASSO_ACCESS_AUD` doesn't match the application's Audience tag), or one *issued by* another team (check `LASSO_ACCESS_TEAM`). See [Cloudflare](./deployment/cloudflare.md#lasso-verifies-every-request).
+
+**`forbidden: the tailnet could not say who is calling (...)`** or **`forbidden: tailscale serve did not identify a person (...)`** (403)
+On the tailnet listener the connection's peer must be a tailnet address tailscaled can name. On the serve listener, a tagged device and Funnel traffic carry no user and are refused.
+
+**`forbidden: ... is not allowed into this lasso (LASSO_ALLOW)`** (403)
+The front door identified the caller, and lasso doesn't admit it. On the tailnet and serve listeners only the node's owner gets in until `LASSO_ALLOW` is set; once it is set, only what it lists gets in on every network listener, so list yourself too. See [Security](./security.md#lasso_allow).
+
+**`forbidden: a machine credential reaches /mcp, /herdr-mcp and /cdp only`** (403)
+A tagged tailnet device or an Access service token asked for the UI or `/api`. Give its `LASSO_ALLOW` entry the `ui:` prefix (`ui:tag:ci`) if it should have them.
+
+**A bar says "You're signed out. Sign in again to keep working."**
+The Cloudflare Access session ended while lasso was open, so lasso's last request came back 401. Press **Sign in again**: lasso reloads, which runs the Access login in the same window, inside an installed app too. A longer session duration on the Access application means fewer of these.
+
 ## MCP clients
 
 **claude.ai or Claude Desktop says "Couldn't register with lasso's sign-in service"**
-The connector needs an OAuth server. With lasso behind Cloudflare Access and `MCP_OAUTH` unset, enable **Managed OAuth** on the Access application so Access plays that role. See [Cloudflare](./deployment/cloudflare.md#claudeai-and-claude-desktop-connectors-managed-oauth).
+The connector needs an OAuth server. With lasso behind Cloudflare Access, enable **Managed OAuth** on the Access application so Access plays that role. See [Cloudflare](./deployment/cloudflare.md#6-claudeai-and-claude-desktop-connectors-managed-oauth).
 
 **`list_agents` comes back empty or short**
 Usually this is scope working as intended. With `MCP_OAUTH` set, a per-host credential sees only its own host (plus any host groups it belongs to), so an agent on one machine does not see agents elsewhere. Check what the credential is allowed with `lasso mcp-client list`; see [Agent scope](./mcp/agent-scope.md).
 
 **Everything returns 403 after turning on `-require-access-header`**
-Requests that don't come through Cloudflare Access carry no identity header. That includes lasso's own CLI (`lasso notify`, `lasso mcp`, `lasso open`, `lasso closeme`) calling it over loopback, and agents using a Cloudflare service token. See [Cloudflare](./deployment/cloudflare.md#requiring-the-access-identity-in-lasso).
+The deprecated header gate applies to the `-listen` listener itself, so requests that don't come through Cloudflare Access are refused, including lasso's own CLI (`lasso notify`, `lasso mcp`, `lasso open`, `lasso closeme`) calling it over loopback. Turn it off and point the tunnel at `-listen-access`, which leaves loopback alone. See [Cloudflare](./deployment/cloudflare.md#the-header-gate-deprecated).
