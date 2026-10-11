@@ -44,8 +44,16 @@ function useModelBar(bot: BotView) {
     staleTime: 60_000,
   })
   const harness = config.data?.harnesses?.find((h) => h.id === bot.runtime)
-  const live = bot.live_model
-  const model = live ? `${live.provider}/${live.id}` : bot.model
+  // A claude bot's live model is its newest turn's in the transcript, so it
+  // stands in only while the bot names none: a model saved for the next start
+  // would otherwise read as the old one until the restart.
+  const live =
+    bot.runtime === "claude" && bot.model ? undefined : bot.live_model
+  const model = live
+    ? live.provider
+      ? `${live.provider}/${live.id}`
+      : live.id
+    : bot.model
   // What runs, and "(default)" when the bot names none: the runtime chose
   // it, so it is what the bot gets until a model is picked.
   const modelLabel = bot.model
