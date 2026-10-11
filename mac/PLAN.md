@@ -942,22 +942,23 @@ LassoDesktop ships with every lasso release, at lasso's version, as assets on la
 - **A dev build** uses the self-signed identity. It has no feed or key in its Info.plist, so it never updates itself, and Settings shows no Check for updates.
 - **A release build** gets `LASSO_DESKTOP_VERSION`, a Developer ID `SIGN_IDENTITY`, `SPARKLE_FEED` and `SPARKLE_ED_KEY`.
 
-**Release** (`Scripts/release.sh <version>`, Recap's pattern, run on minime in its logged-in session):
-1. Import the Developer ID .p12 from fnox into a throwaway keychain.
-2. Build with hardened runtime and timestamps.
-3. Notarize and staple the app with an App Store Connect API key.
-4. Make a DMG (the app and an Applications link), then sign, notarize and staple it.
-5. Run Sparkle's `sign_update`, which ships in SwiftPM's Sparkle artifact.
-6. Write a one-item `appcast.xml`.
+**Release:** `mac/Scripts/publish.sh [version]` runs on titan once lasso's release `v<version>` exists. It runs over ssh on minime, because the repo is public and a fork's workflow must never reach a logged-in Mac. It:
+1. Syncs `mac/` to minime.
+2. Runs `Scripts/release.sh <version>` there over ssh, Recap's pattern:
+   - Import the Developer ID .p12 from fnox into a throwaway keychain.
+   - Build with hardened runtime and timestamps.
+   - Notarize and staple the app with an App Store Connect API key.
+   - Make a DMG (the app and an Applications link), then sign, notarize and staple it.
+   - Run Sparkle's `sign_update` (it ships in SwiftPM's Sparkle artifact) and write a one-item `appcast.xml`.
+3. Copies the DMG and appcast back to `mac/dist/release/`.
+4. Attaches them to the release with `gh`. `--no-upload` stops before this step.
 
-Secrets are fnox names on minime, never GitHub secrets. The public EdDSA key is committed as `Scripts/sparkle-public-key.txt`.
-
-**Workflow:** `release.yml`'s `desktop` job runs after lasso's release on `[self-hosted, macOS, minime, lasso-desktop]` and attaches the DMG and appcast to the release.
-
-**Still to set up (the user's decisions):**
-- the signing and notary credentials: Recap's, or new ones
-- the Sparkle key pair
-- how minime runs the job (a runner, or a script from titan)
+**Credentials:**
+- The certificate and notary key are Recap's, the same Developer ID `JF4UNR89NW`, read from minime's fnox: `RECAP_SIGN_P12_B64`, `RECAP_SIGN_P12_PASSWORD`, `RECAP_ASC_*`.
+- The EdDSA update key is LassoDesktop's own:
+  - Private half: 1Password `titan/global` field `LASSO_DESKTOP_SPARKLE_PRIVATE_KEY`, and minime's global fnox under the same name.
+  - Public half: committed as `Scripts/sparkle-public-key.txt`.
+- fnox on minime decrypts with the Mac's ssh key (`FNOX_AGE_KEY_FILE`). In fnox 1.26, `fnox set -d` with a piped value stores only the description, so set the value without `-d`.
 
 The first Developer ID build replaces the self-signed identity. macOS then asks once more for the app's permissions, because TCC keys them on the signing identity.
 

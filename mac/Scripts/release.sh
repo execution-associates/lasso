@@ -4,19 +4,20 @@
 #
 #   Scripts/release.sh <version>        # lasso's version, e.g. 6.5.0
 #
-# Writes dist/LassoDesktop-<version>.dmg and dist/appcast.xml. The release
-# workflow attaches both to lasso's GitHub release v<version>, so the app's
-# feed, .../releases/latest/download/appcast.xml, always names the newest.
+# Writes dist/LassoDesktop-<version>.dmg and dist/appcast.xml. Scripts/publish.sh
+# runs it from titan and attaches both to lasso's GitHub release v<version>, so
+# the app's feed, .../releases/latest/download/appcast.xml, names the newest.
 #
-# Runs in minime's logged-in session (the runner's LaunchAgent): the signing
-# identity is imported from fnox into a throwaway keychain, so the login
-# keychain is never needed. The pattern is Recap's (macos/release.sh there).
+# The signing identity is imported from fnox into a throwaway keychain and
+# notarization uses an API key, so the login keychain is never needed and it
+# runs over ssh. The pattern is Recap's (macos/release.sh there).
 # Secrets come from fnox by name, never from the environment's values:
 #   SIGN_P12_SECRET, SIGN_P12_PASSWORD_SECRET   the Developer ID .p12 (base64) and its password
 #   ASC_KEY_ID_SECRET, ASC_ISSUER_SECRET, ASC_KEY_P8_SECRET   App Store Connect API key (notarization)
 #   SPARKLE_KEY_SECRET                          the EdDSA private key updates are signed with
-# Each defaults to a LASSO_DESKTOP_* name. Sparkle's public key is committed
-# in Scripts/sparkle-public-key.txt.
+# The certificate and notary key are Recap's (same Developer ID, JF4UNR89NW);
+# the update key is LassoDesktop's own. Sparkle's public key is committed in
+# Scripts/sparkle-public-key.txt.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -26,11 +27,11 @@ FEED="https://github.com/$REPO/releases/latest/download/appcast.xml"
 DMG_NAME="LassoDesktop-$VERSION.dmg"
 DMG_URL="https://github.com/$REPO/releases/download/v$VERSION/$DMG_NAME"
 
-SIGN_P12_SECRET="${SIGN_P12_SECRET:-LASSO_DESKTOP_SIGN_P12_B64}"
-SIGN_P12_PASSWORD_SECRET="${SIGN_P12_PASSWORD_SECRET:-LASSO_DESKTOP_SIGN_P12_PASSWORD}"
-ASC_KEY_ID_SECRET="${ASC_KEY_ID_SECRET:-LASSO_DESKTOP_ASC_KEY_ID}"
-ASC_ISSUER_SECRET="${ASC_ISSUER_SECRET:-LASSO_DESKTOP_ASC_ISSUER_ID}"
-ASC_KEY_P8_SECRET="${ASC_KEY_P8_SECRET:-LASSO_DESKTOP_ASC_KEY_P8}"
+SIGN_P12_SECRET="${SIGN_P12_SECRET:-RECAP_SIGN_P12_B64}"
+SIGN_P12_PASSWORD_SECRET="${SIGN_P12_PASSWORD_SECRET:-RECAP_SIGN_P12_PASSWORD}"
+ASC_KEY_ID_SECRET="${ASC_KEY_ID_SECRET:-RECAP_ASC_KEY_ID}"
+ASC_ISSUER_SECRET="${ASC_ISSUER_SECRET:-RECAP_ASC_ISSUER_ID}"
+ASC_KEY_P8_SECRET="${ASC_KEY_P8_SECRET:-RECAP_ASC_KEY_P8}"
 SPARKLE_KEY_SECRET="${SPARKLE_KEY_SECRET:-LASSO_DESKTOP_SPARKLE_PRIVATE_KEY}"
 
 ED_PUBLIC="$(tr -d '[:space:]' <Scripts/sparkle-public-key.txt 2>/dev/null || true)"
@@ -88,7 +89,7 @@ spctl --assess --type open --context context:primary-signature -v "dist/$DMG_NAM
 # 5. The appcast: one item, the DMG's EdDSA signature and length from sign_update.
 SIGN_UPDATE="$(find .build/artifacts -path '*Sparkle/bin/sign_update' | head -n1)"
 [ -x "$SIGN_UPDATE" ] || { echo "Sparkle's sign_update not found under .build/artifacts" >&2; exit 1; }
-fnox get "$SPARKLE_KEY_SECRET" >"$WORK/sparkle.key"
+fnox get "$SPARKLE_KEY_SECRET" | tr -d "\n" >"$WORK/sparkle.key"
 ED_ATTRS="$("$SIGN_UPDATE" -f "$WORK/sparkle.key" "dist/$DMG_NAME")"
 cat >dist/appcast.xml <<XML
 <?xml version="1.0" encoding="utf-8"?>
