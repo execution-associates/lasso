@@ -9,7 +9,7 @@ This is the operator runbook for per-host MCP credentials: who an agent can see,
 
 ## The model in one paragraph
 
-Two bounds decide which agents an MCP caller can see and manage, and both apply. **What lasso can address** is the local box plus the concrete aliases in the SSH config lasso reads. Membership comes from that config, never from lasso's agent records, so a host whose alias was removed stops being addressable instead of resolving to a target no call can reach. **What this caller may address** is per credential: one OAuth client per host, with the host carried in every token, so a caller's host is derived from its credential and cannot be asserted by the caller. Scope is `self` (that host only, the default) or `fleet` (everything lasso can address). **Groups** add reach to named sets of *other* hosts on top of `self`, the middle ground between those two ends.
+Two bounds decide which agents an MCP caller can see and manage, and both apply. **What lasso can address** is lasso's own box plus the concrete aliases in the SSH config lasso reads. Membership comes from that config, never from lasso's agent records, so a host whose alias was removed stops being addressable instead of resolving to a target no call can reach. **What this caller may address** is per credential: one OAuth client per host, with the host carried in every token, so a caller's host is derived from its credential and cannot be asserted by the caller. Scope is `self` (that host only, the default) or `fleet` (everything lasso can address). **Groups** add reach to named sets of *other* hosts on top of `self`, the middle ground between those two ends.
 
 MCP itself offers nothing here: a client's `clientInfo` is a self-asserted name and version, and no header identifies the caller. That is why identity comes from a credential rather than a tool argument.
 
@@ -42,7 +42,7 @@ lasso mcp-client token <client_id> [--ttl 90d]  # bearer token; default no expir
 lasso mcp-client rm <client_id>                 # also drops its outstanding tokens
 ```
 
-`--host` takes `local` (the box lasso runs on) or an SSH-config alias exactly as `list_hosts` shows it; a host lasso cannot address is refused up front. The secret prints once and is stored hashed. Only these clients and the `MCP_OAUTH` client may use the `client_credentials` grant. A client that registered itself through open Dynamic Client Registration may not, since that path takes no human approval.
+`--host` takes `local` (the box lasso runs on) or an SSH-config alias; a host lasso cannot address is refused up front. The CLI and lasso's database keep lasso's box as `local`, while MCP tools and their results call it by its hostname (and accept `local` too), so `list_hosts` shows `titan` where `--host` takes `local`. The secret prints once and is stored hashed. Only these clients and the `MCP_OAUTH` client may use the `client_credentials` grant. A client that registered itself through open Dynamic Client Registration may not, since that path takes no human approval.
 
 `lasso mcp-client` writes to `lasso.db` directly, so it works whether or not the server is running.
 

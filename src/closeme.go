@@ -29,7 +29,7 @@ var agentBackendResolver = resolveBackend
 // lasso-spawned agent can shut *itself* down with `lasso closeme` — no MCP
 // round-trip and nothing to pass but the $HERDR_PANE_ID the pane already
 // exports. The caller identifies the agent by pane_id or agent_id, with an
-// optional host ("local" or an ssh-config alias) to pin which host's records
+// optional host ("local", lasso's hostname, or an ssh-config alias) to pin which host's records
 // to resolve against. remove_worktree (git only) also discards the worktree.
 func serveAgentClose(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -54,7 +54,9 @@ func serveAgentClose(w http.ResponseWriter, r *http.Request) {
 	}
 	agentID := strings.TrimSpace(req.AgentID)
 	paneID := strings.TrimSpace(req.PaneID)
-	host := strings.TrimSpace(req.Host)
+	// The hostname is accepted as local, as on /mcp: the errors below name hosts
+	// that way, and an agent passes back what it was told.
+	host := mcpHostArg(strings.TrimSpace(req.Host))
 	if agentID == "" && paneID == "" {
 		http.Error(w, "pane_id or agent_id required", http.StatusBadRequest)
 		return
@@ -245,14 +247,15 @@ func paneMatchesAcrossHosts(cs mcpCaller, paneID string) ([]AgentRecord, error) 
 	return matches, nil
 }
 
-// hostsOf renders the distinct hosts of a set of records for error messages.
+// hostsOf renders the distinct hosts of a set of records for error messages,
+// named as an MCP caller passes them back (mcpHostName).
 func hostsOf(recs []AgentRecord) string {
 	seen := map[string]bool{}
 	var hosts []string
 	for _, r := range recs {
 		if !seen[r.Host] {
 			seen[r.Host] = true
-			hosts = append(hosts, r.Host)
+			hosts = append(hosts, mcpHostName(r.Host))
 		}
 	}
 	sort.Strings(hosts)

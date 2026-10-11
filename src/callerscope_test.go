@@ -358,12 +358,13 @@ func TestListHostsHidesTheRestOfTheFleet(t *testing.T) {
 			t.Errorf("contained caller was shown host %q", h.Host)
 		}
 	}
-	// And the unidentified caller still sees the local row it always did.
+	// And the unidentified caller still sees the local row it always did, named
+	// by the hostname as every MCP result names lasso's host.
 	_, out, err = listHostsTool(context.Background(), nil, listHostsIn{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Hosts) == 0 || out.Hosts[0].Host != "local" {
+	if len(out.Hosts) == 0 || out.Hosts[0].Host != testHostname {
 		t.Errorf("unidentified list_hosts = %+v, want the local row first", out.Hosts)
 	}
 }

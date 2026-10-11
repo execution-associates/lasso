@@ -106,8 +106,8 @@ func TestOpenFileExpandsTildeOnTheTargetHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Path != want || out.Host != "local" || out.Delivered != 1 || out.Dir {
-		t.Fatalf("out = %+v, want path %q on local", out, want)
+	if out.Path != want || out.Host != testHostname || out.Delivered != 1 || out.Dir {
+		t.Fatalf("out = %+v, want path %q on %s", out, want, testHostname)
 	}
 	if len(*got) != 1 {
 		t.Fatalf("pushed %d events, want 1", len(*got))

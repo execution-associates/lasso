@@ -111,10 +111,11 @@ const getSettingsDescription = "Read lasso's settings — everything the Setting
 
 type getSettingsIn struct {
 	Section string `json:"section,omitempty" jsonschema:"One of ui, agents, repos, theme, notifications, browser, plugins. Omit for every section."`
-	Host    string `json:"host,omitempty" jsonschema:"Whose per-host settings the agents and repos sections show: local or an ssh alias from list_hosts. Omit for the box lasso runs on (local)."`
+	Host    string `json:"host,omitempty" jsonschema:"Whose per-host settings the agents and repos sections show: a host from list_hosts. Omit for lasso's own host."`
 }
 
 func getSettingsTool(ctx context.Context, req *mcp.CallToolRequest, in getSettingsIn) (*mcp.CallToolResult, map[string]any, error) {
+	in.Host = mcpHostArg(in.Host)
 	if err := requireSettingsReach(req, in.Host); err != nil {
 		return nil, nil, err
 	}
@@ -227,12 +228,12 @@ type repoSettingsIn struct {
 }
 
 type themeSyncIn struct {
-	Host    string `json:"host" jsonschema:"local or an ssh alias."`
+	Host    string `json:"host" jsonschema:"A host from list_hosts."`
 	Enabled bool   `json:"enabled" jsonschema:"false stops every theme write lasso makes to that host; true resumes (and converges it now)."`
 }
 
 type updateSettingsIn struct {
-	Host             string           `json:"host,omitempty" jsonschema:"Whose creator settings agent_defaults and repo write: local or an ssh alias. Omit for the box lasso runs on (local)."`
+	Host             string           `json:"host,omitempty" jsonschema:"Whose creator settings agent_defaults and repo write: a host from list_hosts. Omit for lasso's own host."`
 	UI               map[string]any   `json:"ui,omitempty" jsonschema:"A patch of the ui section, e.g. {\"appearance_mode\":\"dark\",\"palette_dark\":\"tokyo-night\",\"terminal_text\":{\"size\":15}}."`
 	AutoTitle        *bool            `json:"auto_title,omitempty" jsonschema:"Name new agents from their prompt."`
 	AgentDefaults    *agentDefaultsIn `json:"agent_defaults,omitempty" jsonschema:"host's creator defaults."`
@@ -246,6 +247,10 @@ type updateSettingsIn struct {
 }
 
 func updateSettingsTool(ctx context.Context, req *mcp.CallToolRequest, in updateSettingsIn) (*mcp.CallToolResult, map[string]any, error) {
+	in.Host = mcpHostArg(in.Host)
+	if in.ThemeSync != nil {
+		in.ThemeSync.Host = mcpHostArg(in.ThemeSync.Host)
+	}
 	if err := requireSettingsReach(req, in.Host); err != nil {
 		return nil, nil, err
 	}
@@ -390,6 +395,6 @@ func removePushDeviceByID(id string) error {
 // registerSettingsTools adds get_settings and update_settings to lasso's MCP
 // server.
 func registerSettingsTools(s *mcp.Server) {
-	mcp.AddTool(s, &mcp.Tool{Name: "get_settings", Description: getSettingsDescription}, getSettingsTool)
-	mcp.AddTool(s, &mcp.Tool{Name: "update_settings", Description: updateSettingsDescription}, updateSettingsTool)
+	addHostTool(s, &mcp.Tool{Name: "get_settings", Description: getSettingsDescription}, getSettingsTool)
+	addHostTool(s, &mcp.Tool{Name: "update_settings", Description: updateSettingsDescription}, updateSettingsTool)
 }

@@ -4,7 +4,7 @@ description: How lasso finds the machines it can drive, how a browser tab picks 
 order: 21
 ---
 
-A **host** is a machine running herdr that lasso can drive. One is always there: `local`, the machine lasso itself runs on. Every other host is an alias from your ssh config. One lasso can therefore front a whole fleet, and each browser tab chooses which machine it is looking at.
+A **host** is a machine running herdr that lasso can drive. One is always there: `local`, the machine lasso itself runs on, which the UI and the MCP tools show by its hostname (an MCP client would read "local" as its own machine; the tools take either name). Every other host is an alias from your ssh config. One lasso can therefore front a whole fleet, and each browser tab chooses which machine it is looking at.
 
 ![the host menu listing the fleet, one host marked timed out](../assets/screenshots/hosts.png)
 

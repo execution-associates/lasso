@@ -154,7 +154,7 @@ func TestWhoamiOmittedHostRefusesCrossHostCollision(t *testing.T) {
 	if out.Found || out.Agent != nil {
 		t.Fatalf("expected refusal on a cross-host pane collision, got %+v", out)
 	}
-	for _, h := range []string{"local", "gigachad"} {
+	for _, h := range []string{testHostname, "gigachad"} {
 		if !strings.Contains(out.Detail, h) {
 			t.Errorf("detail %q should name candidate host %q", out.Detail, h)
 		}
@@ -263,7 +263,7 @@ func TestWhoamiOmittedHostAdoptsPeerRecord(t *testing.T) {
 	if !out.Found || out.Agent == nil || out.Agent.ID != "dk33" {
 		t.Fatalf("expected the peer's record to be adopted, got %+v", out)
 	}
-	if out.Agent.Host != "local" {
-		t.Errorf("adopted agent host = %q, want local (the pane lives here)", out.Agent.Host)
+	if out.Agent.Host != testHostname {
+		t.Errorf("adopted agent host = %q, want %s, lasso's own host (the pane lives here)", out.Agent.Host, testHostname)
 	}
 }
