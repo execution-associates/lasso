@@ -137,12 +137,21 @@ public struct BotView: Codable, Sendable, Equatable, Identifiable {
     public var name: String
     public var runtime: String
     public var stopped: Bool
+    public var model: String?
     public var state: String
+    /// A claude bot's herdr pane, while it runs (its chat is that pane's).
+    public var pane_id: String?
+    public var live_model: LiveModel?
     public var waiting_for: String?
     public var last_text: String?
     public var last_kind: String?
     public var last_at: String?
     public var error: String?
+}
+
+public struct LiveModel: Codable, Sendable, Equatable {
+    public var id: String?
+    public var name: String?
 }
 
 /// GET /api/bots. src/botsapi.go:47.

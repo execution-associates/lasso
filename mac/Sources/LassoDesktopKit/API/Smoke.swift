@@ -43,6 +43,15 @@ public enum Smoke {
         await check("/api/ui-state", UIStateSlice.self) {
             "\($0.pinned_agents?.count ?? 0) pins; assistant_bot \($0.assistant_bot == nil ? "absent (server lacks S1)" : "present"); dismissed_cards \($0.dismissed_cards == nil ? "absent" : "present")"
         }
+        do {
+            let t = try await client.get("/api/transcribe", as: TranscribeStatus.self)
+            out("ok   /api/transcribe  available \(t.available), provider \(t.provider ?? "-")\(t.reason.map { " (\($0))" } ?? "")")
+        } catch LassoError.http(404, _) {
+            out("ok   /api/transcribe  absent (server lacks S2)")
+        } catch {
+            failures += 1
+            out("FAIL /api/transcribe  \(error)")
+        }
         await check("/api/bots", BotsPayload.self) { b in
             "\(b.bots.count) bots (\(b.bots.map { "\($0.runtime)/\($0.state)" }.sorted().joined(separator: ", ")))"
         }

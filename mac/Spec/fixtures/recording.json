@@ -1,0 +1,6 @@
+{
+  "about": "A voice turn in progress: the chat's composer shows the level meter and the engine, and the rail's record tool shows the recording ring.",
+  "state": "recording",
+  "extends": "chat-open",
+  "ui": { "rail": "expanded", "card": null, "list": false, "chat": true, "bot": "assistant", "recording": { "phase": "recording", "level": 0.62, "engine": "lasso" } }
+}

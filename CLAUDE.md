@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Lasso is a Go backend (`src/main.go` and friends) that serves a React/TypeScript SPA. All Go code lives under `src/` (the Go module root — `src/go.mod`). The frontend in `src/web/` is **built and embedded into the Go binary** — `go build` embeds `src/web/dist/`, so it must exist locally (run `mise run build`) but is **not** committed (it's gitignored). CI builds the frontend and produces release binaries. The binary also embeds `src/skill/` (gitignored), a copy of `SKILL.md` and the Markdown in `docs/` that `/mcp` serves over the MCP Skills extension (`src/mcpskill.go`). `scripts/stage-skill.sh` makes it, run by `mise run build`/`test` and by CI and release, because go:embed cannot reach above `src/`. go-sdk 1.6 rejects unknown JSON-RPC methods in its HTTP transport, so `withMCPSkills` answers `skills/list` and `skills/get` before the SDK sees them. `resources/read` stays the SDK's.
 
+## Mac app (`mac/`)
+
+LassoDesktop, the native macOS client, is a SwiftPM package in `mac/` that talks to lasso's HTTP API only. `mac/PLAN.md` is its design. It builds on minime with the Command Line Tools (no Xcode, so no `@State` or `#Preview`), driven from titan by `mac/Scripts/dev.sh` (`run`, `test`, `parity`, `smoke`, `doctor`); minime reaches titan's lasso through the `lasso-desktop-tunnel` user unit on its `127.0.0.1:18090` (8090 there belongs to another service's tunnel). Every visual constant lives in `mac/Sources/LassoDesktopKit/Theme/Theme.swift` and must equal `mac/Spec/tokens.json`; `dev.sh parity` renders the named states from `mac/Spec/fixtures` and fails on any drift. `TestDesktopContract` writes the JSON shapes the app decodes to `mac/Spec/contract`; when it fails, update the Swift models and regenerate with `LASSO_UPDATE_CONTRACT=1`.
+
 ## Commands
 
 Backend (run from repo root, via [mise](https://mise.jdx.dev); Go sources are in `src/`):

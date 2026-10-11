@@ -30,7 +30,9 @@ public struct LassoClient: Sendable {
     /// The configured lasso: UserDefaults baseURL (dev.sh points minime at
     /// its own tunnel) and the Keychain's credentials.
     public static func configured() -> LassoClient {
-        let url = UserDefaults.standard.string(forKey: baseURLDefaultsKey).flatMap(URL.init(string:))
+        // LASSO_BASE_URL (scripts, smoke) beats the stored setting.
+        let url = (ProcessInfo.processInfo.environment["LASSO_BASE_URL"] ?? UserDefaults.standard.string(forKey: baseURLDefaultsKey))
+            .flatMap(URL.init(string:))
         return LassoClient(
             baseURL: url ?? defaultBaseURL, basicAuth: Keychain.read(.uiAuth),
             accessID: Keychain.read(.cfAccessID), accessSecret: Keychain.read(.cfAccessSecret))
@@ -64,6 +66,13 @@ public struct LassoClient: Sendable {
     public func send<T: Decodable>(_ r: URLRequest) async throws -> T {
         let (data, resp) = try await session.data(for: r)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        // lasso serves its web app for any path it has no route for, with a
+        // 200: an HTML answer to an API call means the route does not exist
+        // on this lasso (older than the feature).
+        let type = (resp as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? ""
+        if (200..<300).contains(code), type.hasPrefix("text/html") {
+            throw LassoError.http(404, "no such route on this lasso")
+        }
         guard (200..<300).contains(code) else {
             // lasso's errors are plain text (http.Error).
             throw LassoError.http(code, String(decoding: data.prefix(300), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))

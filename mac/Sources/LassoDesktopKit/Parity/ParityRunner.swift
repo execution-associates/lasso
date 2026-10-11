@@ -10,7 +10,9 @@ import SwiftUI
 public final class ParityRunner {
     /// States whose surfaces exist. The rest report as pending until their
     /// milestone lands (PLAN 6).
-    public static let implemented: Set<String> = ["rail-collapsed", "rail-expanded", "card-open", "list-panel-open"]
+    public static let implemented: Set<String> = [
+        "rail-collapsed", "rail-expanded", "card-open", "list-panel-open", "chat-open", "recording", "onboarding",
+    ]
 
     let spec: Spec
     let specDir: URL
@@ -110,7 +112,47 @@ public final class ParityRunner {
         model.setExpanded(fixture.ui.rail == "expanded", animated: false)
         let cap: Capture
         var card: CardModel?
-        if fixture.ui.list == true {
+        var bindings: Set<KeyBinding>?
+        if fixture.ui.onboarding == true {
+            let setup = AssistantSetup(fleet: fleet, client: nil)
+            let hosts = fixture.server.hosts
+            let usable = hosts.hosts.filter { $0.reachable && $0.running && $0.compatible }.count + 1
+            let m = OnboardingModel(
+                permissions: FixedPermissions(fixture.permissions), setup: setup, client: nil,
+                baseURL: "http://127.0.0.1:18090", engine: .lasso, version: { fixture.server.version },
+                usableHosts: { (usable, hosts.hosts.count + 1) })
+            m.show(transcribe: fixture.transcribe)
+            bindings = [Keys.esc, Keys.send]
+            cap = try await Capturer.capture(OnboardingView(model: m), size: Theme.Card.size.size)
+        } else if fixture.ui.chat == true, let name = fixture.ui.bot,
+                  let bot = fixture.server.bots.bots.first(where: { $0.name == name })
+        {
+            let m = ChatModel(bot: bot, actions: FixtureBotChatActions(payload: fixture.chats["bot:\(name)"]))
+            m.show(chat: fixture.chats["bot:\(name)"])
+            bindings = m.activeBindings
+            if let r = fixture.ui.recording {
+                let rec = RecordingModel(
+                    permissions: FixedPermissions(fixture.permissions), engineName: r["engine"]?.string ?? "lasso"
+                ) { ParakeetTranscriber() }
+                rec.showForParity(
+                    phase: r["phase"]?.string == "transcribing" ? .transcribing : .recording(handsFree: true),
+                    level: r["level"]?.double ?? 0.5)
+                model.recording = true
+                let gap = Theme.Card.placement.number("gap")
+                let view = HStack(alignment: .top, spacing: gap) {
+                    ChatView(model: m, recording: rec)
+                    RailView(model: model)
+                }
+                .padding(Theme.Rail.panelMargin.pt)
+                let size = CGSize(
+                    width: Theme.Card.size.size.width + gap + RailMetrics.outer + 2 * Theme.Rail.panelMargin.pt,
+                    height: max(Theme.Card.size.size.height, railSize().height - 2 * Theme.Rail.panelMargin.pt)
+                        + 2 * Theme.Rail.panelMargin.pt)
+                cap = try await Capturer.capture(view, size: size)
+            } else {
+                cap = try await Capturer.capture(ChatView(model: m), size: Theme.Card.size.size)
+            }
+        } else if fixture.ui.list == true {
             let l = ListModel(fleet: fleet, actions: FixtureFleetActions(), now: { fixture.now })
             l.selected = fixture.ui.selected
             l.hovered = fixture.ui.hovered
@@ -135,7 +177,8 @@ public final class ParityRunner {
         patchChecks(state, cap)
         geometryChecks(state, cap)
         accessibilityChecks(state, cap)
-        if let card { keycapChecks(state, cap, card) }
+        if let card { bindings = card.activeBindings }
+        if let bindings { keycapChecks(state, cap, bindings) }
         cap.window.orderOut(nil)
     }
 
@@ -154,9 +197,9 @@ public final class ParityRunner {
 
     /// Every keycap on screen is a binding the card's key handler has live
     /// in this state, so its legend is a key that works.
-    private func keycapChecks(_ state: String, _ cap: Capture, _ card: CardModel) {
+    private func keycapChecks(_ state: String, _ cap: Capture, _ bindings: Set<KeyBinding>) {
         let shown = Set(cap.frames.keys.filter { $0.hasPrefix("keycap[") }.map { String($0.dropFirst(7).dropLast()) })
-        let live = Set(card.activeBindings.map(\.id))
+        let live = Set(bindings.map(\.id))
         let stray = shown.subtracting(live)
         add(
             state, "keycaps bound", "keys", "every shown keycap bound", shown.sorted().joined(separator: " "),

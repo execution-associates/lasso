@@ -1,11 +1,21 @@
 import AppKit
 import SwiftUI
 
+/// What a composer edits: the card's and the chat's models.
+@MainActor
+public protocol ComposerModel: ObservableObject {
+    var composer: String { get set }
+    var composerFocused: Bool { get set }
+    var focusRequest: Int { get }
+    var composerPlaceholder: String { get }
+    func send()
+}
+
 /// The composer's text field: an NSTextField, because the card needs to give
 /// it focus on demand, take it away on esc, and send on Return, and the
 /// focus API SwiftUI offers for that is a macro the Command Line Tools lack.
-struct ComposerField: NSViewRepresentable {
-    @ObservedObject var model: CardModel
+struct ComposerField<Model: ComposerModel>: NSViewRepresentable {
+    @ObservedObject var model: Model
 
     func makeCoordinator() -> Coordinator { Coordinator(model: model) }
 
@@ -39,7 +49,7 @@ struct ComposerField: NSViewRepresentable {
 
     private func placeholder(_ f: NSTextField) {
         f.placeholderAttributedString = NSAttributedString(
-            string: "Message \(model.current.displayName)…",
+            string: model.composerPlaceholder,
             attributes: [
                 .foregroundColor: Theme.Text.secondary.nsColor,
                 .font: NSFont.systemFont(ofSize: Theme.Fonts.tree.number("size")),
@@ -48,10 +58,10 @@ struct ComposerField: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, NSTextFieldDelegate {
-        var model: CardModel
+        var model: Model
         var focusSeen = 0
 
-        init(model: CardModel) { self.model = model }
+        init(model: Model) { self.model = model }
 
         func controlTextDidChange(_ n: Notification) {
             if let f = n.object as? NSTextField { model.composer = f.stringValue }

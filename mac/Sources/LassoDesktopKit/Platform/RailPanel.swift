@@ -8,6 +8,8 @@ import SwiftUI
 public final class RailPanel: NSPanel {
     /// Gets every key-down first; returns true when it handled the event.
     public var onKey: ((NSEvent) -> Bool)?
+    /// Gets every key-up (push-to-talk ends on V's release).
+    public var onKeyUp: ((NSEvent) -> Bool)?
 
     public init(content: NSView, size: NSSize) {
         super.init(
@@ -29,6 +31,7 @@ public final class RailPanel: NSPanel {
 
     public override func sendEvent(_ event: NSEvent) {
         if event.type == .keyDown, onKey?(event) == true { return }
+        if event.type == .keyUp, onKeyUp?(event) == true { return }
         super.sendEvent(event)
     }
 }

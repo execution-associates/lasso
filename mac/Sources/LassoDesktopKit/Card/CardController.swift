@@ -39,6 +39,8 @@ public final class CardController {
     private let actions: CardActions
     /// Where the rail is, so the card opens beside it.
     var railFrame: () -> NSRect = { .zero }
+    /// V in a card: start a voice turn for its composer.
+    var onRecord: () -> Void = {}
 
     public init(fleet: FleetModel, actions: CardActions) {
         self.fleet = fleet
@@ -60,12 +62,16 @@ public final class CardController {
         holder.model?.stopPolling()
         let model = CardModel(pane: pane, fleet: fleet, actions: actions)
         model.onClose = { [weak self] in self?.close() }
+        model.onRecord = { [weak self] in self?.onRecord() }
         holder.model = model
         model.startPolling()
         place()
         panel.makeKeyAndOrderFront(nil)
         withAnimationToken(Theme.Motion.cardOpen) { presence.shown = true }
     }
+
+    func appendToComposer(_ text: String, engine: String) { holder.model?.appendTranscript(text, engine: engine) }
+    func say(_ s: String) { holder.model?.say(s) }
 
     public func close() {
         guard presence.shown else { return }
@@ -111,7 +117,7 @@ public final class CardController {
         }
         switch true {
         case Keys.attach.matches(e): m.attachScreenshot()
-        case Keys.record.matches(e): m.record()
+        case Keys.record.matches(e): if !e.isARepeat { m.record() }
         case Keys.send.matches(e):
             if m.composer.isEmpty { m.focusComposer() } else { m.send() }
         case Keys.kill.matches(e): m.kill()

@@ -39,7 +39,7 @@ public struct NextStep: Equatable, Sendable, Identifiable {
 /// One card: an agent's conversation, the composer, its next steps, and the
 /// pages (J/K) around it.
 @MainActor
-public final class CardModel: ObservableObject {
+public final class CardModel: ComposerModel {
     @Published public private(set) var pane: HostPane
     @Published public private(set) var chat: ChatPayload?
     @Published public private(set) var loadError: String?
@@ -234,8 +234,19 @@ public final class CardModel: ObservableObject {
 
     public func focusComposer() { focusRequest += 1 }
 
-    /// V: voice capture lands in M7 (PLAN 6); until then the key says so.
-    public func record() { notice = "Recording arrives with voice input" }
+    public var composerPlaceholder: String { "Message \(current.displayName)…" }
+
+    /// V: a voice turn whose transcript lands in this composer, unsent.
+    public var onRecord: () -> Void = {}
+    public func record() { onRecord() }
+
+    public func appendTranscript(_ text: String, engine: String) {
+        composer = composer.isEmpty ? text : composer + " " + text
+        notice = "Dictated with \(engine): check it, then ⏎"
+        focusComposer()
+    }
+
+    public func say(_ s: String?) { notice = s }
 
     /// J/K: the next or previous card in the inbox.
     public func page(_ delta: Int) {

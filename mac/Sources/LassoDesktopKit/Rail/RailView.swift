@@ -181,9 +181,11 @@ public struct RailView: View {
 
     private var tools: some View {
         VStack(spacing: 0) {
-            tool(.chat, symbol: "bubble.left", label: "Chat with the assistant (coming in a later build)")
-            tool(.record, symbol: "mic", label: "Record (coming in a later build)")
-            tool(.attach, symbol: "camera.viewfinder", label: "Attach a screenshot (coming in a later build)")
+            tool(.chat, symbol: "bubble.left", label: "Chat with the assistant")
+            tool(
+                .record, symbol: model.recording ? "mic.fill" : "mic",
+                label: model.recording ? "Stop recording" : "Record a message for the assistant")
+            tool(.attach, symbol: "camera.viewfinder", label: "Attach a screenshot to a message")
         }
         .padding(RailMetrics.rim)
         .frame(width: RailMetrics.outer, height: RailMetrics.toolsHeight)
@@ -195,9 +197,17 @@ public struct RailView: View {
 
     private func tool(_ item: RailModel.Item, symbol: String, label: String) -> some View {
         Button { model.activate(item) } label: {
-            RailIcon(symbol: symbol)
-                .frame(width: RailMetrics.cell, height: RailMetrics.cell)
-                .contentShape(Rectangle())
+            ZStack {
+                if item == .record && model.recording {
+                    Circle()
+                        .strokeBorder(Theme.Recording.ring.color, lineWidth: Theme.Rail.ringStroke.pt)
+                        .frame(width: RailMetrics.cell - 8, height: RailMetrics.cell - 8)
+                        .parityAnchor("rail.recording")
+                }
+                RailIcon(symbol: symbol)
+            }
+            .frame(width: RailMetrics.cell, height: RailMetrics.cell)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .modifier(FocusRing(on: focused(item)))

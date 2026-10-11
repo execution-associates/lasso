@@ -8,11 +8,8 @@ let log = Logger(subsystem: "com.orangecountyai.LassoDesktop", category: "app")
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate {
     private let arguments: [String]
-    private var rail: RailController?
-    private var hotKey: HotKey?
     private var sync: FleetSync?
-    private var card: CardController?
-    private var list: ListController?
+    private var coordinator: AppCoordinator?
 
     public init(arguments: [String]) {
         self.arguments = arguments
@@ -55,6 +52,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startApp() {
         let fleet = FleetModel()
+        var fixture: Fixture?
+        var sync: FleetSync?
         if let name = value(after: "--fixture") {
             // A fixture instead of a live lasso: what the parity states show.
             do {
@@ -62,52 +61,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 fleet.apply(panes: fx.server.all_panes)
                 fleet.apply(bots: fx.server.bots)
                 fleet.apply(uiState: fx.server.ui_state)
+                fixture = fx
             } catch {
                 log.error("fixture \(name, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
         } else {
-            let sync = FleetSync(client: .configured(), fleet: fleet)
-            sync.start()
-            self.sync = sync
+            let s = FleetSync(client: .configured(), fleet: fleet)
+            s.start()
+            sync = s
         }
-        let actions: CardActions
-        let fleetActions: FleetActions
-        if let sync {
-            let live = LiveCardActions(client: sync.client, fleet: fleet)
-            live.refreshUIState = { [weak sync] in await sync?.refreshUIState() }
-            actions = live
-            fleetActions = LiveFleetActions(client: sync.client, fleet: fleet, card: live)
-        } else {
-            let fx = try? Fixture.load(value(after: "--fixture") ?? "", from: specDir.appendingPathComponent("fixtures"))
-            actions = FixtureCardActions(chats: fx?.chats ?? [:], canDismiss: fx?.server.ui_state.dismissed_cards != nil)
-            fleetActions = FixtureFleetActions()
-        }
-        let model = RailModel(fleet: fleet)
-        let rail = RailController(model: model)
-        let card = CardController(fleet: fleet, actions: actions)
-        let list = ListController(model: ListModel(fleet: fleet, actions: fleetActions))
-        card.railFrame = { [weak rail] in rail?.panel.frame ?? .zero }
-        list.railFrame = card.railFrame
-        // The card and the list share the place beside the rail.
-        model.onPickAgent = { [weak card, weak list] pane in
-            list?.close()
-            card?.open(pane)
-        }
-        let showList = { [weak card, weak list] in
-            card?.close()
-            list?.toggle()
-        }
-        model.onInbox = showList
-        model.onOverflow = showList
-        list.model.onOpen = { [weak card, weak list] pane in
-            list?.close()
-            card?.open(pane)
-        }
-        rail.show()
-        self.rail = rail
-        self.card = card
-        self.list = list
-        hotKey = HotKey(token: Theme.summonKey) { [weak rail] in rail?.summon() }
-        if hotKey == nil { log.error("summon hotkey could not be registered") }
+        let app = AppCoordinator(fleet: fleet, sync: sync, fixture: fixture)
+        app.start()
+        coordinator = app
+        self.sync = sync
     }
 }

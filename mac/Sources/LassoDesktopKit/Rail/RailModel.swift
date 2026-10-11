@@ -14,6 +14,8 @@ public final class RailModel: ObservableObject {
     @Published public var focus: Item?
     /// Keyboard focus is drawn only after a key moved it, as macOS does.
     @Published public var focusVisible = false
+    /// A voice turn is being captured or transcribed (the record tool shows it).
+    @Published public var recording = false
 
     public let fleet: FleetModel
     /// Set by the parity harness only: wraps the rail's animation so the
@@ -22,6 +24,9 @@ public final class RailModel: ObservableObject {
     public var onPickAgent: (HostPane) -> Void = { _ in }
     public var onOverflow: () -> Void = {}
     public var onInbox: () -> Void = {}
+    public var onChat: () -> Void = {}
+    public var onRecord: () -> Void = {}
+    public var onAttach: () -> Void = {}
 
     public init(fleet: FleetModel) { self.fleet = fleet }
 
@@ -65,8 +70,9 @@ public final class RailModel: ObservableObject {
             case .overflow: onOverflow()
             case nil: break
             }
-        case .chat, .record, .attach:
-            break
+        case .chat: onChat()
+        case .record: onRecord()
+        case .attach: onAttach()
         }
     }
 

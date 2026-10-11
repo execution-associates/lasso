@@ -14,6 +14,9 @@ public struct Fixture: Decodable, Sendable {
         /// List panel row keys.
         public var selected: String?
         public var hovered: String?
+        /// The bot the chat state talks to.
+        public var bot: String?
+        public var onboarding: Bool?
     }
 
     public struct Server: Decodable, Sendable {
@@ -37,6 +40,8 @@ public struct Fixture: Decodable, Sendable {
     public var expect: Expect?
     /// Chat payloads by pane key (host NUL pane_id), for the card and chat states.
     public var chats: [String: ChatPayload]
+    /// What GET /api/transcribe answers, for onboarding.
+    public var transcribe: TranscribeStatus?
 
     private struct Raw: Decodable {
         var state: String
@@ -47,6 +52,7 @@ public struct Fixture: Decodable, Sendable {
         var server: Server?
         var expect: Expect?
         var chats: [String: ChatPayload]?
+        var transcribe: TranscribeStatus?
     }
 
     public static func load(_ name: String, from dir: URL) throws -> Fixture {
@@ -64,14 +70,16 @@ public struct Fixture: Decodable, Sendable {
         }
         return Fixture(
             state: raw.state, now: now, ui: ui, permissions: raw.permissions ?? base?.permissions ?? [:],
-            server: server, expect: raw.expect ?? base?.expect, chats: (base?.chats ?? [:]).merging(raw.chats ?? [:]) { $1 })
+            server: server, expect: raw.expect ?? base?.expect, chats: (base?.chats ?? [:]).merging(raw.chats ?? [:]) { $1 },
+            transcribe: raw.transcribe ?? base?.transcribe)
     }
 
     init(
         state: String, now: Date, ui: UI, permissions: [String: String], server: Server, expect: Expect?,
-        chats: [String: ChatPayload]
+        chats: [String: ChatPayload], transcribe: TranscribeStatus?
     ) {
         self.chats = chats
+        self.transcribe = transcribe
         self.state = state
         self.now = now
         self.ui = ui

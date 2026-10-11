@@ -486,3 +486,23 @@ The parity agent is the same binary with `--parity all --out …`, with `RunAtLo
 - **Q3**: on-device engine: hand-rolled Parakeet (big, later), or Apple's first-party SpeechAnalyzer (macOS 26+, runtime-gated)?
 - **Q4**: recording colour: danger `#EB6E62`, or the accent?
 - **Q5**: default bot name `assistant`?
+
+## 9. Status (2026-10-11)
+
+M1–M7 are built and every named state passes parity on minime: 192 checks, 0 failures, 0 pending (`mac/Scripts/dev.sh parity`). `dev.sh test` runs 16 tests. The app runs live on minime against titan's prod lasso through the tunnel.
+
+**Server additions S1–S3** are on this branch with Go tests (`mise run test`), and verified from the Mac against a dev lasso built from it (`./lasso -listen 127.0.0.1:8190 -insecure-no-auth -dev`, reached on minime as `127.0.0.1:18190`). Prod lasso gets them with the next release. Until then:
+- The assistant choice is kept on the Mac and says so; Discard is hidden; the lasso voice engine reports that lasso has no transcription route.
+- A dev lasso shares `lasso.db` with prod, and prod rewrites `ui_state` without the S1 fields whenever it saves it, so a choice made through the dev lasso does not survive a prod save.
+- lasso answers an unknown `/api/*` path with its web app (HTML, 200). The client treats an HTML answer to an API call as a missing route.
+
+**Changed from the plan while building**
+- Claude-runtime bots chat now, through the pane chat routes on the bot's pane: every existing bot on titan is claude-runtime, so leaving them for later would have left the chat with nothing to talk to. omp bots use `/api/bots/<name>/chat…`, and only they carry `meta`.
+- `V` in a card dictates into that card's composer, unsent; `V` in the chat (or the rail's record tool) sends the transcript to the assistant.
+- Parity's motion and accessibility methods changed after the first runs (§5.2–5.4).
+
+**Not done**
+- A live voice round trip: the server needs a transcription provider (`/api/transcribe/config`, or the `transcribe` settings section) and a key, or the app a Groq/OpenAI key in onboarding; then the first `V` asks for the microphone on minime's screen.
+- Creating the assistant bot: onboarding's Create button does it (`POST /api/bots`, omp, started); it was not clicked, since it makes a real bot.
+- On-device transcription (Q3), native notifications, generated next steps, a Settings tab section for `transcribe` in the web client.
+
