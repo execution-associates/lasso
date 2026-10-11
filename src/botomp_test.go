@@ -46,7 +46,13 @@ func runFakeOmp() int {
 		}
 	}
 	var mu sync.Mutex
-	out := bufio.NewWriter(os.Stdout)
+	// Under the bot host the RPC is on fds 3 and 4, as the task script moves
+	// them for a real omp.
+	stdin, stdout := os.Stdin, os.Stdout
+	if os.Getenv("LASSO_BOT_RPC") == "fd" {
+		stdin, stdout = os.NewFile(3, "rpc-in"), os.NewFile(4, "rpc-out")
+	}
+	out := bufio.NewWriter(stdout)
 	emit := func(v any) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -72,7 +78,7 @@ func runFakeOmp() int {
 	}
 	emit(map[string]any{"type": "ready", "protocolVersion": 1})
 	answers := make(chan string, 4)
-	in := bufio.NewScanner(os.Stdin)
+	in := bufio.NewScanner(stdin)
 	in.Buffer(make([]byte, 64*1024), 4<<20)
 	for in.Scan() {
 		line := in.Text()
@@ -534,6 +540,9 @@ func TestBotOmpFiles(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Errorf("task script lacks %q:\n%s", want, s)
 		}
+	}
+	if !strings.Contains(s, `if [ "${LASSO_BOT_RPC:-}" = fd ]; then exec 0<&3 1>&4 3<&- 4>&-; fi`) {
+		t.Errorf("task script does not move the RPC fds:\n%s", s)
 	}
 	if strings.Contains(s, "herdr") || strings.Contains(s, "dangerously") {
 		t.Errorf("task script has claude-pane parts:\n%s", s)

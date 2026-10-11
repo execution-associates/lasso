@@ -216,26 +216,55 @@ func (h *botHost) spawn(fresh bool) error {
 	if cmd.Env == nil {
 		cmd.Env = botHostChildEnv(os.Environ())
 	}
+	// omp's RPC rides fds 3 and 4, not stdin and stdout: a task that receives
+	// secrets runs interactive, and mise connects no stdin to one whose output
+	// is not a terminal, so omp would read EOF at once. mise passes extra fds
+	// through to the task, whose script moves them onto omp's stdin and stdout
+	// when LASSO_BOT_RPC=fd says they are there (botOmpTaskScript).
+	inR, inW, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		inR.Close()
+		inW.Close()
+		return err
+	}
+	cmd.ExtraFiles = []*os.File{inR, outW}
+	cmd.Env = append(cmd.Env, "LASSO_BOT_RPC=fd")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Stderr = io.MultiWriter(os.Stderr, h.stderr)
-	in, err := cmd.StdinPipe()
+	logw := io.MultiWriter(os.Stderr, h.stderr)
+	cmd.Stdout, cmd.Stderr = logw, logw
+	err = cmd.Start()
+	// The child has its own copies; ours would keep the pipes open forever.
+	inR.Close()
+	outW.Close()
 	if err != nil {
-		return err
-	}
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	if err := cmd.Start(); err != nil {
+		inW.Close()
+		outR.Close()
 		return err
 	}
 	done := make(chan struct{})
 	h.mu.Lock()
-	h.child, h.stdin, h.childDone, h.started = cmd, in, done, time.Now()
+	h.child, h.stdin, h.childDone, h.started = cmd, inW, done, time.Now()
 	h.mu.Unlock()
+	pumped := make(chan struct{})
 	go func() {
-		h.pump(out)
+		h.pump(outR)
+		close(pumped)
+	}()
+	go func() {
 		_ = cmd.Wait()
+		// A process omp started may still hold its stdout: give the last
+		// frames a moment, then stop reading so the host does not hang on it.
+		select {
+		case <-pumped:
+		case <-time.After(2 * time.Second):
+		}
+		outR.Close()
+		<-pumped
+		inW.Close()
 		close(done)
 	}()
 	return nil
