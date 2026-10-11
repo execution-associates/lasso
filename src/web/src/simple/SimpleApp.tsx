@@ -1,11 +1,16 @@
 import { Bot, Inbox, List, Settings } from "lucide-react"
 import * as React from "react"
 
-import { AskConfirmContext } from "@/components/ChatView"
+import { AskConfirmContext, ChatSubmitContext } from "@/components/ChatView"
 import { AgentChat, AgentsList } from "@/simple/AgentsView"
 import { BotChat, BotsList } from "@/simple/BotsList"
 import { InboxView } from "@/simple/InboxView"
-import { isUnseen, useInbox, useSeenMarks } from "@/simple/inbox"
+import {
+  isUnseen,
+  noteChatSubmitted,
+  useInbox,
+  useSeenMarks,
+} from "@/simple/inbox"
 import { TabBar, type TabSpec } from "@/simple/parts"
 import { parseSimplePath, type SimpleRoute, simplePath } from "@/simple/route"
 import { SimpleSettings } from "@/simple/SimpleSettings"
@@ -75,35 +80,40 @@ export function SimpleApp() {
 
   return (
     <AskConfirmContext.Provider value={true}>
-      <div className="chat-overlay fixed inset-0 flex flex-col bg-background pt-[env(safe-area-inset-top)]">
-        <main
-          // A tablet gets a phone-width column, centred, rather than cards
-          // stretched across the screen.
-          className={`mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col ${inChat ? "pb-[env(safe-area-inset-bottom)]" : ""}`}
-        >
-          {route.view === "inbox" && <InboxView go={go} />}
-          {route.view === "agents" && <AgentsList go={go} />}
-          {route.view === "agent" && (
-            <AgentChat
-              host={route.host}
-              pane={route.pane}
-              onBack={() => back({ view: "agents" })}
+      <ChatSubmitContext.Provider value={noteChatSubmitted}>
+        <div className="chat-overlay fixed inset-0 flex flex-col bg-background pt-[env(safe-area-inset-top)]">
+          <main
+            // A tablet gets a phone-width column, centred, rather than cards
+            // stretched across the screen.
+            className={`mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col ${inChat ? "pb-[env(safe-area-inset-bottom)]" : ""}`}
+          >
+            {route.view === "inbox" && <InboxView go={go} />}
+            {route.view === "agents" && <AgentsList go={go} />}
+            {route.view === "agent" && (
+              <AgentChat
+                host={route.host}
+                pane={route.pane}
+                onBack={() => back({ view: "agents" })}
+              />
+            )}
+            {route.view === "bots" && <BotsList go={go} />}
+            {route.view === "bot" && (
+              <BotChat
+                name={route.name}
+                onBack={() => back({ view: "bots" })}
+              />
+            )}
+            {route.view === "settings" && <SimpleSettings />}
+          </main>
+          {!inChat && (
+            <TabBar
+              tabs={tabs}
+              current={tabOf(route)}
+              onSelect={(t) => go({ view: t })}
             />
           )}
-          {route.view === "bots" && <BotsList go={go} />}
-          {route.view === "bot" && (
-            <BotChat name={route.name} onBack={() => back({ view: "bots" })} />
-          )}
-          {route.view === "settings" && <SimpleSettings />}
-        </main>
-        {!inChat && (
-          <TabBar
-            tabs={tabs}
-            current={tabOf(route)}
-            onSelect={(t) => go({ view: t })}
-          />
-        )}
-      </div>
+        </div>
+      </ChatSubmitContext.Provider>
     </AskConfirmContext.Provider>
   )
 }

@@ -255,6 +255,11 @@ function PickMark({ multi, chosen }: { multi: boolean; chosen: boolean }) {
 // When true, an ask card never answers on a single tap (see AskCard).
 export const AskConfirmContext = React.createContext(false)
 
+// Called whenever the human submits something in a chat: a message (sent, or
+// held to send once the agent is idle) or an answer to a question. The simple
+// app uses it to tell "looked, then went back" from "dealt with it".
+export const ChatSubmitContext = React.createContext<(() => void) | null>(null)
+
 // AskCard is the one card that is not a record of work but a request to the
 // READER: the agent has stopped and will not continue until one of these options
 // is chosen. So it renders the dialog the terminal is showing — the question in
@@ -276,6 +281,7 @@ function AskCard({
 }) {
   const questions = tool.ask?.questions ?? []
   const confirm = React.useContext(AskConfirmContext)
+  const onSubmitted = React.useContext(ChatSubmitContext)
   // Which option of each question the reader has picked. Local until it is
   // sent: the transcript cannot know about a choice that has not reached the
   // pane yet, and the harness will not either until it is submitted.
@@ -330,8 +336,10 @@ function AskCard({
           options: questions[i]?.options.length ?? 0,
         }))
       )
-      if (res.outcome === "sent") setSent(true)
-      else setNotice(res.detail ?? "the terminal did not take the answer")
+      if (res.outcome === "sent") {
+        setSent(true)
+        onSubmitted?.()
+      } else setNotice(res.detail ?? "the terminal did not take the answer")
     } catch (e) {
       setNotice((e as Error).message)
     } finally {
@@ -1005,6 +1013,7 @@ function BotQuestion({
   question: BotPendingUI
   onAnswered: () => void
 }) {
+  const onSubmitted = React.useContext(ChatSubmitContext)
   const [text, setText] = React.useState("")
   const [sending, setSending] = React.useState(false)
   const [notice, setNotice] = React.useState<string | null>(null)
@@ -1015,8 +1024,10 @@ function BotQuestion({
     setNotice(null)
     try {
       const res = await api.bots.chatAnswer(bot, question.id, a)
-      if (res.outcome === "sent") onAnswered()
-      else setNotice(res.detail ?? "the bot did not take the answer")
+      if (res.outcome === "sent") {
+        onSubmitted?.()
+        onAnswered()
+      } else setNotice(res.detail ?? "the bot did not take the answer")
     } catch (e) {
       setNotice((e as Error).message)
     } finally {
@@ -1692,6 +1703,7 @@ export function ChatView({
   active?: boolean
 }) {
   const { activePaneID, panesRev, host } = useApp()
+  const onSubmitted = React.useContext(ChatSubmitContext)
   const queryClient = useQueryClient()
   const bot = variant === "bot"
   // The pane-close confirmation. Closing is herdr's own pane.close — what ends
@@ -2009,14 +2021,25 @@ export function ChatView({
           ...prev,
           { id: echoSeq.current++, target, text: message },
         ])
+        onSubmitted?.()
         return { cleared: true }
       }
       const res = await deliver(message)
+      // An uncertain send may well have arrived, so it counts as submitted.
+      if (res.outcome !== "refused") onSubmitted?.()
       return res.outcome === "confirmed"
         ? { cleared: true }
         : { cleared: false, notice: noticeFor(res) }
     },
-    [running, heldHere.length, delivering, deliver, target, botName]
+    [
+      running,
+      heldHere.length,
+      delivering,
+      deliver,
+      target,
+      botName,
+      onSubmitted,
+    ]
   )
 
   // Drain one held message whenever the agent is idle and nothing is in flight.

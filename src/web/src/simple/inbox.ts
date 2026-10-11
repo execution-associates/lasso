@@ -179,6 +179,25 @@ export function isUnseen(item: InboxItem, seen: Record<string, number>) {
   return (seen[item.key] ?? -1) < item.at
 }
 
+// --- Where the Inbox was (this page's life) ---------------------------------
+//
+// The card on screen outlives the Inbox view, so a chat opened from a card
+// comes Back to that card. If the human submitted something in that chat (a
+// message, an answer), they dealt with the card, and Back lands on the next.
+
+export const inboxCursor = {
+  key: null as string | null,
+  index: 0,
+  // A chat was opened from the Inbox and has not come back yet.
+  chatFromInbox: false,
+  // Something was submitted in that chat.
+  advance: false,
+}
+
+export function noteChatSubmitted() {
+  if (inboxCursor.chatFromInbox) inboxCursor.advance = true
+}
+
 // --- Notices (this tab only, as a toast would be) ---------------------------
 //
 // One-shot notifications the Inbox keeps: lasso's own notices and an agent's

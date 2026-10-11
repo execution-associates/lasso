@@ -23,6 +23,7 @@ import {
   chatQuery,
   dropNotice,
   type InboxItem,
+  inboxCursor,
   lastAgentText,
   markSeen,
   simpleAgentName,
@@ -62,14 +63,36 @@ export function InboxView({ go }: { go: (r: SimpleRoute) => void }) {
   // The card on screen, by key, so a list reordering under it does not move
   // the reader. When it leaves (answered, acknowledged) the next one takes its
   // place.
-  const [currentKey, setCurrentKey] = React.useState<string | null>(null)
-  const lastIndex = React.useRef(0)
+  // It starts where the Inbox was left (inboxCursor), so Back from a chat
+  // opened on a card returns to that card.
+  const [currentKey, setCurrentKey] = React.useState<string | null>(
+    inboxCursor.key
+  )
+  const lastIndex = React.useRef(inboxCursor.index)
   let index = items.findIndex((i) => i.key === currentKey)
   if (index < 0) index = Math.min(lastIndex.current, items.length - 1)
   const item = index >= 0 ? items[index] : undefined
   React.useEffect(() => {
     lastIndex.current = Math.max(0, index)
-  }, [index])
+    // Only a card on screen moves the cursor: an empty list while loading
+    // must not forget where the reader was.
+    if (!item) return
+    inboxCursor.index = index
+    inboxCursor.key = item.key
+  }, [index, item])
+  // Back from a chat where the human submitted something: that card is dealt
+  // with, so land on the one after it (or, at the end, the one before). A card
+  // that has already left the list needs nothing: its place is the next one.
+  React.useEffect(() => {
+    if (!inboxCursor.chatFromInbox || items.length === 0) return
+    inboxCursor.chatFromInbox = false
+    if (!inboxCursor.advance) return
+    inboxCursor.advance = false
+    const at = items.findIndex((i) => i.key === inboxCursor.key)
+    if (at < 0) return
+    const next = items[at + 1] ?? items[at - 1]
+    if (next) setCurrentKey(next.key)
+  }, [items])
   React.useEffect(() => {
     if (item) markSeen(item)
   }, [item])
@@ -87,6 +110,12 @@ export function InboxView({ go }: { go: (r: SimpleRoute) => void }) {
     ),
   })
   const [footer, setFooter] = React.useState<HTMLElement | null>(null)
+
+  // A chat opened from a card remembers that it came from the Inbox.
+  const openFromCard = (r: SimpleRoute) => {
+    if (r.view === "agent" || r.view === "bot") inboxCursor.chatFromInbox = true
+    go(r)
+  }
 
   const swipe = useSwipePager({
     canPrev: index > 0,
@@ -142,7 +171,7 @@ export function InboxView({ go }: { go: (r: SimpleRoute) => void }) {
             className="flex min-h-0 flex-1 touch-pan-y flex-col will-change-transform"
           >
             <ScrollBody key={item.key} className="pt-2 pb-4">
-              <ItemCard item={item} go={go} />
+              <ItemCard item={item} go={openFromCard} />
             </ScrollBody>
           </div>
           <div
