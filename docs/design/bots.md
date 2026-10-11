@@ -178,6 +178,13 @@ lasso (either instance) --unix socket--> lasso bot-host (systemd user unit lasso
 - **Local only, runtime fixed while running.** An omp bot must be on `local` (the socket is on lasso's machine). A save that changes `runtime` is refused while the bot runs, and switching starts a new conversation, since the two runtimes keep different session files.
 - **Signed-in MCP servers use omp's `!command` header.** omp has no `headersHelper`; the Authorization value is `!printf 'Bearer %s' "$(fnox … get LASSO_OAUTH_<S>_ACCESS)"`. omp also loads the user's own `~/.omp/agent/mcp.json` servers, so strict MCP does not apply to an omp bot.
 
+### Model, thinking and context
+
+- **What runs is omp's word, not the row's.** `get_state` (asked on ready, after every turn and on `model_changed` / `thinking_level_changed`) gives the model (name, provider/id, context window), the thinking levels that model takes, the current level and `contextUsage`. They reach the Bots view as `live_model`, `thinking`, `thinking_levels` (`off` + the model's rungs + `auto`) and `context`; a claude bot's view carries only its newest turn's tokens, since Claude Code reports no window.
+- **Changing them.** `POST /api/bots/<name>/model {model?, thinking?}`: a running omp bot switches at once (`set_model {provider, modelId}`, `set_thinking_level {level}`; a model must be provider/model) and the row and task are saved; a claude or stopped bot only saves, and the answer's `restart_needed` lets the view offer a restart. The pane's `/model` and `/thinking` send the same RPCs.
+- **One source of truth, whoever changed it.** lasso keeps the row in step with omp's change events (the web UI, the pane, the bot's own `/switch`), writing only the column that changed, serialised, so a save never puts back a value it predates. The first reading on a connection is a baseline (launch's resolution of an alias or the default is never pinned) unless `host_hello` says the model or thinking changed since omp launched (`model_changed` / `thinking_changed`, protocol 3): then it is a change made while no lasso was connected, and it is kept.
+- **The pane's status line** sits above its input: model · thinking · ctx used/window % · state, redrawn in place on every change and cut to the terminal's width.
+
 ### omp bots in herdr
 
 An omp bot has no terminal of its own, so lasso gives it a herdr pane running **`lasso bot-attach <name>`** (`botattach.go`), a viewer connected to the bot host's socket. That makes the bot a herdr agent like any other: the sidebar shows its state, `herdr agent prompt`/`read`/`wait`/`send-keys` work on it, and herdr's restore brings the pane back.

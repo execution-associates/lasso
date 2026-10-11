@@ -171,6 +171,9 @@ type ompBot struct {
 	efforts    []string
 	context    ompContextUsage
 	modelKnown bool
+	// From host_hello: the model or thinking changed since omp launched, so
+	// the first reading on this connection is a change to keep.
+	hostModelChg, hostThinkChg bool
 	// opMu keeps a job delivery and a host upgrade from interleaving, so an
 	// upgrade never stops omp just after it accepted a prompt.
 	opMu     sync.Mutex
@@ -275,6 +278,8 @@ type ompFrame struct {
 	Streaming  bool              `json:"streaming"`
 	Pending    []json.RawMessage `json:"pending"`
 	Protocol   int               `json:"protocol"`
+	ModelChg   bool              `json:"model_changed"`
+	ThinkChg   bool              `json:"thinking_changed"`
 	Version    string            `json:"version"`
 	Code       *int              `json:"code"`
 	Stderr     []string          `json:"stderr"`
@@ -299,6 +304,7 @@ func (ob *ompBot) observe(line []byte) {
 	switch f.Type {
 	case "host_hello":
 		ob.hello, ob.hostProto, ob.hostVersion = true, f.Protocol, f.Version
+		ob.hostModelChg, ob.hostThinkChg = f.ModelChg, f.ThinkChg
 		ob.ready, ob.streaming, ob.pending = f.Ready, f.Streaming, nil
 		for _, raw := range f.Pending {
 			var p ompFrame
@@ -392,6 +398,59 @@ func (ob *ompBot) refreshState() {
 	if err != nil || !resp.Success {
 		return
 	}
+	st, ok := decodeOmpState(resp.Data)
+	if !ok {
+		return
+	}
+	ob.mu.Lock()
+	ob.sessionID = st.SessionID
+	ob.streaming = st.Streaming
+	prevModel, prevThinking, known := ob.model.selector(), ob.thinking, ob.modelKnown
+	if st.Model != nil {
+		ob.model = *st.Model
+		ob.efforts = st.Efforts
+	}
+	ob.thinking = st.Thinking
+	if st.Context != nil {
+		ob.context = *st.Context
+	} else {
+		ob.context = ompContextUsage{Window: ob.model.ContextWindow}
+	}
+	ob.modelKnown = true
+	model, thinking := ob.model.selector(), ob.thinking
+	// The first reading on a connection is a baseline, unless the host saw
+	// the model or thinking change since launch: then it is a change made
+	// while this lasso was away (from the pane, say), and it is kept.
+	firstModelChg, firstThinkChg := !known && ob.hostModelChg, !known && ob.hostThinkChg
+	ob.mu.Unlock()
+	if firstModelChg || firstThinkChg {
+		go botOmpPersistModel(ob.name, model, thinking, firstModelChg, firstThinkChg)
+	}
+	// A change after the first reading is the bot's settings' too, so a
+	// restart keeps it. The first reading is only the baseline: at launch omp
+	// resolves the bot's own --model, which may be an alias or the default.
+	if known && (model != prevModel || thinking != prevThinking) {
+		go botOmpPersistModel(ob.name, model, thinking, model != prevModel, thinking != prevThinking)
+	}
+	ompChatNudge(ob.name)
+}
+
+// botOmpPersistModel writes a model or thinking change omp reported into the
+// bot's row and launch task.
+// ompStateReading is what lasso reads from omp's get_state: the session,
+// whether a turn runs, the model with its thinking levels, the current level
+// and how full the context is. Shared by the bot's connection and its herdr
+// pane (botattach.go).
+type ompStateReading struct {
+	SessionID string
+	Streaming bool
+	Thinking  string
+	Model     *ompModelInfo
+	Efforts   []string
+	Context   *ompContextUsage
+}
+
+func decodeOmpState(raw json.RawMessage) (ompStateReading, bool) {
 	var st struct {
 		SessionID     string `json:"sessionId"`
 		IsStreaming   bool   `json:"isStreaming"`
@@ -411,37 +470,20 @@ func (ob *ompBot) refreshState() {
 			Percent       float64 `json:"percent"`
 		} `json:"contextUsage"`
 	}
-	if json.Unmarshal(resp.Data, &st) != nil {
-		return
+	if len(raw) == 0 || json.Unmarshal(raw, &st) != nil {
+		return ompStateReading{}, false
 	}
-	ob.mu.Lock()
-	ob.sessionID = st.SessionID
-	ob.streaming = st.IsStreaming
-	prevModel, prevThinking, known := ob.model.selector(), ob.thinking, ob.modelKnown
+	out := ompStateReading{SessionID: st.SessionID, Streaming: st.IsStreaming, Thinking: st.ThinkingLevel}
 	if st.Model != nil {
-		ob.model = ompModelInfo{ID: st.Model.ID, Name: st.Model.Name, Provider: st.Model.Provider, ContextWindow: st.Model.ContextWindow}
-		ob.efforts = st.Model.Thinking.Efforts
+		out.Model = &ompModelInfo{ID: st.Model.ID, Name: st.Model.Name, Provider: st.Model.Provider, ContextWindow: st.Model.ContextWindow}
+		out.Efforts = st.Model.Thinking.Efforts
 	}
-	ob.thinking = st.ThinkingLevel
 	if st.ContextUsage != nil {
-		ob.context = ompContextUsage{Tokens: st.ContextUsage.Tokens, Window: st.ContextUsage.ContextWindow, Percent: st.ContextUsage.Percent}
-	} else {
-		ob.context = ompContextUsage{Window: ob.model.ContextWindow}
+		out.Context = &ompContextUsage{Tokens: st.ContextUsage.Tokens, Window: st.ContextUsage.ContextWindow, Percent: st.ContextUsage.Percent}
 	}
-	ob.modelKnown = true
-	model, thinking := ob.model.selector(), ob.thinking
-	ob.mu.Unlock()
-	// A change after the first reading is the bot's settings' too, so a
-	// restart keeps it. The first reading is only the baseline: at launch omp
-	// resolves the bot's own --model, which may be an alias or the default.
-	if known && (model != prevModel || thinking != prevThinking) {
-		go botOmpPersistModel(ob.name, model, thinking, model != prevModel, thinking != prevThinking)
-	}
-	ompChatNudge(ob.name)
+	return out, true
 }
 
-// botOmpPersistModel writes a model or thinking change omp reported into the
-// bot's row and launch task.
 // botOmpPersistMu: a model change and a thinking change arrive as two events
 // and two readings; saved concurrently, the second would start from the row
 // as it was before the first and put the old model back.
@@ -454,27 +496,32 @@ func botOmpPersistModel(name, model, thinking string, modelChanged, thinkingChan
 	if err != nil || !r.isOmp() {
 		return
 	}
-	next := *r
-	if modelChanged && model != "" {
-		next.Model = model
-	}
-	if thinkingChanged && thinking != "" {
-		if e := normalizeEffort("omp", thinking); e != "" {
-			next.Effort = e
+	// Only the column that changed is written: a whole-row save here would
+	// put back whatever this reading predates (the model endpoint's own save
+	// of the other field, say).
+	changed := false
+	now := time.Now().UTC().Format(time.RFC3339)
+	if modelChanged && model != "" && model != r.Model && botModelRE.MatchString(model) {
+		if _, err := db.Exec(`UPDATE bots SET model = ?, updated_at = ? WHERE name = ?`, model, now, name); err == nil {
+			changed = true
 		}
 	}
-	if next.Model == r.Model && next.Effort == r.Effort {
+	if thinkingChanged && thinking != "" {
+		if e := normalizeEffort("omp", thinking); e != "" && e != r.Effort {
+			if _, err := db.Exec(`UPDATE bots SET effort = ?, updated_at = ? WHERE name = ?`, e, now, name); err == nil {
+				changed = true
+			}
+		}
+	}
+	if !changed {
 		return
 	}
-	if err := next.normalize(); err != nil {
-		log.Printf("bots:     %s: keep model %q / thinking %q: %v", name, model, thinking, err)
-		return
-	}
-	if err := updateBot(&next); err != nil {
+	next, err := getBot(name)
+	if err != nil {
 		return
 	}
 	if b, err := botBackend(next.Host); err == nil {
-		_ = botWriteTask(b, &next, expandTildeOn(b, next.Dir))
+		_ = botWriteTask(b, next, expandTildeOn(b, next.Dir))
 	}
 	log.Printf("bots:     %s: now model %s, thinking %s", name, next.Model, next.Effort)
 }

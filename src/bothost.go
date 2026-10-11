@@ -43,7 +43,7 @@ import (
 // Bump it whenever that changes. A host outlives the lasso that started it,
 // so it reports this in host_hello, and the bot loop restarts an idle bot
 // whose host speaks another version onto the current binary (botOmpTick).
-const botHostProtocol = 2
+const botHostProtocol = 3
 
 // botHostClientQueue bounds what a slow client may fall behind by before the
 // host drops it; omp's stdout must never block on a client.
@@ -66,8 +66,12 @@ type botHost struct {
 	restarts  int
 	restart   bool // closing omp to relaunch it (the restart marker)
 	stopping  bool
-	stderr    *lineRing
-	inMu      sync.Mutex // one writer on omp's stdin at a time
+	// The model or thinking level changed since omp launched (its own
+	// events), so a lasso that connects afterwards knows the reading it gets
+	// is a change to keep, not the launch's own resolution.
+	modelChanged, thinkingChanged bool
+	stderr                        *lineRing
+	inMu                          sync.Mutex // one writer on omp's stdin at a time
 }
 
 type botHostClient struct {
@@ -168,6 +172,7 @@ func (h *botHost) run(fresh bool) int {
 		again := h.restart && !h.stopping
 		h.restart = false
 		h.ready, h.streaming = false, false
+		h.modelChanged, h.thinkingChanged = false, false
 		h.pending, h.order = map[string]json.RawMessage{}, nil
 		stopping := h.stopping
 		h.mu.Unlock()
@@ -297,6 +302,10 @@ func (h *botHost) observe(line []byte) {
 		h.ready = true
 	case "agent_start":
 		h.streaming = true
+	case "model_changed":
+		h.modelChanged = true
+	case "thinking_level_changed":
+		h.thinkingChanged = true
 	case "agent_end":
 		if f.IsTerminal == nil || *f.IsTerminal {
 			h.streaming = false
@@ -386,7 +395,10 @@ func (h *botHost) hello() []byte {
 		"streaming":  h.streaming,
 		"started_at": h.started.UTC().Format(time.RFC3339),
 		"restarts":   h.restarts,
-		"pending":    pending,
+		// Changed since launch: what a newly connected lasso must keep.
+		"model_changed":    h.modelChanged,
+		"thinking_changed": h.thinkingChanged,
+		"pending":          pending,
 	})
 	return append(b, '\n')
 }

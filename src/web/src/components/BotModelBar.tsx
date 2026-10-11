@@ -46,8 +46,19 @@ function useModelBar(bot: BotView) {
   const harness = config.data?.harnesses?.find((h) => h.id === bot.runtime)
   const live = bot.live_model
   const model = live ? `${live.provider}/${live.id}` : bot.model
-  const modelLabel = live?.name || bot.model || "default model"
+  // What runs, and "(default)" when the bot names none: the runtime chose
+  // it, so it is what the bot gets until a model is picked.
+  const modelLabel = bot.model
+    ? live?.name || bot.model
+    : live?.name
+      ? `${live.name} (default)`
+      : "default model"
   const thinking = bot.thinking || bot.effort
+  const thinkingLabel = bot.effort
+    ? thinking
+    : thinking
+      ? `${thinking} (default)`
+      : "default"
   const levels =
     bot.thinking_levels ??
     (harness?.effort_levels?.length
@@ -80,7 +91,16 @@ function useModelBar(bot: BotView) {
       void invalidateBots(bot.name)
     }
   }
-  return { model, modelLabel, thinking, levels, suggestions, busy, set }
+  return {
+    model,
+    modelLabel,
+    thinking,
+    thinkingLabel,
+    levels,
+    suggestions,
+    busy,
+    set,
+  }
 }
 
 const chip =
@@ -111,7 +131,7 @@ export function BotModelBar({
       <ThinkingPicker bar={bar}>
         <button type="button" className={chip} disabled={bar.busy}>
           <span className="text-muted-foreground">thinking</span>
-          <span>{bar.thinking || "default"}</span>
+          <span>{bar.thinkingLabel}</span>
           <ChevronDown className="size-3 shrink-0 opacity-60" />
         </button>
       </ThinkingPicker>
@@ -311,7 +331,7 @@ function CompactBar({ bot, bar }: { bot: BotView; bar: Bar }) {
           disabled={bar.busy}
         >
           <span className="truncate">
-            {bar.modelLabel} · {bar.thinking || "default"}
+            {bar.modelLabel} · {bar.thinkingLabel}
             {pct !== null
               ? ` · ${Math.round(pct)}% ctx`
               : c?.tokens

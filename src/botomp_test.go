@@ -791,6 +791,28 @@ func TestBotAttachDrivesTheBot(t *testing.T) {
 	if v := botStatus(b, r, nil); v.LastText != "picked B" {
 		t.Errorf("bot's last line = %q", v.LastText)
 	}
+	// The status line, then the pane's own commands.
+	ompWaitFor(t, "the status line", func() bool {
+		return strings.Contains(out.String(), "Fake m1 · thinking low · ctx 5k/200k 3% · idle")
+	})
+	for _, k := range (&attachDecoder{}).feed([]byte("/model\r/model otherco/m2\r/thinking high\r/thinking nope\r")) {
+		a.key(k)
+	}
+	ompWaitFor(t, "the switch on the status line", func() bool {
+		return strings.Contains(out.String(), "Fake m2 · thinking high")
+	})
+	for _, want := range []string{"1) fakeco/m1  ✓", "model → otherco/m2", "thinking → high", "(one of: off, low, high, auto)"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("pane lacks %q", want)
+		}
+	}
+	// lasso keeps the change once it is connected, as the Bots view's poll
+	// and the bot loop keep it.
+	ompWaitFor(t, "the change saved", func() bool {
+		botStatus(b, r, nil)
+		got, _ := getBot(r.Name)
+		return got.Model == "otherco/m2" && got.Effort == "high"
+	})
 	a.mu.Lock()
 	a.closed = true
 	conn := a.conn

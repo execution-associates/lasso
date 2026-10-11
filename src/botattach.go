@@ -24,6 +24,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -71,6 +72,7 @@ func cliBotAttach(args []string) {
 	}
 	a := newBotAttach(name, os.Stdout)
 	a.herdr = newBotAttachHerdr(name)
+	a.width = attachTermWidth
 	os.Exit(a.run(os.Stdin))
 }
 
@@ -164,10 +166,30 @@ type botAttach struct {
 	restore func() // the terminal as it was
 	seq     int
 	tools   map[string]string // running tool calls, by id, for their result line
+	// What omp runs (get_state), for the status line and the commands.
+	model    ompModelInfo
+	thinking string
+	efforts  []string
+	ctx      ompContextUsage
+	// models is the last /model listing, so `/model 2` picks from it.
+	models []string
+	// footerRows is how many rows the status line and the input take now,
+	// so the next print can clear them before writing above them.
+	footerRows int
+	width      func() int
 }
 
 func newBotAttach(name string, out io.Writer) *botAttach {
-	return &botAttach{name: name, out: out, tools: map[string]string{}}
+	return &botAttach{name: name, out: out, tools: map[string]string{}, width: func() int { return 100 }}
+}
+
+// attachTermWidth is the terminal's width, 100 when it cannot be read.
+func attachTermWidth() int {
+	ws, err := unix.IoctlGetWinsize(int(os.Stdout.Fd()), unix.TIOCGWINSZ)
+	if err != nil || ws.Col < 20 {
+		return 100
+	}
+	return int(ws.Col)
 }
 
 func (a *botAttach) run(in *os.File) int {
@@ -239,30 +261,107 @@ func attachRawTerminal(in *os.File) func() {
 
 const attachPrompt = "› "
 
-// say prints lines above the input line and redraws what the human is typing.
+// say prints lines above the footer (the status line and the input) and
+// draws the footer again under them.
 func (a *botAttach) say(text string) {
 	a.outMu.Lock()
 	defer a.outMu.Unlock()
-	a.mu.Lock()
-	line := string(a.line)
-	a.mu.Unlock()
 	var b strings.Builder
-	b.WriteString("\r\x1b[K")
+	b.WriteString(a.clearFooter())
 	for _, l := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
 		b.WriteString(l)
 		b.WriteString("\r\n")
 	}
-	b.WriteString(attachPrompt + line)
+	b.WriteString(a.footer())
 	_, _ = io.WriteString(a.out, b.String())
 }
 
+// redraw draws the footer again in place: the input changed, or the state the
+// status line shows did.
 func (a *botAttach) redraw() {
 	a.outMu.Lock()
 	defer a.outMu.Unlock()
+	_, _ = io.WriteString(a.out, a.clearFooter()+a.footer())
+}
+
+// clearFooter moves to the footer's first row, clearing every row of it.
+// Called with outMu held.
+func (a *botAttach) clearFooter() string {
+	out := "\r\x1b[K"
+	for i := 1; i < a.footerRows; i++ {
+		out += "\x1b[1A\r\x1b[K"
+	}
+	return out
+}
+
+// footer is the status line and the input line, and records the rows they
+// take (a long input wraps). Called with outMu held.
+func (a *botAttach) footer() string {
+	w := max(a.width(), 20)
 	a.mu.Lock()
-	line := string(a.line)
+	status := a.statusLine(w - 1)
+	input := attachPrompt + string(a.line)
 	a.mu.Unlock()
-	_, _ = io.WriteString(a.out, "\r\x1b[K"+attachPrompt+line)
+	n := utf8.RuneCountInString(input)
+	a.footerRows = 2 + (n-1)/w
+	return "\x1b[2m" + status + "\x1b[0m\r\n" + input
+}
+
+// statusLine is the model, thinking, context and state, cut to width. Called
+// with a.mu held.
+func (a *botAttach) statusLine(width int) string {
+	var parts []string
+	if a.model.Name != "" {
+		parts = append(parts, a.model.Name)
+	} else if a.model.ID != "" {
+		parts = append(parts, a.model.ID)
+	}
+	if a.thinking != "" {
+		parts = append(parts, "thinking "+a.thinking)
+	}
+	if c := a.ctx; c.Tokens > 0 {
+		if c.Window > 0 {
+			pct := c.Percent
+			if pct == 0 {
+				pct = float64(c.Tokens) / float64(c.Window) * 100
+			}
+			parts = append(parts, fmt.Sprintf("ctx %s/%s %d%%", formatTokens(c.Tokens), formatTokens(c.Window), int(pct+0.5)))
+		} else {
+			parts = append(parts, "ctx "+formatTokens(c.Tokens))
+		}
+	}
+	switch {
+	case a.conn == nil:
+		parts = append(parts, "not running")
+	case len(a.asks) > 0:
+		parts = append(parts, "waiting on you")
+	case !a.ready:
+		parts = append(parts, "starting")
+	case a.busy:
+		parts = append(parts, "working")
+	default:
+		parts = append(parts, "idle")
+	}
+	line := "─ " + strings.Join(parts, " · ") + " "
+	if n := utf8.RuneCountInString(line); n < width {
+		line += strings.Repeat("─", width-n)
+	} else if n > width {
+		line = string([]rune(line)[:width])
+	}
+	return line
+}
+
+// formatTokens is a token count as 41k or 1M.
+func formatTokens(n int64) string {
+	switch {
+	case n < 1000:
+		return strconv.FormatInt(n, 10)
+	case n < 1_000_000:
+		return strconv.FormatInt((n+500)/1000, 10) + "k"
+	default:
+		s := strconv.FormatFloat(float64(n)/1_000_000, 'f', 1, 64)
+		return strings.TrimSuffix(s, ".0") + "M"
+	}
 }
 
 func indent(text, prefix string) string {
@@ -432,21 +531,25 @@ func (a *botAttach) handle(line []byte) {
 		a.report()
 	case "host_exit":
 		a.say("— the bot stopped —")
+	case "model_changed", "thinking_level_changed":
+		_ = a.send(map[string]any{"type": "get_state"})
 	case "response":
 		if !f.Success && f.Error != "" {
 			a.say("  (" + f.Error + ")")
 		}
-		var st struct {
-			SessionID string `json:"sessionId"`
-		}
-		if f.ompFrame.Data != nil && json.Unmarshal(f.ompFrame.Data, &st) == nil && st.SessionID != "" {
+		// get_state's answer: the only response that carries a session id.
+		if st, ok := decodeOmpState(f.ompFrame.Data); ok && st.SessionID != "" {
 			a.mu.Lock()
-			changed := a.sid != st.SessionID
 			a.sid = st.SessionID
-			a.mu.Unlock()
-			if changed {
-				a.report()
+			if st.Model != nil {
+				a.model, a.efforts = *st.Model, st.Efforts
 			}
+			a.thinking = st.Thinking
+			if st.Context != nil {
+				a.ctx = *st.Context
+			}
+			a.mu.Unlock()
+			a.report()
 		}
 	}
 }
@@ -633,6 +736,8 @@ func (a *botAttach) report() {
 	if a.herdr != nil {
 		a.herdr.report(a.state())
 	}
+	// Every state change is the status line's too.
+	a.redraw()
 }
 
 // --- input -------------------------------------------------------------------------
@@ -817,6 +922,9 @@ func (a *botAttach) submit(text string) {
 		}
 		return
 	}
+	if a.command(text) {
+		return
+	}
 	cmd := map[string]any{"type": "prompt", "message": text}
 	if busy {
 		cmd["streamingBehavior"] = "steer"
@@ -828,6 +936,103 @@ func (a *botAttach) submit(text string) {
 	// Working from the moment it is sent: herdr's `agent prompt --wait` gives
 	// up if it does not see working within seconds of the submit.
 	a.setBusy(true)
+}
+
+// command runs /model and /thinking here, where they change the bot over RPC
+// (lasso keeps the change in the bot's settings when omp reports it), rather
+// than sending them to omp as a message. Anything else is not a command.
+func (a *botAttach) command(text string) bool {
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return false
+	}
+	arg := strings.Join(fields[1:], " ")
+	switch fields[0] {
+	case "/model":
+		a.mu.Lock()
+		current := a.model.selector()
+		a.mu.Unlock()
+		if arg == "" {
+			models := attachModels(current)
+			a.mu.Lock()
+			a.models = models
+			a.mu.Unlock()
+			var b strings.Builder
+			for i, m := range models {
+				mark := ""
+				if m == current {
+					mark = "  ✓"
+				}
+				fmt.Fprintf(&b, "  %d) %s%s\n", i+1, m, mark)
+			}
+			b.WriteString("  pick a number, or /model <provider/model>")
+			a.say(b.String())
+			return true
+		}
+		sel := arg
+		a.mu.Lock()
+		if n, err := strconv.Atoi(arg); err == nil && n >= 1 && n <= len(a.models) {
+			sel = a.models[n-1]
+		}
+		a.mu.Unlock()
+		provider, id, ok := strings.Cut(sel, "/")
+		if !ok || provider == "" || id == "" {
+			a.say("  (a model is provider/model, or a number from /model)")
+			return true
+		}
+		if err := a.send(map[string]any{"type": "set_model", "provider": provider, "modelId": id}); err != nil {
+			a.say("  (not sent: " + err.Error() + ")")
+			return true
+		}
+		a.say("  model → " + sel)
+		return true
+	case "/thinking", "/effort":
+		a.mu.Lock()
+		levels := append(append([]string{"off"}, a.efforts...), "auto")
+		current := a.thinking
+		a.mu.Unlock()
+		if arg == "" {
+			var b strings.Builder
+			for _, l := range levels {
+				mark := ""
+				if l == current {
+					mark = "  ✓"
+				}
+				fmt.Fprintf(&b, "  %s%s\n", l, mark)
+			}
+			b.WriteString("  /thinking <level>")
+			a.say(b.String())
+			return true
+		}
+		if !slices.Contains(levels, arg) {
+			a.say("  (one of: " + strings.Join(levels, ", ") + ")")
+			return true
+		}
+		if err := a.send(map[string]any{"type": "set_thinking_level", "level": arg}); err != nil {
+			a.say("  (not sent: " + err.Error() + ")")
+			return true
+		}
+		a.say("  thinking → " + arg)
+		return true
+	}
+	return false
+}
+
+// attachModels is what /model offers: the current model, then the models the
+// host's omp configuration names for its roles.
+func attachModels(current string) []string {
+	var out []string
+	if current != "" {
+		out = append(out, current)
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		for _, m := range ompConfiguredModels(&localBackend{}, home) {
+			if !slices.Contains(out, m) {
+				out = append(out, m)
+			}
+		}
+	}
+	return out
 }
 
 // attachAnswer reads an answer to a question: an option by number (or its
