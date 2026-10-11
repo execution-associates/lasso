@@ -33,10 +33,9 @@ See [Deployment](../deployment/index.md) for which combination fits your setup, 
 | --- | --- | --- | --- |
 | `-herdr-sock` | `HERDR_SOCKET_PATH` | `~/.config/herdr/herdr.sock` | The local herdr server's unix socket. |
 | `-term-cmd` | | `herdr` | Command ttyd runs in the main terminal. |
-| `-shell-cmd` | | empty | Command for the out-of-herdr Terminal tab. Empty means `$SHELL`, then `bash`, then `sh`. On a remote host the tab runs `ssh <host>` instead. |
 | `-term-nice` | | `0` | When non-zero, launch the herdr terminal at this nice level (needs `RLIMIT_NICE` to lower it). `0` disables. |
 | `-term-no-swap` | | `false` | Launch the herdr terminal in a transient systemd scope with `MemorySwapMax=0`, so its memory is never swapped out. |
-| `-spawn-ttyd` | | `true` | Spawn and supervise ttyd as a child process, one per host and role, each on its own unix socket. `false` proxies to an external ttyd on `-ttyd-port` instead, with no Terminal tab. |
+| `-spawn-ttyd` | | `true` | Spawn and supervise ttyd as a child process, one per host, each on its own unix socket. `false` proxies to an external ttyd on `-ttyd-port` instead. |
 | `-ttyd-port` | | `7682` | Loopback port of the external ttyd. Only used with `-spawn-ttyd=false`. |
 | `-poll` | | `2s` | Fallback poll interval for noticing a pane's working directory change. |
 | `-theme` | | `auto` | `auto` follows herdr's `config.toml` live, falling back to `execution-associates` when nothing is configured. Any theme name forces that theme; `lasso serve -h` lists them. See [Theming](../web-ui/theming.md). |
@@ -74,7 +73,6 @@ The CPU and memory caps apply only when `systemd-run` and a user systemd manager
 | `LASSO_BROWSER_MCP_ARGS` | Extra chrome-devtools-mcp flags, split on whitespace (e.g. `--slim`). |
 | `HERDR_SOCKET_PATH` | Default for `-herdr-sock`. |
 | `HERDR_CONFIG_PATH` | The local herdr `config.toml` lasso reads its theme from and writes theme changes to. Default `$XDG_CONFIG_HOME/herdr/config.toml`, else `~/.config/herdr/config.toml`, which is herdr's own order. On a remote host lasso resolves the same chain from that host's environment. |
-| `SHELL` | The Terminal tab's shell when `-shell-cmd` is empty. |
 | `XDG_RUNTIME_DIR` | Its presence (with `systemd-run`) is what lets lasso cap the shared browser in a systemd user scope. |
 | `LASSO_COMPOSER_GUARD` | On by default. Before the chat view types a message into an agent pane, lasso checks that pane's input box holds no unsent draft and refuses if it does. `false` or `0` turns that check off, as an escape hatch if a harness's screen layout changes and the check misfires. |
 
@@ -112,4 +110,4 @@ Read by `lasso notify`, `open`, `mcp`, `connect`, `plugin` and `closeme` (see [C
 
 ### What lasso sets for others
 
-A plugin's MCP server gets `LASSO_PLUGIN_DATA`, its writable data directory (see [Plugins](../plugins/index.md#data-and-logs)). None of lasso's own credentials (`UI_AUTH`, `MCP_OAUTH`, `LASSO_MCP_TOKEN`) reach the processes it starts for others: Chromium gets lasso's environment minus those three, and chrome-devtools-mcp and trusted plugin servers get a minimal allowlisted environment. The Terminal tab's shell has herdr's session variables (`HERDR_ENV`, `HERDR_PANE_ID`, `HERDR_SESSION`) removed, so commands like `herdr update` that refuse to run inside a herdr session work there.
+A plugin's MCP server gets `LASSO_PLUGIN_DATA`, its writable data directory (see [Plugins](../plugins/index.md#data-and-logs)). None of lasso's own credentials (`UI_AUTH`, `MCP_OAUTH`, `LASSO_MCP_TOKEN`) reach the processes it starts for others: Chromium gets lasso's environment minus those three, and chrome-devtools-mcp and trusted plugin servers get a minimal allowlisted environment.

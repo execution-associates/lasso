@@ -1,6 +1,6 @@
 ---
 title: The terminal
-description: The herdr terminal, the plain Terminal tab, pasting and uploading files, the phone input dial and touch gestures, and the chat and Agents views.
+description: The herdr terminal, pasting and uploading files, the phone input dial and touch gestures, and the chat and Agents views.
 order: 31
 nav_title: Terminal
 ---
@@ -34,16 +34,7 @@ The terminal can only receive text, so lasso turns a file into a path:
 
 The same upload path is used by the chat composer's attach button, the New dialog's prompt field (paste a screenshot there) and the Files tab's upload button.
 
-## The Terminal tab
-
-The sidebar's **Terminal** tab is a plain shell outside herdr, for a quick command that should not become a herdr pane. It runs:
-
-- on the local machine, the command in `-shell-cmd`, or by default `$SHELL`, then `bash`, then `sh`;
-- on a remote host, `ssh <alias>`.
-
-It starts with herdr's environment variables stripped, so tools inside it do not think they are running in a herdr pane.
-
-The **Scratch** sidebar tab is a related tool: a notepad whose contents you can send to the herdr terminal. See [Scratch](./sidebar.md#scratch).
+The **Scratch** sidebar tab is a notepad whose contents you can send to the herdr terminal. See [Scratch](./sidebar.md#scratch).
 
 ## The input dial (phones and narrow windows)
 

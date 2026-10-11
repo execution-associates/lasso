@@ -424,7 +424,7 @@ func hostInUse(host string) bool {
 			}
 		}
 	}
-	return terminals.herdr.resident(host) || terminals.shell.resident(host)
+	return terminals.herdr.resident(host)
 }
 
 // pushTermOwner re-sends host's frame after its terminal-size claim moved, so

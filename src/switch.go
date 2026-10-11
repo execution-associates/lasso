@@ -58,8 +58,8 @@ type ttydInstance struct {
 	lastActive time.Time
 }
 
-// ttydRole owns one terminal role — the left herdr terminal (/terminal) or the
-// right shell tab (/shell) — across every host lasso has driven. Each host gets
+// ttydRole owns a terminal role — the herdr terminal (/terminal) — across
+// every host lasso has driven. Each host gets
 // its OWN ttyd, on its own socket AND its own proxy path (/terminal/<slug>/),
 // because the browser is what picks between them now: a tab viewing norm loads
 // /terminal/norm/ while the tab beside it loads /terminal/titan/, and both are
@@ -74,11 +74,11 @@ type ttydInstance struct {
 // that respawn was the dominant cost of switching: the new ttyd could not bind
 // until the old one had released the shared path, which measured ~2.8s of a
 // ~3.9s switch (ttyd drops its client, SIGHUPs the child `herdr --remote`, then
-// unlinks), serially for both roles, on the request path.
+// unlinks), on the request path.
 type ttydRole struct {
 	parent      context.Context
-	name        string // socket filename stem ("ttyd", "shell")
-	basePath    string // proxy base path ("/terminal", "/shell")
+	name        string // socket filename stem ("ttyd")
+	basePath    string // proxy base path ("/terminal")
 	waitTimeout time.Duration
 
 	mu     sync.Mutex
@@ -270,22 +270,17 @@ func (r *ttydRole) sweepIdle() {
 	}
 }
 
-// terminals holds the two roles (nil when -spawn-ttyd=false).
+// terminals holds the herdr terminal's role (nil when -spawn-ttyd=false).
 var terminals struct {
-	herdr *ttydRole // left "Herdr" terminal (/terminal)
-	shell *ttydRole // right shell tab (/shell)
+	herdr *ttydRole // the "Herdr" terminal (/terminal)
 }
 
-// ensureTerminals makes backend b's pair of terminals resident: the left one
-// runs b.TermCmd() (local herdr, or `herdr --remote <host>`); the shell tab runs
-// b.ShellCmd() (local shell, or `ssh <host>`) with the herdr session markers
-// stripped. Idempotent, so a tab arriving on a warm host pays nothing.
+// ensureTerminals makes backend b's terminal resident: it runs b.TermCmd()
+// (local herdr, or `herdr --remote <host>`). Idempotent, so a tab arriving on a
+// warm host pays nothing.
 func ensureTerminals(b Backend) error {
 	if err := terminals.herdr.ensure(b.Name(), termPrefix()+b.TermCmd(), b.TermEnv()); err != nil {
 		return fmt.Errorf("terminal on %s: %w", b.Name(), err)
-	}
-	if err := terminals.shell.ensure(b.Name(), b.ShellCmd(), outsideHerdrEnv()); err != nil {
-		return fmt.Errorf("shell on %s: %w", b.Name(), err)
 	}
 	return nil
 }

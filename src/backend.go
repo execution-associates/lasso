@@ -46,11 +46,9 @@ type Backend interface {
 	// GitOut runs `git -C dir args...` on the host and returns stdout.
 	GitOut(dir string, args ...string) (string, error)
 
-	// TermCmd / ShellCmd are the commands the two ttyd terminals run for this
-	// host (left "Herdr" terminal and the right shell tab). TermEnv overrides the
-	// left terminal's environment (nil = inherit the viewer's env).
+	// TermCmd is the command the herdr terminal's ttyd runs for this host.
+	// TermEnv overrides its environment (nil = inherit the viewer's env).
 	TermCmd() string
-	ShellCmd() string
 	TermEnv() []string
 
 	// HomeDir is the host's home directory, for ~-expansion in path inputs.
@@ -264,13 +262,10 @@ func (b *localBackend) GitOut(dir string, args ...string) (string, error) {
 func (b *localBackend) HomeDir() (string, error) { return os.UserHomeDir() }
 func (b *localBackend) PasteFileDir() string     { return pasteFileDir() }
 
-// TermCmd/ShellCmd/TermEnv reproduce the historical local terminal wiring: the
-// left terminal runs *termCmd inheriting the viewer's env (so it joins the same
-// herdr session); the shell tab runs the resolved shell. TermEnv is nil here —
-// startTtyd inherits the viewer env. (The shell tab's env-stripping is applied
-// by the caller via outsideHerdrEnv, unchanged.)
+// TermCmd/TermEnv: the local terminal runs *termCmd inheriting the viewer's
+// env (so it joins the same herdr session). TermEnv is nil here — startTtyd
+// inherits the viewer env.
 func (b *localBackend) TermCmd() string   { return *termCmd }
-func (b *localBackend) ShellCmd() string  { return shellCommand() }
 func (b *localBackend) TermEnv() []string { return nil }
 
 func (b *localBackend) Close() error { return nil }

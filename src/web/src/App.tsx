@@ -1101,7 +1101,6 @@ function Shell() {
     },
     scratch: { value: "scratch", label: "Scratch", icon: NotebookPen },
     browser: { value: "browser", label: "Browser", icon: Globe },
-    terminal: { value: "terminal", label: "Terminal", icon: SquareTerminal },
     usage: { value: "usage", label: "Usage", icon: Gauge },
     settings: { value: "settings", label: "Settings", icon: Settings },
   }
@@ -1133,7 +1132,6 @@ function Shell() {
                 base="/terminal"
                 title="Herdr terminal"
                 suppressContext
-                inputMode="herdr"
                 hidden={false}
               />
               {/* The grid overlays for the same reason the single chat does: the
@@ -1405,16 +1403,6 @@ function Shell() {
                   {/* Live mode streams only while this is on screen, so an
                       unwatched shared browser can idle out. */}
                   <BrowserTab active={rightView === "browser" && !collapsed} />
-                </Pane>
-                <Pane show={rightView === "terminal"}>
-                  <TerminalFrame
-                    id="shellframe"
-                    base="/shell"
-                    title="Terminal (outside herdr)"
-                    suppressContext={false}
-                    inputMode="shell"
-                    hidden={rightView !== "terminal"}
-                  />
                 </Pane>
                 <Pane show={rightView === "usage"}>
                   <UsageTab active={rightView === "usage"} />

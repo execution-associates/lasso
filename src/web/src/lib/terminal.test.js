@@ -4,20 +4,17 @@ import { api } from "@/lib/api"
 import { enterChordSeq, terminalPasteHost } from "@/lib/terminal"
 
 describe("terminalPasteHost", () => {
-  test("keeps local terminal and shell pastes on the active host", () => {
-    expect(terminalPasteHost("herdr", "local", "local")).toBe("local")
-    expect(terminalPasteHost("shell", "local", "local")).toBe("local")
+  test("keeps a local pane's paste on the active host", () => {
+    expect(terminalPasteHost("local", "local")).toBe("local")
   })
 
   test("routes a native nested attach to its pane filesystem host", () => {
-    expect(terminalPasteHost("herdr", "local", "ticket500")).toBe("ticket500")
-    // The separate shell iframe still runs outside herdr on the active backend.
-    expect(terminalPasteHost("shell", "local", "ticket500")).toBe("local")
+    expect(terminalPasteHost("local", "ticket500")).toBe("ticket500")
   })
 
   test("falls back to the active host until focused-pane metadata arrives", () => {
-    expect(terminalPasteHost("herdr", "ticket500", null)).toBe("ticket500")
-    expect(terminalPasteHost("herdr", null, null)).toBeUndefined()
+    expect(terminalPasteHost("ticket500", null)).toBe("ticket500")
+    expect(terminalPasteHost(null, null)).toBeUndefined()
   })
 })
 
@@ -31,27 +28,22 @@ describe("enterChordSeq", () => {
   })
 
   test("sends herdr a real modified Enter as CSI-u", () => {
-    expect(enterChordSeq(k({ shiftKey: true }), "herdr")).toBe("\x1b[13;2u")
-    expect(enterChordSeq(k({ ctrlKey: true }), "herdr")).toBe("\x1b[13;5u")
-    expect(enterChordSeq(k({ ctrlKey: true, shiftKey: true }), "herdr")).toBe(
+    expect(enterChordSeq(k({ shiftKey: true }))).toBe("\x1b[13;2u")
+    expect(enterChordSeq(k({ ctrlKey: true }))).toBe("\x1b[13;5u")
+    expect(enterChordSeq(k({ ctrlKey: true, shiftKey: true }))).toBe(
       "\x1b[13;6u"
     )
-    expect(enterChordSeq(k({ ctrlKey: true, altKey: true }), "herdr")).toBe(
+    expect(enterChordSeq(k({ ctrlKey: true, altKey: true }))).toBe(
       "\x1b[13;7u"
     )
   })
 
   test("leaves plain, Alt-only and Meta chords to xterm", () => {
-    expect(enterChordSeq(k({}), "herdr")).toBeNull()
-    expect(enterChordSeq(k({ altKey: true }), "herdr")).toBeNull()
+    expect(enterChordSeq(k({}))).toBeNull()
+    expect(enterChordSeq(k({ altKey: true }))).toBeNull()
     expect(
-      enterChordSeq(k({ metaKey: true, ctrlKey: true }), "herdr")
+      enterChordSeq(k({ metaKey: true, ctrlKey: true }))
     ).toBeNull()
-  })
-
-  test("the raw shell keeps line continuation for Shift+Enter only", () => {
-    expect(enterChordSeq(k({ shiftKey: true }), "shell")).toBe("\\\r")
-    expect(enterChordSeq(k({ ctrlKey: true }), "shell")).toBeNull()
   })
 })
 

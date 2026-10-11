@@ -64,7 +64,7 @@ lasso targets one herdr socket protocol (see [herdr version](../getting-started/
 
 ### On lasso's machine
 
-Run `herdr update` yourself. The **Terminal** tab in lasso's sidebar is a convenient place: it runs outside herdr, and lasso strips herdr's session variables from it, so `herdr update` (which refuses to run inside a herdr session) works there.
+Run `herdr update` yourself, from a shell outside herdr (an ssh session, say): it refuses to run inside a herdr session.
 
 `lasso doctor` reports the installed herdr binary, the running server's version and protocol, and whether they match what lasso expects. A herdr update can install a new binary while leaving a compatible server running on the old one; doctor says so, and the running server picks up the new binary on its next restart (`herdr update --handoff` moves live panes across).
 
