@@ -535,3 +535,16 @@ The colours are the Execution Associates palette as isb's web app applies it (`i
 - `build-app.sh` copies them into the bundle, and `BundledFonts.register()` registers them for the app's process only.
 - A font token sets the face through its variable axes (wght, and wdth for Archivo). Parity checks that each font token resolves to its face, and Archivo to its width.
 
+## 12. Rail, inbox, bots and no voice (2026-10-11)
+
+The user reshaped the app:
+
+- **The rail is three buttons.** The top button is the **inbox**: what waits on the human. That means blocked agents, agents that finished unseen and aren't dismissed, bots waiting on an answer, and bots with an unread reply. The agents capsule below it opens the **agents** list. The ellipsis opens **settings**. The tools capsule is gone.
+- **Voice is removed for now.** The capture, transcription and recording UI are gone, along with the V binding, the microphone permission and every voice and recording token. `/api/transcribe` (S2) and bot-send `meta` (S3) stay on the server, unused by the app. The voice code is in git history (`mac: M6 and M7 …`).
+- **"Bot", never "assistant".** The setting is the **default bot**: ui_state `default_bot` (S1, renamed from `assistant_bot`), shown in settings, where one is picked or a `desktop` omp bot is created. A bot's chat opens from the inbox, or from its pane in the agents list.
+- **Agents are grouped by herdr workspace and named by their label, else their tab name** (herdr.dev/docs/agents, "custom agent labels").
+  - The server now carries herdr's label in the fleet listing as `hostPane.agent_label`, from `agent.list`'s `name`.
+  - Until that reaches production, tab names already name the agents in titan's Agents workspace (stub, clem, jessica, …).
+  - A pane that is a bot's (by `pane_id` or label) is listed as the bot, counted once in the badge, and opens the bot's chat.
+- **Parity's named states** are now rail-collapsed, rail-expanded, inbox-open, card-open, list-panel-open, chat-open and settings. "recording" went with voice, and "onboarding" is settings, which still opens itself on the first launch.
+

@@ -2,8 +2,9 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// Owns the rail and the panels beside it (card, list, chat, onboarding; one
-/// at a time), the voice turn, and where a transcript goes.
+/// Owns the rail and the panels beside it, one at a time: the inbox (the
+/// rail's top button), the agents list (the capsule below it), settings (the
+/// ellipsis), an agent's card and a bot's chat.
 @MainActor
 public final class AppCoordinator {
     public let fleet: FleetModel
@@ -12,20 +13,17 @@ public final class AppCoordinator {
     let rail: RailController
     let card: CardController
     let list: ListController
-    let setup: AssistantSetup
+    let setup: BotSetup
     let permissions: Permissions
-    let recording: RecordingModel
     let botActions: BotChatActions
-    private let onboardingModel: OnboardingModel
-    private let onboarding: SidePanel
+    let reads = BotReads()
+    private let inboxModel: InboxModel
+    private let inbox: SidePanel
+    private let settingsModel: SettingsModel
+    private let settings: SidePanel
     private var chat: (model: ChatModel, panel: SidePanel)?
     private var subs: Set<AnyCancellable> = []
     private var hotKey: HotKey?
-
-    /// Where the next transcript goes: the assistant's chat (sent), or the
-    /// open card's composer (left for the user to send).
-    private enum VoiceTarget { case chat, card }
-    private var voiceTarget = VoiceTarget.chat
 
     public init(fleet: FleetModel, sync: FleetSync?, fixture: Fixture?) {
         self.fleet = fleet
@@ -47,91 +45,58 @@ public final class AppCoordinator {
             botActions = FixtureBotChatActions(payload: nil)
             permissions = FixedPermissions(fixture?.permissions ?? [:])
         }
-        let railModel = RailModel(fleet: fleet)
-        rail = RailController(model: railModel)
+        rail = RailController(model: RailModel(fleet: fleet))
         card = CardController(fleet: fleet, actions: cardActions)
         list = ListController(model: ListModel(fleet: fleet, actions: fleetActions))
-        setup = AssistantSetup(fleet: fleet, client: client)
-        let engine = VoiceEngine.selected
-        let liveClient = client ?? LassoClient.configured()
-        recording = RecordingModel(permissions: permissions, engineName: engine.displayName) {
-            VoiceEngine.selected.transcriber(client: liveClient)
-        }
-        onboardingModel = OnboardingModel(
-            permissions: permissions, setup: setup, client: client,
-            baseURL: (client ?? .configured()).baseURL.absoluteString, engine: engine,
-            version: { [weak sync] in sync?.version },
-            usableHosts: { nil })
-        onboarding = SidePanel(size: Theme.Card.size.size, content: OnboardingView(model: onboardingModel))
-        wire(railModel)
+        setup = BotSetup(fleet: fleet, client: client)
+        inboxModel = InboxModel(fleet: fleet, reads: reads)
+        inbox = SidePanel(size: Theme.List.size.size, content: InboxView(model: inboxModel))
+        settingsModel = SettingsModel(
+            permissions: permissions, setup: setup, baseURL: (client ?? .configured()).baseURL.absoluteString,
+            version: { [weak sync] in sync?.version }, usableHosts: { nil })
+        settings = SidePanel(size: Theme.Card.size.size, content: SettingsView(model: settingsModel))
+        wire()
     }
 
     public func start() {
         rail.show()
+        KeyHints.shared.start()
         hotKey = HotKey(token: Theme.summonKey) { [weak self] in self?.rail.summon() }
-        if sync != nil, !OnboardingModel.isDone { openOnboarding() }
+        if sync != nil, !SettingsModel.seen { openSettings() }
     }
 
-    private func wire(_ railModel: RailModel) {
-        rail.keepOpen = { [weak self] in
-            guard let self else { return false }
-            return self.card.isOpen || self.list.isOpen || self.chat?.panel.isOpen == true || self.onboarding.isOpen
-                || self.recording.isRecording
-        }
+    private func wire() {
         let railFrame = { [weak self] in self?.rail.panel.frame ?? .zero }
         card.railFrame = railFrame
         list.railFrame = railFrame
-        onboarding.railFrame = railFrame
-
-        railModel.onPickAgent = { [weak self] p in self?.openCard(p) }
-        railModel.onInbox = { [weak self] in self?.toggleList() }
-        railModel.onOverflow = { [weak self] in self?.toggleList() }
-        railModel.onChat = { [weak self] in self?.openChat() }
-        railModel.onRecord = { [weak self] in self?.recordFromRail() }
-        railModel.onAttach = { [weak self] in
-            self?.openChat()
-            self?.chat?.model.attachScreenshot()
-        }
-        list.model.onOpen = { [weak self] p in self?.openCard(p) }
-        list.model.onDictate = { [weak self] p in
-            guard let self else { return }
-            self.openCard(p)
-            self.voiceTarget = .card
-            self.recording.toggle()
-        }
-        card.recording = recording
-        KeyHints.shared.start()
-        card.onRecord = { [weak self] in
-            self?.voiceTarget = .card
-            self?.recording.keyDown()
-        }
-        card.panel.onKeyUp = { [weak self] e in self?.keyUp(e) ?? false }
-
-        onboarding.onKey = { [weak self] e in
+        inbox.railFrame = railFrame
+        settings.railFrame = railFrame
+        rail.keepOpen = { [weak self] in
             guard let self else { return false }
-            if Keys.esc.matches(e) || Keys.send.matches(e) {
-                self.onboardingModel.finish()
-                return true
-            }
-            return false
+            return self.card.isOpen || self.list.isOpen || self.inbox.isOpen || self.settings.isOpen
+                || self.chat?.panel.isOpen == true
         }
-        onboardingModel.onDone = { [weak self] in
-            self?.onboarding.close()
-        }
-        onboardingModel.onEngineChange = { [weak self] e in self?.recording.setEngine(e.displayName) }
 
-        recording.$phase
-            .map { p -> Bool in
-                switch p {
-                case .recording, .transcribing: true
-                default: false
-                }
-            }
-            .removeDuplicates()
-            .sink { [weak railModel] on in railModel?.recording = on }
-            .store(in: &subs)
-        recording.onTranscript = { [weak self] t in self?.deliver(t) }
-        recording.onError = { [weak self] m in self?.say(m) }
+        rail.model.onInbox = { [weak self] in self?.toggleInbox() }
+        rail.model.onAgents = { [weak self] in self?.toggleList() }
+        rail.model.onSettings = { [weak self] in self?.openSettings() }
+
+        list.model.onOpen = { [weak self] p in self?.openCard(p) }
+        list.model.onOpenBot = { [weak self] b in self?.openChat(b) }
+        inboxModel.onOpenAgent = { [weak self] p in self?.openCard(p) }
+        inboxModel.onOpenBot = { [weak self] b in self?.openChat(b) }
+        inboxModel.onClose = { [weak self] in self?.inbox.close() }
+        inbox.onKey = { [weak self] e in
+            guard Keys.esc.matches(e) else { return false }
+            self?.inbox.close()
+            return true
+        }
+        settingsModel.onClose = { [weak self] in self?.settings.close() }
+        settings.onKey = { [weak self] e in
+            guard Keys.esc.matches(e) else { return false }
+            self?.settingsModel.close()
+            return true
+        }
 
         fleet.$bots
             .sink { [weak self] bots in
@@ -150,8 +115,9 @@ public final class AppCoordinator {
     private func closeAll(except keep: AnyObject? = nil) {
         if keep !== card { card.close() }
         if keep !== list { list.close() }
+        if keep !== inbox { inbox.close() }
+        if keep !== settings { settings.close() }
         if let c = chat, keep !== c.panel { c.panel.close() }
-        if keep !== onboarding { onboarding.close() }
     }
 
     func openCard(_ p: HostPane) {
@@ -164,35 +130,32 @@ public final class AppCoordinator {
         list.toggle()
     }
 
-    func openOnboarding() {
-        closeAll(except: onboarding)
-        Task { await onboardingModel.refresh() }
-        onboarding.open()
+    func toggleInbox() {
+        closeAll(except: inbox)
+        if inbox.isOpen { inbox.close() } else { inbox.open() }
     }
 
-    /// The assistant's chat; without an assistant yet, onboarding instead.
-    func openChat() {
-        guard let bot = setup.assistant else {
-            openOnboarding()
-            return
-        }
+    func openSettings() {
+        closeAll(except: settings)
+        settingsModel.refresh()
+        settings.open()
+    }
+
+    /// A bot's chat.
+    func openChat(_ bot: BotView) {
+        reads.markRead(bot)
         if chat?.model.bot.name != bot.name {
             chat?.model.stopPolling()
             chat?.panel.close()
             let m = ChatModel(bot: bot, actions: botActions)
-            let panel = SidePanel(size: Theme.Card.size.size, content: ChatView(model: m, recording: recording))
+            let panel = SidePanel(size: Theme.Card.size.size, content: ChatView(model: m))
             panel.railFrame = { [weak self] in self?.rail.panel.frame ?? .zero }
             panel.onKey = { [weak self, weak m] e in
                 guard let self, let m else { return false }
                 return self.chatKey(e, m)
             }
-            panel.onKeyUp = { [weak self] e in self?.keyUp(e) ?? false }
             panel.onClosed = { [weak m] in m?.stopPolling() }
             m.onClose = { [weak panel] in panel?.close() }
-            m.onRecord = { [weak self] in
-                self?.voiceTarget = .chat
-                self?.recording.toggle()
-            }
             chat = (m, panel)
         }
         guard let c = chat else { return }
@@ -204,7 +167,7 @@ public final class AppCoordinator {
     private func chatKey(_ e: NSEvent, _ m: ChatModel) -> Bool {
         if m.composerFocused { return false }
         if Keys.esc.matches(e) {
-            if recording.isRecording { recording.cancel() } else { chat?.panel.close() }
+            chat?.panel.close()
             return true
         }
         if let n = Keys.digit(e) {
@@ -212,11 +175,6 @@ public final class AppCoordinator {
             return true
         }
         switch true {
-        case Keys.record.matches(e):
-            if !e.isARepeat {
-                voiceTarget = .chat
-                recording.keyDown()
-            }
         case Keys.attach.matches(e): m.attachScreenshot()
         case Keys.send.matches(e): if m.composer.isEmpty { m.focusComposer() } else { m.send() }
         case Keys.editStep.matches(e): m.editStep()
@@ -224,36 +182,5 @@ public final class AppCoordinator {
         default: return false
         }
         return true
-    }
-
-    private func keyUp(_ e: NSEvent) -> Bool {
-        guard Keys.record.matches(e) else { return false }
-        recording.keyUp()
-        return true
-    }
-
-    /// The rail's record tool: open the chat and start a hands-free turn
-    /// (or end the one running).
-    private func recordFromRail() {
-        voiceTarget = .chat
-        if !recording.isRecording { openChat() }
-        recording.toggle()
-    }
-
-    private func deliver(_ t: Transcript) {
-        switch voiceTarget {
-        case .chat:
-            if chat == nil || chat?.panel.isOpen == false { openChat() }
-            chat?.model.sendTranscript(t.text, meta: t.meta)
-        case .card:
-            card.appendToComposer(t.text, engine: t.engine)
-        }
-    }
-
-    private func say(_ s: String) {
-        switch voiceTarget {
-        case .chat: chat?.model.say(s)
-        case .card: card.say(s)
-        }
     }
 }

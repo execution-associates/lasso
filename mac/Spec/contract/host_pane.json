@@ -10,6 +10,7 @@
   "terminal_title": "x",
   "cwd": "x",
   "agent": "x",
+  "agent_label": "x",
   "agent_status": "x",
   "has_agent": true,
   "focused": true,

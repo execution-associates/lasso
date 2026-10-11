@@ -127,7 +127,7 @@ public final class LiveCardActions: CardActions {
 }
 
 public enum PermissionError: Error, CustomStringConvertible {
-    case screenRecording, noDisplay, encode, microphone
+    case screenRecording, noDisplay, encode
 
     public var description: String {
         switch self {
@@ -135,8 +135,6 @@ public enum PermissionError: Error, CustomStringConvertible {
             "Screen Recording is off for Lasso. Allow it in System Settings › Privacy & Security › Screen Recording, then press S again"
         case .noDisplay: "no display to capture"
         case .encode: "could not encode the screenshot"
-        case .microphone:
-            "Microphone access is off for Lasso. Allow it in System Settings › Privacy & Security › Microphone"
         }
     }
 }

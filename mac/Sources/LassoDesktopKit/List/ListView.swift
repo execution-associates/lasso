@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The fleet panel (ref a3): group headers, then rows of state dot, agent
-/// avatar, name, and a microphone and close at the end. Pins come first.
+/// The fleet panel (ref a3): a header per workspace, then rows of state dot,
+/// agent avatar, name (the agent's label or tab) and a close at the end.
+/// Pins come first.
 public struct ListView: View {
     @ObservedObject var model: ListModel
     @ObservedObject var fleet: FleetModel
@@ -22,11 +23,8 @@ public struct ListView: View {
                         ForEach(model.pinned) { rowView($0, pinnedSection: true) }
                     }
                     ForEach(Array(model.groups.enumerated()), id: \.element.id) { gi, g in
-                        ForEach(Array(g.repos.enumerated()), id: \.element.id) { ri, r in
-                            let machine = model.groups.count > 1 ? " · \(g.machine)" : ""
-                            header(r.name + machine, anchor: "list.header[\(gi).\(ri)]")
-                            ForEach(r.agents) { rowView($0, pinnedSection: false) }
-                        }
+                        header(g.title, anchor: "list.header[\(gi)]")
+                        ForEach(g.agents) { rowView($0, pinnedSection: false) }
                     }
                     if fleet.agents.isEmpty {
                         Text("No agents running")
@@ -87,10 +85,7 @@ public struct ListView: View {
                 .frame(height: row.number("height"))
             } else {
                 HStack(spacing: 0) {
-                    Button {
-                        model.selected = key
-                        model.onOpen(p)
-                    } label: {
+                    Button { model.open(p) } label: {
                         HStack(spacing: 0) {
                             Circle()
                                 .fill(StateStyle.color(p.state))
@@ -116,12 +111,8 @@ public struct ListView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(
-                        "\(p.displayName), \(p.state.label), \(p.agent) on \(p.host_label)\(pinned ? ", pinned" : "")")
-                    Button { model.dictate(p) } label: {
-                        Image(systemName: "mic").frame(width: row.number("action_w"), height: row.number("height")).contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Dictate to \(p.displayName)")
+                        "\(p.displayName), \(p.state.label), \(p.agent) in \(p.group) on \(p.host_label)\(pinned ? ", pinned" : "")"
+                            + (fleet.bot(for: p) != nil ? ", a bot" : ""))
                     Button { model.askEnd(p) } label: {
                         Image(systemName: "xmark").frame(width: row.number("action_w"), height: row.number("height")).contentShape(Rectangle())
                     }

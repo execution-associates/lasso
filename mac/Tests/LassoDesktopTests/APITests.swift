@@ -14,7 +14,7 @@ private func golden<T: Decodable>(_ name: String, _ type: T.Type) throws -> T {
 /// field set, so decoding them proves the models match the server's tags.
 @Test func modelsDecodeTheServersContract() throws {
     let pane = try golden("host_pane", HostPane.self)
-    #expect(pane.transcript_at == 1 && pane.repo_label == "x" && pane.closed == true)
+    #expect(pane.transcript_at == 1 && pane.repo_label == "x" && pane.closed == true && pane.agent_label == "x")
     let bot = try golden("bot_view", BotView.self)
     #expect(bot.name == "x" && bot.runtime == "x" && bot.waiting_for == "x")
     let chat = try golden("chat_payload", ChatPayload.self)
@@ -22,7 +22,7 @@ private func golden<T: Decodable>(_ name: String, _ type: T.Type) throws -> T {
     #expect(chat.items.first?.meta?["x"] == "x")
     #expect(chat.pending_ui?.first?.options == ["x"])
     let ui = try golden("ui_state", UIStateSlice.self)
-    #expect(ui.pinned_agents == ["x"] && ui.assistant_bot == "x" && ui.dismissed_cards?["x"] == 1)
+    #expect(ui.pinned_agents == ["x"] && ui.default_bot == "x" && ui.dismissed_cards?["x"] == 1)
     let hosts = try golden("hosts", HostsPayload.self)
     #expect(hosts.hosts.first?.compatible == true && hosts.local.hostname == "x")
 }
@@ -54,4 +54,17 @@ private func golden<T: Decodable>(_ name: String, _ type: T.Type) throws -> T {
     let r = c.request("/api/all-panes", query: ["host": "local"])
     #expect(r.value(forHTTPHeaderField: "Authorization") == "Basic dTpw")
     #expect(r.url?.absoluteString == "http://127.0.0.1:18090/api/all-panes?host=local")
+}
+
+/// Agents are named by their herdr label, else their tab, never the
+/// workspace: one workspace ("Agents") holds several of them.
+@Test func agentsAreNamedByLabelThenTab() {
+    var p = HostPane(
+        host: "local", host_label: "titan", pane_id: "w1:p1", workspace_id: "w1", workspace_label: "Agents",
+        tab_id: "w1:t1", tab_label: "stub-tab", cwd: "/", agent: "claude", agent_status: "idle", has_agent: true,
+        focused: false)
+    #expect(p.displayName == "stub-tab")
+    #expect(p.group == "Agents")
+    p.agent_label = "stub"
+    #expect(p.displayName == "stub")
 }

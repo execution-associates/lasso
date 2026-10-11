@@ -34,9 +34,10 @@ public final class FleetModel: ObservableObject {
         return a.key < b.key
     }
 
-    /// What is waiting on the human: blocked agents plus blocked bots.
+    /// What is waiting on the human: blocked agents that are not a bot's own
+    /// pane, plus blocked bots (a bot and its pane count once).
     public var badgeCount: Int {
-        agents.filter { $0.state == .blocked }.count + bots.filter { $0.state == "blocked" }.count
+        agents.filter { $0.state == .blocked && bot(for: $0) == nil }.count + bots.filter { $0.state == "blocked" }.count
     }
 
     /// The agents capsule's slots: at most `maxSlots`; when the fleet is

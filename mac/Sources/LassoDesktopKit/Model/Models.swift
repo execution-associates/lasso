@@ -16,6 +16,8 @@ public struct HostPane: Codable, Sendable, Equatable, Identifiable {
     public var terminal_title: String?
     public var cwd: String
     public var agent: String
+    /// The agent's custom label (`herdr agent rename`).
+    public var agent_label: String?
     public var agent_status: String
     public var has_agent: Bool
     public var focused: Bool
@@ -33,16 +35,19 @@ public struct HostPane: Codable, Sendable, Equatable, Identifiable {
     public var key: String { host + "\u{0}" + pane_id }
     public var id: String { key }
 
-    /// The display name, by the web client's rule (agents.ts): the workspace
-    /// label unless it is "Scratch", then the pane label, tab label, terminal
-    /// title, pane id.
+    /// What to call the agent: its herdr label, else its tab's name (herdr's
+    /// custom agent labels, herdr.dev/docs/agents), else the pane's own label
+    /// or title. Never the workspace: one workspace holds several agents, and
+    /// it is what the list groups them by.
     public var displayName: String {
-        for s in [workspace_label == "Scratch" ? "" : workspace_label, pane_label ?? "", tab_label,
-                  terminal_title ?? ""] where !s.isEmpty {
+        for s in [agent_label ?? "", tab_label, pane_label ?? "", terminal_title ?? ""] where !s.isEmpty {
             return s
         }
         return pane_id
     }
+
+    /// The group the agent is listed under: its workspace.
+    public var group: String { workspace_label.isEmpty ? workspace_id : workspace_label }
 
     public var state: AgentState { AgentState(wire: agent_status) }
 }
@@ -121,11 +126,11 @@ public struct HostsPayload: Codable, Sendable, Equatable {
 }
 
 /// The slice of GET /api/ui-state the app reads. src/db.go:276 (uiState).
-/// assistant_bot and dismissed_cards are the proposed S1 fields (PLAN 3);
+/// default_bot and dismissed_cards are the S1 fields (PLAN 3);
 /// their absence is how the app knows the server lacks them.
 public struct UIStateSlice: Codable, Sendable, Equatable {
     public var pinned_agents: [String]?
-    public var assistant_bot: String?
+    public var default_bot: String?
     public var dismissed_cards: [String: Int64]?
 }
 
@@ -141,6 +146,7 @@ public struct BotView: Codable, Sendable, Equatable, Identifiable {
     public var state: String
     /// A claude bot's herdr pane, while it runs (its chat is that pane's).
     public var pane_id: String?
+    public var dir_path: String?
     public var live_model: LiveModel?
     public var waiting_for: String?
     public var last_text: String?

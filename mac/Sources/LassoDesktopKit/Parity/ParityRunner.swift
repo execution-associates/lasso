@@ -11,7 +11,7 @@ public final class ParityRunner {
     /// States whose surfaces exist. The rest report as pending until their
     /// milestone lands (PLAN 6).
     public static let implemented: Set<String> = [
-        "rail-collapsed", "rail-expanded", "card-open", "list-panel-open", "chat-open", "recording", "onboarding",
+        "rail-collapsed", "rail-expanded", "inbox-open", "card-open", "list-panel-open", "chat-open", "settings",
     ]
 
     let spec: Spec
@@ -134,17 +134,21 @@ public final class ParityRunner {
         var card: CardModel?
         var bindings: Set<KeyBinding>?
         var recapture: (@MainActor () async throws -> Capture)?
-        if fixture.ui.onboarding == true {
-            let setup = AssistantSetup(fleet: fleet, client: nil)
+        if fixture.ui.settings == true {
+            let setup = BotSetup(fleet: fleet, client: nil)
             let hosts = fixture.server.hosts
             let usable = hosts.hosts.filter { $0.reachable && $0.running && $0.compatible }.count + 1
-            let m = OnboardingModel(
-                permissions: FixedPermissions(fixture.permissions), setup: setup, client: nil,
-                baseURL: "http://127.0.0.1:18090", engine: .lasso, version: { fixture.server.version },
-                usableHosts: { (usable, hosts.hosts.count + 1) })
-            m.show(transcribe: fixture.transcribe)
-            bindings = [Keys.esc, Keys.send]
-            let make: @MainActor () async throws -> Capture = { try await Capturer.capture(OnboardingView(model: m), size: Theme.Card.size.size) }
+            let m = SettingsModel(
+                permissions: FixedPermissions(fixture.permissions), setup: setup, baseURL: "http://127.0.0.1:18090",
+                version: { fixture.server.version }, usableHosts: { (usable, hosts.hosts.count + 1) })
+            bindings = [Keys.esc]
+            let make: @MainActor () async throws -> Capture = { try await Capturer.capture(SettingsView(model: m), size: Theme.Card.size.size) }
+            cap = try await make()
+            recapture = make
+        } else if fixture.ui.inbox == true {
+            let m = InboxModel(fleet: fleet, reads: BotReads(), now: { fixture.now })
+            bindings = [Keys.esc]
+            let make: @MainActor () async throws -> Capture = { try await Capturer.capture(InboxView(model: m), size: Theme.List.size.size) }
             cap = try await make()
             recapture = make
         } else if fixture.ui.chat == true, let name = fixture.ui.bot,
@@ -153,30 +157,9 @@ public final class ParityRunner {
             let m = ChatModel(bot: bot, actions: FixtureBotChatActions(payload: fixture.chats["bot:\(name)"]))
             m.show(chat: fixture.chats["bot:\(name)"])
             bindings = m.activeBindings
-            if let r = fixture.ui.recording {
-                let rec = RecordingModel(
-                    permissions: FixedPermissions(fixture.permissions), engineName: r["engine"]?.string ?? "lasso"
-                ) { ParakeetTranscriber() }
-                rec.showForParity(
-                    phase: r["phase"]?.string == "transcribing" ? .transcribing : .recording(handsFree: true),
-                    level: r["level"]?.double ?? 0.5)
-                model.recording = true
-                let gap = Theme.Card.placement.number("gap")
-                let view = HStack(alignment: .top, spacing: gap - RailMetrics.margin) {
-                    ChatView(model: m, recording: rec)
-                    RailView(model: model)
-                }
-                let size = CGSize(
-                    width: Theme.Card.size.size.width + gap - RailMetrics.margin + railSize().width,
-                    height: max(Theme.Card.size.size.height, railSize().height))
-                let make: @MainActor () async throws -> Capture = { try await Capturer.capture(view, size: size) }
-                cap = try await make()
-                recapture = make
-            } else {
-                let make: @MainActor () async throws -> Capture = { try await Capturer.capture(ChatView(model: m), size: Theme.Card.size.size) }
-                cap = try await make()
-                recapture = make
-            }
+            let make: @MainActor () async throws -> Capture = { try await Capturer.capture(ChatView(model: m), size: Theme.Card.size.size) }
+            cap = try await make()
+            recapture = make
         } else if fixture.ui.list == true {
             let l = ListModel(fleet: fleet, actions: FixtureFleetActions(), now: { fixture.now })
             l.selected = fixture.ui.selected

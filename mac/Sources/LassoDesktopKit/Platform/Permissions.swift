@@ -1,4 +1,3 @@
-@preconcurrency import AVFoundation
 import AppKit
 import ApplicationServices
 import CoreGraphics
@@ -16,14 +15,12 @@ public enum PermissionState: String, Sendable {
     }
 }
 
-/// Microphone, screen recording and accessibility: checked before any use
-/// (constraint 3), shown in onboarding, and asked for only from a click.
+/// Screen recording and accessibility: checked before any use (constraint
+/// 3), shown in settings, and asked for only from a click.
 @MainActor
 public protocol Permissions: AnyObject {
-    var microphone: PermissionState { get }
     var screenRecording: PermissionState { get }
     var accessibility: PermissionState { get }
-    func requestMicrophone() async -> Bool
     func requestScreenRecording()
     func openAccessibilitySettings()
 }
@@ -32,28 +29,12 @@ public protocol Permissions: AnyObject {
 public final class SystemPermissions: Permissions {
     public init() {}
 
-    public var microphone: PermissionState {
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized: .granted
-        case .notDetermined: .notDetermined
-        default: .denied
-        }
-    }
-
     /// macOS does not say "never asked" for screen recording; not granted
     /// reads as off.
     public var screenRecording: PermissionState { CGPreflightScreenCaptureAccess() ? .granted : .denied }
 
-    /// Only a global push-to-talk would need it (PLAN 4.1); the app works without.
+    /// Nothing uses it yet; shown so the state is never a surprise.
     public var accessibility: PermissionState { AXIsProcessTrusted() ? .granted : .notDetermined }
-
-    public func requestMicrophone() async -> Bool {
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized: return true
-        case .notDetermined: return await AVCaptureDevice.requestAccess(for: .audio)
-        default: return false
-        }
-    }
 
     public func requestScreenRecording() {
         if !CGPreflightScreenCaptureAccess() { _ = CGRequestScreenCaptureAccess() }
@@ -69,7 +50,6 @@ public final class SystemPermissions: Permissions {
 /// The fixtures' permissions: fixed states, and requests do nothing.
 @MainActor
 public final class FixedPermissions: Permissions {
-    public let microphone: PermissionState
     public let screenRecording: PermissionState
     public let accessibility: PermissionState
 
@@ -77,12 +57,10 @@ public final class FixedPermissions: Permissions {
         func parse(_ s: String?) -> PermissionState {
             s == "authorized" ? .granted : PermissionState(rawValue: s ?? "") ?? .notDetermined
         }
-        microphone = parse(d["microphone"])
         screenRecording = parse(d["screen_recording"])
         accessibility = parse(d["accessibility"])
     }
 
-    public func requestMicrophone() async -> Bool { microphone == .granted }
     public func requestScreenRecording() {}
     public func openAccessibilitySettings() {}
 }

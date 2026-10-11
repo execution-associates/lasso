@@ -11,20 +11,16 @@ public protocol FleetActions: AnyObject {
     func end(_ pane: HostPane) async throws -> String
 }
 
+/// One workspace's agents.
 public struct FleetGroup: Identifiable, Equatable {
-    public struct Repo: Identifiable, Equatable {
-        public var id: String { name }
-        public var name: String
-        public var agents: [HostPane]
-    }
-
-    public var id: String { machine }
-    public var machine: String
-    public var repos: [Repo]
+    public var id: String
+    public var title: String
+    public var agents: [HostPane]
 }
 
-/// The fleet as the list shows it: pins first, then machine → repo → agent,
-/// each level most urgent first.
+/// The fleet as the list shows it: pins first, then one group per herdr
+/// workspace (and machine, when there is more than one), each agent named by
+/// its label or tab and listed most urgent first.
 @MainActor
 public final class ListModel: ObservableObject {
     @Published public var selected: String?
@@ -38,8 +34,8 @@ public final class ListModel: ObservableObject {
     public let now: () -> Date
     public var onOpen: (HostPane) -> Void = { _ in }
     public var onClose: () -> Void = {}
-    /// The row's microphone: open the agent's card and dictate into it.
-    public var onDictate: (HostPane) -> Void = { _ in }
+    /// A bot's pane opens the bot's chat rather than a card.
+    public var onOpenBot: (BotView) -> Void = { _ in }
 
     public init(fleet: FleetModel, actions: FleetActions, now: @escaping () -> Date = Date.init) {
         self.fleet = fleet
@@ -56,26 +52,22 @@ public final class ListModel: ObservableObject {
 
     public var groups: [FleetGroup] {
         let agents = fleet.agents
-        var machines: [String] = []
-        var byMachine: [String: [HostPane]] = [:]
+        let machines = Set(agents.map(\.host)).count > 1
+        var order: [String] = []
+        var byID: [String: FleetGroup] = [:]
         for a in agents {
-            if byMachine[a.host_label] == nil { machines.append(a.host_label) }
-            byMachine[a.host_label, default: []].append(a)
-        }
-        return machines.map { m in
-            var repos: [String] = []
-            var byRepo: [String: [HostPane]] = [:]
-            for a in byMachine[m] ?? [] {
-                let r = a.repo_label ?? a.repo ?? "No repository"
-                if byRepo[r] == nil { repos.append(r) }
-                byRepo[r, default: []].append(a)
+            let id = a.host + "\u{0}" + a.workspace_id
+            if byID[id] == nil {
+                order.append(id)
+                byID[id] = FleetGroup(id: id, title: machines ? "\(a.group) · \(a.host_label)" : a.group, agents: [])
             }
-            return FleetGroup(machine: m, repos: repos.map { FleetGroup.Repo(name: $0, agents: byRepo[$0] ?? []) })
+            byID[id]?.agents.append(a)
         }
+        return order.compactMap { byID[$0] }
     }
 
     /// Every row in display order, for keyboard movement.
-    public var order: [HostPane] { pinned + groups.flatMap { $0.repos.flatMap(\.agents) } }
+    public var order: [HostPane] { pinned + groups.flatMap(\.agents) }
 
     public func move(_ delta: Int) {
         let list = order
@@ -87,7 +79,7 @@ public final class ListModel: ObservableObject {
 
     public func openSelected() {
         guard let key = selected, let p = fleet.agents.first(where: { $0.key == key }) else { return }
-        onOpen(p)
+        open(p)
     }
 
     public func togglePin(_ p: HostPane) {
@@ -113,7 +105,11 @@ public final class ListModel: ObservableObject {
         }
     }
 
-    public func dictate(_ p: HostPane) { onDictate(p) }
+    /// Open a row: a bot's chat for a bot's pane, else the agent's card.
+    public func open(_ p: HostPane) {
+        selected = p.key
+        if let b = fleet.bot(for: p) { onOpenBot(b) } else { onOpen(p) }
+    }
 
     /// End asks first: the row turns into a confirm, and only that ends it.
     public func askEnd(_ p: HostPane) { confirmEnd = p.key }

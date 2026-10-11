@@ -49,7 +49,7 @@
     "x": null
   },
   "onboarding_done": true,
-  "assistant_bot": "x",
+  "default_bot": "x",
   "dismissed_cards": {
     "x": 1
   }

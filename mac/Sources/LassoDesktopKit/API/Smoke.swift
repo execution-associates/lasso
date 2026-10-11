@@ -29,7 +29,9 @@ public enum Smoke {
         // The card's read path on real conversations: a few agents' chats,
         // reported as counts only.
         if let panes = try? await client.get("/api/all-panes", as: AllPanes.self) {
-            for p in panes.panes.filter({ $0.has_agent && $0.transcript_at != nil }).prefix(4) {
+            let agents = panes.panes.filter(\.has_agent)
+            out("ok   agent names  \(agents.filter { $0.agent_label != nil }.count) of \(agents.count) carry a herdr label")
+            for p in agents.filter({ $0.transcript_at != nil }).prefix(4) {
                 do {
                     let c = try await client.get("/api/chat", query: ["pane": p.pane_id, "host": p.host], as: ChatPayload.self)
                     let kinds = Dictionary(grouping: c.items, by: \.kind).map { "\($0.key) \($0.value.count)" }.sorted()
@@ -41,16 +43,7 @@ public enum Smoke {
             }
         }
         await check("/api/ui-state", UIStateSlice.self) {
-            "\($0.pinned_agents?.count ?? 0) pins; assistant_bot \($0.assistant_bot == nil ? "absent (server lacks S1)" : "present"); dismissed_cards \($0.dismissed_cards == nil ? "absent" : "present")"
-        }
-        do {
-            let t = try await client.get("/api/transcribe", as: TranscribeStatus.self)
-            out("ok   /api/transcribe  available \(t.available), provider \(t.provider ?? "-")\(t.reason.map { " (\($0))" } ?? "")")
-        } catch LassoError.http(404, _) {
-            out("ok   /api/transcribe  absent (server lacks S2)")
-        } catch {
-            failures += 1
-            out("FAIL /api/transcribe  \(error)")
+            "\($0.pinned_agents?.count ?? 0) pins; default_bot \($0.default_bot == nil ? "absent (server lacks S1)" : "present"); dismissed_cards \($0.dismissed_cards == nil ? "absent" : "present")"
         }
         await check("/api/bots", BotsPayload.self) { b in
             "\(b.bots.count) bots (\(b.bots.map { "\($0.runtime)/\($0.state)" }.sorted().joined(separator: ", ")))"

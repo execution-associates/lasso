@@ -1,7 +1,17 @@
 {
-  "about": "The list panel: the fleet grouped machine (titan, minime) → repo → agent, with the pinned agent (isb-egress) on top, one row selected and one hovered.",
+  "about": "The agents panel: one group per herdr workspace (Agents holds stub, clem and jessica, named by their labels), with the pinned agent (isb-egress) on top, one row selected and one hovered.",
   "state": "list-panel-open",
   "extends": "rail-expanded",
-  "ui": { "rail": "expanded", "card": null, "list": true, "chat": false, "recording": null, "selected": "local\u0000w3:p1", "hovered": "local\u0000w5:p1" },
-  "expect": { "badge": 2 }
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": true,
+    "chat": false,
+    "recording": null,
+    "selected": "local\u0000w1:p2",
+    "hovered": "local\u0000w5:p1"
+  },
+  "expect": {
+    "badge": 3
+  }
 }

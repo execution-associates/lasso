@@ -1,8 +1,0 @@
-{
-  "about": "Onboarding on a fresh Mac: the lasso it talks to, no assistant chosen yet (the bots to pick from, and Create), the voice engine (lasso, which transcribes with Groq on the server), and the three permission states: microphone allowed, screen recording off, accessibility not asked.",
-  "state": "onboarding",
-  "extends": "rail-expanded",
-  "ui": { "rail": "collapsed", "card": null, "list": false, "chat": false, "onboarding": true, "recording": null },
-  "permissions": { "microphone": "authorized", "screen_recording": "denied", "accessibility": "not_determined" },
-  "transcribe": { "available": true, "provider": "groq", "model": "whisper-large-v3-turbo" }
-}

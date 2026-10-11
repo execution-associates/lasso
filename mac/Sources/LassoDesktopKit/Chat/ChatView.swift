@@ -1,16 +1,12 @@
 import SwiftUI
 
-/// The assistant (ref a5): your messages in bubbles on the right, the bot's
+/// A bot's chat (ref a5): your messages in bubbles on the right, the bot's
 /// replies as plain text, its open question as numbered options, and the
 /// composer under a "Talking to …" line.
 public struct ChatView: View {
     @ObservedObject var model: ChatModel
-    let recording: RecordingModel
 
-    public init(model: ChatModel, recording: RecordingModel? = nil) {
-        self.model = model
-        self.recording = recording ?? RecordingModel.inert
-    }
+    public init(model: ChatModel) { self.model = model }
 
     private var inset: CGFloat { Theme.Panel.inset.pt }
     private var textX: CGFloat { Theme.Layout.chat.number("text_x") }
@@ -26,7 +22,7 @@ public struct ChatView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Hide the chat (esc)")
+                .accessibilityLabel("Close the chat (esc)")
                 .keyHint(Keys.esc)
             }
             .padding(.top, Theme.Layout.chat.number("top"))
@@ -43,7 +39,7 @@ public struct ChatView: View {
                 .padding(.leading, Theme.Panel.inset.pt + Theme.Control.composer.number("height") + Theme.Control.composer.number("gap") + Theme.Control.composer.number("field_pad_l"))
                 .padding(.bottom, Theme.space("s"))
                 .parityAnchor("chat.talking")
-            ComposerRow(model: model, recording: recording, attach: model.attachScreenshot, record: model.record)
+            ComposerRow(model: model, attach: model.attachScreenshot)
                 .padding(.horizontal, inset)
                 .padding(.bottom, inset)
         }
@@ -101,23 +97,15 @@ public struct ChatView: View {
     @ViewBuilder private func message(_ item: ChatItem) -> some View {
         let b = Theme.Chat.bubble
         if item.kind == "user" {
-            VStack(alignment: .trailing, spacing: Theme.space("xs")) {
-                Text(item.text ?? "")
-                    .font(Theme.Fonts.chat.font)
+            Text(item.text ?? "")
+                .font(Theme.Fonts.chat.font)
                     .foregroundStyle(Theme.Text.primary.color)
                     .textSelection(.enabled)
                     .padding(.horizontal, b.number("pad_h"))
                     .padding(.vertical, b.number("pad_v"))
                     .background(RoundedRectangle(cornerRadius: b.number("radius"), style: .continuous).fill(b.color("fill")))
                     .parityAnchor("chat.bubble[\(item.id)]")
-                if let m = item.meta, let engine = m["engine"] {
-                    Text("voice · \(engine)\(m["model"].map { " · \($0)" } ?? "")")
-                        .font(Theme.Fonts.small.font)
-                        .foregroundStyle(Theme.Text.secondary.color)
-                        .accessibilityLabel("Dictated with \(engine)")
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .trailing)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.leading, Theme.Layout.chat.number("bubble_inset"))
         } else {
             ChatRow(item: item, font: Theme.Fonts.chat.font)

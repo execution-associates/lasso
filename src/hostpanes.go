@@ -277,9 +277,13 @@ type hostPane struct {
 	TerminalTitle string `json:"terminal_title,omitempty"`
 	Cwd           string `json:"cwd"`
 	Agent         string `json:"agent"`
-	AgentStatus   string `json:"agent_status"`
-	HasAgent      bool   `json:"has_agent"`
-	Focused       bool   `json:"focused"`
+	// AgentLabel is the agent's custom label (`herdr agent rename`, agent.list's
+	// name), what a client should call the agent before its tab's label: the
+	// workspace often holds several agents ("Agents" with stub, clem, …).
+	AgentLabel  string `json:"agent_label,omitempty"`
+	AgentStatus string `json:"agent_status"`
+	HasAgent    bool   `json:"has_agent"`
+	Focused     bool   `json:"focused"`
 	// TranscriptAt is when the agent's transcript was last written, in unix
 	// milliseconds (see paneTranscriptAt): the agents lists' recency order.
 	// Absent for a pane with no readable transcript.
@@ -508,8 +512,8 @@ func serveUIState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("browser_mode must be one of %s", strings.Join(browserModes, ", ")), http.StatusBadRequest)
 			return
 		}
-		if !validAssistantBot(us.AssistantBot) {
-			http.Error(w, "assistant_bot must be empty or a bot name (lowercase letters, digits and dashes, at most 40)", http.StatusBadRequest)
+		if !validDefaultBot(us.DefaultBot) {
+			http.Error(w, "default_bot must be empty or a bot name (lowercase letters, digits and dashes, at most 40)", http.StatusBadRequest)
 			return
 		}
 		if !validTexture(us.Texture) {
@@ -703,9 +707,9 @@ func mergePinnedAgents(stored []string, ops map[string]bool) []string {
 	return out
 }
 
-// validAssistantBot reports whether name may be stored as assistant_bot: ""
+// validDefaultBot reports whether name may be stored as default_bot: ""
 // (none) or a well-formed bot name. Existence is not checked.
-func validAssistantBot(name string) bool {
+func validDefaultBot(name string) bool {
 	return name == "" || botNameRE.MatchString(name)
 }
 
@@ -1314,16 +1318,21 @@ func enumerateHostPanes(b Backend, host, hostLabel string) ([]hostPane, error) {
 	// whose agent herdr never identified at all — but where it does answer it is
 	// the most direct one, so it is folded in first.
 	agentKind := map[string]string{}
+	agentLabel := map[string]string{}
 	if r, err := b.HerdrCall("agent.list", map[string]any{}); err == nil {
 		var al struct {
 			Agents []struct {
 				PaneID string `json:"pane_id"`
 				Agent  string `json:"agent"`
+				Name   string `json:"name"`
 			} `json:"agents"`
 		}
 		if json.Unmarshal(r, &al) == nil {
 			for _, a := range al.Agents {
 				agentKind[a.PaneID] = a.Agent
+				if a.Name != "" {
+					agentLabel[a.PaneID] = a.Name
+				}
 			}
 		}
 	}
@@ -1429,6 +1438,7 @@ func enumerateHostPanes(b Backend, host, hostLabel string) ([]hostPane, error) {
 			RepoKey:        wsRepo[p.WorkspaceID],
 			RepoLabel:      repoLabel[wsRepo[p.WorkspaceID]],
 			Agent:          kind,
+			AgentLabel:     agentLabel[p.PaneID],
 			AgentStatus:    status,
 			HasAgent:       isAgent,
 			Focused:        p.Focused,

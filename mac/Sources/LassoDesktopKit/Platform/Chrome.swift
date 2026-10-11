@@ -127,43 +127,25 @@ struct PillButton: View {
     }
 }
 
-/// The composer row (ref a2/a5): a round camera button, the field with the
-/// microphone inside it, a round send button.
+/// The composer row (ref a2/a5): a round camera button, the field, a round
+/// send button.
 struct ComposerRow<Model: ComposerModel>: View {
     @ObservedObject var model: Model
-    @ObservedObject var recording: RecordingModel
     let attach: () -> Void
-    let record: () -> Void
 
     var body: some View {
         let c = Theme.Control.composer
         let h = c.number("height")
-        let active = recording.isRecording || recording.phase == .transcribing
         let canSend = !model.composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         HStack(spacing: c.number("gap")) {
             RoundButton(symbol: "camera", size: h, fill: c.color("fill"), label: "Attach a screenshot (S)", action: attach)
                 .keyHint(Keys.attach)
-            HStack(spacing: Theme.space("m")) {
-                ZStack(alignment: .leading) {
-                    ComposerField(model: model).opacity(active ? 0 : 1)
-                    RecordingStrip(model: recording)
-                }
-                Button(action: record) {
-                    Image(systemName: recording.isRecording ? "mic.fill" : "mic")
-                        .font(.system(size: Theme.icon.number("control")))
-                        .foregroundStyle(recording.isRecording ? Theme.Recording.ring.color : Theme.Text.primary.color)
-                        .frame(width: c.number("mic_w"), height: h)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(recording.isRecording ? "Stop recording (V)" : "Record (V)")
-                .keyHint(Keys.record)
-            }
-            .padding(.leading, c.number("field_pad_l"))
-            .padding(.trailing, c.number("field_pad_r"))
-            .frame(height: h)
-            .background(Capsule().fill(c.color("fill")))
-            .parityAnchor("composer.field")
+            ComposerField(model: model)
+                .padding(.leading, c.number("field_pad_l"))
+                .padding(.trailing, c.number("field_pad_r"))
+                .frame(height: h)
+                .background(Capsule().fill(c.color("fill")))
+                .parityAnchor("composer.field")
             RoundButton(
                 symbol: "arrow.up", enabled: canSend, size: h, fill: c.color("fill"), label: "Send (⏎)",
                 action: model.send

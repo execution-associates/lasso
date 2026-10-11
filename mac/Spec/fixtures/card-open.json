@@ -1,25 +1,106 @@
 {
-  "about": "A card open on an agent that is asking a question: header, identity line, conversation with one-line tool rows, the status line, numbered next steps from the question's options, the composer and the end actions. Three cards in the inbox (two blocked, one finished), so the unread bar has three segments: the open one, then two unread. The pane is a lasso agent (it has an agent_id), on a server with shared dismissals, so Kill and Discard both show.",
+  "about": "A card open on an agent that is asking a question: header, identity line, conversation with one-line tool rows, the status line, numbered next steps from the question's options, the composer and the end actions. Three cards to page through (stub and notarize blocked, clem finished; jessica's pane is a bot's, so it opens a chat instead), so the unread bar has three segments: the open one, then two unread. The pane is a lasso agent (it has an agent_id), on a server with shared dismissals, so Kill and Discard both show.",
   "state": "card-open",
   "extends": "rail-expanded",
-  "ui": { "rail": "expanded", "card": "local\u0000w1:p1", "list": false, "chat": false, "recording": null },
+  "ui": {
+    "rail": "expanded",
+    "card": "local\u0000w1:p1",
+    "list": false,
+    "chat": false,
+    "recording": null
+  },
   "chats": {
     "local\u0000w1:p1": {
-      "pane_id": "w1:p1", "agent": "claude", "host": "local", "title": "lasso-desktop-mac", "model": "claude-opus-5-5",
-      "path": "/home/stephan/.claude/projects/x/session.jsonl", "start_offset": 0, "tokens": 48211, "running": false,
+      "pane_id": "w1:p1",
+      "agent": "claude",
+      "host": "local",
+      "title": "lasso-desktop-mac",
+      "model": "claude-opus-5-5",
+      "path": "/home/stephan/.claude/projects/x/session.jsonl",
+      "start_offset": 0,
+      "tokens": 48211,
+      "running": false,
       "items": [
-        { "kind": "user", "id": "u1", "at": "2026-10-11T18:52:10Z", "text": "Plan the native mac client for lasso, then build M1." },
-        { "kind": "agent", "id": "a1", "at": "2026-10-11T18:52:20Z", "text": "Reading the brief and lasso's routes first." },
-        { "kind": "tool", "id": "t1", "at": "2026-10-11T18:52:31Z", "tool": { "call_id": "c1", "name": "Read", "title": "Read", "subject": "src/hostpanes.go", "state": "completed", "result_line": "1,180 lines" } },
-        { "kind": "tool", "id": "t2", "at": "2026-10-11T18:53:02Z", "tool": { "call_id": "c2", "name": "Bash", "title": "Bash", "subject": "swift build -c release", "state": "completed", "result_line": "Build complete" } },
-        { "kind": "agent", "id": "a2", "at": "2026-10-11T18:58:40Z", "text": "M1 is green on minime: 126 checks pass. The tunnel unit is not installed yet." },
-        { "kind": "tool", "id": "t3", "at": "2026-10-11T18:59:00Z", "tool": { "call_id": "c3", "name": "AskUserQuestion", "title": "Question", "state": "running",
-          "ask": { "questions": [ { "header": "Tunnel", "question": "Install the reverse tunnel as a systemd unit on titan?", "multi": false,
-            "options": [ { "label": "Install it now", "description": "systemctl --user enable --now lasso-desktop-tunnel" },
-                         { "label": "Show me the unit first" },
-                         { "label": "Not yet" } ] } ] } } }
+        {
+          "kind": "user",
+          "id": "u1",
+          "at": "2026-10-11T18:52:10Z",
+          "text": "Plan the native mac client for lasso, then build M1."
+        },
+        {
+          "kind": "agent",
+          "id": "a1",
+          "at": "2026-10-11T18:52:20Z",
+          "text": "Reading the brief and lasso's routes first."
+        },
+        {
+          "kind": "tool",
+          "id": "t1",
+          "at": "2026-10-11T18:52:31Z",
+          "tool": {
+            "call_id": "c1",
+            "name": "Read",
+            "title": "Read",
+            "subject": "src/hostpanes.go",
+            "state": "completed",
+            "result_line": "1,180 lines"
+          }
+        },
+        {
+          "kind": "tool",
+          "id": "t2",
+          "at": "2026-10-11T18:53:02Z",
+          "tool": {
+            "call_id": "c2",
+            "name": "Bash",
+            "title": "Bash",
+            "subject": "swift build -c release",
+            "state": "completed",
+            "result_line": "Build complete"
+          }
+        },
+        {
+          "kind": "agent",
+          "id": "a2",
+          "at": "2026-10-11T18:58:40Z",
+          "text": "M1 is green on minime: 126 checks pass. The tunnel unit is not installed yet."
+        },
+        {
+          "kind": "tool",
+          "id": "t3",
+          "at": "2026-10-11T18:59:00Z",
+          "tool": {
+            "call_id": "c3",
+            "name": "AskUserQuestion",
+            "title": "Question",
+            "state": "running",
+            "ask": {
+              "questions": [
+                {
+                  "header": "Tunnel",
+                  "question": "Install the reverse tunnel as a systemd unit on titan?",
+                  "multi": false,
+                  "options": [
+                    {
+                      "label": "Install it now",
+                      "description": "systemctl --user enable --now lasso-desktop-tunnel"
+                    },
+                    {
+                      "label": "Show me the unit first"
+                    },
+                    {
+                      "label": "Not yet"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
       ]
     }
   },
-  "expect": { "badge": 2 }
+  "expect": {
+    "badge": 3
+  }
 }

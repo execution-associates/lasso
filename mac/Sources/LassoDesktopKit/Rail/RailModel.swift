@@ -7,26 +7,24 @@ import SwiftUI
 @MainActor
 public final class RailModel: ObservableObject {
     public enum Item: Hashable, Sendable {
-        case inbox, slot(String), chat, record, attach, ellipsis
+        case inbox, agents, settings
     }
 
     @Published public var expanded = false
     @Published public var focus: Item?
     /// Keyboard focus is drawn only after a key moved it, as macOS does.
     @Published public var focusVisible = false
-    /// A voice turn is being captured or transcribed (the record tool shows it).
-    @Published public var recording = false
 
     public let fleet: FleetModel
     /// Set by the parity harness only: wraps the rail's animation so the
     /// harness can read SwiftUI's own animation clock (ProbedAnimation).
     public var animationProbe: MotionProbe?
-    public var onPickAgent: (HostPane) -> Void = { _ in }
-    public var onOverflow: () -> Void = {}
+    /// The inbox: what waits on the human.
     public var onInbox: () -> Void = {}
-    public var onChat: () -> Void = {}
-    public var onRecord: () -> Void = {}
-    public var onAttach: () -> Void = {}
+    /// The agents capsule: the fleet.
+    public var onAgents: () -> Void = {}
+    /// The ellipsis: settings.
+    public var onSettings: () -> Void = {}
 
     public init(fleet: FleetModel) { self.fleet = fleet }
 
@@ -34,7 +32,7 @@ public final class RailModel: ObservableObject {
 
     public var items: [Item] {
         guard expanded else { return [.inbox] }
-        return [.inbox] + slots.map { .slot($0.id) } + [.chat, .record, .attach, .ellipsis]
+        return slots.isEmpty ? [.inbox, .settings] : [.inbox, .agents, .settings]
     }
 
     public func setExpanded(_ on: Bool, animated: Bool = true) {
@@ -58,21 +56,14 @@ public final class RailModel: ObservableObject {
 
     public func activate(_ item: Item) {
         focus = item
+        guard expanded else {
+            setExpanded(true)
+            return
+        }
         switch item {
-        case .inbox:
-            if expanded { onInbox() } else { setExpanded(true) }
-        case .ellipsis:
-            setExpanded(false)
-            focus = .inbox
-        case .slot(let id):
-            switch slots.first(where: { $0.id == id }) {
-            case .agent(let p): onPickAgent(p)
-            case .overflow: onOverflow()
-            case nil: break
-            }
-        case .chat: onChat()
-        case .record: onRecord()
-        case .attach: onAttach()
+        case .inbox: onInbox()
+        case .agents: onAgents()
+        case .settings: onSettings()
         }
     }
 

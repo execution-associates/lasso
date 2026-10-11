@@ -79,7 +79,8 @@ public final class CardModel: ComposerModel {
     public var pages: [HostPane] {
         let dismissed = fleet.uiState.dismissed_cards ?? [:]
         let inbox = fleet.agents.filter { p in
-            guard p.state == .blocked || p.state == .done else { return false }
+            // A bot's pane opens the bot's chat, not a card.
+            guard p.state == .blocked || p.state == .done, fleet.bot(for: p) == nil else { return false }
             if let at = dismissed[p.key], (p.transcript_at ?? 0) <= at { return false }
             return true
         }
@@ -108,7 +109,7 @@ public final class CardModel: ComposerModel {
     /// screen may show (the parity harness checks every rendered keycap is
     /// in here).
     public var activeBindings: Set<KeyBinding> {
-        var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.record, Keys.send, Keys.kill, Keys.next, Keys.previous]
+        var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.send, Keys.kill, Keys.next, Keys.previous]
         if actions.canDismiss { b.insert(Keys.discard) }
         if !nextSteps.isEmpty { b.formUnion([Keys.editStep, Keys.takeStep]) }
         return b
@@ -235,16 +236,6 @@ public final class CardModel: ComposerModel {
     public func focusComposer() { focusRequest += 1 }
 
     public var composerPlaceholder: String { "Reply to \(current.displayName)" }
-
-    /// V: a voice turn whose transcript lands in this composer, unsent.
-    public var onRecord: () -> Void = {}
-    public func record() { onRecord() }
-
-    public func appendTranscript(_ text: String, engine: String) {
-        composer = composer.isEmpty ? text : composer + " " + text
-        notice = "Dictated with \(engine): check it, then ⏎"
-        focusComposer()
-    }
 
     public func say(_ s: String?) { notice = s }
 

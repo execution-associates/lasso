@@ -57,12 +57,10 @@ struct AgentAvatar: View {
 public struct CardView: View {
     @ObservedObject var model: CardModel
     @ObservedObject var fleet: FleetModel
-    let recording: RecordingModel
 
-    public init(model: CardModel, recording: RecordingModel? = nil) {
+    public init(model: CardModel) {
         self.model = model
         fleet = model.fleet
-        self.recording = recording ?? RecordingModel.inert
     }
 
     private var inset: CGFloat { Theme.Panel.inset.pt }
@@ -86,9 +84,7 @@ public struct CardView: View {
                         insertion: .opacity.combined(with: .offset(y: 12 * CGFloat(model.pageDirection))),
                         removal: .opacity))
                 .padding(.top, Theme.Layout.card.number("box_gap"))
-                ComposerRow(
-                    model: model, recording: recording, attach: model.attachScreenshot, record: model.record
-                )
+                ComposerRow(model: model, attach: model.attachScreenshot)
                 .padding(.top, Theme.Layout.card.number("composer_gap"))
                 Rectangle().fill(Theme.Panel.divider.color).frame(height: Theme.space("hair"))
                     .parityAnchor("card.divider")

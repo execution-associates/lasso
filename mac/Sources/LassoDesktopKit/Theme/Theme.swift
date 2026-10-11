@@ -115,10 +115,9 @@ public enum Theme {
         public static let glyphPitch = Token("rail.glyph.pitch", 18, .measured("ref a2: 36 px"))
         public static let ringStroke = Token("rail.glyph.ring_stroke", 2, .measured("brief A.1"))
         public static let maxSlots = Token(
-            "rail.agents.max_slots", 5, .inferred("332 pt rail matches the brief's ~330 pt travel"), proposed: true)
+            "rail.agents.max_slots", 5, .inferred("the brief's ~330 pt rail had room for five"), proposed: true)
         public static let overflowFont = Token(
             "rail.overflow.font", ["family": "Geist", "size": 9, "weight": "semibold", "color": "#B7ADBB"], .inferred("+N inside an 11 pt cell, EXA muted text"), proposed: true)
-        public static let toolsCell = Token("rail.tools.cell", 40, .measured("ref a2: three 80 px cells"))
         public static let icon = Token(
             "rail.icon", ["size": 17, "weight": "regular", "color": "#F4ECF2"], .measured("ref a2 size; EXA --foreground"))
         public static let ellipsisOuter = Token("rail.ellipsis.outer", 42, .measured("ref a2"))
@@ -285,16 +284,6 @@ public enum Theme {
     public static let focusRing = Token(
             "focus.ring", ["width": 2, "color": "#FEBE74", "outset": 2], .measured("EXA: isb web/src/index.css :root.ea --ring (peach)"), proposed: true)
 
-    public enum Recording {
-        public static let ring = Token(
-            "recording.ring", "#DD519B", .measured("EXA brand brief: magenta (neon is light)"), proposed: true)
-        public static let meterFill = Token(
-            "recording.meter.fill", "rgba(244,236,242,0.60)", .unmeasured("level bars, EXA --foreground"), proposed: true)
-        public static let meterHz = Token("recording.meter.hz", 30, .unmeasured("meter refresh"), proposed: true)
-        public static let meter = Token(
-            "recording.meter", ["bars": 12, "bar_w": 3, "min_h": 4, "step_h": 3], .unmeasured("level bars"), proposed: true)
-    }
-
     public enum Motion {
         public static let railExpand = Token(
             "motion.rail_expand", ["kind": "spring", "response": 0.2, "damping": 0.9], .measured("brief A.4"))
@@ -310,17 +299,6 @@ public enum Theme {
             .inferred("brief A.4: ~183 ms, decelerating, no overshoot"))
         public static let cardPaging = Token(
             "motion.card_paging", ["kind": "easeInOut", "duration": 0.2], .unmeasured("brief A.4 provisional"))
-    }
-
-    public enum Voice {
-        public static let sampleRate = Token("voice.sample_rate", 16000, .measured("brief C"))
-        public static let vadFloorWindow = Token("voice.vad.floor_window", 300, .unmeasured("VAD"), proposed: true)
-        public static let vadThreshold = Token("voice.vad.threshold_over_floor", 12, .unmeasured("VAD"), proposed: true)
-        public static let vadEndSilence = Token("voice.vad.end_silence", 900, .unmeasured("VAD"), proposed: true)
-        public static let vadMinSpeech = Token("voice.vad.min_speech", 400, .unmeasured("VAD"), proposed: true)
-        public static let maxTurn = Token(
-            "voice.max_turn", 120, .inferred("matches /api/transcribe's limit"), proposed: true)
-        public static let pttSplit = Token("voice.ptt.tap_hold_split", 250, .unmeasured("push-to-talk"), proposed: true)
     }
 
     public enum Live {
@@ -346,7 +324,7 @@ public enum Theme {
     public static let all: [Token] = [
         Rail.fillWidth, Rail.rimWidth, Rail.outer, Rail.radius, Rail.gap, Rail.backing, Rail.fillTop, Rail.fillBottom,
         Rail.rimTop, Rail.rimBottom, Rail.padTop, Rail.padBottom, Rail.glyphSize, Rail.glyphPitch, Rail.ringStroke,
-        Rail.maxSlots, Rail.overflowFont, Rail.toolsCell, Rail.icon, Rail.ellipsisOuter, Rail.edge, Rail.edgeInset,
+        Rail.maxSlots, Rail.overflowFont, Rail.icon, Rail.ellipsisOuter, Rail.edge, Rail.edgeInset,
         Rail.panelMargin, Rail.badgeSize, Rail.badgeRing, Rail.badgeCenter, Rail.peek, Rail.hover,
         State.done, State.working, State.blocked, State.idle,
         Panel.surface, Panel.border, Panel.radius, Panel.inset, Panel.inner, Panel.divider, Panel.shadow,
@@ -358,11 +336,9 @@ public enum Theme {
         Row.hover, Row.selected, Row.radius,
         Fonts.title, Fonts.body, Fonts.chat, Fonts.name, Fonts.label, Fonts.header, Fonts.small, Fonts.terminal,
         List.size, List.row, Chat.bubble, focusRing,
-        Recording.ring, Recording.meterFill, Recording.meterHz, Recording.meter, spaceScale, Layout.card, Layout.chat,
+        spaceScale, Layout.card, Layout.chat,
         avatar, icon,
         Motion.railExpand, Motion.railCollapse, Motion.cardOpen, Motion.cardClose, Motion.toastIn, Motion.cardPaging,
-        Voice.sampleRate, Voice.vadFloorWindow, Voice.vadThreshold, Voice.vadEndSilence, Voice.vadMinSpeech,
-        Voice.maxTurn, Voice.pttSplit,
         Live.pollAllPanes, Live.pollBots, Live.pollChat, Live.sseWatchdog, Live.backoff,
         summonKey, revealKeys,
     ]

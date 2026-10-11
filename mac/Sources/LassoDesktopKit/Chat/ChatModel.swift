@@ -1,19 +1,19 @@
 import Combine
 import Foundation
 
-/// The assistant's side effects. An omp bot is driven through its own
+/// A bot chat's side effects. An omp bot is driven through its own
 /// routes (/api/bots/<name>/chat…); a claude bot runs in a herdr pane, so
 /// its chat is the pane chat the card uses (/api/chat… on its pane).
 @MainActor
 public protocol BotChatActions: AnyObject {
     func chat(_ bot: BotView) async throws -> ChatPayload
-    func send(_ bot: BotView, text: String, meta: [String: String]?) async throws -> Outcome
+    func send(_ bot: BotView, text: String) async throws -> Outcome
     func answer(_ bot: BotView, pending: ChatPayload.PendingUI, value: String) async throws -> Outcome
     func stop(_ bot: BotView) async throws -> Outcome
     func attachScreenshot(_ bot: BotView) async throws -> String
 }
 
-/// The chat with the assistant bot: the same composer and keycaps as a card.
+/// The chat with a lasso bot: the same composer and keycaps as a card.
 @MainActor
 public final class ChatModel: ComposerModel {
     @Published public private(set) var bot: BotView
@@ -25,12 +25,9 @@ public final class ChatModel: ComposerModel {
     @Published public private(set) var busy = false
     @Published public private(set) var notice: String?
     @Published public var highlighted: Int?
-    /// What the next message carries (S3): set by voice input, cleared on send.
-    public var pendingMeta: [String: String]?
 
     public let actions: BotChatActions
     public var onClose: () -> Void = {}
-    public var onRecord: () -> Void = {}
     private var poll: Task<Void, Never>?
 
     public init(bot: BotView, actions: BotChatActions) {
@@ -56,7 +53,7 @@ public final class ChatModel: ComposerModel {
     }
 
     public var activeBindings: Set<KeyBinding> {
-        var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.record, Keys.send]
+        var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.send]
         if !pendingOptions.isEmpty { b.formUnion([Keys.editStep, Keys.takeStep]) }
         return b
     }
@@ -95,23 +92,12 @@ public final class ChatModel: ComposerModel {
     public func send() {
         let text = composer.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        let meta = pendingMeta
         run("Send") { [self] in
-            let o = try await actions.send(bot, text: text, meta: meta)
-            if o.ok {
-                composer = ""
-                pendingMeta = nil
-            }
+            let o = try await actions.send(bot, text: text)
+            if o.ok { composer = "" }
             await load()
-            return o.ok ? (meta?["engine"].map { "Sent (voice, \($0))" } ?? "Sent") : "\(o.outcome.capitalized): \(o.detail ?? "")"
+            return o.ok ? "Sent" : "\(o.outcome.capitalized): \(o.detail ?? "")"
         }
-    }
-
-    /// Send text that arrived from voice, with the engine in its metadata.
-    public func sendTranscript(_ text: String, meta: [String: String]) {
-        composer = text
-        pendingMeta = meta
-        send()
     }
 
     public func takeStep() {
@@ -156,12 +142,11 @@ public final class ChatModel: ComposerModel {
         }
     }
 
-    public func record() { onRecord() }
     public func focusComposer() { focusRequest += 1 }
     public func say(_ s: String?) { notice = s }
 }
 
-/// The assistant's chat through lasso's API.
+/// A bot's chat through lasso's API.
 @MainActor
 public final class LiveBotChatActions: BotChatActions {
     let client: LassoClient
@@ -194,13 +179,10 @@ public final class LiveBotChatActions: BotChatActions {
         return try await card.chat(pane(bot))
     }
 
-    struct Send: Encodable {
-        var text: String
-        var meta: [String: String]?
-    }
+    struct Send: Encodable { var text: String }
 
-    public func send(_ bot: BotView, text: String, meta: [String: String]?) async throws -> Outcome {
-        if bot.runtime == "omp" { return try await client.post(path(bot, "chat/send"), json: Send(text: text, meta: meta)) }
+    public func send(_ bot: BotView, text: String) async throws -> Outcome {
+        if bot.runtime == "omp" { return try await client.post(path(bot, "chat/send"), json: Send(text: text)) }
         return try await card.send(pane(bot), text: text)
     }
 
@@ -246,7 +228,7 @@ public final class FixtureBotChatActions: BotChatActions {
         payload ?? ChatPayload(pane_id: "bot:\(bot.name)", agent: bot.runtime, host: bot.host, items: [])
     }
 
-    public func send(_ bot: BotView, text: String, meta: [String: String]?) async throws -> Outcome {
+    public func send(_ bot: BotView, text: String) async throws -> Outcome {
         calls.append("send")
         return Outcome(outcome: "confirmed")
     }

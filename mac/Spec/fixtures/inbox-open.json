@@ -1,0 +1,15 @@
+{
+  "about": "The inbox: what waits on the human, most urgent first. jessica (a bot, waiting on an approval), stub and notarize (blocked agents), then clem (finished). jessica's own pane is listed once, as the bot.",
+  "state": "inbox-open",
+  "extends": "rail-expanded",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "inbox": true
+  },
+  "expect": {
+    "badge": 3
+  }
+}

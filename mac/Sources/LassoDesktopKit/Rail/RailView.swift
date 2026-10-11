@@ -1,8 +1,9 @@
 import SwiftUI
 
 // The rail. At rest only a sliver of a pill shows at the screen edge (the
-// peek); hovering it reveals the rail: the inbox circle, the agents capsule,
-// the tools capsule and the ellipsis, each floating on its own (no backing).
+// peek); hovering it reveals the rail: the inbox (what waits on you), the
+// agents capsule (the fleet) and the ellipsis (settings), each floating on
+// its own (no backing).
 // Layout numbers all come from Theme.Rail.
 
 enum RailMetrics {
@@ -11,7 +12,6 @@ enum RailMetrics {
     static var gap: CGFloat { Theme.Rail.gap.pt }
     static var glyph: CGFloat { Theme.Rail.glyphSize.pt }
     static var pitch: CGFloat { Theme.Rail.glyphPitch.pt }
-    static var cell: CGFloat { Theme.Rail.toolsCell.pt }
     static var margin: CGFloat { Theme.Rail.panelMargin.pt }
 
     /// The panel spans from the rail's leading margin to the screen edge.
@@ -26,12 +26,10 @@ enum RailMetrics {
         2 * rim + slotInsetTop + CGFloat(slots) * pitch + slotInsetBottom
     }
 
-    static var toolsHeight: CGFloat { 2 * rim + 3 * cell }
-
     /// Height of everything below the inbox: the travel of expand/collapse.
     static func revealHeight(_ slots: Int) -> CGFloat {
         let agents = slots > 0 ? gap + agentsHeight(slots) : 0
-        return agents + gap + toolsHeight + gap + Theme.Rail.ellipsisOuter.pt
+        return agents + gap + Theme.Rail.ellipsisOuter.pt
     }
 
     static func expandedHeight(_ slots: Int) -> CGFloat { outer + revealHeight(slots) }
@@ -109,7 +107,8 @@ extension FleetModel {
     }
 
     public var attentionCount: Int {
-        agents.filter { $0.state == .blocked || $0.state == .done }.count + bots.filter { $0.state == "blocked" }.count
+        agents.filter { ($0.state == .blocked || $0.state == .done) && bot(for: $0) == nil }.count
+            + bots.filter { $0.state == "blocked" }.count
     }
 }
 
@@ -133,7 +132,6 @@ public struct RailView: View {
                 inbox
                 VStack(spacing: RailMetrics.gap) {
                     if !slots.isEmpty { agents(slots) }
-                    tools
                     ellipsis
                 }
                 .padding(.top, RailMetrics.gap)
@@ -197,9 +195,9 @@ public struct RailView: View {
         .parityAnchor("rail.inbox")
         .overlay(alignment: .topLeading) { badge }
         .modifier(FocusRing(on: focused(.inbox)))
-        .accessibilityLabel("Show the fleet")
-        .accessibilityValue(fleet.attentionCount > 0 ? "\(fleet.attentionCount) waiting on you" : "")
-        .help("Show the fleet")
+        .accessibilityLabel("Inbox")
+        .accessibilityValue(fleet.attentionCount > 0 ? "\(fleet.attentionCount) waiting on you" : "nothing waiting")
+        .help("Inbox: what waits on you")
     }
 
     @ViewBuilder private var badge: some View {
@@ -220,66 +218,33 @@ public struct RailView: View {
         }
     }
 
+    /// The agents capsule is one button: the fleet. Its glyphs are the
+    /// agents at a glance, most urgent first.
     private func agents(_ slots: [RailSlot]) -> some View {
-        VStack(spacing: 0) {
-            ForEach(Array(slots.enumerated()), id: \.element.id) { i, slot in
-                Button { model.activate(.slot(slot.id)) } label: {
+        Button { model.activate(.agents) } label: {
+            VStack(spacing: 0) {
+                ForEach(Array(slots.enumerated()), id: \.element.id) { i, slot in
                     AgentGlyph(slot: slot)
                         .parityAnchor("rail.glyph[\(i)]")
                         .frame(width: RailMetrics.outer - 2 * RailMetrics.rim, height: RailMetrics.pitch)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .modifier(FocusRing(on: focused(.slot(slot.id))))
-                .accessibilityLabel(slot.accessibilityLabel)
             }
-        }
-        .padding(.top, RailMetrics.rim + RailMetrics.slotInsetTop)
-        .padding(.bottom, RailMetrics.rim + RailMetrics.slotInsetBottom)
-        .frame(width: RailMetrics.outer, height: RailMetrics.agentsHeight(slots.count))
-        .background(GroupBackground())
-        .parityAnchor("rail.agents.capsule")
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Agents")
-    }
-
-    private var tools: some View {
-        VStack(spacing: 0) {
-            tool(.chat, symbol: "bubble.left", label: "Chat with the assistant")
-            tool(
-                .record, symbol: model.recording ? "mic.fill" : "mic",
-                label: model.recording ? "Stop recording" : "Record a message for the assistant")
-            tool(.attach, symbol: "camera", label: "Attach a screenshot to a message")
-        }
-        .padding(RailMetrics.rim)
-        .frame(width: RailMetrics.outer, height: RailMetrics.toolsHeight)
-        .background(GroupBackground())
-        .parityAnchor("rail.tools.capsule")
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Tools")
-    }
-
-    private func tool(_ item: RailModel.Item, symbol: String, label: String) -> some View {
-        Button { model.activate(item) } label: {
-            ZStack {
-                if item == .record && model.recording {
-                    Circle()
-                        .strokeBorder(Theme.Recording.ring.color, lineWidth: Theme.Rail.ringStroke.pt)
-                        .frame(width: RailMetrics.cell - Theme.space("m"), height: RailMetrics.cell - Theme.space("m"))
-                        .parityAnchor("rail.recording")
-                }
-                RailIcon(symbol: symbol)
-            }
-            .frame(width: RailMetrics.cell, height: RailMetrics.cell)
-            .contentShape(Rectangle())
+            .padding(.top, RailMetrics.rim + RailMetrics.slotInsetTop)
+            .padding(.bottom, RailMetrics.rim + RailMetrics.slotInsetBottom)
+            .frame(width: RailMetrics.outer, height: RailMetrics.agentsHeight(slots.count))
+            .background(GroupBackground())
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .modifier(FocusRing(on: focused(item)))
-        .accessibilityLabel(label)
+        .parityAnchor("rail.agents.capsule")
+        .modifier(FocusRing(on: focused(.agents)))
+        .accessibilityLabel("Agents")
+        .accessibilityValue("\(fleet.agents.count) running")
+        .help("Agents")
     }
 
     private var ellipsis: some View {
-        Button { model.activate(.ellipsis) } label: {
+        Button { model.activate(.settings) } label: {
             ZStack {
                 GroupBackground()
                 RailIcon(symbol: "ellipsis")
@@ -289,9 +254,9 @@ public struct RailView: View {
         }
         .buttonStyle(.plain)
         .parityAnchor("rail.ellipsis")
-        .modifier(FocusRing(on: focused(.ellipsis)))
-        .accessibilityLabel("Hide lasso controls")
-        .help("Hide lasso controls")
+        .modifier(FocusRing(on: focused(.settings)))
+        .accessibilityLabel("Settings")
+        .help("Settings")
     }
 }
 

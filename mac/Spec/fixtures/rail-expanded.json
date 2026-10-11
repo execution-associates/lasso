@@ -1,5 +1,5 @@
 {
-  "about": "Sketch of a parity state fixture. `server` holds verbatim responses in the Go server's JSON shapes (hostPane src/hostpanes.go:263, hostsPayload src/hosts.go:72, uiState src/db.go:276, botView src/botruntime.go:215), decoded by the same Codable models LiveSource uses. FixtureSource serves them and turns every action into a recorded no-op. `now` drives FixedClock. `expect` is what the harness asserts about the rendered state beyond tokens.json.",
+  "about": "Sketch of a parity state fixture, in the Go server's JSON shapes (hostPane src/hostpanes.go:263, hostsPayload src/hosts.go:72, uiState src/db.go:276, botView src/botruntime.go:215), decoded by the same models LiveSource uses. Modelled on titan: an Agents workspace holding several agents named by their herdr labels (stub, clem, and the bot jessica), a Bots workspace with the bot homie, and agents in workspaces of their own. FixtureSource serves it and turns every action into a recorded no-op.",
   "state": "rail-expanded",
   "now": "2026-10-11T19:00:00Z",
   "ui": {
@@ -59,19 +59,20 @@
           "host_label": "titan",
           "pane_id": "w1:p1",
           "workspace_id": "w1",
-          "workspace_label": "lasso-desktop-mac",
+          "workspace_label": "Agents",
           "tab_id": "w1:t1",
-          "tab_label": "claude",
-          "cwd": "/home/stephan/.lasso/worktrees/lasso/lasso-desktop-mac",
+          "tab_label": "stub",
+          "cwd": "/home/stephan/projects/ticket500/stub",
           "agent": "claude",
           "agent_status": "blocked",
           "has_agent": true,
           "focused": false,
+          "agent_label": "stub",
           "transcript_at": 1791745140000,
+          "agent_id": "a1",
           "repo": "lasso",
           "repo_key": "lasso",
-          "repo_label": "lasso",
-          "agent_id": "a1"
+          "repo_label": "lasso"
         },
         {
           "host": "minime",
@@ -80,7 +81,7 @@
           "workspace_id": "w2",
           "workspace_label": "notarize",
           "tab_id": "w2:t1",
-          "tab_label": "codex",
+          "tab_label": "notarize",
           "cwd": "/Users/stephanfitzpatrick/src/app",
           "agent": "codex",
           "agent_status": "blocked",
@@ -94,21 +95,18 @@
         {
           "host": "local",
           "host_label": "titan",
-          "pane_id": "w3:p1",
-          "workspace_id": "w3",
-          "workspace_label": "omp-bots",
-          "tab_id": "w3:t1",
-          "tab_label": "claude",
-          "cwd": "/home/stephan/.lasso/worktrees/lasso/omp-bots",
+          "pane_id": "w1:p2",
+          "workspace_id": "w1",
+          "workspace_label": "Agents",
+          "tab_id": "w1:t2",
+          "tab_label": "clem",
+          "cwd": "/home/stephan/projects/ocai/clem",
           "agent": "claude",
           "agent_status": "done",
           "has_agent": true,
           "focused": false,
-          "transcript_at": 1791745020000,
-          "repo": "lasso",
-          "repo_key": "lasso",
-          "repo_label": "lasso",
-          "agent_id": "a3"
+          "agent_label": "clem",
+          "transcript_at": 1791745020000
         },
         {
           "host": "local",
@@ -117,17 +115,17 @@
           "workspace_id": "w4",
           "workspace_label": "isb-egress",
           "tab_id": "w4:t1",
-          "tab_label": "claude",
+          "tab_label": "isb-egress",
           "cwd": "/home/stephan/projects/isb",
           "agent": "claude",
           "agent_status": "working",
           "has_agent": true,
           "focused": true,
           "transcript_at": 1791745195000,
+          "agent_id": "a4",
           "repo": "isb",
           "repo_key": "isb",
-          "repo_label": "isb",
-          "agent_id": "a4"
+          "repo_label": "isb"
         },
         {
           "host": "local",
@@ -136,17 +134,17 @@
           "workspace_id": "w5",
           "workspace_label": "readme-shots",
           "tab_id": "w5:t1",
-          "tab_label": "omp",
-          "cwd": "/home/stephan/.lasso/worktrees/lasso/readme-shots",
+          "tab_label": "readme-shots",
+          "cwd": "/home/stephan",
           "agent": "omp",
           "agent_status": "working",
           "has_agent": true,
           "focused": false,
           "transcript_at": 1791745180000,
+          "agent_id": "a5",
           "repo": "lasso",
           "repo_key": "lasso",
-          "repo_label": "lasso",
-          "agent_id": "a5"
+          "repo_label": "lasso"
         },
         {
           "host": "local",
@@ -170,7 +168,7 @@
           "workspace_id": "w7",
           "workspace_label": "shortcuts",
           "tab_id": "w7:t1",
-          "tab_label": "pi",
+          "tab_label": "shortcuts",
           "cwd": "/Users/stephanfitzpatrick",
           "agent": "pi",
           "agent_status": "unknown",
@@ -190,6 +188,38 @@
           "agent_status": "",
           "has_agent": false,
           "focused": false
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w9:p1",
+          "workspace_id": "w9",
+          "workspace_label": "Bots",
+          "tab_id": "w9:t1",
+          "tab_label": "homie",
+          "cwd": "/home/stephan/bots/homie",
+          "agent": "omp",
+          "agent_status": "idle",
+          "has_agent": true,
+          "focused": false,
+          "agent_label": "homie",
+          "transcript_at": 1791744300000
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w1:p3",
+          "workspace_id": "w1",
+          "workspace_label": "Agents",
+          "tab_id": "w1:t3",
+          "tab_label": "jessica",
+          "cwd": "/home/stephan/bots/jessica",
+          "agent": "claude",
+          "agent_status": "blocked",
+          "has_agent": true,
+          "focused": false,
+          "agent_label": "jessica",
+          "transcript_at": 1791745170000
         }
       ],
       "errors": {}
@@ -206,9 +236,9 @@
         {
           "id": 1,
           "host": "local",
-          "name": "assistant",
+          "name": "homie",
           "runtime": "omp",
-          "dir": "~/bots/assistant",
+          "dir": "~/bots/homie",
           "workspace": "Bots",
           "model": "",
           "effort": "",
@@ -226,27 +256,57 @@
           "created_at": "2026-10-11T18:00:00Z",
           "updated_at": "2026-10-11T18:00:00Z",
           "state": "idle",
+          "pane_id": "w9:p1",
           "last_kind": "agent",
           "last_text": "Done. The tunnel unit is linked.",
+          "last_at": "2026-10-11T18:58:00Z"
+        },
+        {
+          "id": 2,
+          "host": "local",
+          "name": "jessica",
+          "runtime": "claude",
+          "dir": "~/bots/jessica",
+          "workspace": "Agents",
+          "model": "",
+          "effort": "",
+          "permission_mode": "",
+          "mcp": [],
+          "strict_mcp": false,
+          "extra_args": [],
+          "launch_task": "",
+          "avatar": "",
+          "avatar_image": "",
+          "notify": true,
+          "keep_running": true,
+          "stopped": false,
+          "last_session_id": "",
+          "created_at": "2026-10-11T18:00:00Z",
+          "updated_at": "2026-10-11T18:00:00Z",
+          "state": "blocked",
+          "pane_id": "w1:p3",
+          "waiting_for": "Approve a calendar invite",
+          "last_kind": "agent",
+          "last_text": "Shall I accept the 3pm with Saul?",
           "last_at": "2026-10-11T18:58:00Z"
         }
       ]
     }
   },
   "expect": {
-    "badge": 2,
+    "badge": 3,
     "rail_slots": [
+      "local\u0000w1:p3",
       "local\u0000w1:p1",
       "minime\u0000w2:p1",
-      "local\u0000w3:p1",
-      "local\u0000w4:p1",
-      "+3"
+      "local\u0000w1:p2",
+      "+5"
     ],
     "notes": [
-      "has_agent=false rows are not fleet members (w8), as in the web client (src/web/src/lib/agents.ts).",
+      "has_agent=false rows are not fleet members (w8), as in the web client.",
       "Order is most urgent first: blocked, done, working, idle, unknown; ties by transcript_at, newest first.",
-      "Badge counts blocked agents plus blocked bots: 2 here.",
-      "unknown (w7) is drawn with state.idle; it falls into the +3 overflow."
+      "The badge counts what waits on the human: blocked agents that are not a bot's pane (stub, notarize) and blocked bots (jessica): 3.",
+      "Agents are named by their herdr label, else their tab: stub, clem, jessica in the Agents workspace."
     ]
   }
 }

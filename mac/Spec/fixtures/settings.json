@@ -1,0 +1,16 @@
+{
+  "about": "Settings on a fresh Mac: the lasso it talks to, no default bot yet (the bots to pick from, and Create a bot), and the permission states: screen recording off, accessibility not asked.",
+  "state": "settings",
+  "extends": "rail-expanded",
+  "ui": {
+    "rail": "collapsed",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "settings": true
+  },
+  "permissions": {
+    "screen_recording": "denied",
+    "accessibility": "not_determined"
+  }
+}

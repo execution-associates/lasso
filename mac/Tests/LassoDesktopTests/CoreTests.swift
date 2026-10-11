@@ -61,7 +61,7 @@ private let specDir = packageDir.appendingPathComponent("Spec")
 @Test func collapsedFixtureExtendsExpanded() throws {
     let fx = try Fixture.load("rail-collapsed", from: specDir.appendingPathComponent("fixtures"))
     #expect(fx.ui.rail == "collapsed")
-    #expect(fx.server.all_panes.panes.count == 8)
+    #expect(fx.server.all_panes.panes.count == 10)
 }
 
 /// Constraint 4: nothing may print to stdout/stderr from the app's sources
@@ -84,7 +84,7 @@ private let specDir = packageDir.appendingPathComponent("Spec")
 /// belongs in Theme.swift with its provenance.
 @Test func viewsTakeTheirLayoutFromTheme() throws {
     let src = packageDir.appendingPathComponent("Sources/LassoDesktopKit")
-    let views = ["Rail", "Card", "List", "Chat", "Onboarding", "Voice", "Platform"]
+    let views = ["Rail", "Card", "List", "Inbox", "Chat", "Settings", "Platform"]
     let literal = try Regex(
         #"\.padding\((\.[a-zA-Z]+, )?[1-9][0-9]*(\.[0-9]+)?\)|spacing: [1-9]|(width|height|size): [1-9][0-9]*(\.[0-9]+)?[,)]|\* 0\.[0-9]|offset\(x: [1-9]"#)
     for dir in views {

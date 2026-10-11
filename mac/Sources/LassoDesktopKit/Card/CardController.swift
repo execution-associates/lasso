@@ -15,7 +15,7 @@ struct CardHost: View {
     var body: some View {
         Group {
             if let model = holder.model {
-                CardView(model: model, recording: holder.recording)
+                CardView(model: model)
             }
         }
         .opacity(presence.shown ? 1 : 0)
@@ -26,7 +26,6 @@ struct CardHost: View {
 @MainActor
 final class CardHolder: ObservableObject {
     @Published var model: CardModel?
-    var recording: RecordingModel = .inert
 }
 
 /// The card's panel: beside the rail, keyboard-driven, through the A.3
@@ -40,8 +39,6 @@ public final class CardController {
     private let actions: CardActions
     /// Where the rail is, so the card opens beside it.
     var railFrame: () -> NSRect = { .zero }
-    /// V in a card: start a voice turn for its composer.
-    var onRecord: () -> Void = {}
 
     public init(fleet: FleetModel, actions: CardActions) {
         self.fleet = fleet
@@ -56,12 +53,6 @@ public final class CardController {
 
     public var isOpen: Bool { holder.model != nil }
 
-    /// The voice turn, shown in the card's composer.
-    var recording: RecordingModel {
-        get { holder.recording }
-        set { holder.recording = newValue }
-    }
-
     public func open(_ pane: HostPane) {
         if let m = holder.model, m.pane.key == pane.key {
             panel.makeKeyAndOrderFront(nil)
@@ -70,7 +61,6 @@ public final class CardController {
         holder.model?.stopPolling()
         let model = CardModel(pane: pane, fleet: fleet, actions: actions)
         model.onClose = { [weak self] in self?.close() }
-        model.onRecord = { [weak self] in self?.onRecord() }
         holder.model = model
         model.startPolling()
         place()
@@ -78,7 +68,6 @@ public final class CardController {
         withAnimationToken(Theme.Motion.cardOpen) { presence.shown = true }
     }
 
-    func appendToComposer(_ text: String, engine: String) { holder.model?.appendTranscript(text, engine: engine) }
     func say(_ s: String) { holder.model?.say(s) }
 
     public func close() {
@@ -125,7 +114,6 @@ public final class CardController {
         }
         switch true {
         case Keys.attach.matches(e): m.attachScreenshot()
-        case Keys.record.matches(e): if !e.isARepeat { m.record() }
         case Keys.send.matches(e):
             if m.composer.isEmpty { m.focusComposer() } else { m.send() }
         case Keys.kill.matches(e): m.kill()
