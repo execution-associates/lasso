@@ -6,3 +6,5 @@ shot-*.png
 /src/lasso
 /web/
 /src/skill/
+/mac/.build/
+/mac/dist/
