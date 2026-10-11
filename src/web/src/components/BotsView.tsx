@@ -782,7 +782,13 @@ export function BotsView({
             </Button>
           </>
         ) : (
-          <p>Pick a bot to talk to it.</p>
+          <>
+            <p>Pick a bot to talk to it, or make a new one.</p>
+            <Button onClick={() => go({ page: "new" })}>
+              <Plus />
+              New bot
+            </Button>
+          </>
         )}
       </div>
     )
