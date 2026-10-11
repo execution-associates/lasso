@@ -102,11 +102,11 @@ public struct CardView: View {
                 RoundButton(symbol: "chevron.up", enabled: pages.count > 1 && index > 0, label: "Previous card (K)") {
                     model.page(-1)
                 }
-                .keyHint(Keys.previous)
+                .keyHint(Keys.previous, .trailing)
                 RoundButton(
                     symbol: "chevron.down", enabled: pages.count > 1 && index < pages.count - 1, label: "Next card (J)"
                 ) { model.page(1) }
-                .keyHint(Keys.next)
+                .keyHint(Keys.next, .trailing)
                 unreadBar(pages)
                     .padding(.top, Theme.Layout.card.number("unread_top"))
             }
@@ -114,6 +114,7 @@ public struct CardView: View {
             .padding(.top, Theme.Layout.card.number("top"))
         }
         .panelChrome(Theme.Card.size.size, anchor: "card")
+        .environment(\.shownKeys, model.shownKeys)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(pane.displayName), \(pane.state.label)")
     }
@@ -282,10 +283,12 @@ public struct CardView: View {
                                 }
                                 Spacer(minLength: 8)
                                 if on {
+                                    // The selected choice: → answers with it, ↳ edits it.
+                                    InlineKey(binding: Keys.editStep)
+                                    InlineKey(binding: Keys.takeStep)
                                     Image(systemName: "arrow.right")
                                         .font(.system(size: Theme.icon.number("step"), weight: .semibold))
                                         .foregroundStyle(Theme.Text.secondary.color)
-                                        .keyHint(Keys.takeStep)
                                 }
                             }
                             .font(Theme.Fonts.body.font)
@@ -297,7 +300,6 @@ public struct CardView: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel("Step \(step.index + 1): \(step.label)")
                         .accessibilityHint("Right arrow answers with it; tab edits it first")
-                        .keyHint(Keys.editStep, .topTrailing)
                     }
                 }
                 .parityAnchor("card.steps")

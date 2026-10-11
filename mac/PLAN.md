@@ -741,7 +741,7 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 
 **How the card gets the keyboard:**
 - **By click or keyboard:** the inbox shortcut, the summon key, or a click on the inbox button gives the card the keyboard in the same press. Opening never puts the cursor in the composer, so the next `j` pages.
-- **By hover:** an inbox opened by hover is shown without the keyboard (§16). **While the pointer is over the card**, it lends itself the keyboard for `j`, `k`, `x`, `e` and `esc` only.
+- **By hover:** an inbox opened by hover is shown without the keyboard (§16). **While the pointer is over the inbox (the rail or its card)**, the card lends itself the keyboard for `j`, `k`, `x`, `e` and `esc` only. So `j`/`k` work the moment the inbox opens under the pointer, with no move onto the card.
   - Any other key hands the keyboard straight back. That key is lost, since a key cannot be re-sent to another app without Accessibility, and the card keeps it back until the pointer leaves and returns.
   - The keyboard is lent **once per pointer visit**. If it goes away (a click in another app), the card does not take it again until the pointer leaves and comes back.
   - **While lent, `e` asks twice, like `x`.** A first `e` arms ("Press E again to acknowledge"), and any other key disarms. So a word typed for another app that starts with `e` acknowledges nothing.
@@ -750,6 +750,13 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
     - Paging and esc are harmless.
     - Acknowledge and Kill both need a second press while the keyboard is only lent.
     - Typing meant for another app is cut off at its first key outside the set. The worst a stray word does is page the card or arm a confirm that its next letter cancels.
+- **Every key shows.** While the card has the keyboard, each control and move carries its keycap, with no ⌘ needed:
+  - `K`/`J` beside the paging chevrons, and `esc` on close
+  - `A` on the paperclip and `⏎` on send
+  - `X` on Kill and `E` on Acknowledge
+  - the choice numbers, plus `↳` and `→` on the selected choice
+
+  A lent keyboard shows only the five keys that work then; a full one shows them all (`CardModel.shownKeys`). Holding ⌘ still shows every key everywhere.
 - **A focused text field wins.** A key typed into the composer stays text, `j` included, even as the first character. Text focus is read from the window's first responder, not only from the field's own "did begin editing" (which fires only after the first character).
 
 ### 13.8a As built (M8)
@@ -845,8 +852,6 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
   - It plays when the inbox holds an item, a new turn or a new question it did not hold before (`InboxItem.arrivalKey`). The first reading is a baseline, and arrivals within 2 s make one sound (`live.arrival_sound`).
 - **Settings footer**: the Execution Associates lockup as isb ships it (`Resources/Brand`), tinted like secondary text, linking to execution.associates.
 - **App icon**: the EXA monogram, exactly as `exa/brand-assets/logo/exa-mark-white.png` draws it, on a macOS icon plate in the rail's ink gradient (`Resources/AppIcon.png`). `build-app.sh` packs `AppIcon.icns`.
-
-- **Help:** Settings' footer has **Help** (and `?` while Settings has the keyboard). It opens a floating, titled window that explains the rail, the inbox (answer, Acknowledge, Kill, blocked), the agents (preview, window, shared files and attachments), every key and what Settings holds. Its key lists are drawn from the app's own bindings (`Keys.all`, the stored inbox shortcut, `keys.summon`), so they cannot drift from the handlers. Parity state `help`.
 
 ## 18. Later: signing in to a deployed lasso through Cloudflare Access
 

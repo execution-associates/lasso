@@ -60,6 +60,20 @@ public final class CardModel: ComposerModel {
     /// One line of feedback in the footer (sent, refused, kill armed…).
     @Published public private(set) var notice: String?
     @Published public private(set) var killArmed = false
+    /// Whether the card has the keyboard, and how (PLAN 13.7a): it decides
+    /// which keys the card shows and answers.
+    @Published public var keyMode: KeyMode = .none
+
+    public enum KeyMode: Sendable { case none, lent, full }
+
+    /// The keys the card shows as keycaps on its controls right now.
+    public var shownKeys: Set<String>? {
+        switch keyMode {
+        case .none: nil
+        case .lent: Set(CardKeys.hoverSet.map(\.id))
+        case .full: Set(activeBindings.map(\.id))
+        }
+    }
     /// E once armed Acknowledge (a keyboard the pointer lent asks twice).
     @Published public private(set) var ackArmed = false
     @Published public var highlighted: Int?

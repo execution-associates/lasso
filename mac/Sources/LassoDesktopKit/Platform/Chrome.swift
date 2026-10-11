@@ -20,17 +20,44 @@ public final class KeyHints: ObservableObject {
     }
 }
 
+/// The keys a surface shows without ⌘ held: a card with the keyboard shows
+/// the keys that work right now (PLAN 13.7a), so every button and move says
+/// its key. nil shows them only while ⌘ is held.
+struct ShownKeysKey: EnvironmentKey {
+    static let defaultValue: Set<String>? = nil
+}
+
+extension EnvironmentValues {
+    var shownKeys: Set<String>? {
+        get { self[ShownKeysKey.self] }
+        set { self[ShownKeysKey.self] = newValue }
+    }
+}
+
 struct KeyHint: ViewModifier {
     let binding: KeyBinding
     var alignment: Alignment = .bottomTrailing
     @ObservedObject var hints = KeyHints.shared
+    @Environment(\.shownKeys) private var shown
 
     func body(content: Content) -> some View {
         content.overlay(alignment: alignment) {
-            if hints.visible {
+            if hints.visible || shown?.contains(binding.id) == true {
                 Keycap(binding).offset(x: Theme.space("s"), y: Theme.space("s"))
             }
         }
+    }
+}
+
+/// A keycap set in a row (not over a control): shown on the same terms as
+/// keyHint, for keys that act on the row rather than on one button.
+struct InlineKey: View {
+    let binding: KeyBinding
+    @ObservedObject var hints = KeyHints.shared
+    @Environment(\.shownKeys) private var shown
+
+    var body: some View {
+        if hints.visible || shown?.contains(binding.id) == true { Keycap(binding) }
     }
 }
 

@@ -32,7 +32,6 @@ public final class AppCoordinator {
     private var inboxSeen: Set<String>?
     /// The control whose panel a hover opened and nobody has clicked yet,
     /// and since when the pointer has been away from both rail and panel.
-    private let help = HelpController()
     private var hoverShown: RailModel.Item?
     private var hoverAway: Date?
 
@@ -133,7 +132,6 @@ public final class AppCoordinator {
             return true
         }
         settingsModel.onClose = { [weak self] in self?.settings.close() }
-        settingsModel.onHelp = { [weak self] in self?.openHelp() }
         settingsModel.onUse = { [weak self] url in self?.use(url) }
         settingsModel.onShortcut = { [weak self] c in self?.shortcut?.apply(c) }
         if let client {
@@ -155,10 +153,6 @@ public final class AppCoordinator {
         }
         settings.onKey = { [weak self] e in
             if self?.settingsModel.record(e) == true { return true }
-            if e.charactersIgnoringModifiers == "?" {
-                self?.openHelp()
-                return true
-            }
             guard Keys.esc.matches(e) else { return false }
             self?.settingsModel.close()
             return true
@@ -261,11 +255,6 @@ public final class AppCoordinator {
         InboxSound.play()
     }
 
-    func openHelp() {
-        let sc = InboxShortcutChoice.stored
-        help.show(inboxShortcut: sc == .off ? "(off)" : sc.label.components(separatedBy: "  ").first ?? sc.label)
-    }
-
     /// Resting on a rail control opens it, without the keyboard: the user may
     /// be typing in another app, and the card's keys are single letters. A
     /// click or the summon key gives the panel the keyboard.
@@ -303,7 +292,13 @@ public final class AppCoordinator {
         // A keyboard the pointer lent the inbox's card is not a click: the
         // card stays a glance, and the keyboard goes back as the pointer leaves it.
         if item == .inbox, card.isOpen {
-            if card.panel.frame.contains(pointer) { card.takeKeyForPointer() } else { card.pointerLeft() }
+            // The inbox is the rail and its card: a pointer on either is on the
+            // inbox, so j/k work the moment it opens under the pointer.
+            if card.panel.frame.contains(pointer) || rail.panel.frame.contains(pointer) {
+                card.takeKeyForPointer()
+            } else {
+                card.pointerLeft()
+            }
         }
         guard let s = shown(item), !s.isKey || (item == .inbox && card.pointerKeyed) else {
             hoverShown = nil

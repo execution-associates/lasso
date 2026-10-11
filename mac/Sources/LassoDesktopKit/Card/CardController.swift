@@ -55,7 +55,22 @@ public final class CardController {
         panel.onKey = { [weak self] e in self?.handle(e) ?? false }
         // A click makes the card the user's: the whole vocabulary, and no
         // giving the keyboard back when the pointer leaves.
-        panel.onMouseDown = { [weak self] in self?.pointerKeyed = false }
+        panel.onMouseDown = { [weak self] in
+            self?.pointerKeyed = false
+            self?.syncKeyMode()
+        }
+        // The card shows (and answers) the keys of how it holds the keyboard.
+        NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: panel, queue: .main) {
+            [weak self] _ in MainActor.assumeIsolated { self?.syncKeyMode() }
+        }
+        NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) {
+            [weak self] _ in
+            MainActor.assumeIsolated {
+                // Clicked away: a lent keyboard is simply gone.
+                self?.pointerKeyed = false
+                self?.syncKeyMode()
+            }
+        }
     }
 
     public var isOpen: Bool { holder.model != nil }
@@ -72,6 +87,7 @@ public final class CardController {
         let model = CardModel(pane: pane, fleet: fleet, actions: actions)
         model.inbox = inbox
         inbox?.markSeen(pane)
+        model.keyMode = !panel.isKeyWindow ? .none : (pointerKeyed ? .lent : .full)
         model.onClose = { [weak self] in self?.close() }
         holder.model = model
         model.startPolling()
@@ -86,6 +102,11 @@ public final class CardController {
 
     /// Whether the keyboard is the card's.
     var isKey: Bool { panel.isKeyWindow }
+
+    private func syncKeyMode() {
+        let mode: CardModel.KeyMode = !panel.isKeyWindow ? .none : (pointerKeyed ? .lent : .full)
+        if holder.model?.keyMode != mode { holder.model?.keyMode = mode }
+    }
 
     /// The pointer, not a click, lent the card the keyboard (PLAN 13.7a):
     /// only the hover set acts, and it goes back when the pointer leaves.
@@ -103,6 +124,7 @@ public final class CardController {
         panel.makeKeyAndOrderFront(nil)
         // Opening never puts the cursor in the composer: one-letter keys page.
         panel.makeFirstResponder(nil)
+        syncKeyMode()
     }
 
     /// The pointer is over a hover-opened card: lend it the keyboard.
@@ -112,6 +134,7 @@ public final class CardController {
         pointerKeyed = true
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(nil)
+        syncKeyMode()
         Trace.event("card took the keyboard (pointer over it)")
     }
 
@@ -128,6 +151,7 @@ public final class CardController {
         guard pointerKeyed else { return }
         pointerKeyed = false
         if panel.isKeyWindow { panel.resignKey() }
+        syncKeyMode()
         Trace.event("card gave the keyboard back")
     }
 

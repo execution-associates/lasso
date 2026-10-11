@@ -21,8 +21,6 @@ public struct Fixture: Decodable, Sendable {
         public var preview: String?
         public var window: String?
         public var collapsed: Bool?
-        /// The Help window.
-        public var help: Bool?
         public var inbox: Bool?
     }
 
