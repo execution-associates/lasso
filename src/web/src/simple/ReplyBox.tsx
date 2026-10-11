@@ -5,6 +5,11 @@ import type { ChatSendResult } from "@/lib/api"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
+// Unsent text, per target (a pane or a bot), for this page's life: paging to
+// another card and back finds the sentence still there, and text written for
+// one agent never sits in another's box.
+const drafts = new Map<string, string>()
+
 // A reply typed on a card. Sending is three-valued, as the chat's composer is:
 // only `confirmed` clears the draft; `refused` and `uncertain` keep it and say
 // why, and nothing is ever resent on the human's behalf.
@@ -12,18 +17,28 @@ import { cn } from "@/lib/utils"
 // The paperclip writes each file to the agent's machine (/api/paste-file) and
 // puts its path into the message, as the full UI's composer does.
 export function ReplyBox({
+  draftKey,
   placeholder,
   host,
   send,
   disabled,
 }: {
+  // Who the reply is for, which is what its draft is kept under.
+  draftKey: string
   placeholder: string
   // The machine attachments are written to; absent means no attachments.
   host?: string
   send: (text: string) => Promise<ChatSendResult>
   disabled?: boolean
 }) {
-  const [text, setText] = React.useState("")
+  const [text, setTextState] = React.useState(() => drafts.get(draftKey) ?? "")
+  const setText = (next: string | ((t: string) => string)) =>
+    setTextState((t) => {
+      const v = typeof next === "function" ? next(t) : next
+      if (v) drafts.set(draftKey, v)
+      else drafts.delete(draftKey)
+      return v
+    })
   const [busy, setBusy] = React.useState(false)
   const [notice, setNotice] = React.useState<string | null>(null)
   const fileRef = React.useRef<HTMLInputElement>(null)

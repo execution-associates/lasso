@@ -42,6 +42,7 @@ import {
 import { ReplyBox } from "@/simple/ReplyBox"
 import type { SimpleRoute } from "@/simple/route"
 import { SharedFiles, sharedFiles } from "@/simple/SharedFiles"
+import { useSwipePager } from "@/simple/swipe"
 
 // Where a card puts its reply box and actions: a bar pinned above the tab bar,
 // so they hold still while the reader pages and a card's content loads.
@@ -87,27 +88,14 @@ export function InboxView({ go }: { go: (r: SimpleRoute) => void }) {
   })
   const [footer, setFooter] = React.useState<HTMLElement | null>(null)
 
-  const page = (d: number) => {
-    const next = items[index + d]
-    if (next) setCurrentKey(next.key)
-  }
-
-  // A horizontal swipe pages; anything mostly vertical is the card's scroll.
-  const touch = React.useRef<{ x: number; y: number } | null>(null)
-  const onTouchStart = (e: React.TouchEvent) => {
-    const t = e.touches[0]
-    touch.current = { x: t.clientX, y: t.clientY }
-  }
-  const onTouchEnd = (e: React.TouchEvent) => {
-    const s = touch.current
-    touch.current = null
-    if (!s) return
-    const t = e.changedTouches[0]
-    const dx = t.clientX - s.x
-    const dy = t.clientY - s.y
-    if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.6)
-      page(dx < 0 ? 1 : -1)
-  }
+  const swipe = useSwipePager({
+    canPrev: index > 0,
+    canNext: index < items.length - 1,
+    onPage: (d) => {
+      const next = items[index + d]
+      if (next) setCurrentKey(next.key)
+    },
+  })
 
   return (
     <Screen
@@ -124,8 +112,8 @@ export function InboxView({ go }: { go: (r: SimpleRoute) => void }) {
           <Pager
             index={index}
             count={items.length}
-            onPrev={() => page(-1)}
-            onNext={() => page(1)}
+            onPrev={() => swipe.page(-1)}
+            onNext={() => swipe.page(1)}
           />
         ) : null
       }
@@ -144,16 +132,21 @@ export function InboxView({ go }: { go: (r: SimpleRoute) => void }) {
         )
       ) : (
         <FooterSlot.Provider value={footer}>
-          {/* Keyed by the card, so each one opens at its top. */}
-          <ScrollBody key={item.key} className="pt-2 pb-4">
-            <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+          {/* The card under the finger: it follows a horizontal drag (the
+              browser keeps the vertical scroll), and the ScrollBody inside is
+              keyed by the card, so each one opens at its top. */}
+          <div
+            ref={swipe.ref}
+            style={swipe.style}
+            {...swipe.handlers}
+            className="flex min-h-0 flex-1 touch-pan-y flex-col will-change-transform"
+          >
+            <ScrollBody key={item.key} className="pt-2 pb-4">
               <ItemCard item={item} go={go} />
-            </div>
-          </ScrollBody>
+            </ScrollBody>
+          </div>
           <div
             ref={setFooter}
-            onTouchStart={onTouchStart}
-            onTouchEnd={onTouchEnd}
             className="flex flex-none flex-col gap-2.5 border-border/60 border-t px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+96px)]"
           />
         </FooterSlot.Provider>
@@ -480,6 +473,7 @@ function PaneCard({
       <CardFooter>
         {item.kind === "done" && (
           <ReplyBox
+            draftKey={`pane:${paneKey(p)}`}
             placeholder="Reply…"
             host={chat?.host ?? p.host}
             send={async (t) => {
@@ -563,6 +557,7 @@ function BotCard({
       <CardFooter>
         {item.kind === "bot-reply" && (
           <ReplyBox
+            draftKey={`bot:${b.name}`}
             placeholder="Reply…"
             send={async (t) => {
               const r = await api.bots.chatSend(b.name, t)
