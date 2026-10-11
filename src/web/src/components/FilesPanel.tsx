@@ -3,12 +3,12 @@ import * as React from "react"
 import { toast } from "sonner"
 import { DiffTab } from "@/components/DiffTab"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
-import { FileViewer } from "@/components/FileViewer"
 import {
   type FileChange,
   FilesTab,
   type FilesTabState,
 } from "@/components/FilesTab"
+import { FileViewer } from "@/components/FileViewer"
 import { Orb } from "@/components/ui/orb"
 import { useApp } from "@/lib/app-store"
 import { useDiff } from "@/lib/git"

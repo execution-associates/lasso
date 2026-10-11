@@ -163,8 +163,7 @@ function wireShiftEnter(id: string, tries: number) {
           e.code === "Enter" ||
           e.code === "NumpadEnter" ||
           e.keyCode === 13
-        const seq =
-          e.type === "keydown" && enterish ? enterChordSeq(e) : null
+        const seq = e.type === "keydown" && enterish ? enterChordSeq(e) : null
         if (seq !== null) {
           // preventDefault is essential — without it the browser runs Enter's
           // default on the helper textarea, which xterm re-reads as a 2nd Enter.
@@ -177,8 +176,7 @@ function wireShiftEnter(id: string, tries: number) {
     }
     return
   }
-  if (tries < 20)
-    setTimeout(() => wireShiftEnter(id, tries + 1), 150)
+  if (tries < 20) setTimeout(() => wireShiftEnter(id, tries + 1), 150)
 }
 
 // herdr copies (copy-mode, double-click token, mouse selection in a pane) by

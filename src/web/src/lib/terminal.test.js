@@ -33,17 +33,13 @@ describe("enterChordSeq", () => {
     expect(enterChordSeq(k({ ctrlKey: true, shiftKey: true }))).toBe(
       "\x1b[13;6u"
     )
-    expect(enterChordSeq(k({ ctrlKey: true, altKey: true }))).toBe(
-      "\x1b[13;7u"
-    )
+    expect(enterChordSeq(k({ ctrlKey: true, altKey: true }))).toBe("\x1b[13;7u")
   })
 
   test("leaves plain, Alt-only and Meta chords to xterm", () => {
     expect(enterChordSeq(k({}))).toBeNull()
     expect(enterChordSeq(k({ altKey: true }))).toBeNull()
-    expect(
-      enterChordSeq(k({ metaKey: true, ctrlKey: true }))
-    ).toBeNull()
+    expect(enterChordSeq(k({ metaKey: true, ctrlKey: true }))).toBeNull()
   })
 })
 
