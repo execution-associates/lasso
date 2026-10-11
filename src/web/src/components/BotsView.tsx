@@ -15,7 +15,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
-import { BotModelBar } from "@/components/BotModelBar"
+import { BotModelBar, ContextMeter } from "@/components/BotModelBar"
 import {
   BotAvatar,
   BotStateMark,
@@ -760,6 +760,9 @@ export function BotsView({
                 <TerminalButton onClick={() => void openTerminal(current)} />
               )}
               <ViewsButton onOpen={onOpenViews} />
+              {/* Context use takes the header's far right; in the compact
+                  layout it is in the model chip's line instead. */}
+              {!compact && <ContextMeter bot={current} />}
             </>
           }
           className="min-w-0 flex-1"

@@ -135,7 +135,6 @@ export function BotModelBar({
           <ChevronDown className="size-3 shrink-0 opacity-60" />
         </button>
       </ThinkingPicker>
-      <ContextMeter bot={bot} />
     </div>
   )
 }
