@@ -1,6 +1,6 @@
 ---
 name: wrap
-description: "Wrap up a finished feature in a lasso worktree: coordinate with any other agent wrapping lasso, merge the current branch to local main, cut a release (bump version + push tag), run `lasso update` once the release publishes, then close this agent's own herdr pane. Use when the user says \"wrap\", \"/wrap\", \"wrap it up\", \"ship it\", or asks to finalize/land/release a completed feature from inside a lasso agent."
+description: "Wrap up a finished feature in a lasso worktree: coordinate with any other agent wrapping lasso, merge the current branch to local main, cut a release (bump version + push tag), install it once the release publishes (mise pin on a mise-managed box, `lasso update` elsewhere) and restart the daemon, then close this agent's own herdr pane. Use when the user says \"wrap\", \"/wrap\", \"wrap it up\", \"ship it\", or asks to finalize/land/release a completed feature from inside a lasso agent."
 ---
 
 # wrap — land a finished feature, release, update, and close out
@@ -10,7 +10,7 @@ holds a *completed* feature. It takes that branch all the way to a published
 release and then closes the agent. The final step kills this agent's terminal, so
 everything else must succeed first.
 
-End-to-end: **take the wrap lock → sync → verify → merge → bump → tag → wait for release → `lasso update` → release the lock → close own herdr pane.**
+End-to-end: **take the wrap lock → sync → verify → merge → bump → tag → wait for release → install it (mise pin, or `lasso update`) and restart → release the lock → close own herdr pane.**
 
 **Assume the merge publishes itself.** Titan carries a GLOBAL
 `post-commit`/`post-merge` hook (`core.hooksPath = ~/.config/git/hooks`) that
@@ -31,7 +31,7 @@ window: **everything is verified on the feature branch with main already merged
 INTO it**, where nothing is published and a conflict costs nothing. The explicit
 `git push origin main` in step 5 is then a no-op on titan and the real push on a
 box without the hook. The tag is never auto-pushed by anything, and the GitHub
-Release is what `lasso update` pulls from, so that push is always ours to make.
+Release is what step 7 installs from, so that push is always ours to make.
 
 > **Layout note:** all Go code lives under `src/` (the Go module root), the
 > frontend under `src/web/`, and the version source of truth is `src/version.go`.
@@ -52,7 +52,7 @@ Release is what `lasso update` pulls from, so that push is always ours to make.
 
 Several agents work in lasso worktrees at once, and two wraps overlapping is a
 real failure, not a style problem: both bump to the same version and one tag
-push is refused, or one agent's `lasso update` restarts the daemon in the middle
+push is refused, or one agent's step 7 restarts the daemon in the middle
 of the other's verification, or one merges into `main` while the other is
 between its merge and its tag. So **one wrap runs at a time**, arbitrated by a
 lock every worktree can see, and agents talk to each other while they wait.
@@ -298,12 +298,12 @@ git -C "$MAIN" -c credential.helper='!gh auth git-credential' push "$R" "v$VER"
 ```
 
 If neither path works, **stop and report**. An unpushed tag publishes no release,
-and `lasso update` against a missing release silently leaves the old version
+and step 7 against a missing release silently leaves the old version
 running — which step 7's verification is the only thing that would catch.
 
 ## 6. Wait for the release to actually publish
 
-`lasso update` pulls from the GitHub Release, which takes a few minutes to build
+Step 7 installs from the GitHub Release, which takes a few minutes to build
 and upload. Running update too early silently re-installs the *old* version (the
 mise `ls-remote` cache compounds this). So **wait for the release + its assets**:
 
@@ -321,14 +321,30 @@ done
 If it never appears, check the run: `gh run list --repo execution-associates/lasso --workflow release.yml`.
 Don't proceed to update against a missing/failed release.
 
-## 7. lasso update — then restart the daemon via **whatever owns the process**
+## 7. Install the release — then restart the daemon via **whatever owns the process**
 
-Clear the mise cache first so the new version is actually seen, then update:
+Clear the mise cache first so the new version is actually seen, then install it
+the way this box installs lasso:
 
 ```bash
 mise cache clear
-lasso update                  # swaps the release binary in place
+case "$(readlink -f "$(command -v lasso)")" in
+  */installs/*) mise use -g "ubi:52labs/lasso@$VER" ;;   # mise-managed (titan): new install dir + pin
+  *) lasso update ;;                                     # image/standalone binary: swapped in place
+esac
 ```
+
+**On a mise-managed box, never run `lasso update`.** It renames the new bytes
+over the running executable, which there is the OLD version's install dir
+(`installs/ubi-52labs-lasso/<old>/lasso`), and restarts a systemd-owned daemon
+on the spot. The daemon then serves the new release out of a directory named
+for the old one, every bot's generated files (mcp.json's `lasso-channel`, the
+omp bot-host and bot-attach commands) name that directory, and a later `mise
+prune` deletes the binary they all point at. `mise use -g` instead installs the
+release into its own `installs/.../$VER` dir and moves the pin; it touches
+nothing running, so the restart below is what moves the daemon, and the
+daemon's first runner pass rewrites the bots' files to the new path
+(`botSyncChannelFiles`).
 
 **The binary may not be yours to write.** On a workspace box `/usr/local/bin/lasso`
 is `root:root` out of the image, so `replaceSelf`'s `os.CreateTemp` in that
@@ -336,32 +352,17 @@ directory fails as the agent user with `replace binary: permission denied`. `sud
 takes no password there and runs the identical code path, so on such a box the
 update is `sudo lasso update`.
 
-**`lasso update` atomically replaces the running binary (`replaceSelf` renames
-the new bytes over `os.Executable()`) — it does NOT update mise metadata.** On
-titan the daemon's exe resolves through the mise shim into a versioned install
-dir (e.g. `installs/ubi-52labs-lasso/2.9.7/lasso`), so after an update the
-directory name and the `~/.config/mise/config.toml` pin still claim the old
-version while the bytes are the new release (verified 2026-08-17: dir named
-2.9.7 served 2.9.11). Any later `mise install`/`upgrade`/`prune` on that tool
-silently rolls prod back to the pinned version. Keep an **existing** pin honest —
-and only an existing one:
-
-```bash
-case "$(readlink -f "$(command -v lasso)")" in
-  */installs/*) mise use -g "ubi:52labs/lasso@$VER" ;;   # mise-managed (titan)
-  *) : ;;                                                # image binary — no pin, see below
-esac
-```
-
 **Never create a mise pin for lasso on a box that has none.** `/opt/mise/shims` is
 first on PATH, so `mise use -g ubi:52labs/lasso@…` on a workspace box mints a shim
 that permanently shadows the image's `/usr/local/bin/lasso`: the supervisor keeps
 launching the image binary while every shell — and every later wrap — reads the
 mise one.
 
-**`lasso update` only auto-restarts a *pidfile-managed* daemon.** Under any
-supervisor the built-in restart no-ops and the running daemon keeps serving the
-**old** binary, so find the owner by asking the process, not the platform:
+**Always run the restart below.** `mise use -g` restarts nothing, and `lasso
+update`'s built-in restart reaches only a pidfile daemon or a systemd unit whose
+main pid runs that exact binary; under supervise.sh it no-ops and the daemon
+keeps serving the **old** binary. So find the owner by asking the process, not
+the platform:
 
 ```bash
 # The running server: its argv carries -listen under a supervisor or a unit. The
@@ -407,7 +408,12 @@ LPID=$(pgrep -nf '(^|/)lasso -listen')
 LADDR=$(tr '\0' ' ' </proc/"$LPID"/cmdline | grep -oP '(?<=-listen )\S+')
 LADDR=${LADDR:-${LASSO_LISTEN:-127.0.0.1:8090}}; LADDR=${LADDR/0.0.0.0/127.0.0.1}
 curl -s "http://$LADDR/api/version"
+readlink -f /proc/"$LPID"/exe   # mise-managed: must be .../installs/ubi-52labs-lasso/$VER/lasso
 ```
+
+On a mise-managed box the exe path must sit in the `$VER` directory too. A new
+version served from an older directory means `lasso update` ran there: restart
+the daemon once more (the pin already names `$VER`) and re-check both.
 
 A `403 forbidden: this lasso requires a Cloudflare Access identity` is not a
 failed update: that box gates on the Access header, and nothing injects one into a
@@ -441,7 +447,7 @@ Never close a pane that isn't this agent's.
 ## Summary to print before closing
 
 Right before closing the pane, tell the user what happened: merged `<feature>` →
-`main`, released `v<VER>`, ran `lasso update` (now serving `v<VER>`), and closing
+`main`, released `v<VER>`, installed it (now serving `v<VER>`), and closing
 the agent. After the pane closes the connection drops — that's success, not an error.
 
 ## Notes / gotchas
@@ -449,7 +455,7 @@ the agent. After the pane closes the connection drops — that's success, not an
 - Each step is checked: if a command fails, **stop and report** rather than barrelling
   to the close, and handle the wrap lock the way step 0 says for where you stopped. A half-finished wrap that still closed the agent is the worst outcome.
 - The agent's terminal is a herdr pane; herdr is a separate daemon from lasso, so
-  the pane survives the `lasso update` daemon restart and updating mid-wrap is safe.
+  the pane survives step 7's daemon restart and updating mid-wrap is safe.
 - **On a workspace box the binary swap sits outside the image pin, deliberately.**
   supervise.sh launches lasso with `-disable-self-update`, and its own comment says
   that flag "IS THE POINT OF THE IMAGE PIN": the Dockerfile asserts a sha256 for
@@ -457,7 +463,7 @@ the agent. After the pane closes the connection drops — that's success, not an
   unanswerable from the repo, and a runtime rebuild reverts the box to the pinned
   version. A wrap there is correct but temporary — persisting it is a pin bump in
   `titan-iac`, which no box can write from inside itself. Say so in the summary.
-- **wrap never touches the herdr binary.** `lasso update` only swaps the lasso
+- **wrap never touches the herdr binary.** Step 7 only installs the lasso
   binary and restarts the lasso daemon — it does not install, pin, or replace
   herdr, and lasso resolves the `herdr` client via `PATH`. A custom/forked herdr
   (e.g. a local build in `~/.local/bin`) is left exactly as-is.
