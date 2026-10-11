@@ -190,8 +190,9 @@ public final class ParityRunner {
             let m = NewAgentModel(kind: .git, source: FixtureNewAgentSource())
             await m.load()
             m.prompt = "Fix the flaky upload test\nIt fails about one run in ten on titan."
-            bindings = [Keys.esc]
-            let make: @MainActor () async throws -> Capture = { try await Capturer.capture(NewAgentView(model: m), size: Theme.Card.size.size) }
+            let make: @MainActor () async throws -> Capture = {
+                try await Capturer.capture(NewAgentView(model: m), size: Theme.NewAgent.layout.size2("size"))
+            }
             cap = try await make()
             recapture = make
         } else if let key = fixture.ui.preview {

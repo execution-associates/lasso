@@ -173,6 +173,17 @@ public enum Theme {
             proposed: true)
     }
 
+    /// The New Agent composer.
+    public enum NewAgent {
+        public static let layout = Token(
+            "new_agent.layout",
+            ["size": [560, 412], "pad": 20, "gap": 16, "radius": 14, "prompt_h": 168, "prompt_inset": 14,
+             "chip_h": 28, "chevron": 8, "switch_h": 24, "switch_w": 30, "switch_track": 18, "button_h": 32,
+             "hover": 0.35, "lit": 0.55, "tint": 0.1, "disabled": 0.4],
+            .inferred("a composer: the prompt is the page, settings are chips beneath it, one primary action"),
+            proposed: true)
+    }
+
     public enum Panel {
         public static let surface = Token(
             "panel.surface", "#1B0A2C", .measured("EXA: isb web/src/index.css :root.ea --background (ink)"))
@@ -389,7 +400,7 @@ public enum Theme {
         Rail.maxSlots, Rail.overflowFont, Rail.icon, Rail.ellipsisOuter, Rail.edge, Rail.edgeInset,
         Rail.panelMargin, Rail.badgeSize, Rail.badgeRing, Rail.badgeCenter, Rail.peek, Rail.peekFill, Rail.drag, Rail.hover, Rail.hoverFill, Rail.pressed,
         State.done, State.working, State.blocked, State.idle,
-        Settings.footer, Agent.window, Agent.collapsed, Agent.preview, Agent.media, Agent.picker,
+        Settings.footer, Agent.window, Agent.collapsed, Agent.preview, Agent.media, Agent.picker, NewAgent.layout,
         Panel.surface, Panel.border, Panel.radius, Panel.inset, Panel.inner, Panel.divider, Panel.shadow,
         Control.round, Control.composer, Control.pill, Control.pillPrimary,
         Card.size, Card.titleX, Card.contentX, Card.unreadSegment, Card.unreadDot, Card.unreadGap, Card.keycapFill,

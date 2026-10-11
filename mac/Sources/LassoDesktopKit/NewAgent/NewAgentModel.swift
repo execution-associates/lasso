@@ -127,9 +127,11 @@ public final class NewAgentModel: ObservableObject {
     @Published public private(set) var busy = false
     @Published public private(set) var error: String?
 
-    /// The repository and branch pickers' own state (open, filter).
-    public let repoPicker = PickerState()
-    public let branchPicker = PickerState()
+    /// Which chip's picker is open, and its filter text.
+    @Published public var openChip: String? { didSet { if openChip != oldValue { chipFilter = "" } } }
+    @Published public var chipFilter = ""
+    /// The prompt has the cursor (its frame lights up).
+    @Published public var promptFocused = false
     let source: NewAgentSource
     /// The agent was created: open its window.
     public var onCreated: (HostPane) -> Void = { _ in }
