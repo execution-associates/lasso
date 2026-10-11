@@ -166,8 +166,13 @@ export function DeleteBotDialog({
   const where = bot?.host === "local" ? "this machine" : bot?.host
   const folder = dirPath ?? bot?.dir_path ?? bot?.dir
   const omp = bot?.runtime === "omp"
+  // Deleting takes seconds (a running bot is stopped first), so the dialog
+  // stays up, saying so, until the server has answered: closing it on the
+  // click left nothing on screen to tell a slow delete from a refused one.
+  const [deleting, setDeleting] = React.useState(false)
   const remove = async () => {
     if (!bot) return
+    setDeleting(true)
     try {
       const res = await api.bots.delete(bot.name, withFolder)
       if (res.folder_error)
@@ -177,15 +182,23 @@ export function DeleteBotDialog({
       else if (res.folder_deleted)
         toast.success(`${bot.name} and its folder deleted`)
       else toast.success(`${bot.name} deleted; its folder is still on ${where}`)
+      onOpenChange(false)
       onDeleted?.()
     } catch (e) {
+      // The dialog stays open on a refusal, so it can be read and retried.
       toast.error(`could not delete ${bot.name}: ${(e as Error).message}`)
     } finally {
+      setDeleting(false)
       void invalidateBots(bot.name)
     }
   }
   return (
-    <AlertDialog open={open && !!bot} onOpenChange={onOpenChange}>
+    <AlertDialog
+      open={open && !!bot}
+      onOpenChange={(o) => {
+        if (!deleting) onOpenChange(o)
+      }}
+    >
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Delete {bot?.name}?</AlertDialogTitle>
@@ -218,6 +231,7 @@ export function DeleteBotDialog({
           <Checkbox
             id="delete-bot-folder"
             checked={withFolder}
+            disabled={deleting}
             onCheckedChange={(v) => setWithFolder(v === true)}
             className="mt-0.5"
           />
@@ -229,12 +243,27 @@ export function DeleteBotDialog({
           </span>
         </label>
         <AlertDialogFooter>
-          <AlertDialogCancel>Keep it</AlertDialogCancel>
+          <AlertDialogCancel disabled={deleting}>Keep it</AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
-            onClick={() => void remove()}
+            disabled={deleting}
+            onClick={(e) => {
+              // Not the dialog's own close: remove() closes it once the
+              // server has answered.
+              e.preventDefault()
+              void remove()
+            }}
           >
-            {withFolder ? "Delete bot and folder" : "Delete bot"}
+            {deleting ? (
+              <>
+                <Orb state="working" px={12} />
+                Deleting…
+              </>
+            ) : withFolder ? (
+              "Delete bot and folder"
+            ) : (
+              "Delete bot"
+            )}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
