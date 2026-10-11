@@ -39,6 +39,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -1856,7 +1857,14 @@ type versionInfo struct {
 	// main by commit instead). When it's newer than this build the Settings tab
 	// shows an "update available" hint pointing at `lasso update`.
 	LatestVersion string `json:"latest_version,omitempty"`
-	Err           string `json:"err,omitempty"`
+	// Dev is set when this lasso runs with -dev, and Listen is then the
+	// address it bound (a dev instance falls forward past a busy port, so the
+	// flag's value is not it). Both are absent for every other instance, so a
+	// client can label a dev lasso without a production one saying where it
+	// listens.
+	Dev    bool   `json:"dev,omitempty"`
+	Listen string `json:"listen,omitempty"`
+	Err    string `json:"err,omitempty"`
 }
 
 // serveVersion reports whether the installed herdr speaks the same socket protocol
@@ -1884,6 +1892,9 @@ func serveVersion(w http.ResponseWriter, r *http.Request) {
 				vi.UpdateState = "current"
 			}
 		}
+	}
+	if *devMode {
+		vi.Dev, vi.Listen = true, *listenAddr
 	}
 	if v, p, err := herdrPinger(); err != nil {
 		vi.Err = err.Error()
@@ -2533,7 +2544,20 @@ type notice struct {
 	Level  string `json:"level"` // "error" | "info" | "success"
 	Title  string `json:"title"`
 	Detail string `json:"detail,omitempty"`
+	// ID and At are stamped by hub.notify: an id no other notice from this
+	// process shares (prefixed per process, so a client that reconnects to a
+	// restarted lasso cannot mistake a new one for one it holds), and when it
+	// was raised, in unix milliseconds. A client that keeps notices — an
+	// inbox, not a toast — dedupes and orders by them.
+	ID string `json:"id"`
+	At int64  `json:"at"`
 }
+
+// noticeBoot and noticeSeq make notice ids: a per-process prefix and a count.
+var (
+	noticeBoot = randHex(4)
+	noticeSeq  atomic.Uint64
+)
 
 // notifyUI raises a notice on every connected tab. A no-op before the server is
 // up (CLI subcommands, tests), so background code can call it unconditionally.
@@ -2616,8 +2640,13 @@ func (h *hub) bumpPluginsRev() {
 	h.eachFeed((*hostFeed).pushCurrent)
 }
 
-// notify fans a notice out to every connected tab, whatever host it is on.
-func (h *hub) notify(n notice) { h.broadcast("notice", n) }
+// notify fans a notice out to every connected tab, whatever host it is on,
+// stamped with its id and time.
+func (h *hub) notify(n notice) {
+	n.ID = fmt.Sprintf("%s-%d", noticeBoot, noticeSeq.Add(1))
+	n.At = time.Now().UnixMilli()
+	h.broadcast("notice", n)
+}
 
 // broadcast fans a one-shot event out to every connected tab, whatever host it
 // is on, and reports how many tabs it was handed to. Non-blocking per client (a

@@ -1,0 +1,14 @@
+{
+  "lasso_protocol": 1,
+  "lasso_version": "x",
+  "herdr_protocol": 1,
+  "herdr_version": "x",
+  "compatible": true,
+  "updatable": true,
+  "update_state": "x",
+  "commits_behind": 1,
+  "latest_version": "x",
+  "dev": true,
+  "listen": "x",
+  "err": "x"
+}

@@ -220,7 +220,7 @@ func (m *pluginManager) serveChatAPI(w http.ResponseWriter, r *http.Request, res
 			http.Error(w, "answers are required", http.StatusBadRequest)
 			return true
 		}
-		if err := checkAskAnswers(in.Answers); err != nil {
+		if err := checkAskAnswers(in.Labels, in.Answers); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return true
 		}

@@ -68,5 +68,17 @@
     "tokens": 1,
     "window": 1,
     "percent": 1
-  }
+  },
+  "pending_ui": [
+    {
+      "id": "x",
+      "method": "x",
+      "title": "x",
+      "message": "x",
+      "options": [
+        "x"
+      ],
+      "placeholder": "x"
+    }
+  ]
 }

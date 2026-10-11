@@ -35,7 +35,7 @@ So on a loopback or tailnet lasso with no `UI_AUTH` and no `MCP_OAUTH`, **everyt
 | route | purpose |
 | --- | --- |
 | `/terminal/<host>/` | Reverse proxy (HTTP and WebSocket) to the ttyd running herdr for one host. |
-| `/api/events` | Server-sent events: focused pane, layout, theme and state revisions, pushed to the browser. |
+| `/api/events` | Server-sent events: focused pane, layout, theme and state revisions, pushed to the browser. A `notice` event is a one-shot toast, `{level, title, detail?, id, at}`: `id` is unique within the running lasso (its prefix changes on every start) and `at` is when it was raised, in unix milliseconds. |
 | `/api/host` | `POST`: attach the calling tab to a host (spawns its terminals if needed). It switches nothing for other tabs. |
 | `/api/hosts` | The host list from `~/.ssh/config`, with each host's reachability and herdr version. |
 | `/api/active`, `/api/panes`, `/api/all-panes` | The focused pane; one host's panes; panes across the fleet. A pane's `transcript_at` is its log's mtime on whichever host has the log. |
@@ -65,7 +65,8 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 | `/api/create-terminal`, `/api/workspaces` | Open a plain terminal; list workspaces to put it in. |
 | `/api/agent-config`, `/api/repo-config`, `/api/repos`, `/api/repo-branches`, `/api/auto-title` | New dialog settings, repos and branches. |
 | `/api/chat`, `/api/chat/send`, `/api/chat/answer` | The chat view: read an agent's transcript, send it a message, answer its question dialog. `/api/chat`'s `host` is the pane's machine; the log may be served from another host lasso drives, named by `served_by`. An empty answer carries `unavailable: {reason, checked, unanswered}`. |
-| `/api/bots`, `/api/bots/<name>[/…]` | Bots: create, configure, start and stop them, their jobs, skills, env and sign-ins. An omp bot's chat is `/api/bots/<name>/chat` with `chat/send` (`{text, meta?}`; `meta` is up to 16 string values, at most 1 KB, shown back on the user's row), `chat/stop` and `chat/answer`. See [Bots](../design/bots.md). |
+| `/api/chat/answer` | `POST {pane_id, expect, labels, answers: [{selected, multi, options, custom?, previews?}]}`, one answer per question in order, `selected` being option indexes and `options` the question's option count. lasso types the keys a human would into the claude or omp dialog once the pane's screen still shows `expect` or one of `labels` (the first question's), and answers `{outcome: "sent" \| "refused", detail?}`; nothing is retried. `custom` is a free-text answer typed into the dialog's own "Other" row: one line (no newline or other control character), at most 1200 characters, at most 8 per request, with `selected` empty on a single-select question (a multi-select one may carry both); with any `custom` in the request, the first answer's `options` must equal the length of `labels` when those are sent, since the walk to the "Other" row is counted in options. `previews` marks a question whose options carry previews: claude draws a single-select one with no "Other" row, so a `custom` answer there is refused. A malformed body is a 400. |
+| `/api/bots`, `/api/bots/<name>[/…]` | Bots: create, configure, start and stop them, their jobs, skills, env and sign-ins. A blocked omp bot's row carries `pending_ui`, the questions it waits on, as its chat does. An omp bot's chat is `/api/bots/<name>/chat` with `chat/send` (`{text, meta?}`; `meta` is up to 16 string values, at most 1 KB, shown back on the user's row), `chat/stop` and `chat/answer`. See [Bots](../design/bots.md). |
 | `/api/transcribe` | `POST` a PCM16 WAV (raw body, at most 4 MiB and 120 s; `?language=`, `?prompt=`) and get `{text, engine, provider, model, language, audio_ms, elapsed_ms}`; `GET` says whether it is `available` and its limits. 503 while the provider is off, 429 past 2 in flight. See [Transcription](../design/transcription.md). |
 | `/api/transcribe/config` | The `transcribe` setting: provider (`off`, `groq`, `openai`, `openai-compatible`), model, `base_url` and the NAME of the key's variable. |
 
@@ -75,7 +76,7 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 | --- | --- |
 | `/api/theme`, `/api/theme-set`, `/api/theme-sync` | The resolved theme; change it; push it to every host now. |
 | `/api/omarchy-themes`, `/omarchy/bg/…`, `/omarchy/thumb/…` | The theme catalog; background images and thumbnails. |
-| `/api/version`, `/api/self-update` | Versions and herdr compatibility; update a supervised source checkout (403 with `-disable-self-update`). |
+| `/api/version`, `/api/self-update` | Versions and herdr compatibility; update a supervised source checkout (403 with `-disable-self-update`). A lasso running with `-dev` adds `dev: true` and `listen`, the address it bound. |
 | `/api/host-update`, `/api/host-provision` | Update herdr on a host; install and start herdr on a host that lacks it. |
 | `/api/usage` | Provider rate-limit windows for the usage footer. |
 | `/api/frameable` | Whether a URL can be framed, for the Browser tab's iframe mode. |

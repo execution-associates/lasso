@@ -30,6 +30,12 @@ func TestDesktopContract(t *testing.T) {
 		"chat_payload": filled(&chatPayload{}),
 		"ui_state":     filled(&uiState{}),
 		"hosts":        filled(&hostsPayload{}),
+		// The SSE "notice" frame's data, and /api/version.
+		"notice":  filled(&notice{}),
+		"version": filled(&versionInfo{}),
+		// POST /api/chat/answer's body: what the app sends, so a renamed key
+		// fails here as surely as one the app reads.
+		"chat_answer_request": filled(&chatAnswerRequest{}),
 	}
 	dir := filepath.Join("..", "mac", "Spec", "contract")
 	update := os.Getenv("LASSO_UPDATE_CONTRACT") == "1"

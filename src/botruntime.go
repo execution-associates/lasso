@@ -236,6 +236,10 @@ type botView struct {
 	Thinking       string           `json:"thinking,omitempty"`
 	ThinkingLevels []string         `json:"thinking_levels,omitempty"`
 	Context        *ompContextUsage `json:"context,omitempty"`
+	// PendingUI is what an omp bot is waiting on, the same requests its chat
+	// carries, so a list of bots says what each one asks without a chat read
+	// per bot. A claude bot's questions are in its pane's chat.
+	PendingUI []ompUIRequest `json:"pending_ui,omitempty"`
 }
 
 func botStatus(b Backend, r *botRecord, sessions []claudeSessionEntry) botView {

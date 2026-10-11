@@ -840,6 +840,7 @@ func botOmpStatus(b Backend, r *botRecord) botView {
 	case len(s.pending) > 0:
 		v.State = "blocked"
 		v.WaitingFor = ompFirstLine(firstNonEmpty(s.pending[0].Title, s.pending[0].Message, "a question"))
+		v.PendingUI = s.pending
 	case !s.ready:
 		v.State = "starting"
 	case s.streaming:

@@ -1684,8 +1684,146 @@ func TestChatAskKeystrokes(t *testing.T) {
 			want:    down(1) + "\r" + "\r" + "\r",
 		},
 	} {
-		if got := chatAskKeystrokes(tc.agent, tc.answers); got != tc.want {
+		// A pick is one write, as it always was: segments are free text's.
+		got := chatAskKeystrokes(tc.agent, tc.answers)
+		if len(got) != 1 || got[0] != tc.want {
+			t.Errorf("%s:\n got %q\nwant [%q]", tc.name, got, tc.want)
+		}
+	}
+}
+
+// Free text walks to the dialog's own "Other" row and types there, in writes
+// split where each harness was measured to need it: claude's text alone (a long
+// write is read as a paste that swallows the Enter after it), omp's prompt
+// Enter last in its write (the dialog regains focus only after that read).
+// Every sequence here was played into a live dialog (claude 2.1.296, omp
+// 18.8.9) and answered it as recorded in the comments.
+func TestChatAskCustomKeystrokes(t *testing.T) {
+	up := strings.Repeat("\x1b[A", chatAskClampUps)
+	down := func(n int) string { return strings.Repeat("\x1b[B", n) }
+	for _, tc := range []struct {
+		name    string
+		agent   string
+		answers []chatAskPick
+		want    []string
+	}{
+		{
+			// "Which fruit?" → "Mango 42, ripe & n": the field is the row after
+			// the three options, and its Enter answers the lone question.
+			name:    "claude single-select",
+			agent:   "claude",
+			answers: []chatAskPick{{Custom: "Mango 42, ripe & n", Options: 3}},
+			want:    []string{down(3), "Mango 42, ripe & n", "\r"},
+		},
+		{
+			// → "Green, Purple haze 9" and "Medium 7": typing ticks the Other
+			// box, one ↓ more is Next, and the second question's keys may follow
+			// claude's Enter in the same write.
+			name:  "claude two questions, a pick beside the text",
+			agent: "claude",
+			answers: []chatAskPick{
+				{Selected: []int{1}, Multi: true, Custom: "Purple haze 9", Options: 3},
+				{Custom: "Medium 7", Options: 2},
+			},
+			want: []string{down(1) + " " + down(2), "Purple haze 9", down(1) + "\r" + down(2), "Medium 7", "\r\r"},
+		},
+		{
+			// → "A goldfish named 1": text only, then Submit and the review.
+			name:    "claude lone multi question, text only",
+			agent:   "claude",
+			answers: []chatAskPick{{Multi: true, Custom: "A goldfish named 1", Options: 2}},
+			want:    []string{down(2), "A goldfish named 1", down(1) + "\r\r"},
+		},
+		{
+			name:    "claude text is trimmed",
+			agent:   "claude",
+			answers: []chatAskPick{{Custom: "  Kiwi ", Options: 2}},
+			want:    []string{down(2), "Kiwi", "\r"},
+		},
+		{
+			// Enter on "Other (type your own)" opens the prompt; its Enter
+			// submits the lone question.
+			name:    "omp single-select",
+			agent:   "omp",
+			answers: []chatAskPick{{Custom: "Mango 42, ripe & n", Options: 3}},
+			want:    []string{up + down(3) + "\r", "Mango 42, ripe & n", "\r"},
+		},
+		{
+			// Sent as one write this stopped on the second question; split
+			// after each prompt Enter it reached the review with "Green, Other:
+			// Purple haze 9" and "Medium 7", and the last write submitted it.
+			name:  "omp two questions, a pick beside the text",
+			agent: "omp",
+			answers: []chatAskPick{
+				{Selected: []int{1}, Multi: true, Custom: "Purple haze 9", Options: 3},
+				{Custom: "Medium 7", Options: 2},
+			},
+			want: []string{
+				up + down(1) + " " + down(2) + "\r", "Purple haze 9", "\r",
+				up + down(2) + "\r", "Medium 7", "\r",
+				"\r",
+			},
+		},
+		{
+			// A lone multi question's prompt lands on the review screen, not on
+			// a submit, so one more Enter follows.
+			name:    "omp lone multi question, text only",
+			agent:   "omp",
+			answers: []chatAskPick{{Multi: true, Custom: "Teal", Options: 2}},
+			want:    []string{up + down(2) + "\r", "Teal", "\r", "\r"},
+		},
+		{
+			name:  "omp text then a pick",
+			agent: "omp",
+			answers: []chatAskPick{
+				{Custom: "Teal", Options: 2},
+				{Selected: []int{1}, Options: 2},
+			},
+			want: []string{up + down(2) + "\r", "Teal", "\r", up + down(1) + "\r" + "\r"},
+		},
+	} {
+		got := chatAskKeystrokes(tc.agent, tc.answers)
+		if strings.Join(got, "\x00") != strings.Join(tc.want, "\x00") {
 			t.Errorf("%s:\n got %q\nwant %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestCheckAskAnswersCustom(t *testing.T) {
+	long := strings.Repeat("é", chatAskQuestionCap+1)
+	for _, tc := range []struct {
+		name    string
+		labels  []string
+		answers []chatAskPick
+		ok      bool
+	}{
+		{"text alone", nil, []chatAskPick{{Custom: "Mango", Options: 3}}, true},
+		{"text beside multi picks", nil, []chatAskPick{{Selected: []int{0}, Multi: true, Custom: "Mango", Options: 3}}, true},
+		{"the cap itself", nil, []chatAskPick{{Custom: strings.Repeat("é", chatAskQuestionCap), Options: 3}}, true},
+		{"labels agree", []string{"a", "b"}, []chatAskPick{{Custom: "x", Options: 2}}, true},
+		{"nothing at all", nil, []chatAskPick{{Options: 3}}, false},
+		{"single-select pick and text", nil, []chatAskPick{{Selected: []int{0}, Custom: "Mango", Options: 3}}, false},
+		{"blank", nil, []chatAskPick{{Custom: "   ", Options: 3}}, false},
+		{"newline", nil, []chatAskPick{{Custom: "two\nlines", Options: 3}}, false},
+		{"trailing newline", nil, []chatAskPick{{Custom: "one\n", Options: 3}}, false},
+		{"carriage return", nil, []chatAskPick{{Custom: "a\rb", Options: 3}}, false},
+		{"escape", nil, []chatAskPick{{Custom: "a\x1b[Ab", Options: 3}}, false},
+		{"tab", nil, []chatAskPick{{Custom: "a\tb", Options: 3}}, false},
+		{"C1 control", nil, []chatAskPick{{Custom: "a\u0085b", Options: 3}}, false},
+		{"not UTF-8", nil, []chatAskPick{{Custom: "a\xffb", Options: 3}}, false},
+		{"over the cap", nil, []chatAskPick{{Custom: long, Options: 3}}, false},
+		{"options disagree with labels", []string{"a", "b"}, []chatAskPick{{Custom: "x", Options: 3}}, false},
+		{"too many texts", nil, func() []chatAskPick {
+			out := make([]chatAskPick, chatAskMaxCustom+1)
+			for i := range out {
+				out[i] = chatAskPick{Custom: "x", Options: 2}
+			}
+			return out
+		}(), false},
+	} {
+		err := checkAskAnswers(tc.labels, tc.answers)
+		if (err == nil) != tc.ok {
+			t.Errorf("%s: err = %v, want ok=%v", tc.name, err, tc.ok)
 		}
 	}
 }
@@ -1769,6 +1907,31 @@ func TestApplyAskAnswersJoinedMulti(t *testing.T) {
 	}
 }
 
+// claude records an "Other" text as one more value among the picks — a live
+// session wrote "Green, Purple haze 9" for a ticked Green and that text, and
+// "Mango" alone for a single-select Other — so what names no option is the
+// card's custom answer rather than nothing.
+func TestApplyAskAnswersClaudeOther(t *testing.T) {
+	ask := func(multi bool) *chatTool {
+		return &chatTool{Ask: &chatAsk{Questions: []chatAskQuestion{{
+			Question: "Which colours do you want?", Multi: multi,
+			Options: []chatAskOption{{Label: "Red"}, {Label: "Green"}, {Label: "Blue"}},
+		}}}, Output: "User has answered …"}
+	}
+	multi := ask(true)
+	applyAskAnswers(multi, claudeAskAnswers(json.RawMessage(`{"answers":{"Which colours do you want?":"Green, Purple haze 9"}}`)))
+	q := multi.Ask.Questions[0]
+	if strings.Join(q.Selected, "|") != "Green" || q.Custom != "Purple haze 9" {
+		t.Errorf("multi = selected %q custom %q, want Green and the text", q.Selected, q.Custom)
+	}
+	single := ask(false)
+	applyAskAnswers(single, claudeAskAnswers(json.RawMessage(`{"answers":{"Which colours do you want?":"Teal, mostly"}}`)))
+	q = single.Ask.Questions[0]
+	if len(q.Selected) != 0 || q.Custom != "Teal, mostly" || single.ResultLine != "answered" {
+		t.Errorf("single = selected %q custom %q verdict %q, want the whole text as custom", q.Selected, q.Custom, single.ResultLine)
+	}
+}
+
 func TestServeChatAnswer(t *testing.T) {
 	be := &chatSendBackend{paneID: "w1:p1", agent: "omp"}
 	question := "What should the plan do about capacity?"
@@ -1792,7 +1955,7 @@ func TestServeChatAnswer(t *testing.T) {
 	if rec.Code != http.StatusOK || out["outcome"] != "sent" {
 		t.Fatalf("status/outcome = %d/%q, want 200/sent", rec.Code, out["outcome"])
 	}
-	if len(be.writes) != 1 || be.writes[0] != chatAskKeystrokes("omp", []chatAskPick{{Selected: []int{1}, Options: 2}}) {
+	if len(be.writes) != 1 || be.writes[0] != chatAskKeystrokes("omp", []chatAskPick{{Selected: []int{1}, Options: 2}})[0] {
 		t.Errorf("writes = %q, want the answer sequence", be.writes)
 	}
 
@@ -1809,7 +1972,7 @@ func TestServeChatAnswer(t *testing.T) {
 	if rec.Code != http.StatusOK || out["outcome"] != "sent" {
 		t.Fatalf("claude status/outcome = %d/%q, want 200/sent", rec.Code, out["outcome"])
 	}
-	if len(be.writes) != 1 || be.writes[0] != chatAskKeystrokes("claude", []chatAskPick{{Selected: []int{1}, Options: 2}}) {
+	if len(be.writes) != 1 || be.writes[0] != chatAskKeystrokes("claude", []chatAskPick{{Selected: []int{1}, Options: 2}})[0] {
 		t.Errorf("claude writes = %q, want the claude sequence", be.writes)
 	}
 	be.agent = "omp"
@@ -1861,6 +2024,86 @@ func TestServeChatAnswer(t *testing.T) {
 	serveChatAnswer(rec, httptest.NewRequest(http.MethodGet, "/api/chat/answer", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("GET status = %d, want 405", rec.Code)
+	}
+}
+
+// A free-text answer reaches the pane as its segments, in order, after the
+// same screen check as a pick — and is refused where claude's dialog has no
+// "Other" row to type into.
+func TestServeChatAnswerCustom(t *testing.T) {
+	gap := chatAskSegmentGap
+	chatAskSegmentGap = 0
+	t.Cleanup(func() { chatAskSegmentGap = gap })
+	question := "Which fruit do you like?"
+	dialog := "  ☐ Fruit\n  " + question + "\n  ❯ 1. Apple\n    2. Banana\n    3. Type something.\n" +
+		"  Enter to select · ↑/↓ to navigate · Esc to cancel"
+	be := &chatSendBackend{paneID: "w1:p1", agent: "claude", screen: dialog}
+	useFakeHost(t, be)
+	post := func(body string) (*httptest.ResponseRecorder, map[string]string) {
+		rec := httptest.NewRecorder()
+		serveChatAnswer(rec, httptest.NewRequest(http.MethodPost, "/api/chat/answer", strings.NewReader(body)))
+		var out map[string]string
+		if rec.Code == http.StatusOK {
+			if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+				t.Fatalf("decode %q: %v", rec.Body.String(), err)
+			}
+		}
+		return rec, out
+	}
+	body := func(answer string) string {
+		return `{"pane_id":"w1:p1","expect":"` + question + `","labels":["Apple","Banana"],"answers":[` + answer + `]}`
+	}
+
+	rec, out := post(body(`{"selected":[],"custom":"Mango","options":2}`))
+	if rec.Code != http.StatusOK || out["outcome"] != "sent" {
+		t.Fatalf("status/outcome = %d/%q (%s), want 200/sent", rec.Code, out["outcome"], rec.Body.String())
+	}
+	want := chatAskKeystrokes("claude", []chatAskPick{{Custom: "Mango", Options: 2}})
+	if strings.Join(be.writes, "|") != strings.Join(want, "|") || len(be.writes) != 3 {
+		t.Errorf("writes = %q, want the segments %q", be.writes, want)
+	}
+
+	// The client says the question has previews: claude draws it with no
+	// "Other" row, so nothing is typed.
+	be.writes, be.screen = nil, dialog
+	rec, out = post(body(`{"custom":"Mango","options":2,"previews":true}`))
+	if rec.Code != http.StatusOK || out["outcome"] != "refused" || len(be.writes) != 0 {
+		t.Errorf("previews = %d/%q writes %q, want refused and nothing typed", rec.Code, out["outcome"], be.writes)
+	}
+	// The screen says so too, for the question on it.
+	be.screen = "  ☐ Fruit\n  " + question + "\n  ❯ 1. Apple     ┌──┐\n    2. Banana    └──┘\n" +
+		"  Chat about this\n  Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel"
+	rec, out = post(body(`{"custom":"Mango","options":2}`))
+	if rec.Code != http.StatusOK || out["outcome"] != "refused" || len(be.writes) != 0 {
+		t.Errorf("preview layout = %d/%q writes %q, want refused and nothing typed", rec.Code, out["outcome"], be.writes)
+	}
+	// A pick on that same layout is still a pick.
+	rec, out = post(body(`{"selected":[1],"options":2}`))
+	if rec.Code != http.StatusOK || out["outcome"] != "sent" {
+		t.Errorf("pick on the preview layout = %d/%q, want sent", rec.Code, out["outcome"])
+	}
+
+	// omp shows previews with its "Other" row all the same: the flag is
+	// claude's alone.
+	be.writes, be.screen, be.agent = nil, dialog, "omp"
+	invalidatePaneList(be.Name())
+	rec, out = post(body(`{"custom":"Mango","options":2,"previews":true}`))
+	if rec.Code != http.StatusOK || out["outcome"] != "sent" || len(be.writes) != 3 {
+		t.Errorf("omp previews = %d/%q writes %q, want sent in three writes", rec.Code, out["outcome"], be.writes)
+	}
+
+	for name, answer := range map[string]string{
+		"newline":           `{"custom":"two\nlines","options":2}`,
+		"control":           `{"custom":"a\u001bb","options":2}`,
+		"blank":             `{"custom":"  ","options":2}`,
+		"pick and text":     `{"selected":[0],"custom":"Mango","options":2}`,
+		"options vs labels": `{"custom":"Mango","options":3}`,
+		"nothing":           `{"selected":[],"options":2}`,
+	} {
+		be.writes = nil
+		if rec, _ := post(body(answer)); rec.Code != http.StatusBadRequest || len(be.writes) != 0 {
+			t.Errorf("%s: status %d writes %q, want 400 and nothing typed", name, rec.Code, be.writes)
+		}
 	}
 }
 

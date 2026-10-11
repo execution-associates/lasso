@@ -458,11 +458,41 @@ func TestOmpBotLifecycleChatAndJobs(t *testing.T) {
 	if v := botStatus(b, r, nil); v.WaitingFor != "Pick one" {
 		t.Errorf("waiting_for = %q", v.WaitingFor)
 	}
+	// The list carries the question itself, as the bot's chat does, so a
+	// client knows what every bot waits on from one read.
+	pendingOf := func() []ompUIRequest {
+		rec := httptest.NewRecorder()
+		serveBots(rec, httptest.NewRequest(http.MethodGet, "/api/bots", nil))
+		var out struct {
+			Bots []struct {
+				Name      string         `json:"name"`
+				PendingUI []ompUIRequest `json:"pending_ui"`
+			} `json:"bots"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("GET /api/bots = %d %q: %v", rec.Code, rec.Body.String(), err)
+		}
+		for _, v := range out.Bots {
+			if v.Name == r.Name {
+				return v.PendingUI
+			}
+		}
+		t.Fatal("bot missing from the list")
+		return nil
+	}
+	if p, want := pendingOf(), ompBotFor(r.Name).snapshot().pending; len(p) != 1 || p[0].ID != "q1" ||
+		strings.Join(p[0].Options, ",") != "A,B" || fmt.Sprint(p) != fmt.Sprint(want) {
+		t.Errorf("pending_ui = %+v, want the chat's %+v", p, want)
+	}
 	val := "A"
 	if err := botOmpAnswer(r.Name, "q1", &val, nil, false); err != nil {
 		t.Fatal(err)
 	}
 	ompWaitFor(t, "the picked answer", func() bool { return botStatus(b, r, nil).LastText == "picked A" })
+	// Answered, it leaves the list (omitempty): nothing is waiting.
+	if p := pendingOf(); p != nil {
+		t.Errorf("pending_ui after the answer = %+v, want none", p)
+	}
 	if err := botOmpAnswer(r.Name, "q1", &val, nil, false); err == nil {
 		t.Error("answered a closed question")
 	}
