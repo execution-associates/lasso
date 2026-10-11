@@ -29,10 +29,14 @@ function tabOf(r: SimpleRoute): Tab {
   }
 }
 
-// Notices are Inbox items here, not toasts.
-setNoticeToasts(false)
-
 export function SimpleApp() {
+  // Notices are Inbox items here, not toasts, but only while this app is the
+  // one on screen: the full UI imports this module too and keeps its toasts.
+  React.useEffect(() => {
+    setNoticeToasts(false)
+    return () => setNoticeToasts(true)
+  }, [])
+
   const [route, setRoute] = React.useState<SimpleRoute>(() =>
     parseSimplePath(window.location.pathname)
   )
