@@ -299,8 +299,11 @@ func (noBotLauncher) stop(string) error  { return nil }
 
 // inProcessLauncher runs the bot host as a goroutine in place of a systemd unit.
 type inProcessLauncher struct {
-	mu    sync.Mutex
-	hosts map[string]*botHost
+	mu     sync.Mutex
+	hosts  map[string]*botHost
+	starts int
+	// nextProto, when set, is the protocol the next host started reports.
+	nextProto *int
 }
 
 func (l *inProcessLauncher) start(r *botRecord, dir string, fresh bool) error {
@@ -310,6 +313,10 @@ func (l *inProcessLauncher) start(r *botRecord, dir string, fresh bool) error {
 		return errBotRunning
 	}
 	h := newBotHost(r.Name, dir, r.task(), botSocketPath(r.Name))
+	if l.nextProto != nil {
+		h.protocol, l.nextProto = *l.nextProto, nil
+	}
+	l.starts++
 	l.hosts[r.Name] = h
 	go func() {
 		h.run(fresh)
@@ -318,6 +325,12 @@ func (l *inProcessLauncher) start(r *botRecord, dir string, fresh bool) error {
 		l.mu.Unlock()
 	}()
 	return nil
+}
+
+func (l *inProcessLauncher) startCount() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.starts
 }
 
 func (l *inProcessLauncher) active(name string) bool {
@@ -338,6 +351,11 @@ func (l *inProcessLauncher) stop(name string) error {
 }
 
 func useOmpBotEnv(t *testing.T, name string) (*botRecord, string) {
+	r, logPath, _ := useOmpBotEnvL(t, name)
+	return r, logPath
+}
+
+func useOmpBotEnvL(t *testing.T, name string) (*botRecord, string, *inProcessLauncher) {
 	t.Helper()
 	useBotTestEnv(t)
 	logPath := fakeOmpHost(t)
@@ -352,6 +370,13 @@ func useOmpBotEnv(t *testing.T, name string) (*botRecord, string) {
 		ompBots.Lock()
 		delete(ompBots.m, name)
 		ompBots.Unlock()
+		botOmpRelaunches.Lock()
+		delete(botOmpRelaunches.m, name)
+		botOmpRelaunches.Unlock()
+		bots.mu.Lock()
+		delete(bots.starting, name)
+		delete(bots.lines, name)
+		bots.mu.Unlock()
 	})
 	r := &botRecord{Name: name, Runtime: botRuntimeOmp, Dir: filepath.Join(t.TempDir(), name), KeepRunning: true}
 	if err := r.normalize(); err != nil {
@@ -360,7 +385,7 @@ func useOmpBotEnv(t *testing.T, name string) (*botRecord, string) {
 	if err := insertBot(r); err != nil {
 		t.Fatal(err)
 	}
-	return r, logPath
+	return r, logPath, l
 }
 
 func TestOmpBotLifecycleChatAndJobs(t *testing.T) {
@@ -473,6 +498,10 @@ func TestBotNormalizeRuntime(t *testing.T) {
 		{botRecord{Name: "a", Runtime: "claude", Effort: "auto"}, false},
 		{botRecord{Name: "a", Runtime: "omp", Host: "citadel"}, false},
 		{botRecord{Name: "a", Runtime: "codex"}, false},
+		{botRecord{Name: "a", Runtime: "omp", ExtraArgs: []string{"--advisor"}}, true},
+		{botRecord{Name: "a", Runtime: "omp", ExtraArgs: []string{"--mode=json"}}, false},
+		{botRecord{Name: "a", Runtime: "omp", ExtraArgs: []string{"-c"}}, false},
+		{botRecord{Name: "a", Runtime: "claude", ExtraArgs: []string{"-c"}}, true},
 	} {
 		r := c.r
 		err := r.normalize()
@@ -550,5 +579,46 @@ func TestBotCreateSeedsInstructions(t *testing.T) {
 	w := do(`{"name":"k","dir":"` + keepDir + `","instructions":"new"}`)
 	if b, _ := os.ReadFile(filepath.Join(keepDir, "AGENTS.md")); string(b) != "mine" || !strings.Contains(w.Body.String(), "kept") {
 		t.Errorf("existing AGENTS.md: %q, answer %s", b, w.Body)
+	}
+}
+
+func TestOmpBotHostProtocolUpgrade(t *testing.T) {
+	r, logPath, l := useOmpBotEnvL(t, "elder")
+	b, _ := botBackend("local")
+	old := 0
+	l.nextProto = &old
+	if err := startBot(b, r, true); err != nil {
+		t.Fatal(err)
+	}
+	ompWaitFor(t, "idle", func() bool { return botStatus(b, r, nil).State == "idle" })
+	if v := botStatus(b, r, nil); !v.HostOutdated || v.HostVersion == "" {
+		t.Fatalf("old host not reported: %+v", v)
+	}
+	// Not while a question is open: the upgrade waits for an idle bot.
+	if err := botOmpSend(r.Name, "ASK", true); err != nil {
+		t.Fatal(err)
+	}
+	ompWaitFor(t, "blocked", func() bool { return botStatus(b, r, nil).State == "blocked" })
+	botOmpTick(b, r, time.Now())
+	time.Sleep(300 * time.Millisecond)
+	if l.startCount() != 1 {
+		t.Fatalf("upgraded a blocked bot (starts = %d)", l.startCount())
+	}
+	val := "A"
+	if err := botOmpAnswer(r.Name, "q1", &val, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	ompWaitFor(t, "idle again", func() bool { return botStatus(b, r, nil).State == "idle" })
+	botOmpTick(b, r, time.Now())
+	ompWaitFor(t, "the host on this protocol", func() bool {
+		v := botStatus(b, r, nil)
+		return l.startCount() == 2 && v.State == "idle" && !v.HostOutdated
+	})
+	if got, _ := getBot(r.Name); got.Stopped {
+		t.Error("an upgrade marked the bot stopped")
+	}
+	launches := strings.Count(readLog(logPath), "argv")
+	if launches != 2 || !strings.Contains(readLog(logPath), "argv -c") {
+		t.Errorf("launches = %d; log:\n%s", launches, readLog(logPath))
 	}
 }

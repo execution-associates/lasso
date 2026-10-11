@@ -878,6 +878,10 @@ export interface BotView extends BotFields {
   last_kind?: "agent" | "user" | "incoming"
   last_at?: string
   error?: string
+  // An omp bot's host: the lasso version it runs, and whether it speaks
+  // another protocol than this lasso (restarted onto it once idle).
+  host_version?: string
+  host_outdated?: boolean
   // Its picture (.lasso/avatar.<ext> plus a ?v= revision), or "": see
   // botAvatarURL. Set through avatarSet, never by a save.
   avatar_image: string

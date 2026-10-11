@@ -38,12 +38,20 @@ import (
 	"time"
 )
 
+// botHostProtocol is the version of what lasso and a bot host say to each
+// other on top of omp's own frames: the host_* frames and what they mean.
+// Bump it whenever that changes. A host outlives the lasso that started it,
+// so it reports this in host_hello, and the bot loop restarts an idle bot
+// whose host speaks another version onto the current binary (botOmpTick).
+const botHostProtocol = 1
+
 // botHostClientQueue bounds what a slow client may fall behind by before the
 // host drops it; omp's stdout must never block on a client.
 const botHostClientQueue = 4096
 
 type botHost struct {
 	name, dir, task, socket string
+	protocol                int // botHostProtocol; a test plays an older host
 
 	mu        sync.Mutex
 	clients   map[*botHostClient]bool
@@ -100,9 +108,10 @@ func cliBotHost(args []string) {
 func newBotHost(name, dir, task, socket string) *botHost {
 	return &botHost{
 		name: name, dir: dir, task: task, socket: socket,
-		clients: map[*botHostClient]bool{},
-		pending: map[string]json.RawMessage{},
-		stderr:  &lineRing{max: 200},
+		protocol: botHostProtocol,
+		clients:  map[*botHostClient]bool{},
+		pending:  map[string]json.RawMessage{},
+		stderr:   &lineRing{max: 200},
 	}
 }
 
@@ -338,6 +347,8 @@ func (h *botHost) hello() []byte {
 	}
 	b, _ := json.Marshal(map[string]any{
 		"type":       "host_hello",
+		"protocol":   h.protocol,
+		"version":    lassoVersion(),
 		"bot":        h.name,
 		"pid":        os.Getpid(),
 		"child_pid":  childPID,

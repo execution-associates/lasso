@@ -133,8 +133,17 @@ type ompBot struct {
 	upSince   time.Time
 	waiters   map[string]chan ompResponse
 	delivery  bool // the job delivery loop runs (runner only)
-	dialMu    sync.Mutex
-	lastDial  time.Time
+	// What the host said in host_hello: its protocol (0 for a host from
+	// before there was one) and the lasso version it runs.
+	hello       bool
+	hostProto   int
+	hostVersion string
+	upgrading   bool
+	// opMu keeps a job delivery and a host upgrade from interleaving, so an
+	// upgrade never stops omp just after it accepted a prompt.
+	opMu     sync.Mutex
+	dialMu   sync.Mutex
+	lastDial time.Time
 }
 
 var ompBots = struct {
@@ -204,6 +213,7 @@ func (ob *ompBot) read(conn net.Conn, gen int) {
 	ob.mu.Lock()
 	if ob.gen == gen {
 		ob.conn = nil
+		ob.hello = false
 		ob.ready, ob.streaming = false, false
 		ob.pending = nil
 		for id, w := range ob.waiters {
@@ -231,6 +241,8 @@ type ompFrame struct {
 	Ready      bool              `json:"ready"`
 	Streaming  bool              `json:"streaming"`
 	Pending    []json.RawMessage `json:"pending"`
+	Protocol   int               `json:"protocol"`
+	Version    string            `json:"version"`
 	Code       *int              `json:"code"`
 	Stderr     []string          `json:"stderr"`
 }
@@ -253,6 +265,7 @@ func (ob *ompBot) observe(line []byte) {
 	ob.mu.Lock()
 	switch f.Type {
 	case "host_hello":
+		ob.hello, ob.hostProto, ob.hostVersion = true, f.Protocol, f.Version
 		ob.ready, ob.streaming, ob.pending = f.Ready, f.Streaming, nil
 		for _, raw := range f.Pending {
 			var p ompFrame
@@ -407,6 +420,9 @@ func (ob *ompBot) call(cmd map[string]any, timeout time.Duration) (ompResponse, 
 
 type ompSnapshot struct {
 	connected, ready, streaming bool
+	hello                       bool
+	hostProto                   int
+	hostVersion                 string
 	pending                     []ompUIRequest
 	sessionID, exit             string
 	upSince                     time.Time
@@ -417,6 +433,7 @@ func (ob *ompBot) snapshot() ompSnapshot {
 	defer ob.mu.Unlock()
 	return ompSnapshot{
 		connected: ob.conn != nil, ready: ob.ready, streaming: ob.streaming,
+		hello: ob.hello, hostProto: ob.hostProto, hostVersion: ob.hostVersion,
 		pending: append([]ompUIRequest(nil), ob.pending...), sessionID: ob.sessionID,
 		exit: ob.exit, upSince: ob.upSince,
 	}
@@ -570,6 +587,10 @@ func botOmpStatus(b Backend, r *botRecord) botView {
 	ob.ensure()
 	s := ob.snapshot()
 	v.SessionID = s.sessionID
+	if s.connected && s.hello {
+		v.HostVersion = s.hostVersion
+		v.HostOutdated = s.hostProto != botHostProtocol
+	}
 	switch {
 	case !s.connected:
 		bots.mu.Lock()
@@ -759,6 +780,9 @@ func botOmpTick(b Backend, r *botRecord, now time.Time) {
 		if r.Notify {
 			botNotifyCheck(b, r, nil)
 		}
+		if s.hello && s.hostProto != botHostProtocol {
+			go botOmpUpgrade(b, r)
+		}
 		return
 	}
 	if r.Stopped || !r.KeepRunning || botOmpLaunch.active(r.Name) {
@@ -831,6 +855,9 @@ func (ob *ompBot) deliverLoop() {
 }
 
 func botOmpDeliver(name string, now time.Time) {
+	ob := ompBotFor(name)
+	ob.opMu.Lock()
+	defer ob.opMu.Unlock()
 	events, err := claimBotEvents(name, now)
 	if err != nil || len(events) == 0 {
 		return
@@ -847,5 +874,47 @@ func botOmpDeliver(name string, now time.Time) {
 		if err := ackBotEvents(name, ids, time.Now()); err != nil {
 			log.Printf("bots:     %s: ack events: %v", name, err)
 		}
+	}
+}
+
+// botOmpUpgrade restarts an idle bot whose host speaks another protocol, so
+// the host is this lasso's binary again. Only when idle: nothing is waiting
+// on the human and no turn is running, and the session continues (-c). It is
+// not a Stop: the bot is never marked stopped, so a lasso that dies midway
+// leaves keep-running to bring it back.
+func botOmpUpgrade(b Backend, r *botRecord) {
+	ob := ompBotFor(r.Name)
+	ob.mu.Lock()
+	if ob.upgrading {
+		ob.mu.Unlock()
+		return
+	}
+	ob.upgrading = true
+	ob.mu.Unlock()
+	defer func() {
+		ob.mu.Lock()
+		ob.upgrading = false
+		ob.mu.Unlock()
+	}()
+	ob.opMu.Lock()
+	defer ob.opMu.Unlock()
+	s := ob.snapshot()
+	if !s.connected || !s.ready || s.streaming || len(s.pending) > 0 || s.hostProto == botHostProtocol {
+		return
+	}
+	log.Printf("bots:     %s: its host speaks protocol %d (lasso %s), this lasso %d; restarting it on this binary", r.Name, s.hostProto, s.hostVersion, botHostProtocol)
+	_ = ob.send(map[string]any{"type": "host_stop"})
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) && (botOmpLaunch.active(r.Name) || ob.connected()) {
+		time.Sleep(200 * time.Millisecond)
+	}
+	if botOmpLaunch.active(r.Name) {
+		if err := botOmpLaunch.stop(r.Name); err != nil {
+			log.Printf("bots:     %s: upgrade: %v", r.Name, err)
+			return
+		}
+	}
+	if err := botOmpStart(b, r, false); err != nil && !errors.Is(err, errBotRunning) {
+		log.Printf("bots:     %s: upgrade: start: %v", r.Name, err)
 	}
 }

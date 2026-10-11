@@ -556,6 +556,8 @@ function GeneralTab({
                   Lowercase letters, digits and dashes, starting with a letter
                   or digit (40 at most).
                 </span>
+              ) : omp ? (
+                "Its folder and its address here. Fixed once created."
               ) : (
                 "Its herdr pane, its folder and its address here. Fixed once created."
               )
@@ -737,8 +739,9 @@ function GeneralTab({
         >
           Keep running
           <span className="block text-[11.5px] text-muted-foreground">
-            Bring it back when its session ends or herdr restarts, resuming the
-            same conversation.
+            {omp
+              ? "Bring it back if it stops unexpectedly, resuming the same conversation."
+              : "Bring it back when its session ends or herdr restarts, resuming the same conversation."}
           </span>
         </Check>
         <Check
@@ -2277,6 +2280,13 @@ function LaunchTab({
         )}
       </div>
       {bot.error && <p className="text-[12px] text-destructive">{bot.error}</p>}
+      {bot.host_outdated && (
+        <p className="text-[12px] text-muted-foreground">
+          Its bot host is from lasso {bot.host_version || "an older version"}{" "}
+          and speaks another protocol than this lasso. lasso restarts it onto
+          this version, on the same conversation, as soon as the bot is idle.
+        </p>
+      )}
       <Field
         label="Launch task"
         htmlFor="bot-task"

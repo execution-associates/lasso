@@ -214,6 +214,10 @@ type botView struct {
 	LastKind   string `json:"last_kind,omitempty"`
 	LastAt     string `json:"last_at,omitempty"`
 	Error      string `json:"error,omitempty"`
+	// An omp bot's host: the lasso version it runs, and whether it speaks
+	// another protocol than this lasso (restarted onto this binary once idle).
+	HostVersion  string `json:"host_version,omitempty"`
+	HostOutdated bool   `json:"host_outdated,omitempty"`
 }
 
 func botStatus(b Backend, r *botRecord, sessions []claudeSessionEntry) botView {

@@ -139,6 +139,15 @@ var (
 	botOmpApprovals = []string{"", "yolo", "write", "always-ask"}
 )
 
+// botOmpReservedArgs are omp flags an omp bot's extra args may not carry:
+// lasso's bot host needs RPC mode, the bot's own session dir, and to decide
+// itself when to continue a session.
+var botOmpReservedArgs = map[string]bool{
+	"--mode": true, "-p": true, "--print": true, "--no-session": true, "--session-dir": true,
+	"-c": true, "--continue": true, "-r": true, "--resume": true, "--fork": true,
+	"--export": true, "--cwd": true, "--profile": true, "--alias": true,
+}
+
 const (
 	botRuntimeClaude = "claude"
 	botRuntimeOmp    = "omp"
@@ -248,6 +257,14 @@ func (r *botRecord) normalize() error {
 	}
 	if r.ExtraArgs == nil {
 		r.ExtraArgs = []string{}
+	}
+	if r.isOmp() {
+		for _, a := range r.ExtraArgs {
+			flag, _, _ := strings.Cut(a, "=")
+			if botOmpReservedArgs[flag] {
+				return fmt.Errorf("extra argument %q would take the bot out of lasso's control (lasso runs omp in RPC mode on its own session)", a)
+			}
+		}
 	}
 	if len([]rune(r.Avatar)) > 8 || hasControl(r.Avatar) {
 		return fmt.Errorf("avatar must be at most 8 characters")
