@@ -30,20 +30,22 @@ the LassoDesktop brief (plan mode, 2026-10-11). The spec the harness asserts aga
 
 ## 1. Scope
 
-| # | Surface | Status | Reason |
+| # | Surface | Status | Notes |
 |---|---|---|---|
-| 1 | Rail, collapsed (`Show lasso controls`, badge) | **now**, M1 | Fixtures only. Live data arrives in M2. |
-| 2 | Rail, expanded (inbox, agents capsule with `+N`, tools capsule, ellipsis) | **now**, M1 and M2 | The record tool's glyph renders in M1 but stays disabled until M7. |
-| 3 | Card | **now**, M4 | **Discard (`E`) is blocked on S1** (shared dismiss state). **Next steps are partly blocked**: M4 takes them only from open questions (`chatTool.ask`, `pending_ui` options). The API has no source of generated suggestions, so those are *later*. |
-| 4 | List panel (machine, repo, agent; pins; context menu) | **now**, M5 | Pins already exist server-side (`agent_pins`). |
-| 5 | Chat with the bot | **blocked on S1** | The configured bot must be shared state (`assistant_bot` in ui_state). omp bots are *now* (M6); claude-runtime bots are *later* because they need the pane chat routes. |
-| 6 | Onboarding | **now**, M6 | Permissions, host, bot. |
-| 7 | Voice | Groq/OpenAI **now** (M7). **lasso engine blocked on S2** (`/api/transcribe`). **Metadata blocked on S3** (`meta` on bot send). Parakeet *later*. | See §4. |
+| 0 | **Inbox**: the latest asks, finished turns and notices across lasso's claude and omp agents, answered in place | **next**, M8 | §13. Discard needs S1 (built on this branch, unreleased). Free text on a pane's ask needs S4 (proposed). |
+| 1 | Rail at rest: the peek tab at the screen edge, with the most urgent state's dot | built, M1 | §10, §12 |
+| 2 | Rail revealed: inbox, agents capsule with `+N`, settings | built, M1 and M2 | §12 |
+| 3 | Card | built, M4 | Discard (`E`) needs S1 in production. Next steps come only from open asks; the API has no source of generated suggestions, so those are *later*. |
+| 4 | Agents list (workspace groups, label else tab name; pins; context menu) | built, M5 | Pins are `agent_pins` in ui_state. |
+| 5 | Bot chat | built, M6 | omp bots through `/api/bots/<name>/chat…`; claude-runtime bots through their pane's chat routes. |
+| 6 | Settings (lasso connection, permissions; opens itself on first launch) | built, M6 | |
+| 7 | Voice | removed for now | §12. S2 and S3 stay on the server, unused. |
 
-Proposed server additions:
-- **S1**: ui_state `assistant_bot` plus card dismissals
-- **S2**: `/api/transcribe`
-- **S3**: bot-send `meta`
+Server additions:
+- **S1**: ui_state card dismissals (`dismissed_cards`, written through `card_dismiss`). Built on this branch. The Inbox's Discard uses it as is.
+- **S2**: `/api/transcribe`. Built, unused.
+- **S3**: bot-send `meta`. Built, unused.
+- **S4** (proposed, §13.4): free text on `POST /api/chat/answer`, for a pane ask's "Other" row.
 
 ## 2. Token table (spec = `mac/Spec/tokens.json`, code = `Theme.swift`)
 
@@ -140,9 +142,9 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 | Live stream | GET `/api/events?host=local&client=<uuid>` | – | SSE. `active` frames carry `panes_rev`, `ui_state_rev`, `plugins_rev`, …; one-shot `bot-chat {bot}` and `notice`; `ping` every 25 s | `src/main.go:2802`, ping `:2847`, `src/botomp.go:953` |
 | Fleet | GET `/api/all-panes` | – | `{panes:[hostPane], errors:{host:msg}}`. hostPane tags: `host, host_label, pane_id, workspace_id, workspace_label, tab_id, tab_label, pane_label, terminal_title, cwd, agent, agent_status, has_agent, focused, transcript_at, repo, repo_key, repo_label, prompt, agent_id, closed` | `src/hostpanes.go:923`, struct `:263` |
 | Pins, shared state | GET/POST `/api/ui-state` | POST patch, e.g. `{client_id, agent_pins:{"<host>\u0000<pane_id>":true}}` | `uiState` incl. `pinned_agents` (≤64) | `src/hostpanes.go:430`, writer `:383`, merge `:655`, struct `src/db.go:276` |
-| Focus in herdr (list menu only) | POST `/api/focus?host=` | `{pane_id}` | `{ok, reattach}` | `src/main.go:1352` |
+| Focus in herdr (list menu only) | POST `/api/focus?host=` | `{pane_id}` | `{ok, reattach}` | `src/main.go:1355` |
 | Kill agent (`X`) | POST `/api/agent/close` | `{pane_id, agent_id, host, remove_worktree:false}` | `{agent_killed, pane_closed, removed_worktree}` | `src/closeme.go:34` |
-| End a pane without an agent record | POST `/api/close?host=` | `{pane_ids:[…]}` | `{closed, errors}` | `src/main.go:1555` |
+| End a pane without an agent record | POST `/api/close?host=` | `{pane_ids:[…]}` | `{closed, errors}` | `src/main.go:1558` |
 | Card conversation | GET `/api/chat?pane=&host=&before=` | – | `chatPayload{pane_id, agent, host, title, model, path, start_offset, items[chatItem], tokens, running, more, unavailable, pending_ui}` | `src/chatview.go:1823`, struct `:190`, item `:64`, tool `:95` |
 | Card send (`⏎`) | POST `/api/chat/send?host=` | `{pane_id, text}` | `{outcome: confirmed\|refused\|uncertain, detail}`. Can take about 8 s; never auto-retry `uncertain` | `src/chatview.go:2091` |
 | Answer a question | POST `/api/chat/answer?host=` | `{pane_id, expect, labels, answers:[{selected,multi,options}]}` | `{outcome: sent\|refused}` | `src/chatview.go:2323` |
@@ -177,6 +179,11 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 - Until S3 lands, the app shows the engine only on its own optimistic row.
 
 **Drift guard**: a Go test writes golden JSON for `hostPane`, `botView`, `chatPayload` and `uiState` to `mac/Spec/contract/`, and Swift tests decode those goldens. Both sides then fail when a tag changes.
+
+**S4: free text on a pane's ask** (proposed, for the Inbox, §13.4)
+- `POST /api/chat/answer`'s `answers[i]` gains an optional `custom: string` (≤ `chatAskQuestionCap` runes, no control characters). With it, `selected` may be empty, and lasso walks to the dialog's own "Other" row, types the text and submits, after the same `askScreenHolds` check as a pick.
+- Both dialogs have that row (`chatAskQuestion.custom` is what the transcript records from it). The keystroke walk for each harness is measured against a real dialog before it ships, as `claudeAskKeystrokes` and `ompAskKeystrokes` were, and is unit-tested the same way.
+- Today `chatAskPick` carries option indexes only, so the route cannot type free text at all.
 
 **Not proposed**
 - Bearer auth on `/api/*` (see §0).
@@ -391,6 +398,18 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 - The no-log test.
 - **Accept**: parity recording, and a manual transcript round-trip on minime with the user present.
 
+**M8: Inbox** (§13; built alongside M4's card, on M1, M2 and S1)
+- Membership and order (§13.2): asks, then blocked with no choices, then finished turns, then notices, newest first in each; claude and omp only.
+- Asks drawn from `chatAsk` and an omp bot's `pending_ui`, answered in place with the draw-time capture (§13.3, §13.4).
+- Kill (panes, behind a confirm) and Discard (no write to the agent; S1 for panes and bots, local for notices) (§13.6).
+- Blocked with no choices: status plus Focus in herdr (§13.5).
+- Per-item seen state, the badge as "new since you looked", `J`/`K` marking seen, the empty state (§13.7).
+- S4 on the server, if the user takes it (§13.4).
+- **Accept**:
+  - parity for inbox-open (extended fixture), inbox-empty and inbox-ask-picked
+  - the §13.9 tests
+  - a live round trip on minime, with the user present: answer a real ask in a claude pane and in an omp pane from the Inbox, and Discard a finished turn and see it come back on the agent's next turn
+
 **Later**
 - Parakeet, or Apple's SpeechAnalyzer (Q3)
 - claude-runtime bots
@@ -548,3 +567,178 @@ The user reshaped the app:
   - A pane that is a bot's (by `pane_id` or label) is listed as the bot, counted once in the badge, and opens the bot's chat.
 - **Parity's named states** are now rail-collapsed, rail-expanded, inbox-open, card-open, list-panel-open, chat-open and settings. "recording" went with voice, and "onboarding" is settings, which still opens itself on the first launch.
 
+## 13. Inbox
+
+The Inbox is the surface this app exists for: **the latest messages across lasso's agents in one place, where the user can address them.** It is the rail's top button, and its badge is the rail's one signal. Milestone M8 (§6).
+
+### 13.1 Scope
+
+**claude and omp only**: claude and omp panes (`hostPane.agent` is `claude` or `omp`), plus omp bots. No other harness enters the Inbox, even when herdr reports it blocked, and nothing here is designed for one.
+- A claude-runtime bot runs in a claude pane, so it enters as that pane, through the pane chat routes.
+- A pane that is an omp bot's (by `pane_id` or herdr label, `FleetModel.bot(for:)`) enters once, as the bot.
+
+### 13.2 Membership and order
+
+| Group | An item when | Read from |
+|---|---|---|
+| **1. Waiting on you: ask** | A pane has `agent_status == "blocked"` and its chat's newest tool item carries an open `ask` (no `selected`, no `custom`). Or an omp bot has `state == "blocked"` and its chat carries `pending_ui`. | `GET /api/all-panes` (`src/hostpanes.go:923`; status from `src/panestatus.go`), then `GET /api/chat?pane=&host=` (`src/chatview.go:1823`, `ask` on `chatTool`, `:100-175`). Bots: `GET /api/bots`, then `GET /api/bots/<name>/chat` (`src/botsapi.go:578`), `pending_ui` (`src/botomp.go:125`). |
+| **1. Waiting on you: no choices** | A pane is blocked and its chat has no open ask (§13.5). | The same reads. |
+| **2. Finished turn** | A pane is `done` or `idle` and its `transcript_at` is newer than this Mac's seen mark for it. Or an omp bot's `last_kind == "agent"` and its `last_at` is newer than the seen mark. | `transcript_at` on the pane row; `last_at` on the bot view. |
+| **3. Notice** | The server raised one. | SSE `notice {level, title, detail}` (`hub.notify`, `src/main.go:2620`). |
+
+**Order:** group 1, then 2, then 3. Inside each group, newest first: by `transcript_at`, or by `last_at` for a bot, or by arrival for a notice.
+
+**What a row shows**
+- Every row has the state dot, avatar, the agent's name (label, else tab name), its workspace, and how long ago.
+- An ask shows the ask itself (§13.3).
+- A finished turn shows the agent's last message, two lines, from the newest agent item of the chat.
+- A notice shows its title and detail.
+
+**Chat reads are bounded.** The chat of a pane or bot is read only while it is a group 1 or 2 candidate.
+- It is re-read only when its `transcript_at`, its `last_at` or its `pending_ui` changes, or on a `bot-chat` nudge for that bot.
+- Reads are cached per (item, `transcript_at`), with at most 4 in flight.
+
+**Notices** carry no id and no timestamp, and are sent once.
+- The app stamps them on arrival and keeps the last 50 in memory.
+- A relaunch loses them, as a browser tab loses its toasts.
+- They are this Mac's only. Nothing about them is shared.
+
+**First launch:** the seen store is seeded with every current pane's `transcript_at` and every bot's `last_at`, so the Inbox starts with what is waiting, not with history. After that, a pane seen for the first time enters with its first finished turn.
+
+### 13.3 Addressing: the agent's own choices
+
+**Never invented.** An ask is rendered from lasso's one normalised shape, `chatAsk { questions: [{ header, question, options: [{ label, description, preview }], multi, recommended, selected, custom }] }` (`src/chatview.go:141-175`).
+- `header` is a chip, and `question` is the text.
+- Each option shows its `label` and `description` exactly as the agent wrote them.
+- `recommended` marks that option and puts the highlight on it first.
+- `preview` stays folded until that option is picked, then unfolds under it.
+- `multi` makes the options toggles with a Submit. A single-select question answers on its pick.
+- A multi-question ask shows every question in order and is answered in one request, one entry per question in order. That is how the server types it (`ompAskKeystrokes`, `claudeAskKeystrokes`).
+
+**An omp bot's question is `pending_ui`** (`{id, method, title, message, options[], placeholder}`, `src/botomp.go:125`): `title` and `message` are the text.
+- `select` renders its `options` as given.
+- `confirm` renders Yes and No.
+- `input` and `editor` render a text field with the placeholder. That is the bot's free-text path, and it works today.
+- If the bot chat's newest tool item carries a `chatAsk` whose question matches `title`, its descriptions and previews are shown too. The answer is still the `pending_ui` option string at the same index.
+
+**Keys** are the card's (Q1):
+- `1`–`9` highlight an option.
+- `→` takes the highlighted option.
+- `↳` puts it in the free-text field to edit, where the dialog has one (§13.4).
+- `esc` folds a picked preview, then closes.
+
+### 13.4 Answering, with staleness protection
+
+**Captured at draw time, never re-derived.** When an ask row is drawn, the app freezes an immutable `AskCapture` into the item:
+- the pane and host
+- `expect`: the first open question's text, which is the one the dialog is showing
+- `labels`: that question's option labels
+- per question, the option count and `multi`
+
+**The send uses only the capture.** It never reads the live chat:
+- `POST /api/chat/answer?host= {pane_id, expect, labels, answers:[{selected, multi, options}]}` (`src/chatview.go:2337`)
+- The server checks `expect` and `labels` against the pane's screen (`askScreenHolds`, `:2442`). An answer to a question the agent has moved past is `refused`, not misapplied.
+
+**A changed ask is a new item.** The item's identity includes a hash of the ask. A new question replaces the row and drops any pick in progress, so a pick can never ride onto a different question.
+
+**`refused`** shows the server's `detail` on the row, keeps the item and re-reads the chat. Nothing is ever retried, by the app or by the user's key-repeat.
+
+**Bots** (`src/botsapi.go:597-623`):
+- `POST /api/bots/<name>/chat/answer` with `{id, value}`, `{id, confirmed}` or `{id, cancelled: true}`.
+- `id` comes from the capture. The bridge refuses an id that is no longer open ("that question is no longer open", `src/botomp.go:718`).
+
+**Free text on a pane's ask needs S4 (§3).**
+- Today the answer route takes option indexes only (`chatAskPick`), so it cannot type into the dialog's "Other" row.
+- Until S4 ships, an ask whose dialog offers Other shows an **Answer in the terminal** action (`POST /api/focus`) in place of the text field.
+- The app never sends free text to a blocked pane through `/api/chat/send`: with a dialog up, that is a blind paste into it.
+
+### 13.5 Blocked with no choices
+
+When a pane is blocked but its chat carries no open ask, its row reads **blocked, no choices**. Examples: a claude permission dialog, or an approval outside both shapes.
+- The row shows the state, the agent's last tool line if there is one, and three actions:
+  - **Focus in herdr** (`POST /api/focus?host= {pane_id}`, `src/main.go:1355`)
+  - Discard
+  - Kill
+- The app never fabricates options and never types keystrokes into the pane.
+- The card opened from this row has no composer send while the pane is blocked.
+
+### 13.6 Kill and Discard
+
+**Kill ends the agent.** It is for panes only, behind a confirm step on the row (`X`, then `X` or ⏎ again; `esc` backs out).
+- A pane with an agent record: `POST /api/agent/close {pane_id, agent_id, host, remove_worktree: false}` (`src/closeme.go:34`).
+- A pane without one: `POST /api/close?host= {pane_ids}` (`src/main.go:1558`).
+- A bot has no Kill in the Inbox. Stopping a bot is managed in lasso's Bots view.
+
+**Discard changes nothing on the agent.** It clears the user's attention on that item: it never closes, stops, sends to or writes anything to the agent. It is S1's `dismissed_cards`, shared through ui_state so every client agrees. It writes `POST /api/ui-state {client_id, card_dismiss: {key: at}}`, where the key and value depend on the item:
+
+| Item | Key | Value | It returns when |
+|---|---|---|---|
+| Pane (ask, no choices, finished turn) | paneKey `host\u0000pane_id` | its `transcript_at` | `transcript_at` moves past the value: a new question, or a new turn |
+| omp bot ask | `bot:<name>#<pending_ui id>` | `0` | a different question opens (a new id, so a new key) |
+| omp bot finished turn | `bot:<name>` | `last_at` in unix ms | `last_at` moves past it |
+| Notice | none: removed from this Mac's memory | | never; a notice is one-shot |
+
+- The server takes any key of 1–300 bytes (`mergeDismissedCards`, `src/hostpanes.go:711`), so bot keys need no server change.
+- The 256-entry cap drops the smallest value first, so bot-ask keys (value `0`) go first. Losing one only brings its item back.
+- **A dismissed item is hidden, not deleted:** the rule above decides on every update whether it shows.
+- Against a lasso without S1 (no `dismissed_cards` in GET), Discard is hidden, as the card's is today.
+
+### 13.7 Seen, the badge and the empty state
+
+**Seen and discarded are separate.**
+- **Seen** is per-item and kept on this Mac (UserDefaults), like the bot read marks of §12. Seen is about this screen.
+- **Discarded** is shared (§13.6). Discard is about the user's attention everywhere.
+- Each mark is the item's `transcript_at`, `last_at`, ask hash, or arrival time.
+
+**What counts as seeing an item:**
+- An item is seen when it is selected in the Inbox (by pointer, or by `J`/`K`) or opened.
+- `J`/`K` move the selection down and up the Inbox, marking each item they land on.
+- ⏎ opens it: the pane's card, or the bot's chat.
+- In a card opened from the Inbox, `J`/`K` page through the Inbox's items in Inbox order, marking each one seen, so reading the Inbox and paging cards are one motion.
+
+**The badge means "new since you looked":**
+- It shows when at least one item that is not discarded is unseen.
+- Its colour is the most urgent such item's state.
+- The peek's dot follows the same rule.
+- Seen items stay listed until they are answered, discarded, or no longer qualify. Seeing an item only takes it out of the badge.
+
+**Empty state:** "Nothing waiting on you." with a second line: "Questions, finished turns and notices from your claude and omp agents land here." An empty Inbox is the normal state, not an error, so it has no illustration and no call to action.
+
+### 13.8 What exists, and what M8 changes
+
+**Built (§12):**
+- The rail's inbox button and badge.
+- `InboxModel`, which lists blocked and done agents, blocked bots and bots with an unread reply.
+- Discard of a pane through `dismissed_cards`.
+- Per-Mac bot read marks (`BotReads`).
+- The inbox-open parity state.
+
+**M8 changes:**
+- The claude/omp filter, with claude-runtime bots entering as panes.
+- Asks rendered and answered in place, with the draw-time capture.
+- Blocked with no choices.
+- Notices.
+- An omp bot's `pending_ui`.
+- Bot Discard keys.
+- Per-item seen state and the badge rule.
+- `J`/`K` and the empty state.
+- S4, if taken.
+
+### 13.9 Harness and tests
+
+**Parity states:**
+- **inbox-open**, with an extended fixture: a claude single-select ask with a `recommended` option and a folded `preview`, an omp multi-select ask, a blocked pane with no ask, a finished turn, an omp bot's `select`, and a notice.
+- **inbox-ask-picked**: a preview unfolded under its pick.
+- **inbox-empty**.
+- Each state gets geometry, colour and accessibility labels, and a ⌘-held keycap pass checking every legend against its live binding.
+
+**Contract:** the `chat_payload` golden already carries an `ask` (`mac/Spec/contract/chat_payload.json`). M8 adds `pending_ui` to the bot chat golden and a `notice` golden, written by `TestDesktopContract`.
+
+**Swift tests:**
+- Membership and order, including the harness filter and a bot's pane listed once.
+- The capture: the answer body equals the draw-time capture after the model has updated underneath it.
+- A changed ask drops the pick.
+- Discard's return rule for each key kind.
+- Seen versus discarded, and the badge.
+- `J`/`K` marking seen.
+- No action ever calls `/api/chat/send` for a blocked pane.
