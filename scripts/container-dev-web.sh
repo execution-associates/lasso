@@ -2,7 +2,7 @@
 # Run the Vite dev server inside this worktree's dev container, wired to the
 # lasso backend that is still running on the host.
 #
-#   usage: container-dev-web.sh <backend-port-on-host> <tailnet-dns-name>
+#   usage: container-dev-web.sh <backend-serve-port-on-host> <tailnet-dns-name>
 #
 # The backend deliberately stays on titan: it drives herdr, spawns panes and
 # reads the real daemon socket, none of which belongs in a container. Only Vite

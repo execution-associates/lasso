@@ -186,7 +186,11 @@ dns="${dns%.}"
 # point Vite's proxy at that. (ttyd needs no port here: spawn mode gives each
 # lasso its own per-PID unix sockets.)
 logf="$(mktemp)"
-./lasso -listen 127.0.0.1:8190 -insecure-no-auth -dev >"$logf" 2>&1 &
+# -listen-serve is what Vite proxies to: tailscale serve sets
+# Tailscale-User-Login, Vite passes it through, and lasso admits only this
+# node's owner (caller.go), so a dev server is never open to the whole tailnet.
+# Agents keep using the local port. Port 0: the kernel picks, the log says.
+./lasso -listen 127.0.0.1:8190 -listen-serve 127.0.0.1:0 -insecure-no-auth -dev >"$logf" 2>&1 &
 backend=$!
 trap 'kill "$backend" 2>/dev/null; rm -f "$logf"' EXIT
 
@@ -198,6 +202,8 @@ for _ in $(seq 1 100); do
   sleep 0.1
 done
 [ -n "$port" ] || { echo "backend never reported its port; log:" >&2; cat "$logf" >&2; exit 1; }
+sport="$(sed -n 's#.*serve:[[:space:]]*127\.0\.0\.1:\([0-9][0-9]*\).*#\1#p' "$logf" | head -n1)"
+[ -n "$sport" ] || { echo "backend never reported its serve port; log:" >&2; cat "$logf" >&2; exit 1; }
 
 # Surface the backend's own logs (port bumps, theme reloads) in the foreground.
 tail -n +1 -f "$logf" & tailpid=$!
@@ -205,7 +211,7 @@ trap 'kill "$backend" "$tailpid" 2>/dev/null; rm -f "$logf"' EXIT
 
 echo "lasso (dev): backend on 127.0.0.1:$port · Vite UI in this worktree's dev container, URL printed below (frontend hot reload ON)"
 echo "edit anything under src/web/src and the browser hot-reloads; restart this task for Go changes."
-./scripts/container-dev-web.sh "$port" "$dns"
+./scripts/container-dev-web.sh "$sport" "$dns"
 '''
 
 [tasks.dev-herdr]
@@ -280,7 +286,11 @@ ip="$(tailscale ip -4 | head -n1)"
 [ -n "$ip" ] || { echo "no tailscale IPv4 found — is tailscale up? (tailscale status)" >&2; exit 1; }
 
 logf="$(mktemp)"
-./lasso -listen 127.0.0.1:8190 -insecure-no-auth -dev >"$logf" 2>&1 &
+# -listen-serve is what Vite proxies to: tailscale serve sets
+# Tailscale-User-Login, Vite passes it through, and lasso admits only this
+# node's owner (caller.go), so a dev server is never open to the whole tailnet.
+# Agents keep using the local port. Port 0: the kernel picks, the log says.
+./lasso -listen 127.0.0.1:8190 -listen-serve 127.0.0.1:0 -insecure-no-auth -dev >"$logf" 2>&1 &
 backend=$!
 trap 'stop_herdr; kill "$backend" 2>/dev/null; rm -f "$logf"' EXIT INT TERM
 
@@ -292,11 +302,13 @@ for _ in $(seq 1 100); do
   sleep 0.1
 done
 [ -n "$port" ] || { echo "backend never reported its port; log:" >&2; cat "$logf" >&2; exit 1; }
+sport="$(sed -n 's#.*serve:[[:space:]]*127\.0\.0\.1:\([0-9][0-9]*\).*#\1#p' "$logf" | head -n1)"
+[ -n "$sport" ] || { echo "backend never reported its serve port; log:" >&2; cat "$logf" >&2; exit 1; }
 
 tail -n +1 -f "$logf" & tailpid=$!
 trap 'stop_herdr; kill "$backend" "$tailpid" 2>/dev/null; rm -f "$logf"' EXIT INT TERM
 
 echo "lasso (dev-herdr $ver): backend 127.0.0.1:$port → herdr $ver ($sock) · Vite UI printed below"
 echo "Settings tab should read herdr $ver / the protocol that daemon pongs / compatible. Ctrl-C stops lasso AND the isolated daemon."
-./scripts/container-dev-web.sh "$port" "$ip"
+./scripts/container-dev-web.sh "$sport" "$ip"
 '''

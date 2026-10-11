@@ -581,7 +581,7 @@ func runServer() {
 			log.Fatalf("listen %s: %v", *listenAccess, err)
 		}
 		extra = append(extra, roleListener{Listener: l, role: roleAccess})
-		log.Printf("access:   %s verifies every request against %s (aud %s)", *listenAccess, accessV.issuer, strings.Join(sortedKeys(accessV.auds), ", "))
+		log.Printf("access:   %s verifies every request against %s (aud %s)", l.Addr(), accessV.issuer, strings.Join(sortedKeys(accessV.auds), ", "))
 	}
 	if *listenServe != "" {
 		l, err := net.Listen("tcp", *listenServe)
@@ -589,7 +589,7 @@ func runServer() {
 			log.Fatalf("listen %s: %v", *listenServe, err)
 		}
 		extra = append(extra, roleListener{Listener: l, role: roleServe})
-		log.Printf("serve:    %s trusts tailscale serve's Tailscale-User-Login; point only tailscale serve at it", *listenServe)
+		log.Printf("serve:    %s trusts tailscale serve's Tailscale-User-Login; point only tailscale serve at it", l.Addr())
 	}
 	if *tailnetOn {
 		port := *tailnetPort
