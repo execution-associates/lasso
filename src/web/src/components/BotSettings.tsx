@@ -85,14 +85,14 @@ type Tab =
   | "environment"
   | "launch"
 
-const TABS: { id: Tab; label: string; existing?: boolean }[] = [
+const TABS: { id: Tab; label: string }[] = [
   { id: "general", label: "General" },
   { id: "connections", label: "Connections" },
-  { id: "jobs", label: "Jobs", existing: true },
-  { id: "skills", label: "Skills", existing: true },
+  { id: "jobs", label: "Jobs" },
+  { id: "skills", label: "Skills" },
   { id: "instructions", label: "Instructions" },
-  { id: "environment", label: "Environment", existing: true },
-  { id: "launch", label: "Launch", existing: true },
+  { id: "environment", label: "Environment" },
+  { id: "launch", label: "Launch" },
 ]
 
 // Claude Code's effort levels, for a server too old to list them.
@@ -2388,7 +2388,13 @@ export function BotSettings({
     setDraft((d) => (d ? { ...d, ...patch } : d))
 
   const [tab, setTab] = React.useState<Tab>("general")
-  const tabs = TABS.filter((t) => !creating || !t.existing)
+  // Creating, the instructions come right after General: who the bot is
+  // before what it connects to.
+  const tabs = creating
+    ? (["general", "instructions", "connections"] as Tab[]).flatMap(
+        (id) => TABS.find((t) => t.id === id) ?? []
+      )
+    : TABS
   const [saving, setSaving] = React.useState(false)
   const [confirmRestart, setConfirmRestart] = React.useState(false)
   const [confirmDelete, setConfirmDelete] = React.useState(false)
