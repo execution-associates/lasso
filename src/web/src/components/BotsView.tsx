@@ -752,6 +752,10 @@ export function BotsView({
           }
           headerExtra={
             <>
+              {/* Context use leads the right-hand group, so the space opens
+                  between it and the model chips; in the compact layout it is
+                  in the model chip's line instead. */}
+              {!compact && <ContextMeter bot={current} />}
               <BotStateMark bot={current} words />
               <SettingsButton
                 onClick={() => go({ page: "settings", name: current.name })}
@@ -760,9 +764,6 @@ export function BotsView({
                 <TerminalButton onClick={() => void openTerminal(current)} />
               )}
               <ViewsButton onOpen={onOpenViews} />
-              {/* Context use takes the header's far right; in the compact
-                  layout it is in the model chip's line instead. */}
-              {!compact && <ContextMeter bot={current} />}
             </>
           }
           className="min-w-0 flex-1"
