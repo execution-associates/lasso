@@ -461,19 +461,23 @@ func readAgentTool(_ context.Context, req *mcp.CallToolRequest, in readAgentIn) 
 	if err != nil {
 		return nil, readAgentOut{}, err
 	}
-	return nil, readAgentOut{Host: b.Name(), PaneID: t.PaneID, Status: paneAgentStatus(b, t.PaneID), Text: text}, nil
+	status := paneAgentStatus(b, t.PaneID)
+	if t.Record != nil {
+		status = liveAgentStatus(b, t.Host, *t.Record, status)
+	}
+	return nil, readAgentOut{Host: b.Name(), PaneID: t.PaneID, Status: status, Text: text}, nil
 }
 
 // ---------------------------------------------------------------------------
 // wait_agent
 // ---------------------------------------------------------------------------
 
-const waitAgentDescription = `Wait until an agent reaches a status (default "idle": finished its turn, which also matches herdr's "done") or the timeout passes, then report the status seen. Use it after send_agent when you will read the answer off its screen with read_agent; when you asked for a reply, get_replies with timeout_seconds waits for the reply itself.`
+const waitAgentDescription = `Wait until an agent reaches a status (default "idle": finished its turn, which also matches herdr's "done") or the timeout passes, then report the status seen. Safe to call right after create_agent: a lasso agent reads "booting" until its boot is done and, when it was given a prompt, until its first turn has started, so "idle" means that turn finished, not that the CLI just came up. A boot that failed returns at once with status "failed". Use it after send_agent when you will read the answer off its screen with read_agent; when you asked for a reply, get_replies with timeout_seconds waits for the reply itself.`
 
 type waitAgentIn struct {
 	Host      string `json:"host,omitempty" jsonschema:"Host the agent is on; omit for your own host."`
 	To        string `json:"to" jsonschema:"The agent: lasso agent id, sidebar/display name, or herdr pane id."`
-	Status    string `json:"status,omitempty" jsonschema:"idle (default; also matches done), working, blocked, or done."`
+	Status    string `json:"status,omitempty" jsonschema:"idle (default; also matches done), working, blocked, done, or booting."`
 	TimeoutMs int    `json:"timeout_ms,omitempty" jsonschema:"How long to wait in milliseconds (default 60000, max 600000)."`
 }
 
@@ -516,6 +520,19 @@ func waitAgentTool(ctx context.Context, req *mcp.CallToolRequest, in waitAgentIn
 	var last string
 	for {
 		last = paneAgentStatus(b, t.PaneID)
+		if t.Record != nil {
+			// Re-read the record every poll: bootAgent moves boot_status on in the
+			// background, and the gate is what keeps a just-created agent's boot
+			// screen from reading as a finished turn (agentstart.go).
+			rec := *t.Record
+			if fresh, err := findAgentRecordAny(t.Host, rec.ID); err == nil {
+				rec = fresh
+			}
+			last = liveAgentStatus(b, t.Host, rec, last)
+			if last == "failed" && want != "failed" {
+				return nil, waitAgentOut{Status: last}, nil
+			}
+		}
 		if statusSatisfies(want, last) {
 			return nil, waitAgentOut{Status: last, Matched: true}, nil
 		}

@@ -125,7 +125,7 @@ A level the chosen harness does not list is **dropped** and the agent launches a
 - claude and opencode show a numbered "Would you like to proceed?" prompt; option `1` accepts. herdr reports `blocked` natively.
 - omp shows a Plan Review overlay chosen with the arrow keys, not numbers. herdr's own detection reports it as idle, so lasso recognizes the overlay itself and reports `blocked`; poll `get_agent` for an omp gate rather than waiting on herdr. Enter accepts the highlighted default, "Approve and execute". Revising an omp plan ("Refine plan") needs a human in the pane.
 
-Returns an [agent object](#the-agent-object). Poll `get_agent` and watch `boot_status` to tell a still-booting agent from one that is up.
+Returns an [agent object](#the-agent-object) with `status` `booting`. To wait for the agent to finish its task, call `wait_agent` right away: it does not match `idle` until the boot is done and the prompt's first turn has started (see [`wait_agent`](#wait_agent)).
 
 ### `list_agents`
 
@@ -151,7 +151,7 @@ Gets one agent's details and live status. It does not read the agent's terminal;
 
 One of `agent_id` or `to` is needed. Targets resolve in order: exact lasso id, then exact pane id, then a case-insensitive name. A name that matches more than one agent is refused with the candidates listed; re-target by id or pane id.
 
-Returns `agent`, an [agent object](#the-agent-object). `status` is `working`, `idle`, `blocked` or `unknown`, or `failed` for a boot that never came up.
+Returns `agent`, an [agent object](#the-agent-object). `status` is `working`, `idle`, `done`, `blocked` or `unknown`, `booting` for a lasso agent that has not started yet, or `failed` for a boot that never came up.
 
 ### `close_agent`
 
@@ -188,7 +188,7 @@ Use `close_agent` rather than `herdr pane close` on a pane lasso created; closin
 | `repo`, `branch`, `base_branch` | for a git agent |
 | `work_dir` | the agent's working directory |
 | `workspace_id`, `root_pane` | its herdr workspace and the pane it runs in |
-| `status` | live herdr status: `working`, `idle`, `blocked`, `unknown`, or `failed` for a failed boot |
+| `status` | live herdr status (`working`, `idle`, `done`, `blocked`, `unknown`); `booting` while a lasso agent's boot runs and, when it was given a prompt, until its first turn has started; `failed` for a failed boot |
 | `boot_status`, `boot_error` | the async boot's phase (`booting`, `ready`, `failed`) and, when failed, why |
 | `created_at` | RFC 3339 timestamp |
 | `lasso_created` | true for agents lasso spawned; false for foreign herdr sessions |
@@ -235,6 +235,8 @@ The agent's terminal. `source` is `recent_unwrapped` (default, scrollback with s
 ### `wait_agent`
 
 Waits until the agent reaches `status` (default `idle`, which also matches `done`) or `timeout_ms` passes (default 60000, max 600000). Returns `status` and `matched`.
+
+Safe to call right after `create_agent`. A lasso agent reads `booting` until its boot is done and, when it was given a prompt, until its first turn has started: lasso has seen it `working`, `blocked` or `done`, or herdr's `agent.get` reports a `completion_seq` (a turn that started and finished between two polls). So `idle` means the task's turn finished, not that the CLI just drew its first screen. `booting` gives way after 10 minutes, so a boot stranded by a lasso restart, or a prompt that never took, does not hold every wait to its timeout. A failed boot returns at once with `status` `failed` and `matched` false. An agent created without a prompt matches `idle` as soon as its boot is done and the CLI is at rest.
 
 ### `reply_message`
 

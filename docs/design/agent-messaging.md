@@ -44,4 +44,4 @@ Messages and replies are kept 30 days, pruned on the next send. A reply is untru
 
 ## Reading and waiting
 
-`read_agent` is herdr's `pane.read` (default `recent_unwrapped`, 80 lines, max 1000) plus the live status. `wait_agent` polls `paneAgentStatus`; `idle` also matches herdr's `done`. Both exist because an agent that will not, or cannot, reply still answers on its screen.
+`read_agent` is herdr's `pane.read` (default `recent_unwrapped`, 80 lines, max 1000) plus the live status. `wait_agent` polls `paneAgentStatus` through `liveAgentStatus` (`agentstart.go`); `idle` also matches herdr's `done`. A lasso agent reads `booting` until its boot is done and its prompt's first turn has started, because a freshly launched CLI shows an idle screen before it picks the prompt up, and a create-then-wait matched it. The first turn is proven by lasso seeing `working`/`blocked`/`done` or by herdr's `completion_seq`; herdr has no OSC 7501 or other program-status signal that would say more. Bounded by `agentBootGrace` from `created_at`. Both exist because an agent that will not, or cannot, reply still answers on its screen.
