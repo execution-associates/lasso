@@ -38,16 +38,27 @@ describe("reconcileQueued", () => {
     // Two messages sent before either landed both snapshot the same turn, so a
     // single landing must not clear both — the second would go missing until the
     // transcript caught up with it, which is the bug the echo exists to fix.
-    const afterFirst = reconcileQueued([echo("u1"), echo("u1")], "h\u0000p1", "u2")
+    const afterFirst = reconcileQueued(
+      [echo("u1"), echo("u1")],
+      "h\u0000p1",
+      "u2"
+    )
     expect(afterFirst).toHaveLength(1)
     expect(afterFirst[0].after).toBe("u2")
     expect(reconcileQueued(afterFirst, "h\u0000p1", "u3")).toEqual([])
   })
 
   test("leaves another pane's echoes alone", () => {
-    const other = { id: 99, target: "h\u0000p9", text: "elsewhere", after: "u1" }
+    const other = {
+      id: 99,
+      target: "h\u0000p9",
+      text: "elsewhere",
+      after: "u1",
+    }
     expect(reconcileQueued([other], "h\u0000p1", "u2")).toEqual([other])
     // …and it survives while its own pane's echo is retired.
-    expect(reconcileQueued([echo("u1"), other], "h\u0000p1", "u2")).toEqual([other])
+    expect(reconcileQueued([echo("u1"), other], "h\u0000p1", "u2")).toEqual([
+      other,
+    ])
   })
 })

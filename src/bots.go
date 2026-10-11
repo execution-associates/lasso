@@ -82,9 +82,9 @@ type botRecord struct {
 	ID   int64  `json:"id"`
 	Host string `json:"host"`
 	Name string `json:"name"`
-	// Runtime is what the bot runs: "omp" (omp in RPC mode under lasso's bot
-	// host, botomp.go) or "claude" (Claude Code in a herdr pane). Rows from
-	// before runtimes existed read "claude".
+	// Runtime is what the bot runs: "omp" (omp's TUI with lasso's bridge in a
+	// herdr pane, botomp.go) or "claude" (Claude Code in a herdr pane). Rows
+	// from before runtimes existed read "claude".
 	Runtime        string         `json:"runtime"`
 	Dir            string         `json:"dir"`
 	Workspace      string         `json:"workspace"`
@@ -140,8 +140,8 @@ var (
 )
 
 // botOmpReservedArgs are omp flags an omp bot's extra args may not carry:
-// lasso's bot host needs RPC mode, the bot's own session dir, and to decide
-// itself when to continue a session.
+// lasso needs omp's interactive TUI (the bridge runs in it), the bot's own
+// session dir, and to decide itself when to continue a session.
 var botOmpReservedArgs = map[string]bool{
 	"--mode": true, "-p": true, "--print": true, "--no-session": true, "--session-dir": true,
 	"-c": true, "--continue": true, "-r": true, "--resume": true, "--fork": true,
@@ -217,8 +217,8 @@ func (r *botRecord) normalize() error {
 	default:
 		return fmt.Errorf("runtime must be omp or claude")
 	}
-	// omp bots are driven over a unix socket on lasso's own machine (bot host,
-	// bothost.go), so they live there.
+	// omp bots are driven over a unix socket on lasso's own machine (the
+	// bridge's, botomp.go), so they live there.
 	if r.isOmp() && r.Host != "local" {
 		return fmt.Errorf("an omp bot runs on lasso's own machine; use the claude runtime for a bot on %s", r.Host)
 	}
@@ -262,7 +262,7 @@ func (r *botRecord) normalize() error {
 		for _, a := range r.ExtraArgs {
 			flag, _, _ := strings.Cut(a, "=")
 			if botOmpReservedArgs[flag] {
-				return fmt.Errorf("extra argument %q would take the bot out of lasso's control (lasso runs omp in RPC mode on its own session)", a)
+				return fmt.Errorf("extra argument %q would take the bot out of lasso's control (lasso runs omp's TUI with its bridge, on its own session)", a)
 			}
 		}
 	}

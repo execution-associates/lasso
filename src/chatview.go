@@ -1909,6 +1909,15 @@ func buildChatPayload(be Backend, p pane, before string, withIncoming bool) chat
 		out.Note = tx.Note
 		out.Starting = tx.Starting
 		out.Unavailable = lg.unavailable
+		// An agent herdr reads as idle is up and waiting for its first prompt:
+		// a fresh session writes no log until then, and a spinner here reads as
+		// "wait before typing". Not while a host lasso asked has not answered,
+		// since the log may be there.
+		waitingOnHost := lg.unavailable != nil && len(lg.unavailable.Unanswered) > 0
+		if out.Starting && !waitingOnHost && (paneStatus == "idle" || paneStatus == "done") {
+			out.Note = "No messages yet."
+			out.Starting = false
+		}
 		return out
 	}
 	path, info, src := tx.Path, lg.info, lg.be

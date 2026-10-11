@@ -32,12 +32,7 @@ import {
   sortAgentsByPriority,
   useAgents,
 } from "@/lib/agents"
-import {
-  api,
-  type ChatItem,
-  type ChatPayload,
-  type HostPane,
-} from "@/lib/api"
+import { api, type ChatItem, type ChatPayload, type HostPane } from "@/lib/api"
 import { useApp } from "@/lib/app-store"
 import { useFlip } from "@/lib/flip"
 import { qk, queryClient } from "@/lib/query"
@@ -281,9 +276,7 @@ export function AgentsView({
       return [...out, ...groupAgentsByRepo(rest).map((r) => repoGroup(r))]
     for (const g of groupAgentsByHost(rest, tabHost)) {
       const children = groupByRepo
-        ? groupAgentsByRepo(g.panes).map((r) =>
-            repoGroup(r, `host:${g.host}/`)
-          )
+        ? groupAgentsByRepo(g.panes).map((r) => repoGroup(r, `host:${g.host}/`))
         : undefined
       out.push({
         key: `host:${g.host}`,

@@ -36,8 +36,6 @@ import (
 //	lasso mcp-group       host groups: which hosts' agents may reach each other
 //	lasso plugin          list, enable/disable, trust, restart plugins
 //	lasso channel         a bot's lasso channel (claude runs it from the bot's mcp.json)
-//	lasso bot-host        an omp bot's host (lasso runs it as the user unit lasso-bot-<name>)
-//	lasso bot-attach      an omp bot in a herdr pane (lasso opens it; herdr restores it)
 //	lasso skill [path]    print lasso's agent skill (SKILL.md), or one of its docs
 //	lasso version         print the version
 //
@@ -100,9 +98,6 @@ func main() {
 		case "channel":
 			cliChannel(os.Args[2:])
 			return
-		case "bot-host":
-			cliBotHost(os.Args[2:])
-			return
 		case "bot-attach":
 			cliBotAttach(os.Args[2:])
 			return
@@ -154,8 +149,6 @@ usage:
   lasso mcp-group <cmd>    host groups: add|list|add-member|grant|reach (see -h)
   lasso plugin <cmd>       plugins: list|enable|disable|trust|untrust|vm|restart|reload|install|update|uninstall|link|unlink|log|data-dir (see -h)
   lasso channel --bot <n>  a bot's jobs channel (claude runs it from the bot's mcp.json)
-  lasso bot-host --bot <n> an omp bot's host: owns omp's RPC pipes (lasso runs it as a systemd user unit)
-  lasso bot-attach <n>     an omp bot in this terminal: its conversation, your messages, its state in herdr
   lasso skill [path]       print lasso's agent skill (SKILL.md), or a doc it links to
   lasso version            print the version
 

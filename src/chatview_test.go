@@ -680,28 +680,33 @@ func TestServeChat(t *testing.T) {
 	}
 }
 
-// A pane running a harness lasso cannot read yet says so, rather than showing
-// an empty conversation that looks like a broken view — and because that harness
-// is RUNNING, it says so as a wait: the log is expected, so the view shows
-// progress instead of a verdict.
+// A running agent whose log has not landed says so as a wait: the log is
+// expected, so the view shows progress instead of a verdict. An idle one is a
+// fresh session waiting for its first prompt (no log is written until then),
+// and a spinner there reads as "wait before typing".
 func TestServeChatUnreadableSession(t *testing.T) {
-	be := &chatFakeBackend{panes: []string{
-		`{"pane_id":"w1:p1","focused":true,"agent":"claude","agent_status":"idle",` +
-			`"agent_session":{"source":"herdr:claude","agent":"claude","kind":"id","value":"24a7c912"}}`,
-	}}
-	useFakeHost(t, be)
+	for _, c := range []struct {
+		status   string
+		starting bool
+	}{{"working", true}, {"idle", false}} {
+		be := &chatFakeBackend{panes: []string{
+			`{"pane_id":"w1:p1","focused":true,"agent":"claude","agent_status":"` + c.status + `",` +
+				`"agent_session":{"source":"herdr:claude","agent":"claude","kind":"id","value":"24a7c912"}}`,
+		}}
+		useFakeHost(t, be)
 
-	rec := httptest.NewRecorder()
-	serveChat(rec, httptest.NewRequest(http.MethodGet, "/api/chat", nil))
-	var out chatPayload
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatal(err)
-	}
-	if out.Note == "" {
-		t.Error("note is empty for an id-only session, want an explanation")
-	}
-	if !out.Starting {
-		t.Error("a running agent whose log has not landed is a wait, want starting")
+		rec := httptest.NewRecorder()
+		serveChat(rec, httptest.NewRequest(http.MethodGet, "/api/chat", nil))
+		var out chatPayload
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		if out.Note == "" {
+			t.Errorf("%s: note is empty for an id-only session, want an explanation", c.status)
+		}
+		if out.Starting != c.starting {
+			t.Errorf("%s agent with no log yet: starting = %v, want %v", c.status, out.Starting, c.starting)
+		}
 	}
 }
 

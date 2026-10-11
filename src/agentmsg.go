@@ -302,7 +302,8 @@ func sendAgentTool(ctx context.Context, req *mcp.CallToolRequest, in sendAgentIn
 	if err := cs.requireHost(host); err != nil {
 		return nil, sendAgentOut{}, err
 	}
-	// An omp bot has no pane: its messages go over its bot host's socket.
+	// An omp bot's messages go over its bridge's socket, never typed into its
+	// pane.
 	if host == "local" {
 		if r, err := getBot(strings.TrimSpace(in.To)); err == nil && r.isOmp() {
 			return sendToOmpBot(ctx, cs, in, r)

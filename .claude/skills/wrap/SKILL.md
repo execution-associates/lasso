@@ -338,9 +338,9 @@ esac
 over the running executable, which there is the OLD version's install dir
 (`installs/ubi-52labs-lasso/<old>/lasso`), and restarts a systemd-owned daemon
 on the spot. The daemon then serves the new release out of a directory named
-for the old one, every bot's generated files (mcp.json's `lasso-channel`, the
-omp bot-host and bot-attach commands) name that directory, and a later `mise
-prune` deletes the binary they all point at. `mise use -g` instead installs the
+for the old one, every claude bot's generated mcp.json (its `lasso-channel`)
+names that directory, and a later `mise prune` deletes the binary they all
+point at. `mise use -g` instead installs the
 release into its own `installs/.../$VER` dir and moves the pin; it touches
 nothing running, so the restart below is what moves the daemon, and the
 daemon's first runner pass rewrites the bots' files to the new path

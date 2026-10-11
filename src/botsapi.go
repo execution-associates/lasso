@@ -421,7 +421,7 @@ func serveBotEnv(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 // botRunning: an env change reaches a running bot only on its next start.
 func botRunning(b Backend, r *botRecord) bool {
 	if r.isOmp() {
-		return botOmpRunning(r)
+		return botOmpRunning(b, r)
 	}
 	_, ok := findBotPane(b, r)
 	return ok

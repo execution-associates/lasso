@@ -153,8 +153,8 @@ export const TOUR_STEPS: TourStep[] = [
       <>
         On a small screen the terminal gets the whole display. The round button
         beside the keyboard switches views and carries New, Search, the host
-        menu and the sidebar; the ⌘ above it has the keys a phone lacks.
-        Add lasso to your home screen to get notifications from your agents.
+        menu and the sidebar; the ⌘ above it has the keys a phone lacks. Add
+        lasso to your home screen to get notifications from your agents.
       </>
     ),
   },

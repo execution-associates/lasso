@@ -1,10 +1,11 @@
 package main
 
-// omp bots, lasso's side (docs/design/bots.md, "omp bots"). The bot runs under
-// `lasso bot-host` (bothost.go) as the systemd user unit lasso-bot-<name>;
-// lasso talks to it over <lassoDir>/bots/<name>.sock in omp's RPC protocol.
-// Either lasso sharing lasso.db may connect, watch and send. Only the bot
-// loop's runner (bots.runner.lock) delivers job events and relaunches.
+// omp bots, lasso's side (docs/design/bots.md, "omp bots"). The bot is omp's
+// own TUI in a herdr pane (`mise run bot`), with lasso's bridge loaded
+// (ompbridge/lasso-bridge.ts), which serves <lassoDir>/bots/<name>.sock from
+// inside omp in omp's RPC protocol. Either lasso sharing lasso.db may connect,
+// watch and send. Only the bot loop's runner (bots.runner.lock) delivers job
+// events and relaunches.
 
 import (
 	"bufio"
@@ -24,68 +25,85 @@ import (
 )
 
 func botSocketPath(name string) string { return filepath.Join(lassoDir(), "bots", name+".sock") }
-func botUnitName(name string) string   { return "lasso-bot-" + name }
 
-// --- launching the host -------------------------------------------------------
+// botBridgeProtocol is PROTOCOL in ompbridge/lasso-bridge.ts: the frames the
+// bridge and lasso exchange. Bump both together. A bot whose bridge speaks
+// another is restarted onto this one once idle (botOmpUpgrade); below 4 it is
+// the bot host an older lasso ran omp under.
+const botBridgeProtocol = 4
 
-// botOmpLauncher starts and stops a bot's host. The systemd one is the real
-// thing; tests run the host in-process.
+// botOmpAgent is the herdr agent an omp bot's pane reports, as the bridge
+// reports it.
+const botOmpAgent = "omp"
+
+// --- launching ------------------------------------------------------------------
+
+// botOmpLauncher runs a bot's pane. The herdr one is the real thing; tests run
+// a fake bridge in-process.
 type botOmpLauncher interface {
-	start(r *botRecord, dir string, fresh bool) error
-	// active reports whether the host is up or coming up.
-	active(name string) bool
-	stop(name string) error
+	// start opens a tab in the bot's workspace and types its launch task.
+	start(b Backend, r *botRecord, dir string, fresh bool) error
+	// pane is the bot's herdr pane, if it has one.
+	pane(b Backend, r *botRecord) (string, bool)
+	// close closes the bot's pane.
+	close(b Backend, r *botRecord)
 }
 
-var botOmpLaunch botOmpLauncher = systemdBotLauncher{}
+var botOmpLaunch botOmpLauncher = herdrBotLauncher{}
 
-type systemdBotLauncher struct{}
+type herdrBotLauncher struct{}
 
-// botHasUserManager: a systemd user manager to start the unit under.
-func botHasUserManager() error {
-	if os.Getenv("XDG_RUNTIME_DIR") == "" {
-		return errors.New("an omp bot runs as a systemd user unit, and lasso has no user manager to ask (XDG_RUNTIME_DIR is unset)")
-	}
-	if _, err := exec.LookPath("systemd-run"); err != nil {
-		return errors.New("an omp bot runs as a systemd user unit, and systemd-run is not installed")
-	}
-	return nil
-}
-
-func (systemdBotLauncher) start(r *botRecord, dir string, fresh bool) error {
-	if err := botHasUserManager(); err != nil {
+func (herdrBotLauncher) start(b Backend, r *botRecord, dir string, fresh bool) error {
+	paneID, err := openBotTab(b, r, dir)
+	if err != nil {
 		return err
 	}
-	args := []string{"--user", "--unit", botUnitName(r.Name), "--collect", "--quiet",
-		"--description", "lasso bot " + r.Name,
-		"--property", "KillMode=control-group", "--property", "TimeoutStopSec=15",
-		"--working-directory", dir}
-	// A systemd user unit's environment, as a watch command gets
-	// (botCommandEnv): never lasso's credentials.
-	for _, kv := range botCommandEnv(os.Environ(), r.Name, "") {
-		if strings.HasPrefix(kv, "LASSO_JOB=") {
-			continue
-		}
-		args = append(args, "--setenv", kv)
-	}
-	args = append(args, "--", botLassoExe(), "bot-host", "--bot", r.Name, "--dir", dir,
-		"--socket", botSocketPath(r.Name), "--task", r.task())
-	if fresh {
-		args = append(args, "--fresh")
-	}
-	out, err := exec.Command("systemd-run", args...).CombinedOutput()
-	if err != nil {
-		msg := strings.TrimSpace(string(out))
-		if strings.Contains(msg, "already exists") || strings.Contains(msg, "already loaded") {
-			return errBotRunning
-		}
-		return fmt.Errorf("systemd-run: %s", firstNonEmpty(msg, err.Error()))
+	invalidatePaneList(b.Name())
+	waitPaneReady(b, paneID)
+	if err := paneRun(b, paneID, botOmpLaunchCommand(r.task(), fresh)); err != nil {
+		return fmt.Errorf("launch: %w", err)
 	}
 	return nil
 }
 
-func (systemdBotLauncher) active(name string) bool {
-	out, _ := exec.Command("systemctl", "--user", "is-active", botUnitName(name)).Output()
+func (herdrBotLauncher) pane(b Backend, r *botRecord) (string, bool) {
+	p, ok := findBotPane(b, r)
+	return p.PaneID, ok
+}
+
+func (herdrBotLauncher) close(b Backend, r *botRecord) {
+	if p, ok := findBotPane(b, r); ok {
+		if _, err := b.HerdrCall("pane.close", map[string]any{"pane_id": p.PaneID}); err == nil {
+			invalidatePaneList(b.Name())
+		}
+	}
+}
+
+// cliBotAttach is `lasso bot-attach <name>`, the viewer an older lasso ran in
+// an omp bot's pane. herdr may still restore such a pane after an upgrade; it
+// says where the bot went and closes itself, and the bot is in a pane of its
+// own (botOmpUpgrade, keep-running).
+func cliBotAttach(args []string) {
+	fmt.Printf("The bot %s now runs as omp itself, in a herdr pane of its own. This pane closes.\n", strings.Join(args, " "))
+	if pane := os.Getenv("HERDR_PANE_ID"); pane != "" {
+		time.Sleep(3 * time.Second)
+		_, _ = herdrCallSock(defaultSock(), "pane.close", map[string]any{"pane_id": pane})
+	}
+}
+
+// --- the bot host an older lasso ran -------------------------------------------
+//
+// Before the bridge, omp ran headless under `lasso bot-host` as the systemd
+// user unit lasso-bot-<name>. One still running is moved onto the bridge by
+// botOmpUpgrade. Seams for tests.
+
+func botLegacyUnitName(name string) string { return "lasso-bot-" + name }
+
+var botLegacyUnitActive = func(name string) bool {
+	if os.Getenv("XDG_RUNTIME_DIR") == "" {
+		return false
+	}
+	out, _ := exec.Command("systemctl", "--user", "is-active", botLegacyUnitName(name)).Output()
 	switch strings.TrimSpace(string(out)) {
 	case "active", "activating", "reloading", "deactivating":
 		return true
@@ -93,8 +111,8 @@ func (systemdBotLauncher) active(name string) bool {
 	return false
 }
 
-func (systemdBotLauncher) stop(name string) error {
-	out, err := exec.Command("systemctl", "--user", "stop", botUnitName(name)).CombinedOutput()
+var botLegacyUnitStop = func(name string) error {
+	out, err := exec.Command("systemctl", "--user", "stop", botLegacyUnitName(name)).CombinedOutput()
 	if err != nil && !strings.Contains(string(out), "not loaded") {
 		return fmt.Errorf("systemctl stop: %s", firstNonEmpty(strings.TrimSpace(string(out)), err.Error()))
 	}
@@ -153,12 +171,12 @@ type ompBot struct {
 	streaming bool
 	pending   []ompUIRequest
 	sessionID string
-	exit      string // the host's last exit, when omp ended on its own
+	exit      string // why omp last ended, as an older lasso's bot host reported it
 	upSince   time.Time
 	waiters   map[string]chan ompResponse
 	delivery  bool // the job delivery loop runs (runner only)
-	// What the host said in host_hello: its protocol (0 for a host from
-	// before there was one) and the lasso version it runs.
+	// What the bridge said in host_hello: its protocol (below 4, an older
+	// lasso's bot host) and the lasso version that wrote it.
 	hello       bool
 	hostProto   int
 	hostVersion string
@@ -333,8 +351,11 @@ func (ob *ompBot) observe(line []byte) {
 	case "message_end", "tool_execution_end":
 		nudge = true
 	case "model_changed", "thinking_level_changed":
-		// Whoever changed it (lasso, the bot's herdr pane, the bot itself):
+		// Whoever changed it (lasso, the bot's terminal, the bot itself):
 		// read it back and keep the bot's settings in step.
+		askState, nudge = true, true
+	case "session_changed":
+		// A conversation started or resumed, from the terminal or by lasso.
 		askState, nudge = true, true
 	case "extension_ui_request":
 		if q, ok := f.uiRequest(); ok {
@@ -418,7 +439,7 @@ func (ob *ompBot) refreshState() {
 	}
 	ob.modelKnown = true
 	model, thinking := ob.model.selector(), ob.thinking
-	// The first reading on a connection is a baseline, unless the host saw
+	// The first reading on a connection is a baseline, unless the bridge saw
 	// the model or thinking change since launch: then it is a change made
 	// while this lasso was away (from the pane, say), and it is kept.
 	firstModelChg, firstThinkChg := !known && ob.hostModelChg, !known && ob.hostThinkChg
@@ -712,12 +733,18 @@ func botOmpAnswer(name, id string, value *string, confirmed *bool, cancel bool) 
 
 // --- lifecycle ------------------------------------------------------------------
 
-func botOmpRunning(r *botRecord) bool {
-	return ompBotFor(r.Name).ensure() || botOmpLaunch.active(r.Name)
+func botOmpRunning(b Backend, r *botRecord) bool {
+	if ompBotFor(r.Name).ensure() {
+		return true
+	}
+	_, ok := botOmpLaunch.pane(b, r)
+	return ok
 }
 
+// botOmpStart opens the bot's pane and runs its launch task there,
+// continuing the last conversation unless fresh.
 func botOmpStart(b Backend, r *botRecord, fresh bool) error {
-	if botOmpRunning(r) {
+	if botOmpRunning(b, r) {
 		return errBotRunning
 	}
 	if err := botMaterialize(b, r); err != nil {
@@ -726,80 +753,51 @@ func botOmpStart(b Backend, r *botRecord, fresh bool) error {
 	dir := expandTildeOn(b, r.Dir)
 	bots.mu.Lock()
 	bots.starting[r.Name] = time.Now()
+	bots.misses[r.Name] = 0
 	bots.mu.Unlock()
 	_ = setBotStopped(r.Name, false)
-	if err := botOmpLaunch.start(r, dir, fresh); err != nil {
+	if err := botOmpLaunch.start(b, r, dir, fresh); err != nil {
 		bots.mu.Lock()
 		delete(bots.starting, r.Name)
 		bots.mu.Unlock()
 		return err
 	}
-	// The bot in herdr. A failure costs only the pane: the bot runs, and
-	// its chat works, without one.
-	if err := botOmpOpenViewer(b, r, dir); err != nil {
-		log.Printf("bots:     %s: open its herdr pane: %v", r.Name, err)
-	}
 	return nil
 }
 
-// botOmpOpenViewer opens the bot's herdr pane, `lasso bot-attach <name>` in
-// a tab of its workspace, when it has none. Typed with this binary's own path
-// (the lasso on PATH may be an older one); herdr restores it with the plain
-// `lasso bot-attach <name>` the viewer reports. A seam for tests.
-var botOmpOpenViewer = func(b Backend, r *botRecord, dir string) error {
-	if _, ok := findBotPane(b, r); ok {
-		return nil
-	}
-	paneID, err := openBotTab(b, r, dir)
-	if err != nil {
-		return err
-	}
-	invalidatePaneList(b.Name())
-	waitPaneReady(b, paneID)
-	return paneRun(b, paneID, shellQuote(botLassoExe())+" bot-attach "+r.Name)
-}
-
-// botOmpCloseViewer closes the bot's herdr pane. A seam for tests.
-var botOmpCloseViewer = func(b Backend, r *botRecord) {
-	if p, ok := findBotPane(b, r); ok {
-		if _, err := b.HerdrCall("pane.close", map[string]any{"pane_id": p.PaneID}); err == nil {
-			invalidatePaneList(b.Name())
-		}
-	}
-}
-
-func botOmpStop(r *botRecord) error {
-	if b, err := botBackend(r.Host); err == nil {
-		defer botOmpCloseViewer(b, r)
-	}
+// botOmpStop marks the bot stopped, asks the bridge to end omp (abort, then
+// omp's own shutdown, which writes the session out), and closes the pane,
+// which is the backstop for an omp that does not answer.
+func botOmpStop(b Backend, r *botRecord) error {
 	if err := setBotStopped(r.Name, true); err != nil {
 		return err
-	}
-	ob := ompBotFor(r.Name)
-	if ob.ensure() {
-		_ = ob.send(map[string]any{"type": "host_stop"})
 	}
 	bots.mu.Lock()
 	delete(bots.starting, r.Name)
 	bots.mu.Unlock()
-	// The host stops omp itself; the unit stop is the backstop for a host
-	// that is wedged or never got its socket up.
-	deadline := time.Now().Add(8 * time.Second)
-	for time.Now().Before(deadline) && botOmpLaunch.active(r.Name) {
-		time.Sleep(200 * time.Millisecond)
-	}
-	if botOmpLaunch.active(r.Name) {
-		return botOmpLaunch.stop(r.Name)
-	}
+	botOmpEnd(b, r, ompBotFor(r.Name))
 	return nil
 }
 
+// botOmpEnd ends the bot's omp and closes its pane.
+func botOmpEnd(b Backend, r *botRecord, ob *ompBot) {
+	if ob.ensure() {
+		_ = ob.send(map[string]any{"type": "host_stop"})
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) && ob.connected() {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	botOmpLaunch.close(b, r)
+}
+
 func botOmpRestart(b Backend, r *botRecord, fresh bool) error {
-	if err := botOmpStop(r); err != nil {
+	if err := botOmpStop(b, r); err != nil {
 		return err
 	}
 	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) && botOmpRunning(r) {
+	for time.Now().Before(deadline) && botOmpRunning(b, r) {
+		invalidatePaneList(b.Name())
 		time.Sleep(300 * time.Millisecond)
 	}
 	return botOmpStart(b, r, fresh)
@@ -813,7 +811,7 @@ func botOmpStatus(b Backend, r *botRecord) botView {
 	ob.ensure()
 	s := ob.snapshot()
 	v.SessionID = s.sessionID
-	if p, ok := botOmpViewerPane(b, r); ok {
+	if p, ok := botOmpLaunch.pane(b, r); ok {
 		v.PaneID = p
 	}
 	if s.connected && s.model.ID != "" {
@@ -827,14 +825,14 @@ func botOmpStatus(b Backend, r *botRecord) botView {
 	}
 	if s.connected && s.hello {
 		v.HostVersion = s.hostVersion
-		v.HostOutdated = s.hostProto != botHostProtocol
+		v.HostOutdated = s.hostProto != botBridgeProtocol
 	}
 	switch {
 	case !s.connected:
 		bots.mu.Lock()
 		t, starting := bots.starting[r.Name]
 		bots.mu.Unlock()
-		if (starting && time.Since(t) < botStartGrace) || botOmpLaunch.active(r.Name) {
+		if starting && time.Since(t) < botStartGrace {
 			v.State = "starting"
 		} else if s.exit != "" && !r.Stopped {
 			v.Error = s.exit
@@ -899,7 +897,12 @@ func botOmpChat(b Backend, r *botRecord, before string) chatPayload {
 	s := ompBotFor(r.Name).snapshot()
 	path := botOmpSessionFile(b, r)
 	if path == "" {
-		out.Starting = s.connected
+		// A wait only while omp is still coming up: a ready bot with no
+		// session file is waiting for its first message, not loading.
+		bots.mu.Lock()
+		t, launching := bots.starting[r.Name]
+		bots.mu.Unlock()
+		out.Starting = (s.connected && !s.ready) || (!s.connected && launching && time.Since(t) < botStartGrace)
 		out.Note = "No conversation yet."
 		return out
 	}
@@ -981,74 +984,55 @@ func botOmpTurnEnded(name string) {
 
 // --- the loop (runner only) -----------------------------------------------------
 
-const (
-	botOmpBackoffMin = 10 * time.Second
-	botOmpBackoffMax = 5 * time.Minute
-	// botOmpHealthy: a bot up this long has its relaunch backoff reset.
-	botOmpHealthy = 10 * time.Minute
-)
-
-type botOmpRelaunch struct {
-	next  time.Time
-	delay time.Duration
-}
-
-var botOmpRelaunches = struct {
-	sync.Mutex
-	m map[string]*botOmpRelaunch
-}{m: map[string]*botOmpRelaunch{}}
-
-// botOmpTick is one loop pass over an omp bot: keep-running with backoff,
-// the notification check and the job delivery loop.
+// botOmpTick is one loop pass over an omp bot: the job delivery loop, the
+// notification check and a pending upgrade while it runs; keep-running when
+// it does not. Keep-running is a claude bot's: the pane must be missing for
+// botMissesBeforeRelaunch ticks, which gives herdr's own restore the first
+// chance.
 func botOmpTick(b Backend, r *botRecord, now time.Time) {
 	ob := ompBotFor(r.Name)
 	if ob.ensure() {
 		s := ob.snapshot()
+		bots.mu.Lock()
+		bots.misses[r.Name] = 0
 		if s.ready {
-			bots.mu.Lock()
 			delete(bots.starting, r.Name)
-			bots.mu.Unlock()
 		}
-		if !s.upSince.IsZero() && now.Sub(s.upSince) > botOmpHealthy {
-			botOmpRelaunches.Lock()
-			delete(botOmpRelaunches.m, r.Name)
-			botOmpRelaunches.Unlock()
-		}
+		bots.mu.Unlock()
 		ob.startDelivery()
 		if r.Notify {
 			botNotifyCheck(b, r, nil)
 		}
-		if s.hello && s.hostProto != botHostProtocol {
+		if s.hello && s.hostProto != botBridgeProtocol {
 			go botOmpUpgrade(b, r)
 		}
-		botOmpKeepViewer(b, r)
 		return
 	}
-	if r.Stopped || !r.KeepRunning || botOmpLaunch.active(r.Name) {
+	if r.Stopped || !r.KeepRunning {
+		return
+	}
+	if _, ok := botOmpLaunch.pane(b, r); ok {
+		bots.mu.Lock()
+		bots.misses[r.Name] = 0
+		bots.mu.Unlock()
 		return
 	}
 	bots.mu.Lock()
 	started, isStarting := bots.starting[r.Name]
-	bots.mu.Unlock()
 	if isStarting && now.Sub(started) < botStartGrace {
+		bots.mu.Unlock()
 		return
 	}
-	botOmpRelaunches.Lock()
-	rl := botOmpRelaunches.m[r.Name]
-	if rl == nil {
-		rl = &botOmpRelaunch{}
-		botOmpRelaunches.m[r.Name] = rl
-	}
-	due := now.After(rl.next) || now.Equal(rl.next)
+	bots.misses[r.Name]++
+	due := bots.misses[r.Name] >= botMissesBeforeRelaunch
 	if due {
-		rl.delay = min(max(rl.delay*2, botOmpBackoffMin), botOmpBackoffMax)
-		rl.next = now.Add(rl.delay)
+		bots.misses[r.Name] = 0
 	}
-	botOmpRelaunches.Unlock()
+	bots.mu.Unlock()
 	if !due {
 		return
 	}
-	log.Printf("bots:     %s is not running; relaunching (keep running)", r.Name)
+	log.Printf("bots:     %s has no pane; relaunching (keep running)", r.Name)
 	if err := botRelaunch(b, r); err != nil && !errors.Is(err, errBotRunning) {
 		log.Printf("bots:     relaunch %s: %v", r.Name, err)
 	}
@@ -1116,11 +1100,17 @@ func botOmpDeliver(name string, now time.Time) {
 	}
 }
 
-// botOmpUpgrade restarts an idle bot whose host speaks another protocol, so
-// the host is this lasso's binary again. Only when idle: nothing is waiting
-// on the human and no turn is running, and the session continues (-c). It is
-// not a Stop: the bot is never marked stopped, so a lasso that dies midway
-// leaves keep-running to bring it back.
+// botOmpUpgrade moves an idle bot whose bridge speaks another protocol onto
+// this lasso's. Only when idle: nothing is waiting on the human and no turn is
+// running, and the conversation continues (-c). It is not a Stop: the bot is
+// never marked stopped, so a lasso that dies midway leaves keep-running to
+// bring it back.
+//
+//   - A bridge (protocol 4 on): its files are rewritten and the restart marker
+//     left, so the running bridge shuts omp down and the task relaunches it on
+//     the new bridge, in the same pane.
+//   - The bot host an older lasso ran (below 4): it is stopped, its viewer pane
+//     closed, and the bot started in a pane of its own.
 func botOmpUpgrade(b Backend, r *botRecord) {
 	ob := ompBotFor(r.Name)
 	ob.mu.Lock()
@@ -1138,56 +1128,35 @@ func botOmpUpgrade(b Backend, r *botRecord) {
 	ob.opMu.Lock()
 	defer ob.opMu.Unlock()
 	s := ob.snapshot()
-	if !s.connected || !s.ready || s.streaming || len(s.pending) > 0 || s.hostProto == botHostProtocol {
+	if !s.connected || !s.ready || s.streaming || len(s.pending) > 0 || s.hostProto == botBridgeProtocol {
 		return
 	}
-	log.Printf("bots:     %s: its host speaks protocol %d (lasso %s), this lasso %d; restarting it on this binary", r.Name, s.hostProto, s.hostVersion, botHostProtocol)
-	_ = ob.send(map[string]any{"type": "host_stop"})
+	if s.hostProto >= 4 {
+		log.Printf("bots:     %s: its bridge speaks protocol %d (lasso %s), this lasso %d; restarting it onto this one", r.Name, s.hostProto, s.hostVersion, botBridgeProtocol)
+		if err := botMaterialize(b, r); err != nil {
+			log.Printf("bots:     %s: upgrade: %v", r.Name, err)
+			return
+		}
+		dir := expandTildeOn(b, r.Dir)
+		if err := b.WriteFile(botRestartMarker(dir), nil, 0o644); err != nil {
+			log.Printf("bots:     %s: upgrade: %v", r.Name, err)
+		}
+		return
+	}
+	log.Printf("bots:     %s: runs under an older lasso's bot host (lasso %s); moving it into its own herdr pane", r.Name, s.hostVersion)
+	botOmpEnd(b, r, ob)
 	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) && (botOmpLaunch.active(r.Name) || ob.connected()) {
+	for time.Now().Before(deadline) && botLegacyUnitActive(r.Name) {
 		time.Sleep(200 * time.Millisecond)
 	}
-	if botOmpLaunch.active(r.Name) {
-		if err := botOmpLaunch.stop(r.Name); err != nil {
+	if botLegacyUnitActive(r.Name) {
+		if err := botLegacyUnitStop(r.Name); err != nil {
 			log.Printf("bots:     %s: upgrade: %v", r.Name, err)
 			return
 		}
 	}
+	invalidatePaneList(b.Name())
 	if err := botOmpStart(b, r, false); err != nil && !errors.Is(err, errBotRunning) {
 		log.Printf("bots:     %s: upgrade: start: %v", r.Name, err)
-	}
-}
-
-// botOmpViewerPane is the bot's herdr pane, if it has one. A seam for tests.
-var botOmpViewerPane = func(b Backend, r *botRecord) (string, bool) {
-	p, ok := findBotPane(b, r)
-	return p.PaneID, ok
-}
-
-// botOmpKeepViewer reopens a keep-running bot's herdr pane once it has been
-// missing for as long as a claude bot's pane may be before a relaunch, which
-// gives herdr's own restore (resume_argv) the first chance.
-func botOmpKeepViewer(b Backend, r *botRecord) {
-	if !r.KeepRunning {
-		return
-	}
-	if _, ok := botOmpViewerPane(b, r); ok {
-		bots.mu.Lock()
-		bots.misses[r.Name] = 0
-		bots.mu.Unlock()
-		return
-	}
-	bots.mu.Lock()
-	bots.misses[r.Name]++
-	due := bots.misses[r.Name] >= botMissesBeforeRelaunch
-	if due {
-		bots.misses[r.Name] = 0
-	}
-	bots.mu.Unlock()
-	if !due {
-		return
-	}
-	if err := botOmpOpenViewer(b, r, expandTildeOn(b, r.Dir)); err != nil {
-		log.Printf("bots:     %s: reopen its herdr pane: %v", r.Name, err)
 	}
 }

@@ -16,9 +16,9 @@ describe("isChunkLoadError", () => {
   })
 
   test("is case-insensitive", () => {
-    expect(isChunkLoadError(new Error("FAILED TO FETCH DYNAMICALLY IMPORTED MODULE"))).toBe(
-      true
-    )
+    expect(
+      isChunkLoadError(new Error("FAILED TO FETCH DYNAMICALLY IMPORTED MODULE"))
+    ).toBe(true)
   })
 
   // The point of the classification: a diagram lasso could not parse must keep
@@ -30,9 +30,9 @@ describe("isChunkLoadError", () => {
   })
 
   test("survives a non-Error throw", () => {
-    expect(isChunkLoadError("Failed to fetch dynamically imported module")).toBe(
-      true
-    )
+    expect(
+      isChunkLoadError("Failed to fetch dynamically imported module")
+    ).toBe(true)
     expect(isChunkLoadError(undefined)).toBe(false)
     expect(isChunkLoadError({ message: "whatever" })).toBe(false)
   })

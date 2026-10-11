@@ -15,7 +15,9 @@ import { botRunning, relativeTime } from "@/lib/bots"
 // minime", "which ones read mail"). A table where there is room for one, a
 // card per bot on a phone.
 
+// Channels are Claude Code's; an omp bot has none, whatever its servers say.
 function channelsOf(b: BotView): number {
+  if (b.runtime === "omp") return 0
   return (b.mcp ?? []).filter((s) => s.channel).length
 }
 

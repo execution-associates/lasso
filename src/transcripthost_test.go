@@ -230,8 +230,9 @@ func TestServeChatServedByOwnHost(t *testing.T) {
 	}
 }
 
-// No host has it: the note path is unchanged, still a wait, and the reason says
-// which hosts were asked.
+// No host has it, and every host answered: for an idle agent that is a session
+// waiting for its first prompt (no log until then), so the view is not a wait,
+// and the reason still says which hosts were asked.
 func TestServeChatNoHostHasTheLog(t *testing.T) {
 	minime := newDiskHost(t, "minime", crossHostPane())
 	titan := newDiskHost(t, "titan", "")
@@ -242,8 +243,8 @@ func TestServeChatNoHostHasTheLog(t *testing.T) {
 	if len(out.Items) != 0 || out.ServedBy != "" || out.Path != "" {
 		t.Fatalf("items %d / served_by %q / path %q, want an empty view", len(out.Items), out.ServedBy, out.Path)
 	}
-	if out.Note != "This session's transcript is not on this host yet." || !out.Starting {
-		t.Errorf("note %q / starting %v, want the unchanged wait", out.Note, out.Starting)
+	if out.Note != "No messages yet." || out.Starting {
+		t.Errorf("note %q / starting %v, want no messages and no wait", out.Note, out.Starting)
 	}
 	want := &chatUnavailable{
 		Reason: chatReasonNotFound,

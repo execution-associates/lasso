@@ -849,8 +849,8 @@ export interface BotOAuthStatus {
 
 export type BotState = "stopped" | "starting" | "idle" | "working" | "blocked"
 
-// omp: omp in RPC mode under lasso's bot host (no herdr pane; its chat is
-// /api/bots/<name>/chat). claude: Claude Code in a herdr pane.
+// omp: omp itself in a herdr pane, driven through lasso's bridge (its chat
+// is /api/bots/<name>/chat). claude: Claude Code in a herdr pane.
 export type BotRuntime = "omp" | "claude"
 
 // The editable half of a bot: what POST creates and PUT saves.
@@ -892,8 +892,8 @@ export interface BotView extends BotFields {
   last_kind?: "agent" | "user" | "incoming"
   last_at?: string
   error?: string
-  // An omp bot's host: the lasso version it runs, and whether it speaks
-  // another protocol than this lasso (restarted onto it once idle).
+  // An omp bot's bridge: the lasso version that wrote it, and whether it
+  // speaks another protocol than this lasso (restarted onto it once idle).
   host_version?: string
   host_outdated?: boolean
   // What an omp bot runs right now, as omp reports it, with the thinking

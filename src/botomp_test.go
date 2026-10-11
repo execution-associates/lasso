@@ -8,232 +8,354 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
 
-// fakeOmpEnv, when set, makes the test binary a stand-in for `omp --mode
-// rpc-ui` (see TestMain). It logs every line it receives and its argv to
-// $LASSO_TEST_FAKE_OMP_LOG and appends turns to a session file in
-// $LASSO_TEST_FAKE_OMP_SESSIONS.
-const fakeOmpEnv = "LASSO_TEST_FAKE_OMP"
+// fakeBridge stands in for omp with lasso's bridge loaded
+// (ompbridge/lasso-bridge.ts): it serves the bot's socket, says host_hello to
+// every client, broadcasts omp's events and answers the commands lasso sends.
+// It logs each launch ("argv [-c]") and each command ("in <line>") to logPath
+// and appends turns to a session file in the bot's session dir, as omp does.
+type fakeBridge struct {
+	name, dir, logPath string
+	proto              int
 
-var fakeProvider, fakeModelID, fakeThinking = "fakeco", "m1", "low"
+	mu        sync.Mutex
+	ln        net.Listener
+	clients   map[net.Conn]bool
+	streaming bool
+	pending   []json.RawMessage
+	sessionID string
+	session   string
+	sessions  int
+	provider  string
+	model     string
+	thinking  string
+	answers   chan string
+	done      chan struct{}
+	// onExit runs when omp would exit: restart is true when the restart
+	// marker made it, which the launch task answers by relaunching.
+	onExit func(restart bool)
+}
 
-func runFakeOmp() int {
-	logPath := os.Getenv("LASSO_TEST_FAKE_OMP_LOG")
-	logf := func(s string) {
-		if logPath == "" {
-			return
-		}
-		f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-		if err == nil {
-			fmt.Fprintln(f, s)
-			f.Close()
-		}
+func startFakeBridge(t *testing.T, name, dir, logPath string, proto int, fresh bool, onExit func(bool)) *fakeBridge {
+	t.Helper()
+	f := &fakeBridge{name: name, dir: dir, logPath: logPath, proto: proto, clients: map[net.Conn]bool{},
+		sessionID: "sess-1", sessions: 1, provider: "fakeco", model: "m1", thinking: "low",
+		answers: make(chan string, 4), done: make(chan struct{}), onExit: onExit}
+	argv := "argv"
+	if !fresh {
+		argv += " -c"
 	}
-	logf("argv " + strings.Join(os.Args[1:], " "))
-	if os.Getenv("HERDR_PANE_ID") != "" {
-		logf("herdr-env-leaked")
+	f.log(argv)
+	f.openSession(f.sessionID)
+	sock := botSocketPath(name)
+	_ = os.MkdirAll(filepath.Dir(sock), 0o700)
+	_ = os.Remove(sock)
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatalf("fake bridge: %v", err)
 	}
-	// One session file per conversation, as omp keeps them; new_session and
-	// switch_session move between them.
-	var session string
-	sessionID := "sess-1"
-	sessDir := os.Getenv("LASSO_TEST_FAKE_OMP_SESSIONS")
-	openSession := func(id string) {
-		if sessDir == "" {
-			return
-		}
-		_ = os.MkdirAll(sessDir, 0o755)
-		session = filepath.Join(sessDir, "2026-10-10T00-00-00-000Z_"+id+".jsonl")
-		if _, err := os.Stat(session); err != nil {
-			_ = os.WriteFile(session, []byte(`{"type":"session","version":3,"id":"`+id+`","timestamp":"2026-10-10T00:00:00Z","cwd":"/x"}`+"\n"), 0o644)
-		}
+	_ = os.Chmod(sock, 0o600)
+	f.ln = ln
+	go f.accept()
+	go f.watchMarker()
+	return f
+}
+
+func (f *fakeBridge) log(s string) {
+	if fh, err := os.OpenFile(f.logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+		fmt.Fprintln(fh, s)
+		fh.Close()
 	}
-	openSession(sessionID)
-	sessions := 1
-	var mu sync.Mutex
-	// Under the bot host the RPC is on fds 3 and 4, as the task script moves
-	// them for a real omp.
-	stdin, stdout := os.Stdin, os.Stdout
-	if os.Getenv("LASSO_BOT_RPC") == "fd" {
-		stdin, stdout = os.NewFile(3, "rpc-in"), os.NewFile(4, "rpc-out")
+}
+
+func (f *fakeBridge) openSession(id string) {
+	dir := botOmpSessionDir(f.dir)
+	_ = os.MkdirAll(dir, 0o755)
+	f.session = filepath.Join(dir, "2026-10-10T00-00-00-000Z_"+id+".jsonl")
+	if _, err := os.Stat(f.session); err != nil {
+		_ = os.WriteFile(f.session, []byte(`{"type":"session","version":3,"id":"`+id+`","timestamp":"2026-10-10T00:00:00Z","cwd":"/x"}`+"\n"), 0o644)
 	}
-	out := bufio.NewWriter(stdout)
-	emit := func(v any) {
-		mu.Lock()
-		defer mu.Unlock()
-		b, _ := json.Marshal(v)
-		out.Write(append(b, '\n'))
-		out.Flush()
+}
+
+func (f *fakeBridge) record(role, text string) {
+	f.mu.Lock()
+	path := f.session
+	f.mu.Unlock()
+	fh, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
 	}
-	record := func(role, text string) {
-		if session == "" {
-			return
-		}
-		f, err := os.OpenFile(session, os.O_APPEND|os.O_WRONLY, 0o644)
+	defer fh.Close()
+	now := time.Now()
+	b, _ := json.Marshal(map[string]any{
+		"type": "message", "id": fmt.Sprintf("%x", now.UnixNano()), "parentId": nil, "timestamp": now.UTC().Format(time.RFC3339Nano),
+		"message": map[string]any{"role": role, "content": []map[string]any{{"type": "text", "text": text}}, "timestamp": now.UnixMilli(), "stopReason": "stop"},
+	})
+	fh.Write(append(b, '\n'))
+}
+
+func (f *fakeBridge) emit(v any) {
+	b, _ := json.Marshal(v)
+	b = append(b, '\n')
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for c := range f.clients {
+		c.Write(b)
+	}
+}
+
+func (f *fakeBridge) accept() {
+	for {
+		c, err := f.ln.Accept()
 		if err != nil {
 			return
 		}
-		defer f.Close()
-		now := time.Now()
-		b, _ := json.Marshal(map[string]any{
-			"type": "message", "id": fmt.Sprintf("%x", now.UnixNano()), "parentId": nil, "timestamp": now.UTC().Format(time.RFC3339Nano),
-			"message": map[string]any{"role": role, "content": []map[string]any{{"type": "text", "text": text}}, "timestamp": now.UnixMilli(), "stopReason": "stop"},
-		})
-		f.Write(append(b, '\n'))
+		f.mu.Lock()
+		f.clients[c] = true
+		hello, _ := json.Marshal(map[string]any{"type": "host_hello", "protocol": f.proto, "version": "test",
+			"ready": true, "streaming": f.streaming, "pending": f.pending})
+		c.Write(append(hello, '\n'))
+		f.mu.Unlock()
+		go f.read(c)
 	}
-	emit(map[string]any{"type": "ready", "protocolVersion": 1})
-	answers := make(chan string, 4)
-	in := bufio.NewScanner(stdin)
+}
+
+func (f *fakeBridge) read(c net.Conn) {
+	in := bufio.NewScanner(c)
 	in.Buffer(make([]byte, 64*1024), 4<<20)
 	for in.Scan() {
-		line := in.Text()
-		logf("in " + line)
-		var c struct {
-			ID      string `json:"id"`
-			Type    string `json:"type"`
-			Message string `json:"message"`
-			Value   string `json:"value"`
-		}
-		if json.Unmarshal([]byte(line), &c) != nil {
-			continue
-		}
-		switch c.Type {
-		case "get_state":
-			emit(map[string]any{"type": "response", "id": c.ID, "command": c.Type, "success": true, "data": map[string]any{
-				"sessionId": sessionID, "isStreaming": false, "thinkingLevel": fakeThinking,
-				"model":        map[string]any{"id": fakeModelID, "name": "Fake " + fakeModelID, "provider": fakeProvider, "contextWindow": 200000, "thinking": map[string]any{"efforts": []string{"low", "high"}}},
-				"contextUsage": map[string]any{"tokens": 5000, "contextWindow": 200000, "percent": 2.5},
-			}})
-		case "set_model":
-			var m struct {
-				Provider string `json:"provider"`
-				ModelID  string `json:"modelId"`
-			}
-			_ = json.Unmarshal([]byte(line), &m)
-			fakeProvider, fakeModelID = m.Provider, m.ModelID
-			emit(map[string]any{"type": "model_changed"})
-			emit(map[string]any{"type": "response", "id": c.ID, "command": c.Type, "success": true})
-		case "set_thinking_level":
-			var l struct {
-				Level string `json:"level"`
-			}
-			_ = json.Unmarshal([]byte(line), &l)
-			fakeThinking = l.Level
-			emit(map[string]any{"type": "thinking_level_changed", "thinkingLevel": l.Level})
-			emit(map[string]any{"type": "response", "id": c.ID, "command": c.Type, "success": true})
-		case "new_session":
-			sessions++
-			sessionID = fmt.Sprintf("sess-%d", sessions)
-			openSession(sessionID)
-			emit(map[string]any{"type": "response", "id": c.ID, "command": c.Type, "success": true, "data": map[string]any{"cancelled": false}})
-		case "switch_session":
-			var sw struct {
-				SessionPath string `json:"sessionPath"`
-			}
-			_ = json.Unmarshal([]byte(line), &sw)
-			base := filepath.Base(sw.SessionPath)
-			sessionID = strings.TrimSuffix(base[strings.LastIndex(base, "_")+1:], ".jsonl")
-			openSession(sessionID)
-			emit(map[string]any{"type": "response", "id": c.ID, "command": c.Type, "success": true, "data": map[string]any{"cancelled": false}})
-		case "abort":
-			emit(map[string]any{"type": "response", "id": c.ID, "command": c.Type, "success": true})
-		case "extension_ui_response":
-			answers <- c.Value
-		case "prompt":
-			emit(map[string]any{"type": "response", "id": c.ID, "command": c.Type, "success": true})
-			msg := c.Message
-			go func() {
-				emit(map[string]any{"type": "agent_start"})
-				record("user", msg)
-				emit(map[string]any{"type": "message_end", "message": map[string]any{"role": "user", "content": msg}})
-				reply := "done: " + strings.SplitN(msg, "\n", 2)[0]
-				if strings.Contains(msg, "ASK") {
-					emit(map[string]any{"type": "extension_ui_request", "id": "q1", "method": "select", "title": "Pick one", "options": []string{"A", "B"}})
-					reply = "picked " + <-answers
-				}
-				record("assistant", reply)
-				emit(map[string]any{"type": "message_end", "message": map[string]any{
-					"role": "assistant", "content": []map[string]any{{"type": "text", "text": reply}}}})
-				emit(map[string]any{"type": "agent_end"})
-			}()
-		default:
-			emit(map[string]any{"type": "response", "id": c.ID, "command": c.Type, "success": false, "error": "unknown"})
-		}
+		f.handle(in.Text())
 	}
-	return 0
+	f.mu.Lock()
+	delete(f.clients, c)
+	f.mu.Unlock()
 }
 
-// fakeOmpHost points botHostCommand at the fake omp for the test.
-func fakeOmpHost(t *testing.T) (logPath string) {
-	t.Helper()
-	logPath = filepath.Join(t.TempDir(), "omp.log")
-	exe, _ := os.Executable()
-	prev := botHostCommand
-	botHostCommand = func(dir, task string, fresh bool) *exec.Cmd {
-		args := []string{}
-		if !fresh {
-			args = append(args, "-c")
+func (f *fakeBridge) respond(id, typ string, data any) {
+	f.emit(map[string]any{"type": "response", "id": id, "command": typ, "success": true, "data": data})
+}
+
+func (f *fakeBridge) handle(line string) {
+	f.log("in " + line)
+	var c struct {
+		ID          string `json:"id"`
+		Type        string `json:"type"`
+		Message     string `json:"message"`
+		Value       string `json:"value"`
+		Provider    string `json:"provider"`
+		ModelID     string `json:"modelId"`
+		Level       string `json:"level"`
+		SessionPath string `json:"sessionPath"`
+	}
+	if json.Unmarshal([]byte(line), &c) != nil {
+		return
+	}
+	switch c.Type {
+	case "get_state":
+		f.mu.Lock()
+		state := map[string]any{
+			"sessionId": f.sessionID, "isStreaming": f.streaming, "thinkingLevel": f.thinking,
+			"model":        map[string]any{"id": f.model, "name": "Fake " + f.model, "provider": f.provider, "contextWindow": 200000, "thinking": map[string]any{"efforts": []string{"low", "high"}}},
+			"contextUsage": map[string]any{"tokens": 5000, "contextWindow": 200000, "percent": 2.5},
 		}
-		cmd := exec.Command(exe, args...)
-		cmd.Dir = dir
-		cmd.Env = append(botHostChildEnv(os.Environ()), fakeOmpEnv+"=1", "LASSO_TEST_FAKE_OMP_LOG="+logPath,
-			"LASSO_TEST_FAKE_OMP_SESSIONS="+botOmpSessionDir(dir))
-		return cmd
-	}
-	t.Cleanup(func() { botHostCommand = prev })
-	return logPath
-}
-
-type hostConn struct {
-	t    *testing.T
-	conn net.Conn
-	r    *bufio.Reader
-}
-
-func dialHost(t *testing.T, sock string) *hostConn {
-	t.Helper()
-	var conn net.Conn
-	var err error
-	for i := 0; i < 100; i++ {
-		if conn, err = net.Dial("unix", sock); err == nil {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if err != nil {
-		t.Fatalf("dial host: %v", err)
-	}
-	return &hostConn{t: t, conn: conn, r: bufio.NewReader(conn)}
-}
-
-func (c *hostConn) send(v any) {
-	b, _ := json.Marshal(v)
-	if _, err := c.conn.Write(append(b, '\n')); err != nil {
-		c.t.Fatal(err)
+		f.mu.Unlock()
+		f.respond(c.ID, c.Type, state)
+	case "set_model":
+		f.mu.Lock()
+		f.provider, f.model = c.Provider, c.ModelID
+		f.mu.Unlock()
+		f.emit(map[string]any{"type": "model_changed"})
+		f.respond(c.ID, c.Type, nil)
+	case "set_thinking_level":
+		f.mu.Lock()
+		f.thinking = c.Level
+		f.mu.Unlock()
+		f.emit(map[string]any{"type": "thinking_level_changed"})
+		f.respond(c.ID, c.Type, nil)
+	case "new_session":
+		f.mu.Lock()
+		f.sessions++
+		f.sessionID = fmt.Sprintf("sess-%d", f.sessions)
+		f.openSession(f.sessionID)
+		f.mu.Unlock()
+		f.respond(c.ID, c.Type, map[string]any{"cancelled": false})
+	case "switch_session":
+		base := filepath.Base(c.SessionPath)
+		f.mu.Lock()
+		f.sessionID = strings.TrimSuffix(base[strings.LastIndex(base, "_")+1:], ".jsonl")
+		f.openSession(f.sessionID)
+		f.mu.Unlock()
+		f.respond(c.ID, c.Type, map[string]any{"cancelled": false})
+	case "abort":
+		f.respond(c.ID, c.Type, nil)
+	case "extension_ui_response":
+		f.mu.Lock()
+		f.pending = nil
+		f.mu.Unlock()
+		f.emit(map[string]any{"type": "host_ui_answered", "id": c.ID})
+		f.answers <- c.Value
+	case "host_stop":
+		f.exit(false)
+	case "prompt":
+		f.respond(c.ID, c.Type, map[string]any{"agentInvoked": true})
+		go f.turn(c.Message)
+	default:
+		f.emit(map[string]any{"type": "response", "id": c.ID, "command": c.Type, "success": false, "error": "unknown"})
 	}
 }
 
-// until reads frames until one of type typ arrives.
-func (c *hostConn) until(typ string) map[string]any {
-	c.t.Helper()
-	_ = c.conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+func (f *fakeBridge) turn(msg string) {
+	f.mu.Lock()
+	f.streaming = true
+	f.mu.Unlock()
+	f.emit(map[string]any{"type": "agent_start"})
+	f.record("user", msg)
+	f.emit(map[string]any{"type": "message_end", "message": map[string]any{"role": "user", "content": msg}})
+	reply := "done: " + strings.SplitN(msg, "\n", 2)[0]
+	if strings.Contains(msg, "ASK") {
+		q := map[string]any{"type": "extension_ui_request", "id": "q1", "method": "select", "title": "Pick one", "options": []string{"A", "B"}}
+		raw, _ := json.Marshal(q)
+		f.mu.Lock()
+		f.pending = []json.RawMessage{raw}
+		f.mu.Unlock()
+		f.emit(q)
+		reply = "picked " + <-f.answers
+	}
+	f.record("assistant", reply)
+	f.emit(map[string]any{"type": "message_end", "message": map[string]any{
+		"role": "assistant", "content": []map[string]any{{"type": "text", "text": reply}}}})
+	f.mu.Lock()
+	f.streaming = false
+	f.mu.Unlock()
+	f.emit(map[string]any{"type": "agent_end"})
+}
+
+// watchMarker is the bridge's self-restart: once idle with the marker there,
+// omp exits and the task relaunches.
+func (f *fakeBridge) watchMarker() {
+	marker := botRestartMarker(f.dir)
 	for {
-		line, err := c.r.ReadBytes('\n')
-		if err != nil {
-			c.t.Fatalf("waiting for %s: %v", typ, err)
+		select {
+		case <-f.done:
+			return
+		case <-time.After(50 * time.Millisecond):
 		}
-		var f map[string]any
-		if json.Unmarshal(line, &f) == nil && f["type"] == typ {
-			return f
+		f.mu.Lock()
+		idle := !f.streaming && len(f.pending) == 0
+		f.mu.Unlock()
+		if _, err := os.Stat(marker); err == nil && idle {
+			f.emit(map[string]any{"type": "host_restarting"})
+			f.exit(true)
+			return
 		}
 	}
+}
+
+// exit is omp ending: the socket goes, and onExit says why.
+func (f *fakeBridge) exit(restart bool) {
+	f.mu.Lock()
+	select {
+	case <-f.done:
+		f.mu.Unlock()
+		return
+	default:
+	}
+	close(f.done)
+	f.ln.Close()
+	for c := range f.clients {
+		c.Close()
+	}
+	f.mu.Unlock()
+	_ = os.Remove(botSocketPath(f.name))
+	if f.onExit != nil {
+		f.onExit(restart)
+	}
+}
+
+// noBotLauncher is every test's launcher unless it installs another.
+type noBotLauncher struct{}
+
+func (noBotLauncher) start(Backend, *botRecord, string, bool) error {
+	return fmt.Errorf("tests open no herdr panes")
+}
+func (noBotLauncher) pane(Backend, *botRecord) (string, bool) { return "", false }
+func (noBotLauncher) close(Backend, *botRecord)               {}
+
+// fakePaneLauncher is the bot's herdr pane: start runs a fake bridge in it,
+// which stays until the pane is closed. omp ending leaves the pane (a shell),
+// unless the restart marker made it end: then the task relaunches omp with -c
+// in the same pane.
+type fakePaneLauncher struct {
+	t       *testing.T
+	logPath string
+	mu      sync.Mutex
+	panes   map[string]*fakeBridge
+	starts  int
+	// proto is the protocol the next bridge started speaks (0: this lasso's).
+	proto int
+}
+
+func (l *fakePaneLauncher) start(b Backend, r *botRecord, dir string, fresh bool) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if _, ok := l.panes[r.Name]; ok {
+		return errBotRunning
+	}
+	l.run(r.Name, dir, fresh)
+	return nil
+}
+
+// run starts a bridge in the bot's pane. Called with l.mu held.
+func (l *fakePaneLauncher) run(name, dir string, fresh bool) {
+	proto := botBridgeProtocol
+	if l.proto != 0 {
+		proto, l.proto = l.proto, 0
+	}
+	l.starts++
+	var f *fakeBridge
+	f = startFakeBridge(l.t, name, dir, l.logPath, proto, fresh, func(restart bool) {
+		if !restart {
+			return
+		}
+		_ = os.Remove(botRestartMarker(dir))
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		if l.panes[name] == f {
+			l.run(name, dir, false)
+		}
+	})
+	l.panes[name] = f
+}
+
+func (l *fakePaneLauncher) pane(_ Backend, r *botRecord) (string, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	_, ok := l.panes[r.Name]
+	return "fake:" + r.Name, ok
+}
+
+func (l *fakePaneLauncher) close(_ Backend, r *botRecord) {
+	l.mu.Lock()
+	f := l.panes[r.Name]
+	delete(l.panes, r.Name)
+	l.mu.Unlock()
+	if f != nil {
+		f.exit(false)
+	}
+}
+
+func (l *fakePaneLauncher) startCount() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.starts
 }
 
 func readLog(path string) string {
@@ -253,188 +375,35 @@ func ompWaitFor(t *testing.T, what string, cond func() bool) {
 	t.Fatalf("timed out waiting for %s", what)
 }
 
-func TestBotHostPassthroughHelloAndStop(t *testing.T) {
-	logPath := fakeOmpHost(t)
-	t.Setenv("HERDR_PANE_ID", "w1:p1")
-	dir := t.TempDir()
-	sock := filepath.Join(t.TempDir(), "bots", "b.sock")
-	h := newBotHost("b", dir, "bot", sock)
-	code := make(chan int, 1)
-	go func() { code <- h.run(true) }()
-
-	c := dialHost(t, sock)
-	c.until("host_hello")
-	c.send(map[string]any{"type": "prompt", "id": "p1", "message": "ASK me"})
-	if r := c.until("response"); r["id"] != "p1" || r["success"] != true {
-		t.Fatalf("prompt response = %v", r)
-	}
-	c.until("extension_ui_request")
-	if st, _ := os.Stat(sock); st.Mode().Perm() != 0o600 {
-		t.Errorf("socket mode = %v", st.Mode().Perm())
-	}
-	// A client that connects while the question is open gets it in hello.
-	c.conn.Close()
-	c = dialHost(t, sock)
-	hello := c.until("host_hello")
-	pending, _ := hello["pending"].([]any)
-	if len(pending) != 1 || !strings.Contains(fmt.Sprint(pending[0]), "q1") || hello["streaming"] != true {
-		t.Fatalf("hello = %v", hello)
-	}
-	c.send(map[string]any{"type": "extension_ui_response", "id": "q1", "value": "B"})
-	c.until("host_ui_answered")
-	c.until("agent_end")
-	h.mu.Lock()
-	left := len(h.pending)
-	h.mu.Unlock()
-	if left != 0 {
-		t.Errorf("%d questions still pending after the answer", left)
-	}
-	c.send(map[string]any{"type": "host_stop"})
-	select {
-	case got := <-code:
-		if got != 0 {
-			t.Errorf("exit = %d", got)
-		}
-	case <-time.After(15 * time.Second):
-		t.Fatal("host did not stop")
-	}
-	log := readLog(logPath)
-	if strings.Contains(log, "herdr-env-leaked") {
-		t.Error("omp saw HERDR_* from the host's environment")
-	}
-	if !strings.Contains(log, `"abort"`) {
-		t.Error("stop did not abort the turn first")
-	}
-	if _, err := os.Stat(sock); !os.IsNotExist(err) {
-		t.Error("socket left behind")
-	}
-}
-
-func TestBotHostRestartMarker(t *testing.T) {
-	logPath := fakeOmpHost(t)
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, ".lasso"), 0o755)
-	sock := filepath.Join(t.TempDir(), "bots", "b.sock")
-	h := newBotHost("b", dir, "bot", sock)
-	code := make(chan int, 1)
-	go func() { code <- h.run(true) }()
-	c := dialHost(t, sock)
-	if hello := c.until("host_hello"); hello["ready"] != true {
-		c.until("ready")
-	}
-	os.WriteFile(botRestartMarker(dir), nil, 0o644)
-	c.until("host_restarting")
-	c.until("ready")
-	ompWaitFor(t, "a relaunch with -c", func() bool { return strings.Count(readLog(logPath), "argv") == 2 })
-	lines := strings.Split(readLog(logPath), "\n")
-	var argvs []string
-	for _, l := range lines {
-		if strings.HasPrefix(l, "argv") {
-			argvs = append(argvs, l)
-		}
-	}
-	if len(argvs) != 2 || strings.Contains(argvs[0], "-c") || !strings.Contains(argvs[1], "-c") {
-		t.Fatalf("launches = %q", argvs)
-	}
-	if _, err := os.Stat(botRestartMarker(dir)); !os.IsNotExist(err) {
-		t.Error("marker left behind")
-	}
-	h.stop()
-	<-code
-}
-
-// noBotLauncher is every test's launcher unless it installs another.
-type noBotLauncher struct{}
-
-func (noBotLauncher) start(*botRecord, string, bool) error {
-	return fmt.Errorf("tests start no systemd units")
-}
-func (noBotLauncher) active(string) bool { return false }
-func (noBotLauncher) stop(string) error  { return nil }
-
-// inProcessLauncher runs the bot host as a goroutine in place of a systemd unit.
-type inProcessLauncher struct {
-	mu     sync.Mutex
-	hosts  map[string]*botHost
-	starts int
-	// nextProto, when set, is the protocol the next host started reports.
-	nextProto *int
-}
-
-func (l *inProcessLauncher) start(r *botRecord, dir string, fresh bool) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if _, ok := l.hosts[r.Name]; ok {
-		return errBotRunning
-	}
-	h := newBotHost(r.Name, dir, r.task(), botSocketPath(r.Name))
-	if l.nextProto != nil {
-		h.protocol, l.nextProto = *l.nextProto, nil
-	}
-	l.starts++
-	l.hosts[r.Name] = h
-	go func() {
-		h.run(fresh)
-		l.mu.Lock()
-		delete(l.hosts, r.Name)
-		l.mu.Unlock()
-	}()
-	return nil
-}
-
-func (l *inProcessLauncher) startCount() int {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.starts
-}
-
-func (l *inProcessLauncher) active(name string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	_, ok := l.hosts[name]
-	return ok
-}
-
-func (l *inProcessLauncher) stop(name string) error {
-	l.mu.Lock()
-	h := l.hosts[name]
-	l.mu.Unlock()
-	if h != nil {
-		h.stop()
-	}
-	return nil
-}
-
 func useOmpBotEnv(t *testing.T, name string) (*botRecord, string) {
 	r, logPath, _ := useOmpBotEnvL(t, name)
 	return r, logPath
 }
 
-func useOmpBotEnvL(t *testing.T, name string) (*botRecord, string, *inProcessLauncher) {
+func useOmpBotEnvL(t *testing.T, name string) (*botRecord, string, *fakePaneLauncher) {
 	t.Helper()
 	useBotTestEnv(t)
-	logPath := fakeOmpHost(t)
-	l := &inProcessLauncher{hosts: map[string]*botHost{}}
+	logPath := filepath.Join(t.TempDir(), "omp.log")
+	l := &fakePaneLauncher{t: t, logPath: logPath, panes: map[string]*fakeBridge{}}
 	prev := botOmpLaunch
 	botOmpLaunch = l
-	prevOpen, prevClose, prevPane := botOmpOpenViewer, botOmpCloseViewer, botOmpViewerPane
-	botOmpOpenViewer = func(Backend, *botRecord, string) error { return nil }
-	botOmpCloseViewer = func(Backend, *botRecord) {}
-	botOmpViewerPane = func(Backend, *botRecord) (string, bool) { return "", false }
-	t.Cleanup(func() { botOmpOpenViewer, botOmpCloseViewer, botOmpViewerPane = prevOpen, prevClose, prevPane })
 	t.Cleanup(func() {
-		for n := range l.hosts {
-			l.stop(n)
+		l.mu.Lock()
+		names := []string{}
+		for n := range l.panes {
+			names = append(names, n)
+		}
+		l.mu.Unlock()
+		for _, n := range names {
+			l.close(nil, &botRecord{Name: n})
 		}
 		botOmpLaunch = prev
 		ompBots.Lock()
 		delete(ompBots.m, name)
 		ompBots.Unlock()
-		botOmpRelaunches.Lock()
-		delete(botOmpRelaunches.m, name)
-		botOmpRelaunches.Unlock()
 		bots.mu.Lock()
 		delete(bots.starting, name)
+		delete(bots.misses, name)
 		delete(bots.lines, name)
 		bots.mu.Unlock()
 	})
@@ -449,7 +418,7 @@ func useOmpBotEnvL(t *testing.T, name string) (*botRecord, string, *inProcessLau
 }
 
 func TestOmpBotLifecycleChatAndJobs(t *testing.T) {
-	r, logPath := useOmpBotEnv(t, "ompy")
+	r, logPath, l := useOmpBotEnvL(t, "ompy")
 	b, _ := botBackend("local")
 	if err := startBot(b, r, true); err != nil {
 		t.Fatal(err)
@@ -458,8 +427,14 @@ func TestOmpBotLifecycleChatAndJobs(t *testing.T) {
 		t.Errorf("second start = %v", err)
 	}
 	ompWaitFor(t, "idle", func() bool { return botStatus(b, r, nil).State == "idle" })
-	if _, err := os.Stat(filepath.Join(expandTildeOn(b, r.Dir), "AGENTS.md")); err != nil {
-		t.Error("no AGENTS.md stub")
+	dir := expandTildeOn(b, r.Dir)
+	for _, f := range []string{"AGENTS.md", ".lasso/omp-bridge.ts", ".mise/tasks/bot", ".mise/tasks/restart"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			t.Errorf("no %s", f)
+		}
+	}
+	if v := botStatus(b, r, nil); v.PaneID != "fake:ompy" || v.HostOutdated {
+		t.Errorf("view = pane %q outdated %v", v.PaneID, v.HostOutdated)
 	}
 
 	// The human's message: a prompt, and the answer shows as the chat's rows.
@@ -510,17 +485,22 @@ func TestOmpBotLifecycleChatAndJobs(t *testing.T) {
 		return status == "delivered"
 	})
 
-	// Stop ends it and keeps it down.
+	// Stop asks the bridge to end omp, closes the pane, and keeps it down.
 	if err := stopBot(b, r); err != nil {
 		t.Fatal(err)
 	}
-	ompWaitFor(t, "stopped", func() bool { return !botOmpRunning(r) })
+	if !strings.Contains(readLog(logPath), `"host_stop"`) {
+		t.Error("stop did not ask the bridge to end omp")
+	}
+	ompWaitFor(t, "stopped", func() bool { return !botOmpRunning(b, r) })
 	got, _ := getBot(r.Name)
 	if !got.Stopped || botStatus(b, got, nil).State != "stopped" {
 		t.Errorf("after stop: %+v", botStatus(b, got, nil))
 	}
-	botOmpTick(b, got, time.Now())
-	if botOmpLaunch.active(r.Name) {
+	for i := 0; i < botMissesBeforeRelaunch+1; i++ {
+		botOmpTick(b, got, time.Now())
+	}
+	if l.startCount() != 1 {
 		t.Error("keep-running relaunched a stopped bot")
 	}
 	// A stopped bot's firings are dropped.
@@ -529,7 +509,7 @@ func TestOmpBotLifecycleChatAndJobs(t *testing.T) {
 	}
 }
 
-func TestOmpBotKeepRunningBacksOff(t *testing.T) {
+func TestOmpBotKeepRunningWaitsForHerdr(t *testing.T) {
 	r, _ := useOmpBotEnv(t, "phoenix")
 	b, _ := botBackend("local")
 	var launches int
@@ -537,13 +517,123 @@ func TestOmpBotKeepRunningBacksOff(t *testing.T) {
 	botRelaunch = func(Backend, *botRecord) error { launches++; return nil }
 	t.Cleanup(func() { botRelaunch = prev })
 	now := time.Now()
+	for i := 1; i < botMissesBeforeRelaunch; i++ {
+		botOmpTick(b, r, now)
+	}
+	if launches != 0 {
+		t.Fatalf("relaunched after %d misses; herdr's restore gets %d", launches, botMissesBeforeRelaunch)
+	}
 	botOmpTick(b, r, now)
-	botOmpTick(b, r, now.Add(5*time.Second))
-	botOmpTick(b, r, now.Add(11*time.Second))
-	botOmpTick(b, r, now.Add(20*time.Second))
-	botOmpTick(b, r, now.Add(32*time.Second))
-	if launches != 3 {
-		t.Errorf("launches = %d, want 3 (0s, then 10s, then 20s later)", launches)
+	if launches != 1 {
+		t.Errorf("launches = %d after %d misses", launches, botMissesBeforeRelaunch)
+	}
+	// Within the start grace a missing pane is not a miss.
+	bots.mu.Lock()
+	bots.starting[r.Name] = now
+	bots.mu.Unlock()
+	for i := 0; i < botMissesBeforeRelaunch*2; i++ {
+		botOmpTick(b, r, now.Add(time.Second))
+	}
+	if launches != 1 {
+		t.Errorf("relaunched during the start grace (launches = %d)", launches)
+	}
+}
+
+func TestOmpBotSelfRestart(t *testing.T) {
+	r, logPath, l := useOmpBotEnvL(t, "again")
+	b, _ := botBackend("local")
+	if err := startBot(b, r, true); err != nil {
+		t.Fatal(err)
+	}
+	ompWaitFor(t, "idle", func() bool { return botStatus(b, r, nil).State == "idle" })
+	// What `mise run restart` does: the marker, which the bridge acts on once
+	// idle, and the task relaunches omp on the same conversation.
+	dir := expandTildeOn(b, r.Dir)
+	if err := os.WriteFile(botRestartMarker(dir), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ompWaitFor(t, "the relaunch", func() bool { return l.startCount() == 2 && botStatus(b, r, nil).State == "idle" })
+	if !strings.Contains(readLog(logPath), "argv -c") {
+		t.Errorf("relaunch did not continue the conversation:\n%s", readLog(logPath))
+	}
+	if got, _ := getBot(r.Name); got.Stopped {
+		t.Error("a self-restart marked the bot stopped")
+	}
+}
+
+func TestOmpBotBridgeUpgrade(t *testing.T) {
+	r, logPath, l := useOmpBotEnvL(t, "elder")
+	b, _ := botBackend("local")
+	l.proto = botBridgeProtocol + 1
+	if err := startBot(b, r, true); err != nil {
+		t.Fatal(err)
+	}
+	ompWaitFor(t, "idle", func() bool { return botStatus(b, r, nil).State == "idle" })
+	if v := botStatus(b, r, nil); !v.HostOutdated || v.HostVersion == "" {
+		t.Fatalf("other bridge not reported: %+v", v)
+	}
+	// Not while a question is open: the upgrade waits for an idle bot.
+	if err := botOmpSend(r.Name, "ASK", true); err != nil {
+		t.Fatal(err)
+	}
+	ompWaitFor(t, "blocked", func() bool { return botStatus(b, r, nil).State == "blocked" })
+	botOmpTick(b, r, time.Now())
+	time.Sleep(300 * time.Millisecond)
+	if l.startCount() != 1 {
+		t.Fatalf("upgraded a blocked bot (starts = %d)", l.startCount())
+	}
+	val := "A"
+	if err := botOmpAnswer(r.Name, "q1", &val, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	ompWaitFor(t, "idle again", func() bool { return botStatus(b, r, nil).State == "idle" })
+	botOmpTick(b, r, time.Now())
+	ompWaitFor(t, "the bridge on this protocol, in the same pane", func() bool {
+		v := botStatus(b, r, nil)
+		return l.startCount() == 2 && v.State == "idle" && !v.HostOutdated
+	})
+	if got, _ := getBot(r.Name); got.Stopped {
+		t.Error("an upgrade marked the bot stopped")
+	}
+	if !strings.Contains(readLog(logPath), "argv -c") {
+		t.Errorf("the restart did not continue the conversation:\n%s", readLog(logPath))
+	}
+}
+
+func TestOmpBotLegacyHostMigrates(t *testing.T) {
+	r, logPath, l := useOmpBotEnvL(t, "relic")
+	b, _ := botBackend("local")
+	// A bot an older lasso started under its bot host: the socket answers with
+	// protocol 3 and no pane of lasso's own.
+	var unitUp sync.Mutex
+	unit := true
+	prevActive, prevStop := botLegacyUnitActive, botLegacyUnitStop
+	botLegacyUnitActive = func(string) bool { unitUp.Lock(); defer unitUp.Unlock(); return unit }
+	botLegacyUnitStop = func(string) error { unitUp.Lock(); defer unitUp.Unlock(); unit = false; return nil }
+	t.Cleanup(func() { botLegacyUnitActive, botLegacyUnitStop = prevActive, prevStop })
+	// The unit ends when its host does.
+	host := startFakeBridge(t, r.Name, expandTildeOn(b, r.Dir), logPath, 3, false, func(bool) {
+		unitUp.Lock()
+		unit = false
+		unitUp.Unlock()
+	})
+	t.Cleanup(func() { host.exit(false) })
+	ompWaitFor(t, "idle on the old host", func() bool {
+		v := botStatus(b, r, nil)
+		return v.State == "idle" && v.HostOutdated
+	})
+	botOmpTick(b, r, time.Now())
+	ompWaitFor(t, "the bot in a pane of its own", func() bool {
+		v := botStatus(b, r, nil)
+		return l.startCount() == 1 && v.State == "idle" && !v.HostOutdated && v.PaneID == "fake:relic"
+	})
+	if !strings.Contains(readLog(logPath), `"host_stop"`) {
+		t.Error("the old host was not asked to stop")
+	}
+	unitUp.Lock()
+	defer unitUp.Unlock()
+	if unit {
+		t.Error("the old host's unit was left running")
 	}
 }
 
@@ -575,27 +665,42 @@ func TestBotNormalizeRuntime(t *testing.T) {
 }
 
 func TestBotOmpFiles(t *testing.T) {
+	t.Setenv("LASSO_DIR", "/l")
 	r := &botRecord{Name: "a", Runtime: "omp", Model: "anthropic/claude-opus-5", Effort: "high", PermissionMode: "always-ask",
-		ExtraArgs: []string{"--append-system-prompt", "be brief", "--advisor"},
-		MCP:       []botMCPServer{{Name: "mail", Type: "http", URL: "https://m.example/mcp", OAuth: true, Channel: true}}}
+		LaunchTask: "deep", ExtraArgs: []string{"--append-system-prompt", "be brief", "--advisor"},
+		MCP: []botMCPServer{{Name: "mail", Type: "http", URL: "https://m.example/mcp", OAuth: true, Channel: true}}}
 	if err := r.normalize(); err != nil {
 		t.Fatal(err)
 	}
 	s := botOmpTaskScript(r, "/b/a", []string{"TOKEN"})
-	for _, want := range []string{"#MISE secrets=[\"TOKEN\"]", "#MISE interactive=true", "exec omp '--mode' 'rpc-ui' '--session-dir' '/b/a/.lasso/sessions'",
-		"'--approval-mode' 'always-ask'", "'--model' 'anthropic/claude-opus-5'", "'--thinking' 'high'", "be brief", "'--advisor' \"$@\""} {
+	for _, want := range []string{
+		"#MISE secrets=[\"TOKEN\"]", "#MISE interactive=true",
+		"export LASSO_BOT_NAME='a' LASSO_BOT_SOCKET='/l/bots/a.sock'",
+		`LASSO_BOT_RESTART='/b/a/.lasso/restart' LASSO_BOT_RESUME='["mise","run","deep","--","-c"]'`,
+		`export LASSO_HERDR_SOCKET="${HERDR_SOCKET_PATH:-}" LASSO_HERDR_PANE="${HERDR_PANE_ID:-}"`,
+		"unset HERDR_ENV\n",
+		"omp '-e' '/b/a/.lasso/omp-bridge.ts' '--session-dir' '/b/a/.lasso/sessions'",
+		"'--approval-mode' 'always-ask'", "'--model' 'anthropic/claude-opus-5'", "'--thinking' 'high'", "be brief",
+		"'--advisor' \"$@\"\nstatus=$?\n",
+		"rm -f \"$marker\"\n  exec mise run deep -- -c\n",
+	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("task script lacks %q:\n%s", want, s)
 		}
 	}
-	if !strings.Contains(s, `if [ "${LASSO_BOT_RPC:-}" = fd ]; then exec 0<&3 1>&4 3<&- 4>&-; fi`) {
-		t.Errorf("task script does not move the RPC fds:\n%s", s)
+	for _, gone := range []string{"rpc", "LASSO_BOT_RPC", "exec omp", "dangerously"} {
+		if strings.Contains(s, gone) {
+			t.Errorf("task script has %q:\n%s", gone, s)
+		}
 	}
-	if att := botOmpAttachScript(r); !strings.Contains(att, " bot-attach a\n") || !strings.Contains(att, `[ -x "$exe" ] || exe=lasso`) {
-		t.Errorf("attach task:\n%s", att)
+	if err := validateResumeArgv(botOmpResumeArgv(r.task())); err != nil {
+		t.Errorf("herdr would refuse the resume argv: %v", err)
 	}
-	if strings.Contains(s, "herdr") || strings.Contains(s, "dangerously") {
-		t.Errorf("task script has claude-pane parts:\n%s", s)
+	if got := botOmpLaunchCommand("deep", false); got != "mise run deep -- -c" {
+		t.Errorf("launch = %q", got)
+	}
+	if got := botOmpLaunchCommand("bot", true); got != "mise run bot" {
+		t.Errorf("fresh launch = %q", got)
 	}
 	var cfg struct {
 		MCPServers map[string]map[string]any `json:"mcpServers"`
@@ -613,6 +718,36 @@ func TestBotOmpFiles(t *testing.T) {
 	e := botEvent{ID: 7, Job: "sweep", Kind: "webhook", Count: 2, FiredAt: "t", Content: "body", Watch: true, RunStatus: "error"}
 	if got := botOmpEventMessage(e); got != "[lasso job \"sweep\" trigger=webhook event=7 count=2 fired_at=t watch=true status=error]\nbody" {
 		t.Errorf("event message = %q", got)
+	}
+}
+
+// The bridge and lasso must agree on the protocol, and every bot gets the
+// embedded bridge; a folder an older lasso wrote loses its viewer task.
+func TestBotOmpBridgeFile(t *testing.T) {
+	m := regexp.MustCompile(`(?m)^const PROTOCOL = (\d+);`).FindSubmatch(botOmpBridgeSource)
+	if m == nil {
+		t.Fatal("no PROTOCOL in ompbridge/lasso-bridge.ts")
+	}
+	if n, _ := strconv.Atoi(string(m[1])); n != botBridgeProtocol {
+		t.Errorf("bridge PROTOCOL = %d, botBridgeProtocol = %d", n, botBridgeProtocol)
+	}
+	r, _ := useOmpBotEnv(t, "filed")
+	b, _ := botBackend("local")
+	dir := expandTildeOn(b, r.Dir)
+	attach := filepath.Join(dir, ".mise", "tasks", "attach")
+	os.MkdirAll(filepath.Dir(attach), 0o755)
+	os.WriteFile(attach, []byte("#!/bin/sh\n"), 0o755)
+	if err := botMaterialize(b, r); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(botOmpBridgePath(dir)); string(got) != string(botOmpBridgeSource) {
+		t.Error("the bridge file is not the embedded bridge")
+	}
+	if st, err := os.Stat(filepath.Dir(botSocketPath(r.Name))); err != nil || st.Mode().Perm() != 0o700 {
+		t.Errorf("the bridge's socket dir: %v %v", st, err)
+	}
+	if _, err := os.Stat(attach); !os.IsNotExist(err) {
+		t.Error("the old viewer task was left behind")
 	}
 }
 
@@ -645,219 +780,6 @@ func TestBotCreateSeedsInstructions(t *testing.T) {
 	w := do(`{"name":"k","dir":"` + keepDir + `","instructions":"new"}`)
 	if b, _ := os.ReadFile(filepath.Join(keepDir, "AGENTS.md")); string(b) != "mine" || !strings.Contains(w.Body.String(), "kept") {
 		t.Errorf("existing AGENTS.md: %q, answer %s", b, w.Body)
-	}
-}
-
-func TestOmpBotHostProtocolUpgrade(t *testing.T) {
-	r, logPath, l := useOmpBotEnvL(t, "elder")
-	b, _ := botBackend("local")
-	old := 0
-	l.nextProto = &old
-	if err := startBot(b, r, true); err != nil {
-		t.Fatal(err)
-	}
-	ompWaitFor(t, "idle", func() bool { return botStatus(b, r, nil).State == "idle" })
-	if v := botStatus(b, r, nil); !v.HostOutdated || v.HostVersion == "" {
-		t.Fatalf("old host not reported: %+v", v)
-	}
-	// Not while a question is open: the upgrade waits for an idle bot.
-	if err := botOmpSend(r.Name, "ASK", true); err != nil {
-		t.Fatal(err)
-	}
-	ompWaitFor(t, "blocked", func() bool { return botStatus(b, r, nil).State == "blocked" })
-	botOmpTick(b, r, time.Now())
-	time.Sleep(300 * time.Millisecond)
-	if l.startCount() != 1 {
-		t.Fatalf("upgraded a blocked bot (starts = %d)", l.startCount())
-	}
-	val := "A"
-	if err := botOmpAnswer(r.Name, "q1", &val, nil, false); err != nil {
-		t.Fatal(err)
-	}
-	ompWaitFor(t, "idle again", func() bool { return botStatus(b, r, nil).State == "idle" })
-	botOmpTick(b, r, time.Now())
-	ompWaitFor(t, "the host on this protocol", func() bool {
-		v := botStatus(b, r, nil)
-		return l.startCount() == 2 && v.State == "idle" && !v.HostOutdated
-	})
-	if got, _ := getBot(r.Name); got.Stopped {
-		t.Error("an upgrade marked the bot stopped")
-	}
-	launches := strings.Count(readLog(logPath), "argv")
-	if launches != 2 || !strings.Contains(readLog(logPath), "argv -c") {
-		t.Errorf("launches = %d; log:\n%s", launches, readLog(logPath))
-	}
-}
-
-func TestAttachDecoder(t *testing.T) {
-	var d attachDecoder
-	kinds := func(keys []attachKey) string {
-		var out []string
-		for _, k := range keys {
-			if k.kind == "text" {
-				out = append(out, "text:"+k.text)
-			} else {
-				out = append(out, k.kind)
-			}
-		}
-		return strings.Join(out, ",")
-	}
-	if got := kinds(d.feed([]byte("hé\r"))); got != "text:h,text:é,enter" {
-		t.Errorf("typed = %s", got)
-	}
-	// A paste is one text key with its newlines, even split across reads.
-	got := kinds(d.feed([]byte("\x1b[200~line one\r\nline")))
-	got += kinds(d.feed([]byte(" two\x1b[201~\r")))
-	if got != "text:line one\nline two,enter" {
-		t.Errorf("paste = %q", got)
-	}
-	if got := kinds(d.feed([]byte("\x1b[A\x1b"))); got != "esc" {
-		t.Errorf("arrow then esc = %s", got)
-	}
-	if got := kinds(d.feed([]byte("a\x7f\x15\x03"))); got != "text:a,backspace,clear,interrupt" {
-		t.Errorf("controls = %s", got)
-	}
-}
-
-func TestAttachAnswer(t *testing.T) {
-	approve := ompUIRequest{Method: "select", Options: []string{"Approve", "Deny"}}
-	if a, ok := attachAnswer(approve, "1"); !ok || a["value"] != "Approve" {
-		t.Errorf("1 = %v %v", a, ok)
-	}
-	if a, ok := attachAnswer(approve, "deny"); !ok || a["value"] != "Deny" {
-		t.Errorf("deny = %v %v", a, ok)
-	}
-	if _, ok := attachAnswer(approve, "maybe"); ok {
-		t.Error("free text answered a closed select")
-	}
-	own := ompUIRequest{Method: "select", Options: []string{"Red", "Other (type your own)"}}
-	if a, ok := attachAnswer(own, "teal"); !ok || a["value"] != "teal" {
-		t.Errorf("own = %v %v", a, ok)
-	}
-	if a, ok := attachAnswer(ompUIRequest{Method: "confirm"}, "n"); !ok || a["confirmed"] != false {
-		t.Errorf("confirm n = %v %v", a, ok)
-	}
-}
-
-type fakeAttachHerdr struct {
-	mu     sync.Mutex
-	states []botAttachState
-}
-
-func (f *fakeAttachHerdr) report(st botAttachState) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if n := len(f.states); n == 0 || f.states[n-1] != st {
-		f.states = append(f.states, st)
-	}
-}
-func (f *fakeAttachHerdr) release() {}
-func (f *fakeAttachHerdr) last() botAttachState {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if len(f.states) == 0 {
-		return botAttachState{}
-	}
-	return f.states[len(f.states)-1]
-}
-
-type syncBuf struct {
-	mu sync.Mutex
-	b  strings.Builder
-}
-
-func (s *syncBuf) Write(p []byte) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.Write(p)
-}
-func (s *syncBuf) String() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.String()
-}
-
-func TestBotAttachDrivesTheBot(t *testing.T) {
-	r, _ := useOmpBotEnv(t, "viewme")
-	b, _ := botBackend("local")
-	h := &fakeAttachHerdr{}
-	out := &syncBuf{}
-	a := newBotAttach(r.Name, out)
-	a.herdr = h
-	// Not running yet: herdr hears unknown, and the viewer waits for it.
-	go a.connectLoop()
-	ompWaitFor(t, "unknown", func() bool { return h.last().state == "unknown" })
-	if err := startBot(b, r, true); err != nil {
-		t.Fatal(err)
-	}
-	ompWaitFor(t, "idle with its session", func() bool {
-		st := h.last()
-		return st.state == "idle" && st.sessionID == "sess-1" && strings.HasSuffix(st.sessionPath, "_sess-1.jsonl")
-	})
-	// A typed message is a prompt; its answer prints in the pane.
-	for _, k := range (&attachDecoder{}).feed([]byte("hello pane\r")) {
-		a.key(k)
-	}
-	ompWaitFor(t, "the answer on screen", func() bool { return strings.Contains(out.String(), "done: hello pane") })
-	ompWaitFor(t, "idle again", func() bool { return h.last().state == "idle" })
-	// A question blocks the pane until it is answered by number.
-	for _, k := range (&attachDecoder{}).feed([]byte("ASK\r")) {
-		a.key(k)
-	}
-	ompWaitFor(t, "blocked", func() bool { return h.last().state == "blocked" && h.last().message == "Pick one" })
-	if !strings.Contains(out.String(), "1) A") {
-		t.Errorf("question not shown:\n%s", out.String())
-	}
-	for _, k := range (&attachDecoder{}).feed([]byte("2\r")) {
-		a.key(k)
-	}
-	ompWaitFor(t, "picked B", func() bool { return strings.Contains(out.String(), "picked B") })
-	ompWaitFor(t, "idle after the answer", func() bool { return h.last().state == "idle" })
-	// The chat sees what the pane did.
-	if v := botStatus(b, r, nil); v.LastText != "picked B" {
-		t.Errorf("bot's last line = %q", v.LastText)
-	}
-	// The status line, then the pane's own commands.
-	ompWaitFor(t, "the status line", func() bool {
-		return strings.Contains(out.String(), "Fake m1 · thinking low · ctx 5k/200k 3% · idle")
-	})
-	for _, k := range (&attachDecoder{}).feed([]byte("/model\r/model otherco/m2\r/thinking high\r/thinking nope\r")) {
-		a.key(k)
-	}
-	ompWaitFor(t, "the switch on the status line", func() bool {
-		return strings.Contains(out.String(), "Fake m2 · thinking high")
-	})
-	for _, want := range []string{"1) fakeco/m1  ✓", "model → otherco/m2", "thinking → high", "(one of: off, low, high, auto)"} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("pane lacks %q", want)
-		}
-	}
-	// lasso keeps the change once it is connected, as the Bots view's poll
-	// and the bot loop keep it.
-	// The pane's conversations: a new one, the list, and back.
-	for _, k := range (&attachDecoder{}).feed([]byte("/clear\r")) {
-		a.key(k)
-	}
-	ompWaitFor(t, "the new conversation in the pane", func() bool {
-		return strings.Contains(out.String(), "── new conversation (the last one is in /sessions) ──")
-	})
-	for _, k := range (&attachDecoder{}).feed([]byte("/sessions\r/resume 2\r")) {
-		a.key(k)
-	}
-	ompWaitFor(t, "the resumed conversation in the pane", func() bool {
-		return strings.Contains(out.String(), `── resumed: "hello pane" ──`)
-	})
-	ompWaitFor(t, "the change saved", func() bool {
-		botStatus(b, r, nil)
-		got, _ := getBot(r.Name)
-		return got.Model == "otherco/m2" && got.Effort == "high"
-	})
-	a.mu.Lock()
-	a.closed = true
-	conn := a.conn
-	a.mu.Unlock()
-	if conn != nil {
-		conn.Close()
 	}
 }
 
@@ -933,7 +855,7 @@ func TestOmpBotModelPickers(t *testing.T) {
 	if !strings.Contains(string(task), "'--model' 'otherco/m2'") || !strings.Contains(string(task), "'--thinking' 'high'") {
 		t.Errorf("task not rewritten:\n%s", task)
 	}
-	// A change made elsewhere (the pane, the bot itself) is kept too.
+	// A change made elsewhere (the terminal, the bot itself) is kept too.
 	if err := botOmpSetModel("picky", "thirdco/m3", "low"); err != nil {
 		t.Fatal(err)
 	}
