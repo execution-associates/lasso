@@ -37,6 +37,8 @@ public final class ListModel: ObservableObject {
     public let now: () -> Date
     public var onOpen: (HostPane) -> Void = { _ in }
     public var onClose: () -> Void = {}
+    /// Start a new agent (the header's New, as ⌘O).
+    public var onNew: () -> Void = {}
 
     public init(fleet: FleetModel, actions: FleetActions, now: @escaping () -> Date = Date.init) {
         self.fleet = fleet

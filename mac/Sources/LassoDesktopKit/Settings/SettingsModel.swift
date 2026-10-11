@@ -36,16 +36,19 @@ public final class SettingsModel: ObservableObject {
     /// Every lasso that answered, plus the one in use whether or not it did.
     @Published public private(set) var lassos: [LassoChoice] = []
 
-    /// The inbox shortcut, and whether the next key press records one.
-    @Published public private(set) var shortcut = InboxShortcutChoice.stored
-    @Published public private(set) var recording = false
+    /// Each shortcut, and which one the next key press records.
+    @Published public private(set) var shortcuts: [ShortcutSlot: InboxShortcutChoice] =
+        Dictionary(uniqueKeysWithValues: ShortcutSlot.allCases.map { ($0, InboxShortcutChoice.stored($0)) })
+    @Published public private(set) var recordingSlot: ShortcutSlot?
+    public var shortcut: InboxShortcutChoice { shortcuts[.inbox] ?? ShortcutSlot.inbox.fallback }
+    public var recording: Bool { recordingSlot == .inbox }
     /// The arrival sound's id, or InboxSound.none.
     @Published public private(set) var sound = InboxSound.current
 
     public let permissions: Permissions
     public var baseURL: () -> String
-    /// The shortcut changed: watch for the new one.
-    public var onShortcut: (InboxShortcutChoice) -> Void = { _ in }
+    /// A shortcut changed: watch for the new one.
+    public var onShortcut: (ShortcutSlot, InboxShortcutChoice) -> Void = { _, _ in }
     public var version: () -> VersionInfo?
     public var usableHosts: () -> (usable: Int, total: Int)?
     public var onClose: () -> Void = {}
@@ -108,24 +111,24 @@ public final class SettingsModel: ObservableObject {
     /// Accessibility and it is not granted: Settings says so then, and only then.
     @Published public private(set) var needsAccessibility = false
 
-    public func choose(_ c: InboxShortcutChoice) {
-        recording = false
-        shortcut = c
-        InboxShortcutChoice.stored = c
-        onShortcut(c)
+    public func choose(_ c: InboxShortcutChoice, for slot: ShortcutSlot = .inbox) {
+        recordingSlot = nil
+        shortcuts[slot] = c
+        InboxShortcutChoice.store(c, slot)
+        onShortcut(slot, c)
         needsAccessibility = c.needsAccessibility && permissions.accessibility != .granted
     }
 
-    public func startRecording() { recording = true }
+    public func startRecording(_ slot: ShortcutSlot = .inbox) { recordingSlot = slot }
 
     /// The settings panel's key handler, while recording: the next
-    /// combination becomes the shortcut, esc gives up. True when it took the key.
+    /// combination becomes that shortcut, esc gives up. True when it took the key.
     public func record(_ e: NSEvent) -> Bool {
-        guard recording else { return false }
+        guard let slot = recordingSlot else { return false }
         if Keys.esc.matches(e) {
-            recording = false
+            recordingSlot = nil
         } else if let c = InboxShortcutChoice.combo(from: e) {
-            choose(c)
+            choose(c, for: slot)
         }
         return true
     }

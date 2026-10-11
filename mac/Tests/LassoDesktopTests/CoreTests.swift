@@ -86,7 +86,7 @@ private let specDir = packageDir.appendingPathComponent("Spec")
 /// belongs in Theme.swift with its provenance.
 @Test func viewsTakeTheirLayoutFromTheme() throws {
     let src = packageDir.appendingPathComponent("Sources/LassoDesktopKit")
-    let views = ["Rail", "Card", "List", "Inbox", "Chat", "Settings", "Platform", "Agent"]
+    let views = ["Rail", "Card", "List", "Inbox", "Chat", "Settings", "Platform", "Agent", "NewAgent"]
     let literal = try Regex(
         #"\.padding\((\.[a-zA-Z]+, )?[1-9][0-9]*(\.[0-9]+)?\)|spacing: [1-9]|(width|height|size): [1-9][0-9]*(\.[0-9]+)?[,)]|\* 0\.[0-9]|offset\(x: [1-9]"#)
     for dir in views {
@@ -226,4 +226,41 @@ private func key(_ c: String, _ code: UInt16) -> NSEvent {
     #expect(CardKeys.route(j, editing: false, pointerKeyed: true) == .next)
     #expect(CardKeys.route(key("a", 0), editing: false, pointerKeyed: true) == .handBack)
     #expect(CardKeys.route(key("q", 12), editing: false, pointerKeyed: true) == .handBack)
+}
+
+/// The New Agent form (the web app's ⌘O/⌘⇧O): it loads the host's defaults,
+/// names the agent by the prompt's first line, sends a Git or Scratch body,
+/// and opens the created agent's window on the pane lasso named.
+@MainActor @Test func newAgentFormCreatesAndOpensTheWindow() async throws {
+    let source = FixtureNewAgentSource()
+    let m = NewAgentModel(kind: .git, source: source)
+    await m.load()
+    try await Task.sleep(nanoseconds: 100_000_000)
+    #expect(m.agent == "claude" && m.repo == "/home/stephan/projects/exa/lasso" && m.baseBranch == "main")
+    #expect(!m.canCreate)
+    m.prompt = "  Fix the flaky upload test\nIt fails one run in ten."
+    #expect(m.title == "Fix the flaky upload test" && m.canCreate)
+    #expect(m.request.type == "git" && m.request.repo == "/home/stephan/projects/exa/lasso" && m.request.base_branch == "main")
+    var opened: HostPane?
+    m.onCreated = { opened = $0 }
+    m.create()
+    try await Task.sleep(nanoseconds: 100_000_000)
+    #expect(opened?.pane_id == "w9:p1" && opened?.host == "local")
+    #expect(source.created.count == 1)
+
+    let s = NewAgentModel(kind: .scratch, source: source)
+    s.prompt = "Explore"
+    s.agent = "omp"
+    #expect(s.request.type == "scratch" && s.request.repo == nil)
+}
+
+/// System-wide shortcuts are one modifier and a key (the user's rule), and
+/// none is ⌘O, which every app's File › Open already is.
+@Test func shortcutDefaultsAreOneModifier() {
+    for slot in ShortcutSlot.allCases {
+        guard case .combo(let k, let m, _) = slot.fallback else { Issue.record("\(slot) has no combination"); continue }
+        let mods = NSEvent.ModifierFlags(rawValue: m).intersection([.command, .option, .control, .shift])
+        #expect([NSEvent.ModifierFlags.option, .control].contains(mods), "\(slot)")
+        #expect(!(k == 31 && mods == .command))
+    }
 }

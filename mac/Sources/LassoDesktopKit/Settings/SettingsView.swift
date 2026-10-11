@@ -29,6 +29,7 @@ public struct SettingsView: View {
                     section("lasso") { lassoSection }
                     section("Permissions") { permissionsSection }
                     section("Inbox") { inboxSection }
+                    section("New agents") { newAgentSection }
                 }
                 .padding(.horizontal, pad)
                 .padding(.vertical, Theme.space("2xl"))
@@ -193,6 +194,28 @@ public struct SettingsView: View {
                 line("On this Mac, a kind that is off makes no sound. The inbox still lists everything waiting.", secondary: true)
             }
         }
+    }
+
+    /// ⌥⌘O and ⌥⇧⌘O by default, each the user's to record anew or turn off.
+    @ViewBuilder private var newAgentSection: some View {
+        ForEach([ShortcutSlot.newAgent, .newScratch], id: \.self) { slot in
+            let sc = model.shortcuts[slot] ?? slot.fallback
+            HStack(spacing: Theme.space("m")) {
+                Text(slot.title).font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
+                Spacer()
+                choice(model.recordingSlot == slot ? "Press keys…" : (sc == .off ? "Record…" : sc.label), on: model.recordingSlot == slot,
+                       label: "\(slot.title): \(sc == .off ? "no shortcut" : sc.label). Record another") {
+                    model.startRecording(slot)
+                }
+                choice("Off", on: sc == .off, label: "\(slot.title): no shortcut") { model.choose(.off, for: slot) }
+            }
+            .parityAnchor("settings.shortcut[\(slot.rawValue)]")
+        }
+        line(
+            model.recordingSlot.map { $0 != .inbox } == true
+                ? "Press the combination, with ⌘, ⌥ or ⌃. esc cancels."
+                : "These work from any app. While a LassoDesktop window has the keyboard, ⌘O and ⇧⌘O do the same.",
+            secondary: true)
     }
 
     private func notifyRow(_ k: NotifyKind, on: Bool) -> some View {

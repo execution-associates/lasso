@@ -27,7 +27,9 @@ public final class AppCoordinator {
     private var windows: [String: AgentWindowController] = [:]
     private let cardActions: CardActions
     private let media: MediaSource?
-    private var shortcut: InboxShortcut?
+    private var shortcuts: [ShortcutSlot: InboxShortcut] = [:]
+    private var newAgent: NewAgentController?
+    private var commandO: Any?
     /// What was in the inbox last time it changed, to hear what is new.
     private var inboxSeen: Set<String>?
     /// The control whose panel a hover opened and nobody has clicked yet,
@@ -82,9 +84,19 @@ public final class AppCoordinator {
         rail.show()
         KeyHints.shared.start()
         hotKey = HotKey(token: Theme.summonKey) { [weak self] in self?.rail.summon() }
-        let sc = InboxShortcut { [weak self] in self?.inboxShortcut() }
-        sc.apply(InboxShortcutChoice.stored)
-        shortcut = sc
+        for slot in ShortcutSlot.allCases {
+            let sc = InboxShortcut { [weak self] in self?.shortcutPressed(slot) }
+            sc.apply(InboxShortcutChoice.stored(slot))
+            shortcuts[slot] = sc
+        }
+        // ⌘O / ⇧⌘O, as in the web app, while a LassoDesktop window has the
+        // keyboard (never system-wide: every app's File › Open is ⌘O).
+        commandO = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            let mods = e.modifierFlags.intersection([.command, .shift, .option, .control])
+            guard e.keyCode == 31, mods == .command || mods == [.command, .shift] else { return e }
+            MainActor.assumeIsolated { self?.openNewAgent(mods.contains(.shift) ? .scratch : .git) }
+            return nil
+        }
         if sync != nil, !SettingsModel.seen { openSettings() }
     }
 
@@ -133,7 +145,8 @@ public final class AppCoordinator {
         }
         settingsModel.onClose = { [weak self] in self?.settings.close() }
         settingsModel.onUse = { [weak self] url in self?.use(url) }
-        settingsModel.onShortcut = { [weak self] c in self?.shortcut?.apply(c) }
+        settingsModel.onShortcut = { [weak self] slot, c in self?.shortcuts[slot]?.apply(c) }
+        list.model.onNew = { [weak self] in self?.openNewAgent(.git) }
         settingsModel.notify = { [weak fleet] in fleet?.notify }
         if let client {
             settingsModel.chooseNotify = { [weak sync] kind, on in
@@ -240,6 +253,45 @@ public final class AppCoordinator {
         settings.open(takeKey: takeKey)
     }
 
+    func shortcutPressed(_ slot: ShortcutSlot) {
+        switch slot {
+        case .inbox: inboxShortcut()
+        case .newAgent: openNewAgent(.git)
+        case .newScratch: openNewAgent(.scratch)
+        }
+    }
+
+    /// The New Agent form; on create, it closes and the agent's own window
+    /// opens on the pane it boots in.
+    func openNewAgent(_ kind: NewAgentModel.Kind) {
+        guard let client else { return }
+        if let n = newAgent {
+            if n.model.kind != kind {
+                n.model.kind = kind
+                Task { await n.model.load() }
+            }
+            n.show()
+            return
+        }
+        let m = NewAgentModel(kind: kind, source: LiveNewAgentSource(client: client))
+        let c = NewAgentController(model: m)
+        m.onClose = { [weak self] in
+            self?.newAgent?.close()
+            self?.newAgent = nil
+        }
+        m.onCreated = { [weak self] pane in
+            guard let self else { return }
+            let frame = c.panel.frame
+            self.newAgent?.close()
+            self.newAgent = nil
+            Trace.event("agent created")
+            self.openWindow(pane, near: frame)
+        }
+        newAgent = c
+        closeAll()
+        c.show()
+    }
+
     /// The inbox shortcut: open the inbox with the keyboard in it, or close
     /// it when it already has the keyboard.
     func inboxShortcut() {
@@ -339,14 +391,15 @@ public final class AppCoordinator {
 
     /// An agent's own window: one per agent, brought forward if open. It
     /// floats free of the rail, so opening one closes nothing.
-    func openWindow(_ p: HostPane) {
+    func openWindow(_ p: HostPane, near anchor: NSRect? = nil) {
         preview.close()
         if let w = windows[p.key] {
             w.show()
             return
         }
         let w = AgentWindowController(
-            model: CardModel(pane: p, fleet: fleet, actions: cardActions), near: list.isOpen ? list.panel.frame : rail.panel.frame,
+            model: CardModel(pane: p, fleet: fleet, actions: cardActions),
+            near: anchor ?? (list.isOpen ? list.panel.frame : rail.panel.frame),
             media: media)
         w.onClosed = { [weak self] in self?.windows[p.key] = nil }
         windows[p.key] = w

@@ -283,6 +283,9 @@ public enum Theme {
         public static let collapsed = Token(
             "agent.window.collapsed", ["size": [416, 60]],
             .measured("user screenshot of the minimized window: the header alone, 832x120 px"))
+        /// The New Agent form's filterable picker (repositories, branches).
+        public static let picker = Token(
+            "agent.picker", ["size": [300, 340]], .inferred("a filter field and about a dozen rows"), proposed: true)
         public static let media = Token(
             "agent.media", ["image_max_h": 320, "video_h": 240, "radius": 12],
             .inferred("an image or video the width of the conversation, never taller than about half the window"),
@@ -386,7 +389,7 @@ public enum Theme {
         Rail.maxSlots, Rail.overflowFont, Rail.icon, Rail.ellipsisOuter, Rail.edge, Rail.edgeInset,
         Rail.panelMargin, Rail.badgeSize, Rail.badgeRing, Rail.badgeCenter, Rail.peek, Rail.peekFill, Rail.drag, Rail.hover, Rail.hoverFill, Rail.pressed,
         State.done, State.working, State.blocked, State.idle,
-        Settings.footer, Agent.window, Agent.collapsed, Agent.preview, Agent.media,
+        Settings.footer, Agent.window, Agent.collapsed, Agent.preview, Agent.media, Agent.picker,
         Panel.surface, Panel.border, Panel.radius, Panel.inset, Panel.inner, Panel.divider, Panel.shadow,
         Control.round, Control.composer, Control.pill, Control.pillPrimary,
         Card.size, Card.titleX, Card.contentX, Card.unreadSegment, Card.unreadDot, Card.unreadGap, Card.keycapFill,

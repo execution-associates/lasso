@@ -21,6 +21,8 @@ public struct Fixture: Decodable, Sendable {
         public var preview: String?
         public var window: String?
         public var collapsed: Bool?
+        /// The New Agent form (⌥O, or ⌘O in a LassoDesktop window).
+        public var new_agent: Bool?
         public var inbox: Bool?
     }
 

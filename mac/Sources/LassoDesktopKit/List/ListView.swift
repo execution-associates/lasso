@@ -18,6 +18,13 @@ public struct ListView: View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
+                    HStack {
+                        Spacer()
+                        PillButton(title: "New agent", primary: true, label: "New agent (⌘O)") { model.onNew() }
+                            .parityAnchor("list.new")
+                    }
+                    .padding(.horizontal, row.number("pad_h"))
+                    .padding(.top, Theme.space("xs"))
                     if !model.pinned.isEmpty {
                         header("Pinned", anchor: "list.header.pinned")
                         ForEach(model.pinned) { rowView($0, pinnedSection: true) }

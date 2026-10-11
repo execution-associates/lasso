@@ -863,6 +863,29 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
   - lasso's notices and agents' pings arrive as the `notification` event when the server has kinds, and as the older `notice` event otherwise; the app takes one or the other, never both.
   - Against a lasso without kinds (titan's production lasso until that branch is built into it), the list is absent and every arrival sounds.
 
+## 20. Launching agents (the web app's ⌘O and ⌘⇧O)
+
+The Mac launches agents the way lasso's web New dialog does (`src/web/src/components/NewDialog.tsx`), over the same routes:
+- `GET /api/agent-config?host=` returns the harnesses, the default or last agent and the last repository.
+- `GET /api/repos?host=` lists the repositories, and `GET /api/repo-branches?path=&host=` their branches.
+- `POST /api/create-agent` creates the agent. It answers as soon as the record, workspace and root pane exist, and the agent boots afterwards. So the new agent's **own window** (§19) opens right away on that pane, and its conversation fills in as it starts.
+
+**The form:**
+- In a repository (a Git agent: repository plus base branch, picked with a filter, since titan has 183 repositories and 502 branches in lasso), or Scratch.
+- The prompt: its first line names the agent.
+- Agent, model and thinking effort.
+- The machine, when lasso drives more than one.
+- Plan first, where the harness has it.
+- ⌘⏎ creates and esc cancels. A failed create says why and keeps the form.
+
+**Shortcuts** are configurable in Settings › New agents, like the inbox's:
+- **⌥O** for an agent in a repository and **⌃O** for a scratch agent, from any app. The user's rule is one modifier and a key, never four.
+- ⌥O no longer types "ø" while it is set.
+- **⌘O and ⌘⇧O** do the same while a LassoDesktop window has the keyboard, as in the web app. They are never system-wide, because ⌘O is every app's File › Open.
+- The agents list has a **New agent** button too.
+
+All three system-wide shortcuts (inbox, new agent, new scratch agent) are `ShortcutSlot`s, each stored on its own and recorded the same way.
+
 ## 18. Later: signing in to a deployed lasso through Cloudflare Access
 
 The user's lasso is `https://lasso.orangecountyai.com`, behind Cloudflare Zero Trust (Access). The app should connect to it by URL and authenticate the way a browser does, rather than needing a tunnel. Not built yet.
