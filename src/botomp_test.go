@@ -775,3 +775,36 @@ func TestBotAttachDrivesTheBot(t *testing.T) {
 		conn.Close()
 	}
 }
+
+func TestBotDeleteWithFolder(t *testing.T) {
+	r, _ := useOmpBotEnv(t, "goner")
+	b, _ := botBackend("local")
+	if err := botMaterialize(b, r); err != nil {
+		t.Fatal(err)
+	}
+	dir := expandTildeOn(b, r.Dir)
+	del := func(q string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		serveBots(w, httptest.NewRequest("DELETE", "/api/bots/goner"+q, nil))
+		return w
+	}
+	if w := del("?folder=1"); w.Code != 200 || !strings.Contains(w.Body.String(), `"folder_deleted":true`) {
+		t.Fatalf("delete: %d %s", w.Code, w.Body)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("folder still there: %v", err)
+	}
+	if _, err := getBot("goner"); err != errBotNotFound {
+		t.Errorf("bot still there: %v", err)
+	}
+	// The guards, checked before anything changes.
+	home, _ := os.UserHomeDir()
+	for _, d := range []string{"/", "/tmp", home, filepath.Dir(home), lassoDir()} {
+		if err := botFolderRemovable(b, d); err == nil {
+			t.Errorf("%s would be deleted", d)
+		}
+	}
+	if err := botFolderRemovable(b, t.TempDir()); err != nil {
+		t.Errorf("a plain folder refused: %v", err)
+	}
+}

@@ -2016,8 +2016,16 @@ export const api = {
     update: (name: string, body: BotFields & { restart?: boolean }) =>
       sendJSON<{ bot: BotView }>("PUT", botURL(name), body),
     // Forgets the bot; its folder stays on the host.
-    delete: (name: string) =>
-      sendJSON<{ ok: boolean; dir: string }>("DELETE", botURL(name)),
+    // `folder` also deletes its folder on its host (refused for one that holds
+    // the home or lasso's own directory). A folder that could not be removed
+    // after the bot was forgotten comes back as folder_error.
+    delete: (name: string, folder = false) =>
+      sendJSON<{
+        ok: boolean
+        dir: string
+        folder_deleted?: boolean
+        folder_error?: string
+      }>("DELETE", `${botURL(name)}${folder ? "?folder=1" : ""}`),
     start: (name: string, fresh = false) =>
       postJSON<{ bot: BotView }>(botURL(name, "/start"), { fresh }),
     // The picture: the image file itself as the body (PNG, JPEG, WebP, GIF).

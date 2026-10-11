@@ -161,7 +161,7 @@ A launch task that the folder doesn't define is refused when you save.
 
 ### Deleting a bot
 
-**Delete bot…** in the footer works in any state: a running bot is stopped first, which closes its pane. lasso forgets the bot, but its folder stays on the host with its `CLAUDE.md`, skills and environment.
+**Delete bot…** in the footer works in any state: a running bot is stopped first, which closes its pane. lasso forgets the bot, and its folder stays on the host with its instructions, skills and environment unless you tick **Also delete its folder**, which removes the folder and everything in it. lasso refuses that for a folder that holds your home directory or lasso's own.
 
 **Right-click a bot in the list** (long-press on a touch screen) for the same actions without opening it: Open chat, Settings…, Start, or Restart and Stop while it runs, and Delete….
 

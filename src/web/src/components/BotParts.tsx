@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react"
+import * as React from "react"
 import { toast } from "sonner"
 import {
   AlertDialog,
@@ -10,6 +11,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Orb } from "@/components/ui/orb"
 import { api, type BotView, botAvatarURL } from "@/lib/api"
 import {
@@ -156,13 +158,25 @@ export function DeleteBotDialog({
   onOpenChange: (open: boolean) => void
   onDeleted?: () => void
 }) {
+  // Off every time the dialog opens: deleting a folder is never the default.
+  const [withFolder, setWithFolder] = React.useState(false)
+  React.useEffect(() => {
+    if (open) setWithFolder(false)
+  }, [open])
+  const where = bot?.host === "local" ? "this machine" : bot?.host
+  const folder = dirPath ?? bot?.dir_path ?? bot?.dir
+  const omp = bot?.runtime === "omp"
   const remove = async () => {
     if (!bot) return
     try {
-      await api.bots.delete(bot.name)
-      toast.success(
-        `${bot.name} deleted; its folder is still on ${bot.host === "local" ? "this machine" : bot.host}`
-      )
+      const res = await api.bots.delete(bot.name, withFolder)
+      if (res.folder_error)
+        toast.warning(
+          `${bot.name} deleted, but its folder was not: ${res.folder_error}`
+        )
+      else if (res.folder_deleted)
+        toast.success(`${bot.name} and its folder deleted`)
+      else toast.success(`${bot.name} deleted; its folder is still on ${where}`)
       onDeleted?.()
     } catch (e) {
       toast.error(`could not delete ${bot.name}: ${(e as Error).message}`)
@@ -179,19 +193,48 @@ export function DeleteBotDialog({
             {bot && botRunning(bot) && (
               <>It is running: deleting stops it and closes its pane. </>
             )}
-            lasso forgets this bot. Its folder ({dirPath ?? bot?.dir}) stays on{" "}
-            {bot?.host === "local" ? "this machine" : bot?.host}, with its
-            CLAUDE.md, skills and environment, and its conversations stay in
-            Claude Code's history.
+            lasso forgets this bot.{" "}
+            {withFolder ? (
+              <>
+                Its folder ({folder}) on {where} is deleted too, with everything
+                in it: its {omp ? "AGENTS.md" : "CLAUDE.md"}, skills,
+                environment and secrets{omp ? ", and its conversations" : ""}.
+                This cannot be undone.
+              </>
+            ) : (
+              <>
+                Its folder ({folder}) stays on {where}, with its{" "}
+                {omp ? "AGENTS.md" : "CLAUDE.md"}, skills and environment, and
+                its conversations stay{" "}
+                {omp ? "in that folder" : "in Claude Code's history"}.
+              </>
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
+        <label
+          htmlFor="delete-bot-folder"
+          className="flex items-start gap-2 text-[13px]"
+        >
+          <Checkbox
+            id="delete-bot-folder"
+            checked={withFolder}
+            onCheckedChange={(v) => setWithFolder(v === true)}
+            className="mt-0.5"
+          />
+          <span>
+            Also delete its folder
+            <span className="block break-all font-mono text-[11.5px] text-muted-foreground">
+              {folder}
+            </span>
+          </span>
+        </label>
         <AlertDialogFooter>
           <AlertDialogCancel>Keep it</AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
             onClick={() => void remove()}
           >
-            Delete bot
+            {withFolder ? "Delete bot and folder" : "Delete bot"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

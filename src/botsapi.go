@@ -292,6 +292,16 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 		}
 		writeJSON(w, map[string]any{"bot": botStatus(b, &next, readClaudeSessions(b))})
 	case http.MethodDelete:
+		// ?folder=1 also deletes the bot's folder, checked before anything is
+		// touched so a refused folder leaves the bot as it was.
+		withFolder := r.URL.Query().Get("folder") == "1"
+		dir := expandTildeOn(b, rec.Dir)
+		if withFolder {
+			if err := botFolderRemovable(b, dir); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
 		// Delete works from any state: a running bot is stopped first (marked
 		// stopped before its pane closes, so keep-running cannot bring it back
 		// in between), and then the row goes.
@@ -305,7 +315,17 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, map[string]any{"ok": true, "dir": rec.Dir})
+		out := map[string]any{"ok": true, "dir": rec.Dir}
+		if withFolder {
+			// The bot is already forgotten, so a failure here is reported,
+			// not a reason to answer an error.
+			if err := b.RemoveAll(dir); err != nil {
+				out["folder_error"] = err.Error()
+			} else {
+				out["folder_deleted"] = true
+			}
+		}
+		writeJSON(w, out)
 	default:
 		http.Error(w, "GET, PUT or DELETE", http.StatusMethodNotAllowed)
 	}
@@ -401,6 +421,35 @@ func botRunning(b Backend, r *botRecord) bool {
 	}
 	_, ok := findBotPane(b, r)
 	return ok
+}
+
+// botFolderRemovable refuses a folder that deleting with its bot would be a
+// disaster for: the root, the host's home or anything above it, lasso's own
+// directory or anything above it, or something that is not a directory. What
+// is left is the human's choice, made in the delete dialog with the path in
+// front of them.
+func botFolderRemovable(b Backend, dir string) error {
+	dir = filepath.Clean(dir)
+	if !filepath.IsAbs(dir) || strings.Count(dir, "/") < 2 {
+		return fmt.Errorf("not deleting %s: too close to the root", dir)
+	}
+	within := func(inner, outer string) bool {
+		return inner == outer || strings.HasPrefix(inner+"/", outer+"/")
+	}
+	if home, err := b.HomeDir(); err == nil && home != "" && within(filepath.Clean(home), dir) {
+		return fmt.Errorf("not deleting %s: it holds the home directory", dir)
+	}
+	if b.Name() == "local" && within(filepath.Clean(lassoDir()), dir) {
+		return fmt.Errorf("not deleting %s: it holds lasso's own directory", dir)
+	}
+	st, err := b.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("the folder %s: %w", dir, err)
+	}
+	if !st.IsDir() {
+		return fmt.Errorf("not deleting %s: not a directory", dir)
+	}
+	return nil
 }
 
 // botLaunchScript is the generated launch task, as the Launch tab shows it.
