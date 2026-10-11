@@ -214,6 +214,7 @@ public final class AppCoordinator {
             else if takeKey { closeAll() }
             return
         }
+        Trace.event("inbox opened (\(inboxModel.panes.isEmpty ? "panel" : "card"), keyboard \(takeKey ? "taken" : "left"))")
         if let first = inboxModel.panes.first {
             openCard(first, takeKey: takeKey)
         } else {
@@ -236,6 +237,7 @@ public final class AppCoordinator {
     /// The inbox shortcut: open the inbox with the keyboard in it, or close
     /// it when it already has the keyboard.
     func inboxShortcut() {
+        Trace.event("inbox shortcut")
         if (card.isOpen && card.isKey) || (inbox.isOpen && inbox.isKey) {
             closeAll()
             return
@@ -287,7 +289,12 @@ public final class AppCoordinator {
     /// click (which gives it the keyboard) made it the user's.
     private func hoverTick(_ pointer: NSPoint) {
         guard let item = hoverShown else { return }
-        guard let s = shown(item), !s.isKey else {
+        // A keyboard the pointer lent the inbox's card is not a click: the
+        // card stays a glance, and the keyboard goes back as the pointer leaves it.
+        if item == .inbox, card.isOpen {
+            if card.panel.frame.contains(pointer) { card.takeKeyForPointer() } else { card.pointerLeft() }
+        }
+        guard let s = shown(item), !s.isKey || (item == .inbox && card.pointerKeyed) else {
             hoverShown = nil
             return
         }
@@ -354,7 +361,7 @@ public final class AppCoordinator {
     }
 
     private func chatKey(_ e: NSEvent, _ m: ChatModel) -> Bool {
-        if m.composerFocused { return false }
+        if m.composerFocused || chat?.panel.panel.editingText == true { return false }
         if Keys.esc.matches(e) {
             chat?.panel.close()
             return true

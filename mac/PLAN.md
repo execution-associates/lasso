@@ -726,6 +726,27 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 - `J`/`K` and the empty state.
 - S4, if taken.
 
+### 13.7a Keys in the inbox
+
+**The inbox card's keys:**
+
+| Key | Action |
+|---|---|
+| `j` / `k` | Next / previous item, in Inbox order (wrapping). The card lands on it, the unread bar shows where you are, and it is marked seen. |
+| `x` | Kill, behind its confirm: a first `x` arms it ("Press X again"), a second kills, and any other key disarms. A bot has none. |
+| `e` | Discard (S1): writes the entry's own key, and nothing to the agent. It returns when the item has something new. |
+| `1`–`9`, `→`, `↳` | Pick a choice, answer with it, or edit it into your own words. |
+| `⏎`, `a` | To the composer (or send); attach a file. |
+| `esc` | Close. |
+
+**How the card gets the keyboard:**
+- **By click or keyboard:** the inbox shortcut, the summon key, or a click on the inbox button gives the card the keyboard in the same press. Opening never puts the cursor in the composer, so the next `j` pages.
+- **By hover:** an inbox opened by hover is shown without the keyboard (§16). **While the pointer is over the card**, it lends itself the keyboard for `j`, `k`, `x`, `e` and `esc` only.
+  - Any other key hands the keyboard straight back. That key is lost, since a key cannot be re-sent to another app without Accessibility, and the card keeps it back until the pointer leaves and returns.
+  - When the pointer leaves the card, the keyboard goes back to your app. A click on the card makes it fully yours.
+  - **Why this is safe:** the pointer is visibly on the card, so you are looking at it. Four of the five keys are harmless or reversible (paging, esc, and Discard, which never touches the agent). Kill needs a second press. Typing meant for another app is cut off at its first key.
+- **A focused text field wins.** A key typed into the composer stays text, `j` included, even as the first character. Text focus is read from the window's first responder, not only from the field's own "did begin editing" (which fires only after the first character).
+
 ### 13.8a As built (M8)
 
 - **One computation:** `FleetModel.inbox` serves the card, the badge, the peek's dot and the arrival sound.
@@ -857,6 +878,6 @@ The user's lasso is `https://lasso.orangecountyai.com`, behind Cloudflare Zero T
 - **No header menu:** the window's header is minimize and close. X X kills from the keyboard.
 - The composer's paperclip (A) attaches any files: each goes through `/api/paste-file` to the agent's machine and its path into the message.
 - One window per agent; a second click brings it forward. Where each agent's window was is kept in UserDefaults `agentWindowFrames`.
-- Keys while it has the keyboard: 1–9, →, ↳, ⏎, S, and X X to kill.
+- Keys while it has the keyboard: 1–9, →, ↳, ⏎, A (attach), and X X to kill. A focused composer keeps every key as text (§13.7a).
 
 **Parity states:** `list-hover-preview`, `agent-window` and `agent-window-collapsed`, from the `card-open` fixture.

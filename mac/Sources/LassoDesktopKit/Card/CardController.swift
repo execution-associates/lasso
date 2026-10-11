@@ -53,6 +53,9 @@ public final class CardController {
         panel = RailPanel(content: host, size: size)
         panel.hasShadow = true
         panel.onKey = { [weak self] e in self?.handle(e) ?? false }
+        // A click makes the card the user's: the whole vocabulary, and no
+        // giving the keyboard back when the pointer leaves.
+        panel.onMouseDown = { [weak self] in self?.pointerKeyed = false }
     }
 
     public var isOpen: Bool { holder.model != nil }
@@ -77,17 +80,56 @@ public final class CardController {
         withAnimationToken(Theme.Motion.cardOpen) { presence.shown = true }
     }
 
-    private func front(_ takeKey: Bool) { takeKey ? panel.makeKeyAndOrderFront(nil) : panel.orderFrontRegardless() }
+    private func front(_ takeKey: Bool) {
+        if takeKey { self.takeKey() } else { panel.orderFrontRegardless() }
+    }
 
     /// Whether the keyboard is the card's.
     var isKey: Bool { panel.isKeyWindow }
 
-    func takeKey() { panel.makeKeyAndOrderFront(nil) }
+    /// The pointer, not a click, lent the card the keyboard (PLAN 13.7a):
+    /// only the hover set acts, and it goes back when the pointer leaves.
+    private(set) var pointerKeyed = false
+    /// A key outside the hover set gave the keyboard back: it stays with the
+    /// user's app until the pointer has left the card and come back.
+    private var heldBack = false
+
+    func takeKey() {
+        pointerKeyed = false
+        panel.makeKeyAndOrderFront(nil)
+        // Opening never puts the cursor in the composer: one-letter keys page.
+        panel.makeFirstResponder(nil)
+    }
+
+    /// The pointer is over a hover-opened card: lend it the keyboard.
+    func takeKeyForPointer() {
+        guard !panel.isKeyWindow, !heldBack else { return }
+        pointerKeyed = true
+        panel.makeKeyAndOrderFront(nil)
+        panel.makeFirstResponder(nil)
+        Trace.event("card took the keyboard (pointer over it)")
+    }
+
+    /// The pointer left the card: give back a lent keyboard, and lend it
+    /// again next time the pointer comes over.
+    func pointerLeft() {
+        heldBack = false
+        releasePointerKey()
+    }
+
+    /// Give back a keyboard the pointer lent: the user's app has it again.
+    func releasePointerKey() {
+        guard pointerKeyed else { return }
+        pointerKeyed = false
+        if panel.isKeyWindow { panel.resignKey() }
+        Trace.event("card gave the keyboard back")
+    }
 
     func say(_ s: String) { holder.model?.say(s) }
 
     public func close() {
         guard presence.shown else { return }
+        pointerKeyed = false
         holder.model?.stopPolling()
         withAnimationToken(Theme.Motion.cardClose) { presence.shown = false }
         let delay = Theme.Motion.cardClose.value["duration"]?.double ?? 0
@@ -106,30 +148,88 @@ public final class CardController {
 
     private func handle(_ e: NSEvent) -> Bool {
         guard let m = holder.model else { return false }
-        // While the composer is being typed in, the field owns the keys; its
-        // delegate turns Return into send and esc into leaving the field.
-        if m.composerFocused { return false }
-        if Keys.esc.matches(e) {
-            close()
+        let action = CardKeys.route(e, editing: m.composerFocused || panel.editingText, pointerKeyed: pointerKeyed)
+        guard let action else {
+            // A focused composer's key: the field types it.
+            return false
+        }
+        if case .handBack = action {
+            Trace.event("card key outside the hover set: keyboard handed back")
+            heldBack = true
+            releasePointerKey()
             return true
         }
-        if !Keys.kill.matches(e) { m.disarm() }
-        if let n = Keys.digit(e) {
-            m.highlight(n)
-            return true
-        }
-        switch true {
-        case Keys.attach.matches(e): m.attachFile()
-        case Keys.send.matches(e):
-            if m.composer.isEmpty { m.focusComposer() } else { m.send() }
-        case Keys.kill.matches(e): m.kill()
-        case Keys.discard.matches(e): m.discard()
-        case Keys.next.matches(e): m.page(1)
-        case Keys.previous.matches(e): m.page(-1)
-        case Keys.editStep.matches(e): m.editStep()
-        case Keys.takeStep.matches(e): m.takeStep()
-        default: return false
+        Trace.event("card key \(action)")
+        if case .kill = action {} else { m.disarm() }
+        switch action {
+        case .close: close()
+        case .digit(let n): m.highlight(n)
+        case .attach: m.attachFile()
+        case .send: if m.composer.isEmpty { m.focusComposer() } else { m.send() }
+        case .kill: m.kill()
+        case .discard: m.discard()
+        case .next: m.page(1)
+        case .previous: m.page(-1)
+        case .editStep: m.editStep()
+        case .takeStep: m.takeStep()
+        case .unbound: return false
+        case .handBack: break
         }
         return true
+    }
+}
+
+/// What a key does in the card, decided before anything acts (PLAN 13.7a).
+public enum CardKeyAction: Equatable, CustomStringConvertible {
+    case close, attach, send, kill, discard, next, previous, editStep, takeStep, digit(Int)
+    /// Not a card key: left to the system.
+    case unbound
+    /// A key outside the hover set while the pointer lent the card the
+    /// keyboard: the keyboard goes back to the user's app.
+    case handBack
+
+    public var description: String {
+        switch self {
+        case .close: "esc"
+        case .attach: "a"
+        case .send: "enter"
+        case .kill: "x"
+        case .discard: "e"
+        case .next: "j"
+        case .previous: "k"
+        case .editStep: "tab"
+        case .takeStep: "right"
+        case .digit(let n): "\(n)"
+        case .unbound: "unbound"
+        case .handBack: "hand back"
+        }
+    }
+}
+
+public enum CardKeys {
+    /// The keys a card answers when the pointer, not a click, gave it the
+    /// keyboard: paging, kill (behind its confirm), discard, and esc.
+    public static let hoverSet: [KeyBinding] = [Keys.next, Keys.previous, Keys.kill, Keys.discard, Keys.esc]
+
+    /// Route a key: nil while text is being typed (the field takes it, a
+    /// `j` stays a `j`); the hover set only while the pointer lent the
+    /// keyboard; else the card's whole vocabulary.
+    public static func route(_ e: NSEvent, editing: Bool, pointerKeyed: Bool) -> CardKeyAction? {
+        if editing { return nil }
+        if pointerKeyed, !hoverSet.contains(where: { $0.matches(e) }) { return .handBack }
+        switch true {
+        case Keys.esc.matches(e): return .close
+        case Keys.kill.matches(e): return .kill
+        case Keys.discard.matches(e): return .discard
+        case Keys.next.matches(e): return .next
+        case Keys.previous.matches(e): return .previous
+        case Keys.attach.matches(e): return .attach
+        case Keys.send.matches(e): return .send
+        case Keys.editStep.matches(e): return .editStep
+        case Keys.takeStep.matches(e): return .takeStep
+        default: break
+        }
+        if let n = Keys.digit(e) { return .digit(n) }
+        return .unbound
     }
 }

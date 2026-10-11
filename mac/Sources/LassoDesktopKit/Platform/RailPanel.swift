@@ -29,7 +29,15 @@ public class RailPanel: NSPanel {
     public override var canBecomeKey: Bool { true }
     public override var canBecomeMain: Bool { false }
 
+    /// A text field is being typed in: its field editor is the first
+    /// responder. One-letter keys belong to it then, typed or not yet.
+    public var editingText: Bool { firstResponder is NSText }
+
+    /// A click inside the panel.
+    public var onMouseDown: (() -> Void)?
+
     public override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown { onMouseDown?() }
         if event.type == .keyDown, onKey?(event) == true { return }
         if event.type == .keyUp, onKeyUp?(event) == true { return }
         super.sendEvent(event)

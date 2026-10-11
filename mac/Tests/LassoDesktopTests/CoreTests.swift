@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -190,4 +191,39 @@ private let specDir = packageDir.appendingPathComponent("Spec")
     #expect(m.captured?.question == "Deploy to production?" && m.highlighted == nil)
     m.show(chat: try chat("Pick a layout", previews: true))
     #expect(!m.allowsCustom)
+}
+
+private func key(_ c: String, _ code: UInt16) -> NSEvent {
+    NSEvent.keyEvent(
+        with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+        characters: c, charactersIgnoringModifiers: c, isARepeat: false, keyCode: code)!
+}
+
+/// The inbox card answers j/k/x/e (PLAN 13.7a): they are in its live
+/// bindings, they route to paging, kill and discard, a focused composer keeps
+/// them as text, and a keyboard the pointer lent takes those four (and esc)
+/// only, handing everything else back.
+@MainActor @Test func inboxKeysReachTheCard() {
+    var p = HostPane(
+        host: "local", host_label: "titan", pane_id: "w1:p1", workspace_id: "w1", workspace_label: "Agents",
+        tab_id: "w1:t1", tab_label: "stub", cwd: "/", agent: "claude", agent_status: "blocked", has_agent: true, focused: false)
+    p.transcript_at = 10
+    let fleet = FleetModel()
+    fleet.apply(panes: AllPanes(panes: [p]))
+    let m = CardModel(pane: p, fleet: fleet, actions: FixtureCardActions(chats: [:], canDismiss: true))
+    m.inbox = InboxModel(fleet: fleet)
+    for b in [Keys.next, Keys.previous, Keys.kill, Keys.discard] {
+        #expect(m.activeBindings.contains(b), "\(b.id) not live in the inbox card")
+    }
+    let j = key("j", 38), k = key("k", 40), x = key("x", 7), e = key("e", 14)
+    #expect(CardKeys.route(j, editing: false, pointerKeyed: false) == .next)
+    #expect(CardKeys.route(k, editing: false, pointerKeyed: false) == .previous)
+    #expect(CardKeys.route(x, editing: false, pointerKeyed: false) == .kill)
+    #expect(CardKeys.route(e, editing: false, pointerKeyed: false) == .discard)
+    // A focused composer: the field types them.
+    for ev in [j, k, x, e] { #expect(CardKeys.route(ev, editing: true, pointerKeyed: false) == nil) }
+    // Lent by the pointer: the four and esc act; anything else goes back.
+    #expect(CardKeys.route(j, editing: false, pointerKeyed: true) == .next)
+    #expect(CardKeys.route(key("a", 0), editing: false, pointerKeyed: true) == .handBack)
+    #expect(CardKeys.route(key("q", 12), editing: false, pointerKeyed: true) == .handBack)
 }

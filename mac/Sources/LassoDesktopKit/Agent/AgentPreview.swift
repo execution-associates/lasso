@@ -110,7 +110,7 @@ final class AgentPreviewController {
     }
 
     private func handle(_ e: NSEvent) -> Bool {
-        guard let m = holder.model, !m.composerFocused else { return false }
+        guard let m = holder.model, !m.composerFocused, !panel.editingText else { return false }
         if Keys.esc.matches(e) {
             close()
             return true
