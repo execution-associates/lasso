@@ -43,7 +43,7 @@ public enum Smoke {
             }
         }
         await check("/api/ui-state", UIStateSlice.self) {
-            "\($0.pinned_agents?.count ?? 0) pins; default_bot \($0.default_bot == nil ? "absent (server lacks S1)" : "present"); dismissed_cards \($0.dismissed_cards == nil ? "absent" : "present")"
+            "\($0.pinned_agents?.count ?? 0) pins; dismissed_cards \($0.dismissed_cards == nil ? "absent (server lacks S1)" : "present")"
         }
         await check("/api/bots", BotsPayload.self) { b in
             "\(b.bots.count) bots (\(b.bots.map { "\($0.runtime)/\($0.state)" }.sorted().joined(separator: ", ")))"

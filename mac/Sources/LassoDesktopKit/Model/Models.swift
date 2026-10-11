@@ -126,11 +126,10 @@ public struct HostsPayload: Codable, Sendable, Equatable {
 }
 
 /// The slice of GET /api/ui-state the app reads. src/db.go:276 (uiState).
-/// default_bot and dismissed_cards are the S1 fields (PLAN 3);
+/// dismissed_cards is the S1 field (PLAN 3);
 /// their absence is how the app knows the server lacks them.
 public struct UIStateSlice: Codable, Sendable, Equatable {
     public var pinned_agents: [String]?
-    public var default_bot: String?
     public var dismissed_cards: [String: Int64]?
 }
 

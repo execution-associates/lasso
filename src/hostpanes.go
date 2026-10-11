@@ -512,10 +512,6 @@ func serveUIState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("browser_mode must be one of %s", strings.Join(browserModes, ", ")), http.StatusBadRequest)
 			return
 		}
-		if !validDefaultBot(us.DefaultBot) {
-			http.Error(w, "default_bot must be empty or a bot name (lowercase letters, digits and dashes, at most 40)", http.StatusBadRequest)
-			return
-		}
 		if !validTexture(us.Texture) {
 			http.Error(w, fmt.Sprintf("texture must be one of %s", strings.Join(textures, ", ")), http.StatusBadRequest)
 			return
@@ -705,12 +701,6 @@ func mergePinnedAgents(stored []string, ops map[string]bool) []string {
 		out = out[len(out)-maxPinnedAgents:]
 	}
 	return out
-}
-
-// validDefaultBot reports whether name may be stored as default_bot: ""
-// (none) or a well-formed bot name. Existence is not checked.
-func validDefaultBot(name string) bool {
-	return name == "" || botNameRE.MatchString(name)
 }
 
 // mergeDismissedCards applies dismissal ops to the stored map: a value sets

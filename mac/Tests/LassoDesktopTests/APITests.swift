@@ -22,7 +22,7 @@ private func golden<T: Decodable>(_ name: String, _ type: T.Type) throws -> T {
     #expect(chat.items.first?.meta?["x"] == "x")
     #expect(chat.pending_ui?.first?.options == ["x"])
     let ui = try golden("ui_state", UIStateSlice.self)
-    #expect(ui.pinned_agents == ["x"] && ui.default_bot == "x" && ui.dismissed_cards?["x"] == 1)
+    #expect(ui.pinned_agents == ["x"] && ui.dismissed_cards?["x"] == 1)
     let hosts = try golden("hosts", HostsPayload.self)
     #expect(hosts.hosts.first?.compatible == true && hosts.local.hostname == "x")
 }

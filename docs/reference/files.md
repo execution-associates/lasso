@@ -48,7 +48,7 @@ Notable `settings` keys:
 
 | key | contents |
 | --- | --- |
-| `ui_state` | UI state shared by every browser: theme backdrops and appearance, sidebar layout and tab order, typography, browser mode, pinned and dismissed agent cards, the default bot of a desktop client, and similar. |
+| `ui_state` | UI state shared by every browser: theme backdrops and appearance, sidebar layout and tab order, typography, browser mode, pinned and dismissed agent cards, and similar. |
 | `repos_root`, `branch_prefix`, `default_agent`, `scratch_setup` | New dialog defaults. |
 | `push_vapid_private` | The VAPID private key identifying this server to push services, generated once. If it changes, every registered device stops receiving notifications. |
 | `plugins`, `plugin_sources` | Plugin approvals (permission fingerprints), trust and VM flags; where each plugin was installed from. |

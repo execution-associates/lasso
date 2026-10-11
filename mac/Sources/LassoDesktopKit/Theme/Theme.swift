@@ -148,7 +148,7 @@ public enum Theme {
             "state.idle", "#796C82", .inferred("EXA muted text at 60% on ink"))
     }
 
-    /// The surface every panel beside the rail shares: card, list, chat, setup.
+    /// The surface every panel beside the rail shares: card, lists, chat, settings.
     public enum Panel {
         public static let surface = Token(
             "panel.surface", "#1B0A2C", .measured("EXA: isb web/src/index.css :root.ea --background (ink)"))

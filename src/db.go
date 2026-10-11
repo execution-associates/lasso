@@ -418,12 +418,6 @@ type uiState struct {
 	// human does not need a welcome after an upgrade. Settings can replay the
 	// tour at any time without touching this.
 	OnboardingDone bool `json:"onboarding_done"`
-	// DefaultBot is the bot a desktop client opens by default: a
-	// bot name (botNameRE) or "" for none. Replaced whole on write, and a
-	// name that is not a valid bot name refuses the whole patch, like
-	// browser_mode. The bot need not exist: it may be created after, or
-	// deleted since, and the client says so rather than lasso forgetting it.
-	DefaultBot string `json:"default_bot"`
 	// DismissedCards are the agent cards a client dismissed, each as the
 	// paneKey PinnedAgents uses (host + NUL + pane id) mapped to the pane's
 	// transcript_at (unix ms) at the moment of dismissal: the card stays
@@ -733,9 +727,6 @@ func getUIState() (uiState, error) {
 	}
 	us.ChatText = sanitizeChatText(us.ChatText)
 	us.TerminalText = terminalTextKind.sanitize(us.TerminalText)
-	if !validDefaultBot(us.DefaultBot) {
-		us.DefaultBot = "" // a hand-edited blob
-	}
 	us.DismissedCards = mergeDismissedCards(us.DismissedCards, nil)
 	return us, nil
 }

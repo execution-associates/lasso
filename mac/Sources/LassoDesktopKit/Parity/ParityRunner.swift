@@ -135,11 +135,10 @@ public final class ParityRunner {
         var bindings: Set<KeyBinding>?
         var recapture: (@MainActor () async throws -> Capture)?
         if fixture.ui.settings == true {
-            let setup = BotSetup(fleet: fleet, client: nil)
             let hosts = fixture.server.hosts
             let usable = hosts.hosts.filter { $0.reachable && $0.running && $0.compatible }.count + 1
             let m = SettingsModel(
-                permissions: FixedPermissions(fixture.permissions), setup: setup, baseURL: "http://127.0.0.1:18090",
+                permissions: FixedPermissions(fixture.permissions), baseURL: "http://127.0.0.1:18090",
                 version: { fixture.server.version }, usableHosts: { (usable, hosts.hosts.count + 1) })
             bindings = [Keys.esc]
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(SettingsView(model: m), size: Theme.Card.size.size) }

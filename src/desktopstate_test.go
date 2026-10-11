@@ -20,49 +20,6 @@ func uiStateRevHub(t *testing.T) func() int {
 	}
 }
 
-func TestDefaultBot(t *testing.T) {
-	openTestDB(t)
-	rev := uiStateRevHub(t)
-
-	got := postUIState(t, `{"client_id":"A"}`)
-	if got.DefaultBot != "" {
-		t.Fatalf("fresh install has a default bot: %q", got.DefaultBot)
-	}
-	r0 := rev()
-
-	got = postUIState(t, `{"default_bot":"jessica","client_id":"A"}`)
-	if got.DefaultBot != "jessica" || rev() != r0+1 {
-		t.Fatalf("set: bot %q rev %d (from %d)", got.DefaultBot, rev(), r0)
-	}
-	// Restating it is a no-op: no save, no rev bump.
-	postUIState(t, `{"default_bot":"jessica","client_id":"A"}`)
-	if rev() != r0+1 {
-		t.Fatalf("no-op bumped the rev: %d", rev())
-	}
-	// A patch not naming it leaves it alone.
-	got = postUIState(t, `{"chat_sidebar":true,"client_id":"A"}`)
-	if got.DefaultBot != "jessica" {
-		t.Fatalf("unrelated patch changed the default bot: %q", got.DefaultBot)
-	}
-
-	// An invalid name refuses the whole patch.
-	for _, bad := range []string{`"Jessica"`, `"-x"`, `"a b"`, `"` + fmt.Sprintf("%041d", 0) + `"`} {
-		w := postUIStateRaw(t, `{"default_bot":`+bad+`,"chat_sidebar":false,"client_id":"A"}`)
-		if w.Code != http.StatusBadRequest {
-			t.Fatalf("default_bot %s accepted: %d", bad, w.Code)
-		}
-	}
-	stored, _ := getUIState()
-	if stored.DefaultBot != "jessica" || !stored.ChatSidebar {
-		t.Fatalf("a refused patch landed: %+v", stored)
-	}
-
-	got = postUIState(t, `{"default_bot":"","client_id":"A"}`)
-	if got.DefaultBot != "" {
-		t.Fatalf("clear: %q", got.DefaultBot)
-	}
-}
-
 func TestCardDismissOps(t *testing.T) {
 	openTestDB(t)
 	rev := uiStateRevHub(t)

@@ -13,7 +13,6 @@ public final class AppCoordinator {
     let rail: RailController
     let card: CardController
     let list: ListController
-    let setup: BotSetup
     let permissions: Permissions
     let botActions: BotChatActions
     let reads = BotReads()
@@ -48,11 +47,10 @@ public final class AppCoordinator {
         rail = RailController(model: RailModel(fleet: fleet))
         card = CardController(fleet: fleet, actions: cardActions)
         list = ListController(model: ListModel(fleet: fleet, actions: fleetActions))
-        setup = BotSetup(fleet: fleet, client: client)
         inboxModel = InboxModel(fleet: fleet, reads: reads)
         inbox = SidePanel(size: Theme.List.size.size, content: InboxView(model: inboxModel))
         settingsModel = SettingsModel(
-            permissions: permissions, setup: setup, baseURL: (client ?? .configured()).baseURL.absoluteString,
+            permissions: permissions, baseURL: (client ?? .configured()).baseURL.absoluteString,
             version: { [weak sync] in sync?.version }, usableHosts: { nil })
         settings = SidePanel(size: Theme.Card.size.size, content: SettingsView(model: settingsModel))
         wire()

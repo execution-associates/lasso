@@ -41,7 +41,7 @@ So on a loopback or tailnet lasso with no `UI_AUTH` and no `MCP_OAUTH`, **everyt
 | `/api/active`, `/api/panes`, `/api/all-panes` | The focused pane; one host's panes; panes across the fleet. A pane's `transcript_at` is its log's mtime on whichever host has the log. |
 | `/api/focus`, `/api/close`, `/api/rename`, `/api/workspace-rename` | Focus, close or rename herdr panes, tabs and workspaces. |
 | `/api/clients`, `/api/term-claim` | The browsers attached to this lasso; which tab owns the terminal's size. |
-| `/api/ui-state` | Read and patch the shared UI state stored in `lasso.db`. Collections a stale client must not overwrite change only through ops: `agent_pins` (for `pinned_agents`) and `card_dismiss: {<key>: <transcript_at ms>\|null}` (for `dismissed_cards`, at most 256, smallest `transcript_at` dropped first), each key a host, a NUL and a pane id. `default_bot` (the bot a desktop client opens by default) is a bot name or `""`. |
+| `/api/ui-state` | Read and patch the shared UI state stored in `lasso.db`. Collections a stale client must not overwrite change only through ops: `agent_pins` (for `pinned_agents`) and `card_dismiss: {<key>: <transcript_at ms>\|null}` (for `dismissed_cards`, at most 256, smallest `transcript_at` dropped first), each key a host, a NUL and a pane id. |
 
 Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` header or a `?host=` parameter. See [Hosts](../concepts/hosts.md).
 

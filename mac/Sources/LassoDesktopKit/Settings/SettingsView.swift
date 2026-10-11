@@ -1,17 +1,11 @@
 import SwiftUI
 
-/// Settings, in the panels' language: the lasso this app talks to, the
-/// default bot, and the permissions.
+/// Settings, in the panels' language: the lasso this app talks to, and the
+/// permissions.
 public struct SettingsView: View {
     @ObservedObject var model: SettingsModel
-    @ObservedObject var setup: BotSetup
-    @ObservedObject var fleet: FleetModel
 
-    public init(model: SettingsModel) {
-        self.model = model
-        setup = model.setup
-        fleet = model.setup.fleet
-    }
+    public init(model: SettingsModel) { self.model = model }
 
     private var pad: CGFloat { Theme.Panel.inset.pt }
 
@@ -32,21 +26,10 @@ public struct SettingsView: View {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: Theme.space("4xl")) {
                     section("lasso") { lassoSection }
-                    section("Default bot") { botSection }
                     section("Permissions") { permissionsSection }
                 }
                 .padding(.horizontal, pad)
                 .padding(.vertical, Theme.space("2xl"))
-            }
-
-            if let s = setup.status {
-                Rectangle().fill(Theme.Panel.divider.color).frame(height: Theme.space("hair"))
-                Text(s)
-                    .font(Theme.Fonts.small.font)
-                    .foregroundStyle(Theme.Text.secondary.color)
-                    .lineLimit(2)
-                    .padding(.horizontal, pad)
-                    .padding(.vertical, Theme.space("2xl"))
             }
         }
         .panelChrome(Theme.Card.size.size, anchor: "settings")
@@ -78,56 +61,6 @@ public struct SettingsView: View {
         } else {
             line("\(model.baseURL)")
             line("Not answering yet. Is the tunnel up?", secondary: true)
-        }
-    }
-
-    @ViewBuilder private var botSection: some View {
-        if let bot = setup.defaultBot {
-            HStack(spacing: Theme.space("m")) {
-                AgentAvatar(agent: bot.runtime, state: botState(bot))
-                line("\(bot.name) · \(bot.runtime) · \(bot.state)")
-            }
-            line(
-                setup.shared ? "Shared with lasso's web client" : "Saved on this Mac: this lasso cannot share the choice",
-                secondary: true)
-        } else {
-            line("No default bot yet. Pick one of your bots, or make one.", secondary: true)
-        }
-        ForEach(fleet.bots.filter { $0.name != setup.defaultBot?.name }) { bot in
-            Button { Task { await setup.choose(bot.name) } } label: {
-                HStack(spacing: Theme.space("m")) {
-                    AgentAvatar(agent: bot.runtime, state: botState(bot))
-                    Text(bot.name).font(Theme.Fonts.name.font).foregroundStyle(Theme.Text.primary.color)
-                    Text("\(bot.runtime) · \(bot.state)")
-                        .font(Theme.Fonts.small.font)
-                        .foregroundStyle(Theme.Text.secondary.color)
-                    Spacer()
-                    Text("Make default")
-                        .font(Theme.Fonts.small.font)
-                        .foregroundStyle(Theme.Text.secondary.color)
-                }
-                .padding(.horizontal, Theme.space("xl"))
-                .frame(height: Theme.List.row.number("height"))
-                .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(Theme.Panel.inner.color("fill")))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Make \(bot.name) the default bot")
-        }
-        if setup.defaultBot == nil {
-            PillButton(
-                title: setup.working ? "Creating…" : "Create a bot", primary: true, label: "Create a bot on lasso"
-            ) { Task { await setup.createDefault() } }
-            .disabled(setup.working)
-            .parityAnchor("settings.create")
-        }
-    }
-
-    private func botState(_ b: BotView) -> AgentState {
-        switch b.state {
-        case "blocked": .blocked
-        case "working": .working
-        default: .idle
         }
     }
 

@@ -541,7 +541,7 @@ The user reshaped the app:
 
 - **The rail is three buttons.** The top button is the **inbox**: what waits on the human. That means blocked agents, agents that finished unseen and aren't dismissed, bots waiting on an answer, and bots with an unread reply. The agents capsule below it opens the **agents** list. The ellipsis opens **settings**. The tools capsule is gone.
 - **Voice is removed for now.** The capture, transcription and recording UI are gone, along with the V binding, the microphone permission and every voice and recording token. `/api/transcribe` (S2) and bot-send `meta` (S3) stay on the server, unused by the app. The voice code is in git history (`mac: M6 and M7 …`).
-- **"Bot", never "assistant".** The setting is the **default bot**: ui_state `default_bot` (S1, renamed from `assistant_bot`), shown in settings, where one is picked or a `desktop` omp bot is created. A bot's chat opens from the inbox, or from its pane in the agents list.
+- **"Bot", never "assistant", and no default bot.** The app has no single bot of its own; that will come later. A bot's chat opens from the inbox, or from its pane in the agents list. The default-bot setting and its Create button are gone, from the app and from the server (ui_state `default_bot` was removed before release). So brief B.5's "ensure the app's bot exists" is deferred.
 - **Agents are grouped by herdr workspace and named by their label, else their tab name** (herdr.dev/docs/agents, "custom agent labels").
   - The server now carries herdr's label in the fleet listing as `hostPane.agent_label`, from `agent.list`'s `name`.
   - Until that reaches production, tab names already name the agents in titan's Agents workspace (stub, clem, jessica, …).
