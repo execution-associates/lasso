@@ -10,7 +10,7 @@ import SwiftUI
 public final class ParityRunner {
     /// States whose surfaces exist. The rest report as pending until their
     /// milestone lands (PLAN 6).
-    public static let implemented: Set<String> = ["rail-collapsed", "rail-expanded"]
+    public static let implemented: Set<String> = ["rail-collapsed", "rail-expanded", "card-open"]
 
     let spec: Spec
     let specDir: URL
@@ -40,7 +40,7 @@ public final class ParityRunner {
                 add(s, "state", "-", "rendered", "\(error)", "", .fail)
             }
         }
-        if states.contains(where: { $0.hasPrefix("rail-") }) {
+        if states.contains(where: { $0.hasPrefix("rail-") || $0 == "card-open" }) {
             await motionChecks()
         }
         return finish()
@@ -105,8 +105,16 @@ public final class ParityRunner {
         let fleet = fleet(for: fixture)
         let model = RailModel(fleet: fleet)
         model.setExpanded(fixture.ui.rail == "expanded", animated: false)
-        let view = RailView(model: model).padding(Theme.Rail.panelMargin.pt)
-        let cap = try await Capturer.capture(view, size: railSize())
+        let cap: Capture
+        var card: CardModel?
+        if let key = fixture.ui.card {
+            let c = try cardModel(fixture, fleet: fleet, key: key)
+            card = c
+            cap = try await Capturer.capture(CardView(model: c), size: Theme.Card.size.size)
+        } else {
+            let view = RailView(model: model).padding(Theme.Rail.panelMargin.pt)
+            cap = try await Capturer.capture(view, size: railSize())
+        }
 
         if let png = cap.image.representation(using: .png, properties: [:]) {
             try png.write(to: out.appendingPathComponent("\(state).png"))
@@ -119,7 +127,32 @@ public final class ParityRunner {
         patchChecks(state, cap)
         geometryChecks(state, cap)
         accessibilityChecks(state, cap)
+        if let card { keycapChecks(state, cap, card) }
         cap.window.orderOut(nil)
+    }
+
+    /// A card on the fixture's pane, with the fixture's chat already shown
+    /// and the fixture's clock.
+    private func cardModel(_ fx: Fixture, fleet: FleetModel, key: String) throws -> CardModel {
+        guard let pane = fleet.panes.first(where: { $0.key == key }) else {
+            throw ParityError.capture("fixture card \(key) is not in its panes")
+        }
+        let actions = FixtureCardActions(chats: fx.chats, canDismiss: fx.server.ui_state.dismissed_cards != nil)
+        let now = fx.now
+        let c = CardModel(pane: pane, fleet: fleet, actions: actions, now: { now })
+        c.show(chat: fx.chats[key])
+        return c
+    }
+
+    /// Every keycap on screen is a binding the card's key handler has live
+    /// in this state, so its legend is a key that works.
+    private func keycapChecks(_ state: String, _ cap: Capture, _ card: CardModel) {
+        let shown = Set(cap.frames.keys.filter { $0.hasPrefix("keycap[") }.map { String($0.dropFirst(7).dropLast()) })
+        let live = Set(card.activeBindings.map(\.id))
+        let stray = shown.subtracting(live)
+        add(
+            state, "keycaps bound", "keys", "every shown keycap bound", shown.sorted().joined(separator: " "),
+            stray.isEmpty ? "" : "unbound: " + stray.sorted().joined(separator: " "), !shown.isEmpty && stray.isEmpty ? .pass : .fail)
     }
 
     private func fixtureChecks(_ state: String, _ fx: Fixture, fleet: FleetModel, model: RailModel) {
@@ -144,7 +177,8 @@ public final class ParityRunner {
                 add(state, "colour", p.token, p.anchor, "anchor not rendered", "", .fail)
                 continue
             }
-            guard let want = RGBA(parsing: spec.tokens[p.token]?.value.string ?? "") else {
+            let tv = spec.tokens[p.token]?.value
+            guard let want = RGBA(parsing: tv?.string ?? tv?["color"]?.string ?? tv?["fill"]?.string ?? "") else {
                 add(state, "colour", p.token, "(not a colour)", "", "", .fail)
                 continue
             }
@@ -168,6 +202,16 @@ public final class ParityRunner {
                 continue
             }
             let fr = frames.map { $0! }
+            if g.measure == "size" {
+                let v = spec.tokens[g.token]?.value
+                let w = v?.array?.first?.double ?? v?["w"]?.double ?? .nan
+                let h = v?.array?.dropFirst().first?.double ?? v?["h"]?.double ?? .nan
+                let d = max(abs(fr[0].width - w), abs(fr[0].height - h))
+                add(
+                    state, "geometry size @\(g.anchor)", g.token, Self.f(w) + "×" + Self.f(h),
+                    Self.f(fr[0].width) + "×" + Self.f(fr[0].height), Self.f(d), d <= tol ? .pass : .fail)
+                continue
+            }
             let rim = Double(RailMetrics.rim)
             let measured: Double?
             switch g.measure {
@@ -263,6 +307,10 @@ public final class ParityRunner {
             let ends = m.transition.split(separator: "→").map { String($0.split(separator: "[")[0]) }
             guard ends.allSatisfy(Self.implemented.contains) else {
                 add(st, m.transition, m.token, spec.tokens[m.token]?.value.compact ?? "", "not built yet", "", .pending)
+                continue
+            }
+            if spec.tokens[m.token]?.value["kind"]?.string != "spring" {
+                await curveCheck(m)
                 continue
             }
             guard let tok = spec.tokens[m.token]?.value, tok["kind"]?.string == "spring",
@@ -417,6 +465,95 @@ public final class ParityRunner {
         try? await Task.sleep(nanoseconds: 900_000_000)
         result.refCollapse = refProbe.snapshot()
         return result
+    }
+
+    /// A timing-curve motion (card open/close, paging): SwiftUI evaluates a
+    /// curve exactly (no stepping), so each sample the app's animation
+    /// returns must sit on the spec's curve; the duration is fitted from them.
+    private func curveCheck(_ m: Spec.Motion) async {
+        let st = "motion"
+        guard let tok = spec.tokens[m.token]?.value, let d = tok["duration"]?.double, let curve = Self.unitCurve(tok) else {
+            add(st, m.transition, m.token, "curve", "spec row unusable", "", .fail)
+            return
+        }
+        let samples = await probeCard(m)
+        let moving = samples.filter { $0.t > 0 && $0.v > 1e-6 && $0.v < 1 - 1e-6 }
+        guard moving.count >= 2 else {
+            add(st, "\(m.transition) app animation", m.token, "≥2 samples", "\(moving.count) samples", "", .fail)
+            return
+        }
+        var best = (d: d, err: Double.infinity)
+        var cand = 0.02
+        while cand <= 0.6 {
+            let err = moving.map { abs(curve.value(at: min(1, $0.t / cand)) - $0.v) }.max() ?? .infinity
+            if err < best.err { best = (cand, err) }
+            cand += 0.0005
+        }
+        let tolMs = spec.tolerances.duration_ms
+        add(
+            st, "\(m.transition) duration (\(moving.count) samples)", m.token, Self.f(d * 1000, 1) + " ms",
+            Self.f(best.d * 1000, 1) + " ms", Self.f((best.d - d) * 1000, 1),
+            abs(best.d - d) * 1000 <= tolMs ? .pass : .fail)
+        add(
+            st, "\(m.transition) on the spec curve", m.token, "≤ 0.01", Self.f(best.err, 4), "", best.err <= 0.01 ? .pass : .fail)
+    }
+
+    static func unitCurve(_ tok: JSONValue) -> UnitCurve? {
+        switch tok["kind"]?.string {
+        case "easeOut": return .easeOut
+        case "easeIn": return .easeIn
+        case "easeInOut": return .easeInOut
+        case "linear": return .linear
+        case "timingCurve":
+            let c = (tok["c"]?.array ?? []).compactMap(\.double)
+            guard c.count == 4 else { return nil }
+            return .bezier(startControlPoint: UnitPoint(x: c[0], y: c[1]), endControlPoint: UnitPoint(x: c[2], y: c[3]))
+        default: return nil
+        }
+    }
+
+    /// Run one card motion in a visible window, the same calls the
+    /// CardController and CardModel make, and return what the animation
+    /// computed on SwiftUI's clock (progress 0…1).
+    private func probeCard(_ m: Spec.Motion) async -> Samples {
+        guard let fx = try? Fixture.load("card-open", from: specDir.appendingPathComponent("fixtures")),
+              let key = fx.ui.card, let model = try? cardModel(fx, fleet: fleet(for: fx), key: key)
+        else { return [] }
+        let probe = MotionProbe()
+        let presence = CardPresence()
+        let holder = CardHolder()
+        holder.model = model
+        let size = Theme.Card.size.size
+        let host = NSHostingView(rootView: CardHost(presence: presence, holder: holder))
+        host.frame = NSRect(origin: .zero, size: size)
+        let screen = NSScreen.main?.visibleFrame ?? .zero
+        let window = NSWindow(
+            contentRect: NSRect(x: screen.minX + 20, y: screen.minY + 20, width: size.width, height: size.height),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.level = .statusBar
+        window.contentView = host
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        let wait: UInt64 = 600_000_000
+        switch m.token {
+        case Theme.Motion.cardOpen.id:
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            withAnimationToken(Theme.Motion.cardOpen, probe: probe) { presence.shown = true }
+        case Theme.Motion.cardClose.id:
+            presence.shown = true
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            withAnimationToken(Theme.Motion.cardClose, probe: probe) { presence.shown = false }
+        default:
+            presence.shown = true
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            model.animationProbe = probe
+            model.page(1)
+        }
+        try? await Task.sleep(nanoseconds: wait)
+        return probe.snapshot()
     }
 
     // MARK: report

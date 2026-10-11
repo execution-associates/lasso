@@ -162,8 +162,14 @@ public enum Theme {
             "card.tool_row", ["height": 24, "radius": 6, "fill": "rgba(255,255,255,0.04)"],
             .unmeasured("PLAN 2.2"), proposed: true)
         public static let machineChip = Token(
-            "card.machine_chip", ["radius": 4, "fill": "#333130", "font_size": 11],
+            "card.machine_chip", ["radius": 4, "fill": "#333130", "font_size": 11, "pad_h": 6, "pad_v": 2],
             .unmeasured("PLAN 2.2"), proposed: true)
+        public static let pad = Token("card.pad", 16, .unmeasured("PLAN 2.2"), proposed: true)
+        public static let sectionGap = Token("card.section_gap", 8, .unmeasured("PLAN 2.2"), proposed: true)
+        public static let unreadInset = Token(
+            "card.unread_bar.inset", 6, .unmeasured("PLAN 2.2"), proposed: true)
+        public static let unreadCurrent = Token(
+            "card.unread_segment.current", "#F1EEED", .inferred("primary text marks the open card"), proposed: true)
         public static let placement = Token(
             "card.placement", ["side": "leading-of-rail", "gap": 8, "align": "top-of-picked-glyph"],
             .unmeasured("PLAN 2.2"), proposed: true)
@@ -273,6 +279,7 @@ public enum Theme {
         Card.size, Card.radius, Card.surface, Card.footer, Card.keycapFill, Card.keycapFont, Card.keycapMinSize,
         Card.keycapRadius, Card.keycapPadH, Card.unreadSegment, Card.unreadGap, Card.unreadRead,
         Card.headerHeight, Card.footerHeight, Card.composer, Card.toolRow, Card.machineChip, Card.placement,
+        Card.pad, Card.sectionGap, Card.unreadInset, Card.unreadCurrent,
         Text.primary, Text.secondary, accent, dangerText, dangerFill,
         Row.hover, Row.selected, Row.radius, Row.pad,
         Fonts.name, Fonts.secondLine, Fonts.header, Fonts.tree, Fonts.terminal,
@@ -328,4 +335,15 @@ extension Token {
         default: return .linear(duration: d)
         }
     }
+}
+
+/// Run a state change under a motion token's animation. The parity harness
+/// passes a probe to read the animation on SwiftUI's own clock.
+@MainActor
+public func withAnimationToken(
+    _ token: Token, probe: MotionProbe? = nil, travel: Double = 1, _ body: () -> Void
+) {
+    var a = token.animation
+    if let probe { a = Animation(ProbedAnimation(base: a, probe: probe, travel: travel)) }
+    withAnimation(a, body)
 }

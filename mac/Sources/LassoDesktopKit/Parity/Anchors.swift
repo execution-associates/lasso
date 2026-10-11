@@ -106,9 +106,11 @@ public struct ProbedAnimation: CustomAnimation {
     public func animate<V: VectorArithmetic>(value: V, time: TimeInterval, context: inout AnimationContext<V>) -> V? {
         let out = base.animate(value: value, time: time, context: &context)
         let total = value.magnitudeSquared.squareRoot()
-        if abs(total - travel) < 0.5 {
+        if abs(total - travel) < 0.5, total > 0 {
+            // As a fraction of this value's own change, scaled to travel, so
+            // a colour that animates beside an opacity reads the same curve.
             let done = (out ?? value).magnitudeSquared.squareRoot()
-            probe.recordExact(t: time, v: done)
+            probe.recordExact(t: time, v: done / total * travel)
         }
         return out
     }

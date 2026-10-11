@@ -11,6 +11,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var rail: RailController?
     private var hotKey: HotKey?
     private var sync: FleetSync?
+    private var card: CardController?
 
     public init(arguments: [String]) {
         self.arguments = arguments
@@ -68,10 +69,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             sync.start()
             self.sync = sync
         }
+        let actions: CardActions
+        if let sync {
+            let live = LiveCardActions(client: sync.client, fleet: fleet)
+            live.refreshUIState = { [weak sync] in await sync?.refreshUIState() }
+            actions = live
+        } else {
+            let fx = try? Fixture.load(value(after: "--fixture") ?? "", from: specDir.appendingPathComponent("fixtures"))
+            actions = FixtureCardActions(chats: fx?.chats ?? [:], canDismiss: fx?.server.ui_state.dismissed_cards != nil)
+        }
         let model = RailModel(fleet: fleet)
         let rail = RailController(model: model)
+        let card = CardController(fleet: fleet, actions: actions)
+        card.railFrame = { [weak rail] in rail?.panel.frame ?? .zero }
+        model.onPickAgent = { [weak card] pane in card?.open(pane) }
         rail.show()
         self.rail = rail
+        self.card = card
         hotKey = HotKey(token: Theme.summonKey) { [weak rail] in rail?.summon() }
         if hotKey == nil { log.error("summon hotkey could not be registered") }
     }

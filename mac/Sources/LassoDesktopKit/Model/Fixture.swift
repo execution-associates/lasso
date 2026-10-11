@@ -32,6 +32,8 @@ public struct Fixture: Decodable, Sendable {
     public var permissions: [String: String]
     public var server: Server
     public var expect: Expect?
+    /// Chat payloads by pane key (host NUL pane_id), for the card and chat states.
+    public var chats: [String: ChatPayload]
 
     private struct Raw: Decodable {
         var state: String
@@ -41,6 +43,7 @@ public struct Fixture: Decodable, Sendable {
         var permissions: [String: String]?
         var server: Server?
         var expect: Expect?
+        var chats: [String: ChatPayload]?
     }
 
     public static func load(_ name: String, from dir: URL) throws -> Fixture {
@@ -58,10 +61,14 @@ public struct Fixture: Decodable, Sendable {
         }
         return Fixture(
             state: raw.state, now: now, ui: ui, permissions: raw.permissions ?? base?.permissions ?? [:],
-            server: server, expect: raw.expect ?? base?.expect)
+            server: server, expect: raw.expect ?? base?.expect, chats: (base?.chats ?? [:]).merging(raw.chats ?? [:]) { $1 })
     }
 
-    init(state: String, now: Date, ui: UI, permissions: [String: String], server: Server, expect: Expect?) {
+    init(
+        state: String, now: Date, ui: UI, permissions: [String: String], server: Server, expect: Expect?,
+        chats: [String: ChatPayload]
+    ) {
+        self.chats = chats
         self.state = state
         self.now = now
         self.ui = ui

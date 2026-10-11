@@ -26,6 +26,20 @@ public enum Smoke {
             let by = Dictionary(grouping: agents, by: \.state).map { "\($0.key.rawValue) \($0.value.count)" }.sorted()
             return "\(p.panes.count) panes, \(agents.count) agents (\(by.joined(separator: ", ")))"
         }
+        // The card's read path on real conversations: a few agents' chats,
+        // reported as counts only.
+        if let panes = try? await client.get("/api/all-panes", as: AllPanes.self) {
+            for p in panes.panes.filter({ $0.has_agent && $0.transcript_at != nil }).prefix(4) {
+                do {
+                    let c = try await client.get("/api/chat", query: ["pane": p.pane_id, "host": p.host], as: ChatPayload.self)
+                    let kinds = Dictionary(grouping: c.items, by: \.kind).map { "\($0.key) \($0.value.count)" }.sorted()
+                    out("ok   /api/chat (\(p.agent) on \(p.host))  \(c.items.count) items (\(kinds.joined(separator: ", ")))\(c.unavailable.map { "; unavailable: \($0.reason)" } ?? "")")
+                } catch {
+                    failures += 1
+                    out("FAIL /api/chat (\(p.agent) on \(p.host))  \(error)")
+                }
+            }
+        }
         await check("/api/ui-state", UIStateSlice.self) {
             "\($0.pinned_agents?.count ?? 0) pins; assistant_bot \($0.assistant_bot == nil ? "absent (server lacks S1)" : "present"); dismissed_cards \($0.dismissed_cards == nil ? "absent" : "present")"
         }
