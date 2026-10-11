@@ -466,7 +466,7 @@ type sidebarTab struct {
 }
 
 // sidebarBuiltinTabs are the right sidebar's own tabs, in default order.
-var sidebarBuiltinTabs = []string{"agents", "files", "scratch", "browser", "terminal", "usage", "settings"}
+var sidebarBuiltinTabs = []string{"agents", "files", "scratch", "browser", "usage", "settings"}
 
 const (
 	sidebarTabsMax  = 64

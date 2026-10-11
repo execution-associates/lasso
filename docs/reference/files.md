@@ -63,7 +63,6 @@ In the OS temp directory (`$TMPDIR`, usually `/tmp`):
 | path | what it is |
 | --- | --- |
 | `lasso-ttyd-<pid>-<host>.sock` | The unix socket of the ttyd serving the herdr terminal for one host. |
-| `lasso-shell-<pid>-<host>.sock` | The unix socket of the ttyd serving the Terminal tab for one host. |
 | `lasso-ctl-<pid>-<host>.sock` | The SSH ControlMaster socket lasso keeps open to one remote host. |
 | `lasso-dev.log` | With `-dev` only: the combined backend and browser log (`LASSO_DEV_LOG` moves it). |
 

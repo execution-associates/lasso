@@ -95,6 +95,6 @@ var agentInfoParams = map[string]agentInfoParam{
 // records where it does come from.
 var agentInfoComputed = map[string]string{
 	"SidebarName":  "herdr's workspace label, read live from the pane (and the only name a foreign session has)",
-	"Status":       "live herdr pane status, reconciled with the boot outcome by surfacedStatus",
+	"Status":       "live herdr pane status, reconciled with the boot and the first turn by liveAgentStatus/surfacedStatus",
 	"LassoCreated": "false for foreign herdr sessions lasso never created, which agentInfoFromPane builds without a record",
 }

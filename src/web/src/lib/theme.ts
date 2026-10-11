@@ -10,9 +10,8 @@ import {
   type ShippedBackground,
 } from "@/lib/wallpaper"
 
-// The terminal iframes whose xterm.js theme we keep in sync with herdr's: the
-// left herdr terminal and the right shell.
-const TERM_FRAME_IDS = ["term", "shellframe"]
+// The terminal iframes whose xterm.js theme we keep in sync with herdr's.
+const TERM_FRAME_IDS = ["term"]
 
 function termFrames(): HTMLIFrameElement[] {
   const out: HTMLIFrameElement[] = []
@@ -782,8 +781,8 @@ export function applyAtmosphere() {
 }
 
 // applyTermTheme pins every terminal iframe to the CACHED palette. ttyd 1.7.4
-// exposes the Terminal as window.term and the iframes are same-origin (proxied
-// under /terminal/ and /shell/), so the parent can reach in. A terminal may not
+// exposes the Terminal as window.term and the iframe is same-origin (proxied
+// under /terminal/), so the parent can reach in. A terminal may not
 // be ready when a theme arrives (iframe still loading), so retry a few times.
 //
 // It deliberately takes no theme argument, and each retry re-reads the module

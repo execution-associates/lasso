@@ -35,7 +35,6 @@ So on a loopback or tailnet lasso with no `UI_AUTH` and no `MCP_OAUTH`, **everyt
 | route | purpose |
 | --- | --- |
 | `/terminal/<host>/` | Reverse proxy (HTTP and WebSocket) to the ttyd running herdr for one host. |
-| `/shell/<host>/` | Reverse proxy to the ttyd running the Terminal tab's shell for one host. Absent with `-spawn-ttyd=false`. |
 | `/api/events` | Server-sent events: focused pane, layout, theme and state revisions, pushed to the browser. |
 | `/api/host` | `POST`: attach the calling tab to a host (spawns its terminals if needed). It switches nothing for other tabs. |
 | `/api/hosts` | The host list from `~/.ssh/config`, with each host's reachability and herdr version. |
