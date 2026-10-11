@@ -114,7 +114,7 @@ private let specDir = packageDir.appendingPathComponent("Spec")
     model.setExpanded(true, animated: false)
     let cap = try await Capturer.capture(RailView(model: model), size: CGSize(
         width: RailMetrics.panelWidth, height: RailMetrics.expandedHeight(Theme.Rail.maxSlots.int) + 2 * RailMetrics.margin))
-    let anchors: [RailModel.Item: String] = [.inbox: "rail.inbox", .agents: "rail.agents.capsule", .settings: "rail.ellipsis"]
+    let anchors: [RailModel.Item: String] = [.inbox: "rail.inbox", .agents: "rail.agents.capsule", .newAgent: "rail.new", .settings: "rail.ellipsis"]
     for (item, frame) in RailMetrics.itemFrames(model.slots.count) {
         let drawn = try #require(cap.frames[anchors[item]!])
         #expect(abs(drawn.minY - frame.minY) <= 1 && abs(drawn.height - frame.height) <= 1, "\(item): \(drawn) vs \(frame)")
@@ -254,13 +254,42 @@ private func key(_ c: String, _ code: UInt16) -> NSEvent {
     #expect(s.request.type == "scratch" && s.request.repo == nil)
 }
 
-/// System-wide shortcuts are one modifier and a key (the user's rule), and
-/// none is ⌘O, which every app's File › Open already is.
-@Test func shortcutDefaultsAreOneModifier() {
+/// A chip's menu opens on the current choice, filters, and ↑/↓/⏎ pick.
+@MainActor @Test func chipMenuKeys() async throws {
+    let m = NewAgentModel(kind: .git, source: FixtureNewAgentSource())
+    await m.load()
+    try await Task.sleep(nanoseconds: 100_000_000)
+    m.openChip = "branch"
+    #expect(m.matches.map(\.value) == ["main", "lasso-desktop-mac"] && m.cursor == 0)
+    m.moveCursor(1)
+    m.moveCursor(1)
+    #expect(m.cursor == 1)
+    m.chooseCursor()
+    #expect(m.baseBranch == "lasso-desktop-mac" && m.openChip == nil)
+    m.openChip = "repo"
+    m.chipFilter = "isb"
+    #expect(m.matches.map(\.title) == ["isb"])
+    m.chooseCursor()
+    #expect(m.repo == "/home/stephan/projects/exa/isb")
+    m.openChip = "effort"
+    m.moveCursor(2)
+    m.chooseCursor()
+    #expect(m.effort == "medium")
+    m.openChip = "agent"
+    m.choose("agent", "omp")
+    #expect(m.agent == "omp" && m.effort == "")
+}
+
+/// System-wide shortcuts are at most three keys (the user's rule), leave
+/// terminals ⌃O, and none is ⌘O, which every app's File › Open already is.
+@Test func shortcutDefaultsLeaveTerminalsTheirKeys() {
+    let expected: [ShortcutSlot: NSEvent.ModifierFlags] = [
+        .inbox: .option, .newAgent: [.option, .shift], .newScratch: [.control, .shift],
+    ]
     for slot in ShortcutSlot.allCases {
         guard case .combo(let k, let m, _) = slot.fallback else { Issue.record("\(slot) has no combination"); continue }
         let mods = NSEvent.ModifierFlags(rawValue: m).intersection([.command, .option, .control, .shift])
-        #expect([NSEvent.ModifierFlags.option, .control].contains(mods), "\(slot)")
+        #expect(mods == expected[slot], "\(slot)")
         #expect(!(k == 31 && mods == .command))
     }
 }

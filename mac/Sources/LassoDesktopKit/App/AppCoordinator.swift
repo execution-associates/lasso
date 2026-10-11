@@ -126,6 +126,7 @@ public final class AppCoordinator {
         rail.onPointer = { [weak self] p in self?.hoverTick(p) }
         rail.model.onAgents = { [weak self] in self?.toggleList() }
         rail.model.onSettings = { [weak self] in self?.openSettings() }
+        rail.model.onNewAgent = { [weak self] in self?.openNewAgent(.git) }
 
         list.model.onOpen = { [weak self] p in self?.openWindow(p) }
         list.onPreview = { [weak self] p, listFrame, row in
@@ -320,11 +321,14 @@ public final class AppCoordinator {
     /// Resting on a rail control opens it, without the keyboard: the user may
     /// be typing in another app, and the card's keys are single letters. A
     /// click or the summon key gives the panel the keyboard.
+    /// The plus only lights up: the form takes the keyboard, so it opens on
+    /// a click, never under a passing pointer.
     func hoverOpen(_ item: RailModel.Item) {
-        guard shown(item) == nil else { return }
+        guard item != .newAgent, shown(item) == nil else { return }
         switch item {
         case .inbox: openInbox(takeKey: false)
         case .agents: toggleList(takeKey: false)
+        case .newAgent: return
         case .settings: openSettings(takeKey: false)
         }
         hoverShown = item
@@ -340,6 +344,7 @@ public final class AppCoordinator {
             if inbox.isOpen { return (inbox.isKey, inbox.panel.frame) }
         case .agents:
             if list.isOpen { return (list.isKey, list.panel.frame) }
+        case .newAgent: break
         case .settings:
             if settings.isOpen { return (settings.isKey, settings.panel.frame) }
         }

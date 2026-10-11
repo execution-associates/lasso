@@ -31,6 +31,7 @@ public struct NewAgentView: View {
             if let e = model.error { errorBanner(e).padding(.horizontal, n.number("pad")).padding(.bottom, Theme.space("m")) }
             footer
         }
+        .overlayPreferenceValue(ChipAnchors.self) { menuLayer($0) }
         .panelChrome(Theme.NewAgent.layout.size2("size"), anchor: "new")
         .accessibilityElement(children: .contain)
         .accessibilityLabel("New agent")
@@ -58,7 +59,7 @@ public struct NewAgentView: View {
     private var prompt: some View {
         let r = n.number("radius")
         return ZStack(alignment: .topLeading) {
-            PromptEditor(text: $model.prompt, focused: $model.promptFocused)
+            PromptEditor(text: $model.prompt, focused: $model.promptFocused, reclaim: model.openChip == nil)
             if model.prompt.isEmpty {
                 Text(model.kind == .git ? "What should it do in this repository?" : "What should it explore?")
                     .font(Theme.Fonts.chat.font)
@@ -100,58 +101,45 @@ public struct NewAgentView: View {
         VStack(alignment: .leading, spacing: Theme.space("s")) {
             // Where it runs.
             HStack(spacing: Theme.space("s")) {
-            if model.kind == .git {
-                Chip(id: "repo", icon: "folder", value: model.repos.first { $0.path == model.repo }?.name ?? "Repository", label: "Repository", model: model) {
-                    ChipList(
-                        model: model, searchable: true,
-                        items: model.repos.map { .init(value: $0.path, title: $0.name, detail: ($0.path as NSString).abbreviatingWithTildeInPath) },
-                        selected: model.repo
-                    ) { model.repo = $0 }
+                if model.kind == .git {
+                    Chip(id: "repo", icon: "folder", value: model.repos.first { $0.path == model.repo }?.name ?? "Repository", label: "Repository", model: model)
+                    Chip(id: "branch", icon: "arrow.triangle.branch", value: model.baseBranch.isEmpty ? "Base branch" : model.baseBranch, label: "Base branch", model: model)
+                } else {
+                    StaticChip(icon: "sparkles", value: "A fresh folder")
                 }
-                Chip(id: "branch", icon: "arrow.triangle.branch", value: model.baseBranch.isEmpty ? "Base branch" : model.baseBranch, label: "Base branch", model: model) {
-                    ChipList(model: model, searchable: true, items: model.branches.map { .init(value: $0, title: $0) }, selected: model.baseBranch) {
-                        model.baseBranch = $0
-                    }
+                if model.hosts.count > 1 {
+                    Chip(id: "host", icon: "desktopcomputer", value: model.host, label: "Machine", model: model)
                 }
-            } else {
-                StaticChip(icon: "sparkles", value: "A fresh folder")
-            }
-            if model.hosts.count > 1 {
-                Chip(id: "host", icon: "desktopcomputer", value: model.host, label: "Machine", model: model) {
-                    ChipList(model: model, searchable: model.hosts.count > 8, items: model.hosts.map { .init(value: $0, title: $0) }, selected: model.host) {
-                        model.host = $0
-                    }
-                }
-            }
             }
             // Who runs it.
             HStack(spacing: Theme.space("s")) {
-            Chip(id: "agent", icon: agentIcon, value: model.harness?.label ?? "Agent", label: "Agent", model: model) {
-                ChipList(model: model, searchable: false, items: model.harnesses.map { .init(value: $0.id, title: $0.label) }, selected: model.agent) {
-                    model.agent = $0
-                    model.model = ""
-                    model.effort = ""
+                Chip(id: "agent", icon: agentIcon, value: model.harness?.label ?? "Agent", label: "Agent", model: model)
+                Chip(id: "model", icon: "cpu", value: model.model.isEmpty ? "Default model" : model.model, label: "Model", isDefault: model.model.isEmpty, model: model)
+                if let levels = model.harness?.effort_levels, !levels.isEmpty {
+                    Chip(id: "effort", icon: "brain", value: model.effort.isEmpty ? "Default thinking" : model.effort.capitalized, label: "Thinking effort", isDefault: model.effort.isEmpty, model: model)
                 }
-            }
-            Chip(id: "model", icon: "cpu", value: model.model.isEmpty ? "Default model" : model.model, label: "Model", isDefault: model.model.isEmpty, model: model) {
-                ChipList(
-                    model: model, searchable: false,
-                    items: [.init(value: "", title: "Default")] + (model.harness?.model_suggestions ?? []).map { .init(value: $0, title: $0) },
-                    selected: model.model
-                ) { model.model = $0 }
-            }
-            if let levels = model.harness?.effort_levels, !levels.isEmpty {
-                Chip(id: "effort", icon: "brain", value: model.effort.isEmpty ? "Default thinking" : model.effort.capitalized, label: "Thinking effort", isDefault: model.effort.isEmpty, model: model) {
-                    ChipList(
-                        model: model, searchable: false,
-                        items: [.init(value: "", title: "Default")] + levels.map { .init(value: $0, title: $0.capitalized) },
-                        selected: model.effort
-                    ) { model.effort = $0 }
-                }
-            }
             }
         }
         .parityAnchor("new.chips")
+    }
+
+    /// The open chip's menu, drawn inside the form (a system popover from a
+    /// floating panel lands wherever the screen has room, half off it at
+    /// times). It opens toward the side with more room and stays inside.
+    private func menuLayer(_ chips: [String: Anchor<CGRect>]) -> some View {
+        GeometryReader { g in
+            if let id = model.openChip, let a = chips[id] {
+                let chip = g[a]
+                // A click outside the menu closes it, or opens the chip it lands on.
+                Color.clear.contentShape(Rectangle())
+                    .onTapGesture(coordinateSpace: .local) { p in
+                        let hit = chips.first { $0.key != id && g[$0.value].contains(p) }?.key
+                        model.openChip = hit
+                    }
+                ChipMenu(model: model, chip: chip, bounds: g.size)
+            }
+        }
+        .animation(.easeOut(duration: Theme.Motion.cardOpen.number("duration")), value: model.openChip)
     }
 
     private var agentIcon: String {
@@ -248,9 +236,17 @@ final class ChipHover: ObservableObject {
     @Published var id: String?
 }
 
+/// Where each chip is, for its menu.
+struct ChipAnchors: PreferenceKey {
+    static let defaultValue: [String: Anchor<CGRect>] = [:]
+    static func reduce(value: inout [String: Anchor<CGRect>], nextValue: () -> [String: Anchor<CGRect>]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
 /// A setting as a chip: its icon, its value, a small chevron; a click opens
-/// its picker beneath it.
-struct Chip<Content: View>: View {
+/// its menu.
+struct Chip: View {
     let id: String
     let icon: String
     let value: String
@@ -259,7 +255,6 @@ struct Chip<Content: View>: View {
     var isDefault = false
     @ObservedObject var model: NewAgentModel
     @ObservedObject var hover = ChipHover.shared
-    @ViewBuilder var content: () -> Content
 
     var body: some View {
         let n = Theme.NewAgent.layout
@@ -268,11 +263,12 @@ struct Chip<Content: View>: View {
         Button { model.openChip = open ? nil : id } label: {
             HStack(spacing: Theme.space("s")) {
                 Image(systemName: icon).font(.system(size: Theme.icon.number("pin"), weight: .medium))
-                    .foregroundStyle(Theme.Text.secondary.color)
+                    .foregroundStyle(open ? Theme.accent.color : Theme.Text.secondary.color)
                 Text(value).font(Theme.Fonts.small.font)
                     .foregroundStyle(isDefault ? Theme.Text.secondary.color : Theme.Text.primary.color).lineLimit(1)
                 Image(systemName: "chevron.down").font(.system(size: n.number("chevron"), weight: .semibold))
                     .foregroundStyle(Theme.Text.secondary.color)
+                    .rotationEffect(.degrees(open ? 180 : 0))
             }
             .padding(.horizontal, Theme.space("l"))
             .frame(height: n.number("chip_h"))
@@ -290,10 +286,10 @@ struct Chip<Content: View>: View {
         .onHover { inside in
             if inside { hover.id = id } else if hover.id == id { hover.id = nil }
         }
+        .animation(.easeOut(duration: Theme.Motion.cardOpen.number("duration")), value: open)
         .accessibilityLabel("\(label): \(value)")
-        .popover(
-            isPresented: Binding(get: { model.openChip == id }, set: { if !$0, model.openChip == id { model.openChip = nil } }),
-            arrowEdge: .bottom, content: content)
+        .accessibilityAddTraits(open ? .isSelected : [])
+        .anchorPreference(key: ChipAnchors.self, value: .bounds) { [id: $0] }
         .parityAnchor("new.chip[\(id)]")
     }
 }
@@ -316,88 +312,142 @@ struct StaticChip: View {
     }
 }
 
-/// A chip's picker: a filter for long lists, the choices, the current one ticked.
-struct ChipList: View {
-    struct Item: Identifiable {
-        var value: String
-        var title: String
-        var detail: String? = nil
-        var id: String { value }
-    }
-
+/// A chip's menu: a filter for long lists, the choices with the current one
+/// ticked, ↑/↓ and ⏎ (NewAgentController) or the pointer to pick. Placed
+/// beside its chip, toward the side with more room, inside the form.
+struct ChipMenu: View {
     @ObservedObject var model: NewAgentModel
-    let searchable: Bool
-    let items: [Item]
-    let selected: String
-    let choose: (String) -> Void
-    @ObservedObject var hover = ChipHover.shared
+    let chip: CGRect
+    let bounds: CGSize
 
     var body: some View {
         let n = Theme.NewAgent.layout
-        let q = model.chipFilter.trimmingCharacters(in: .whitespaces).lowercased()
-        let matches = items.filter { q.isEmpty || $0.title.lowercased().contains(q) || ($0.detail ?? "").lowercased().contains(q) }
-        VStack(alignment: .leading, spacing: 0) {
-            if searchable {
+        let size = Theme.Agent.picker.size2("size")
+        let edge = Theme.space("m")
+        let gap = n.number("menu_gap")
+        let below = bounds.height - chip.maxY - gap - edge
+        let above = chip.minY - gap - edge
+        let up = below < n.number("menu_min") && above > below
+        let room = min(size.height, up ? above : below)
+        let x = min(max(chip.minX, edge), bounds.width - edge - size.width)
+        let shape = RoundedRectangle(cornerRadius: n.number("menu_radius"), style: .continuous)
+        menu(height: room)
+            .frame(width: size.width)
+            .background(shape.fill(Theme.Panel.surface.color))
+            .overlay(shape.strokeBorder(Theme.Panel.divider.color, lineWidth: 1))
+            .clipShape(shape)
+            .shadow(color: .black.opacity(n.number("menu_shadow_a")), radius: n.number("menu_shadow"), y: n.number("menu_shadow_y"))
+            .frame(width: size.width, height: room, alignment: up ? .bottom : .top)
+            .position(x: x + size.width / 2, y: up ? chip.minY - gap - room / 2 : chip.maxY + gap + room / 2)
+            .transition(.opacity.combined(with: .scale(scale: 1 - n.number("tint") / 3, anchor: up ? .bottom : .top)))
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Choices")
+    }
+
+    private func menu(height: CGFloat) -> some View {
+        let n = Theme.NewAgent.layout
+        let id = model.openChip ?? ""
+        let matches = model.matches
+        let selected = model.selected(id)
+        return VStack(alignment: .leading, spacing: 0) {
+            if model.searchable(id) {
                 HStack(spacing: Theme.space("s")) {
                     Image(systemName: "magnifyingglass").foregroundStyle(Theme.Text.secondary.color)
-                    TextField("Filter", text: $model.chipFilter)
-                        .textFieldStyle(.plain)
-                        .foregroundStyle(Theme.Text.primary.color)
-                        .onSubmit { if let first = matches.first { pick(first.value) } }
+                    FilterField(text: $model.chipFilter, placeholder: id == "branch" ? "Filter branches" : id == "repo" ? "Filter repositories" : "Filter")
                 }
                 .font(Theme.Fonts.body.font)
                 .padding(.horizontal, Theme.space("l"))
                 .frame(height: n.number("chip_h") + Theme.space("s"))
-                .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(Theme.Panel.inner.color("fill")))
-                .padding(Theme.space("m"))
                 Rectangle().fill(Theme.Panel.divider.color).frame(height: Theme.space("hair"))
             }
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: Theme.space("hair")) {
-                    ForEach(Array(matches.prefix(80))) { item in
-                        let rowID = "row:" + item.value
-                        Button { pick(item.value) } label: {
-                            HStack(spacing: Theme.space("m")) {
-                                VStack(alignment: .leading, spacing: Theme.space("hair")) {
-                                    Text(item.title).font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color).lineLimit(1)
-                                    if let d = item.detail {
-                                        Text(d).font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color).lineLimit(1)
-                                            .truncationMode(.middle)
-                                    }
-                                }
-                                Spacer(minLength: Theme.space("m"))
-                                if item.value == selected {
-                                    Image(systemName: "checkmark").font(.system(size: Theme.icon.number("pin"), weight: .semibold))
-                                        .foregroundStyle(Theme.accent.color)
-                                }
-                            }
-                            .padding(.horizontal, Theme.space("l"))
-                            .padding(.vertical, Theme.space("s"))
-                            .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(hover.id == rowID ? Theme.Row.hover.color : .clear))
-                            .contentShape(Rectangle())
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: Theme.space("hair")) {
+                        ForEach(Array(matches.enumerated()), id: \.element.id) { i, item in
+                            row(item, index: i, selected: item.value == selected).id(item.id)
                         }
-                        .buttonStyle(.plain)
-                        .onHover { inside in
-                            if inside { hover.id = rowID } else if hover.id == rowID { hover.id = nil }
+                        if matches.isEmpty {
+                            Text("Nothing matches").font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color)
+                                .padding(Theme.space("l"))
                         }
                     }
-                    if matches.isEmpty {
-                        Text("Nothing matches").font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color)
-                            .padding(Theme.space("l"))
-                    }
+                    .padding(Theme.space("s"))
                 }
-                .padding(Theme.space("s"))
+                .onAppear { if matches.indices.contains(model.cursor) { proxy.scrollTo(matches[model.cursor].id, anchor: .center) } }
+                .onChange(of: model.cursor) { _, c in
+                    let m = model.matches
+                    if m.indices.contains(c) { proxy.scrollTo(m[c].id) }
+                }
             }
         }
-        .frame(width: Theme.Agent.picker.size2("size").width)
-        .frame(maxHeight: Theme.Agent.picker.size2("size").height)
+        .frame(maxHeight: height)
         .fixedSize(horizontal: false, vertical: true)
-        .background(Theme.Panel.surface.color)
     }
 
-    private func pick(_ v: String) {
-        choose(v)
-        model.openChip = nil
+    private func row(_ item: NewAgentModel.Choice, index: Int, selected: Bool) -> some View {
+        let on = index == model.cursor
+        return Button { model.choose(model.openChip ?? "", item.value) } label: {
+            HStack(spacing: Theme.space("m")) {
+                VStack(alignment: .leading, spacing: Theme.space("hair")) {
+                    Text(item.title).font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color).lineLimit(1)
+                    if let d = item.detail {
+                        Text(d).font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color).lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+                Spacer(minLength: Theme.space("m"))
+                if selected {
+                    Image(systemName: "checkmark").font(.system(size: Theme.icon.number("pin"), weight: .semibold))
+                        .foregroundStyle(Theme.accent.color)
+                }
+            }
+            .padding(.horizontal, Theme.space("l"))
+            .padding(.vertical, Theme.space("s"))
+            .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(on ? Theme.Row.hover.color : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { if $0 { model.cursor = index } }
+        .accessibilityLabel(item.detail.map { "\(item.title), \($0)" } ?? item.title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// The menu's filter: it takes the cursor when the menu opens, so typing
+/// filters rather than writing into the prompt beneath.
+struct FilterField: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let f = NSTextField()
+        f.isBordered = false
+        f.isBezeled = false
+        f.drawsBackground = false
+        f.focusRingType = .none
+        f.font = Theme.Fonts.body.nsFont
+        f.textColor = Theme.Text.primary.nsColor
+        f.placeholderAttributedString = NSAttributedString(
+            string: placeholder, attributes: [.foregroundColor: Theme.Text.placeholder.nsColor, .font: Theme.Fonts.body.nsFont])
+        f.delegate = context.coordinator
+        f.setAccessibilityLabel("Filter")
+        DispatchQueue.main.async { f.window?.makeFirstResponder(f) }
+        return f
+    }
+
+    func updateNSView(_ f: NSTextField, context: Context) {
+        if f.stringValue != text { f.stringValue = text }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var text: Binding<String>
+        init(text: Binding<String>) { self.text = text }
+        func controlTextDidChange(_ n: Notification) {
+            if let f = n.object as? NSTextField { text.wrappedValue = f.stringValue }
+        }
     }
 }
 
@@ -465,49 +515,13 @@ struct CreateButton: View {
     }
 }
 
-/// Lays chips left to right, wrapping to a new line when the width runs out.
-struct FlowLayout: Layout {
-    var spacing: CGFloat
-    var lineSpacing: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? .infinity
-        var x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0, widest: CGFloat = 0
-        for s in subviews {
-            let size = s.sizeThatFits(.unspecified)
-            if x > 0, x + size.width > width {
-                y += line + lineSpacing
-                x = 0
-                line = 0
-            }
-            x += size.width + spacing
-            line = max(line, size.height)
-            widest = max(widest, x - spacing)
-        }
-        return CGSize(width: proposal.width ?? widest, height: y + line)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x = bounds.minX, y = bounds.minY, line: CGFloat = 0
-        for s in subviews {
-            let size = s.sizeThatFits(.unspecified)
-            if x > bounds.minX, x + size.width > bounds.maxX {
-                y += line + lineSpacing
-                x = bounds.minX
-                line = 0
-            }
-            s.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-            x += size.width + spacing
-            line = max(line, size.height)
-        }
-    }
-}
-
 /// The prompt: a multi-line text view that takes the cursor when the form
 /// opens (the Command Line Tools have no focus API SwiftUI can use).
 struct PromptEditor: NSViewRepresentable {
     @Binding var text: String
     @Binding var focused: Bool
+    /// No menu is open: the cursor comes back here when one closes.
+    var reclaim = true
 
     func makeCoordinator() -> Coordinator { Coordinator(text: $text, focused: $focused) }
 
@@ -532,8 +546,13 @@ struct PromptEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
-        guard let tv = scroll.documentView as? NSTextView, tv.string != text else { return }
-        tv.string = text
+        guard let tv = scroll.documentView as? NSTextView else { return }
+        if tv.string != text { tv.string = text }
+        if reclaim {
+            DispatchQueue.main.async {
+                if let w = tv.window, w.firstResponder !== tv { w.makeFirstResponder(tv) }
+            }
+        }
     }
 
     @MainActor
@@ -582,10 +601,20 @@ final class NewAgentController {
 
     func close() { panel.orderOut(nil) }
 
-    /// esc closes an open picker, else cancels; ⌘⏎ creates; the rest is the form's.
+    /// esc closes an open menu, else cancels; ↑/↓ and ⏎ work an open menu;
+    /// ⌘⏎ creates; the rest is the form's.
     private func handle(_ e: NSEvent) -> Bool {
         if Keys.esc.matches(e) {
             if model.openChip != nil { model.openChip = nil } else { model.onClose() }
+            return true
+        }
+        if model.openChip != nil, !e.modifierFlags.contains(.command) {
+            switch e.keyCode {
+            case KeyCode.up: model.moveCursor(-1)
+            case KeyCode.down: model.moveCursor(1)
+            case KeyCode.returnKey, KeyCode.keypadEnter: model.chooseCursor()
+            default: return false
+            }
             return true
         }
         if e.modifierFlags.contains(.command), e.keyCode == KeyCode.returnKey {

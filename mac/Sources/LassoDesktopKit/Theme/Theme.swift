@@ -179,7 +179,8 @@ public enum Theme {
             "new_agent.layout",
             ["size": [560, 412], "pad": 20, "gap": 16, "radius": 14, "prompt_h": 168, "prompt_inset": 14,
              "chip_h": 28, "chevron": 8, "switch_h": 24, "switch_w": 30, "switch_track": 18, "button_h": 32,
-             "hover": 0.35, "lit": 0.55, "tint": 0.1, "disabled": 0.4],
+             "hover": 0.35, "lit": 0.55, "tint": 0.1, "disabled": 0.4,
+             "menu_gap": 6, "menu_radius": 12, "menu_shadow": 18, "menu_shadow_y": 8, "menu_shadow_a": 0.45, "menu_min": 160],
             .inferred("a composer: the prompt is the page, settings are chips beneath it, one primary action"),
             proposed: true)
     }

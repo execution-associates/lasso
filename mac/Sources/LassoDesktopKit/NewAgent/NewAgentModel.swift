@@ -127,9 +127,17 @@ public final class NewAgentModel: ObservableObject {
     @Published public private(set) var busy = false
     @Published public private(set) var error: String?
 
-    /// Which chip's picker is open, and its filter text.
-    @Published public var openChip: String? { didSet { if openChip != oldValue { chipFilter = "" } } }
-    @Published public var chipFilter = ""
+    /// Which chip's picker is open, its filter text, and the row the arrow
+    /// keys are on (an index into `matches`).
+    @Published public var openChip: String? {
+        didSet {
+            guard openChip != oldValue else { return }
+            chipFilter = ""
+            cursor = openChip.map { c in matches.firstIndex { $0.value == selected(c) } ?? 0 } ?? 0
+        }
+    }
+    @Published public var chipFilter = "" { didSet { if chipFilter != oldValue { cursor = 0 } } }
+    @Published public var cursor = 0
     /// The prompt has the cursor (its frame lights up).
     @Published public var promptFocused = false
     let source: NewAgentSource
@@ -191,6 +199,90 @@ public final class NewAgentModel: ObservableObject {
         } catch {
             branches = []
         }
+    }
+
+    // MARK: the chips' pickers
+
+    /// One choice in a chip's picker.
+    public struct Choice: Identifiable, Equatable, Sendable {
+        public var value: String
+        public var title: String
+        public var detail: String?
+        public var id: String { value }
+    }
+
+    /// What a chip's picker offers.
+    public func choices(_ chip: String) -> [Choice] {
+        switch chip {
+        case "repo":
+            return repos.map { Choice(value: $0.path, title: $0.name, detail: ($0.path as NSString).abbreviatingWithTildeInPath) }
+        case "branch": return branches.map { Choice(value: $0, title: $0) }
+        case "host": return hosts.map { Choice(value: $0, title: $0) }
+        case "agent": return harnesses.map { Choice(value: $0.id, title: $0.label) }
+        case "model":
+            return [Choice(value: "", title: "Default")] + (harness?.model_suggestions ?? []).map { Choice(value: $0, title: $0) }
+        case "effort":
+            return [Choice(value: "", title: "Default")] + (harness?.effort_levels ?? []).map { Choice(value: $0, title: $0.capitalized) }
+        default: return []
+        }
+    }
+
+    public func selected(_ chip: String) -> String {
+        switch chip {
+        case "repo": repo
+        case "branch": baseBranch
+        case "host": host
+        case "agent": agent
+        case "model": model
+        case "effort": effort
+        default: ""
+        }
+    }
+
+    /// Long lists get a filter: repositories, branches, a big fleet.
+    public func searchable(_ chip: String) -> Bool {
+        chip == "repo" || chip == "branch" || (chip == "host" && hosts.count > 8)
+    }
+
+    /// The open picker's rows, filtered.
+    public var matches: [Choice] {
+        guard let c = openChip else { return [] }
+        let q = chipFilter.trimmingCharacters(in: .whitespaces).lowercased()
+        return Array(
+            choices(c).filter { q.isEmpty || $0.title.lowercased().contains(q) || ($0.detail ?? "").lowercased().contains(q) }
+                .prefix(80))
+    }
+
+    /// ↑/↓ in an open picker.
+    public func moveCursor(_ by: Int) {
+        let n = matches.count
+        guard n > 0 else { return }
+        cursor = min(max(cursor + by, 0), n - 1)
+    }
+
+    /// ⏎ in an open picker: the row the cursor is on.
+    public func chooseCursor() {
+        let m = matches
+        guard let c = openChip, m.indices.contains(cursor) else { return }
+        choose(c, m[cursor].value)
+    }
+
+    public func choose(_ chip: String, _ value: String) {
+        switch chip {
+        case "repo": repo = value
+        case "branch": baseBranch = value
+        case "host": host = value
+        case "agent":
+            if agent != value {
+                agent = value
+                model = ""
+                effort = ""
+            }
+        case "model": model = value
+        case "effort": effort = value
+        default: break
+        }
+        openChip = nil
     }
 
     /// The body for /api/create-agent.

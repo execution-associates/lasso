@@ -1,0 +1,13 @@
+{
+  "about": "The New Agent form with the base branch chip's menu open: it opens toward the side with room and stays inside the form, the current branch ticked and under the cursor.",
+  "state": "new-agent-menu",
+  "extends": "new-agent",
+  "ui": {
+    "rail": "collapsed",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "new_agent": true,
+    "new_agent_menu": "branch"
+  }
+}

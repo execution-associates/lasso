@@ -2,7 +2,8 @@ import SwiftUI
 
 // The rail. At rest only a sliver of a pill shows at the screen edge (the
 // peek); hovering it reveals the rail: the inbox (what waits on you), the
-// agents capsule (the fleet) and the ellipsis (settings), each floating on
+// agents capsule (the fleet), the plus (a new agent) and the ellipsis
+// (settings), each floating on
 // its own (no backing).
 // Layout numbers all come from Theme.Rail.
 
@@ -32,7 +33,7 @@ enum RailMetrics {
     /// Height of everything below the inbox: the travel of expand/collapse.
     static func revealHeight(_ slots: Int) -> CGFloat {
         let agents = slots > 0 ? gap + agentsHeight(slots) : 0
-        return agents + gap + Theme.Rail.ellipsisOuter.pt
+        return agents + 2 * (gap + Theme.Rail.ellipsisOuter.pt)
     }
 
     static func expandedHeight(_ slots: Int) -> CGFloat { outer + revealHeight(slots) }
@@ -47,6 +48,8 @@ enum RailMetrics {
             y += agentsHeight(slots) + gap
         }
         let e = Theme.Rail.ellipsisOuter.pt
+        out.append((.newAgent, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
+        y += e + gap
         out.append((.settings, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
         return out
     }
@@ -166,6 +169,7 @@ public struct RailView: View {
                 inbox
                 VStack(spacing: RailMetrics.gap) {
                     if !slots.isEmpty { agents(slots) }
+                    plus
                     ellipsis
                 }
                 .padding(.top, RailMetrics.gap)
@@ -278,6 +282,22 @@ public struct RailView: View {
         .accessibilityLabel("Agents")
         .accessibilityValue("\(fleet.agents.count) running")
         .help("Agents")
+    }
+
+    private var plus: some View {
+        Button { model.activate(.newAgent) } label: {
+            ZStack {
+                GroupBackground(hovered: model.hovered == .newAgent)
+                RailIcon(symbol: "plus")
+            }
+            .frame(width: Theme.Rail.ellipsisOuter.pt, height: Theme.Rail.ellipsisOuter.pt)
+            .contentShape(Circle())
+        }
+        .buttonStyle(RailPress())
+        .parityAnchor("rail.new")
+        .modifier(FocusRing(on: focused(.newAgent)))
+        .accessibilityLabel("New agent")
+        .help("New agent")
     }
 
     private var ellipsis: some View {

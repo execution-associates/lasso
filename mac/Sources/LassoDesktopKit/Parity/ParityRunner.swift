@@ -11,7 +11,7 @@ public final class ParityRunner {
     /// States whose surfaces exist. The rest report as pending until their
     /// milestone lands (PLAN 6).
     public static let implemented: Set<String> = [
-        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "new-agent",
+        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "new-agent", "new-agent-menu",
     ]
 
     let spec: Spec
@@ -190,6 +190,7 @@ public final class ParityRunner {
             let m = NewAgentModel(kind: .git, source: FixtureNewAgentSource())
             await m.load()
             m.prompt = "Fix the flaky upload test\nIt fails about one run in ten on titan."
+            m.openChip = fixture.ui.new_agent_menu
             let make: @MainActor () async throws -> Capture = {
                 try await Capturer.capture(NewAgentView(model: m), size: Theme.NewAgent.layout.size2("size"))
             }
@@ -224,7 +225,7 @@ public final class ParityRunner {
             recapture = make
         } else {
             // A rail control under the pointer (rail-hover-*).
-            let hoverable: [String: RailModel.Item] = ["inbox": .inbox, "agents": .agents, "settings": .settings]
+            let hoverable: [String: RailModel.Item] = ["inbox": .inbox, "agents": .agents, "new": .newAgent, "settings": .settings]
             model.hovered = fixture.ui.hovered.flatMap { hoverable[$0] }
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(RailView(model: model), size: self.railSize()) }
             cap = try await make()

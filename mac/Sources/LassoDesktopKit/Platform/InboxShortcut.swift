@@ -130,9 +130,12 @@ public enum ShortcutSlot: String, CaseIterable, Sendable {
         let o: UInt16 = 31  // kVK_ANSI_O
         switch self {
         case .inbox: return InboxShortcutChoice.fallback
-        // One modifier and a letter (the user's rule: no four-key chords).
-        case .newAgent: return .combo(keyCode: o, modifiers: NSEvent.ModifierFlags.option.rawValue, display: "⌥O")
-        case .newScratch: return .combo(keyCode: o, modifiers: NSEvent.ModifierFlags.control.rawValue, display: "⌃O")
+        // Shift and one modifier: ⌃O alone is a terminal's (Claude Code's
+        // transcript, nano's save, vim's jump back), and ⌥O types "ø".
+        case .newAgent:
+            return .combo(keyCode: o, modifiers: NSEvent.ModifierFlags([.option, .shift]).rawValue, display: "⌥⇧O")
+        case .newScratch:
+            return .combo(keyCode: o, modifiers: NSEvent.ModifierFlags([.control, .shift]).rawValue, display: "⌃⇧O")
         }
     }
 
