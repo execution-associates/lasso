@@ -269,8 +269,9 @@ func botResumeSession(b Backend, r *botRecord, id string) error {
 		}
 		return startBot(b, r, false)
 	}
-	// The host's `-c` continues the newest file: making this one newest is
-	// what keeps it across a restart, even before anything is said in it.
+	// The launch task's `-c` (a restart, herdr's restore) continues the newest
+	// file: making this one newest is what keeps it across a restart, even
+	// before anything is said in it.
 	now := time.Now()
 	_ = os.Chtimes(target.path, now, now)
 	ob := ompBotFor(r.Name)
@@ -301,4 +302,27 @@ func ompCancelled(data json.RawMessage) bool {
 		Cancelled bool `json:"cancelled"`
 	}
 	return json.Unmarshal(data, &d) == nil && d.Cancelled
+}
+
+// ompMessageText is a message's text blocks, joined; thinking and tool calls
+// are left out.
+func ompMessageText(content json.RawMessage) string {
+	var s string
+	if json.Unmarshal(content, &s) == nil {
+		return strings.TrimSpace(s)
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(content, &blocks) != nil {
+		return ""
+	}
+	var parts []string
+	for _, b := range blocks {
+		if b.Type == "text" && strings.TrimSpace(b.Text) != "" {
+			parts = append(parts, strings.TrimSpace(b.Text))
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }

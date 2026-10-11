@@ -21,10 +21,6 @@ func TestMain(m *testing.M) {
 	if mode := os.Getenv(fakeBrowserMCPEnv); mode != "" {
 		os.Exit(runFakeBrowserMCP(mode))
 	}
-	// And omp in RPC mode, under the bot host (botomp_test.go).
-	if os.Getenv(fakeOmpEnv) != "" {
-		os.Exit(runFakeOmp())
-	}
 	// Likewise a plugin's stdio MCP server (plugins_test.go).
 	if mode := os.Getenv(fakePluginMCPEnv); mode != "" {
 		os.Exit(runFakePluginMCP(mode))
@@ -50,9 +46,11 @@ func TestMain(m *testing.M) {
 	for _, k := range []string{"HERDR_SOCKET_PATH", "HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "HERDR_ENV", "LASSO_URL", "LASSO_LISTEN", "LASSO_MCP_TOKEN", "UI_AUTH", "MCP_OAUTH"} {
 		os.Unsetenv(k)
 	}
-	// No unit test starts a systemd unit: an omp bot's host runs in-process
-	// where a test wants one (useOmpBotEnv).
+	// No unit test opens a herdr pane or asks systemd about a bot: an omp bot
+	// is a fake bridge in-process where a test wants one (useOmpBotEnv).
 	botOmpLaunch = noBotLauncher{}
+	botLegacyUnitActive = func(string) bool { return false }
+	botLegacyUnitStop = func(string) error { return nil }
 	code := m.Run()
 	os.RemoveAll(home)
 	os.Exit(code)

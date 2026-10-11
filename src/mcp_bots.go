@@ -24,7 +24,7 @@ type botSummary struct {
 	Host        string   `json:"host"`
 	Dir         string   `json:"dir"`
 	Workspace   string   `json:"workspace"`
-	Runtime     string   `json:"runtime" jsonschema:"omp (omp in RPC mode under lasso's bot host, no herdr pane) or claude (Claude Code in a herdr pane)"`
+	Runtime     string   `json:"runtime" jsonschema:"omp (omp itself in a herdr pane, driven through lasso's bridge) or claude (Claude Code in a herdr pane)"`
 	Model       string   `json:"model,omitempty"`
 	State       string   `json:"state" jsonschema:"stopped, starting, idle, working or blocked"`
 	WaitingFor  string   `json:"waiting_for,omitempty" jsonschema:"why a blocked bot is waiting, in its own words"`
@@ -60,7 +60,7 @@ func registerBotTools(s *mcp.Server) {
 	registerBotJobTools(s)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_bots",
-		Description: "List lasso's bots: long-lived agent sessions, each with its own folder and MCP servers, that lasso keeps running. A bot's runtime is omp (omp in RPC mode under lasso's bot host) or claude (Claude Code in a herdr pane). Each entry has its live state (stopped/starting/idle/working/blocked) and the newest line of its conversation. Only bots on hosts your credential reaches are listed. Talk to a running bot with send_agent, its name as `to`.",
+		Description: "List lasso's bots: long-lived agent sessions, each with its own folder and MCP servers, that lasso keeps running. A bot's runtime is omp (omp itself in a herdr pane, driven through lasso's bridge) or claude (Claude Code in a herdr pane). Each entry has its live state (stopped/starting/idle/working/blocked) and the newest line of its conversation. Only bots on hosts your credential reaches are listed. Talk to a running bot with send_agent, its name as `to`.",
 	}, listBotsTool)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_bot",

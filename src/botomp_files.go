@@ -6,14 +6,17 @@ package main
 //	<dir>/AGENTS.md               the bot's instructions (omp's agents-md provider
 //	                              reads it; a root CLAUDE.md it does not)
 //	<dir>/.omp/mcp.json           its MCP servers, omp's project config (0600)
-//	<dir>/.mise/tasks/bot         execs omp in RPC mode; the bot host runs it
-//	<dir>/.mise/tasks/restart     leaves .lasso/restart for the bot host
+//	<dir>/.mise/tasks/bot         runs omp's TUI with lasso's bridge, in its herdr pane
+//	<dir>/.mise/tasks/restart     leaves .lasso/restart for the bridge
+//	<dir>/.lasso/omp-bridge.ts    lasso's bridge (ompbridge/lasso-bridge.ts)
 //	<dir>/.lasso/sessions/        omp's session files (--session-dir)
 //
-// There are no dialogs to answer and no herdr name to claim: the process is
-// never in a terminal. lasso's bot host (bothost.go) owns its stdin/stdout.
+// The bridge, an omp extension, serves the bot's socket from inside omp and
+// reports the pane to herdr, so there are no dialogs for the task to answer
+// and no herdr name for it to claim.
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -21,9 +24,20 @@ import (
 	"strings"
 )
 
-func botAttachPath(dir string) string    { return filepath.Join(dir, ".mise", "tasks", "attach") }
+// botOmpBridgeSource is the bridge every omp bot loads (`omp -e`).
+//
+//go:embed ompbridge/lasso-bridge.ts
+var botOmpBridgeSource []byte
+
+func botOmpBridgePath(dir string) string { return filepath.Join(dir, ".lasso", "omp-bridge.ts") }
 func botOmpMCPPath(dir string) string    { return filepath.Join(dir, ".omp", "mcp.json") }
 func botOmpSessionDir(dir string) string { return filepath.Join(dir, ".lasso", "sessions") }
+
+// botOmpRetiredPaths are files lasso once generated in an omp bot's folder and
+// removes on the next write.
+func botOmpRetiredPaths(dir string) []string {
+	return []string{filepath.Join(dir, ".mise", "tasks", "attach")}
+}
 func botInstructionsFile(r *botRecord) string {
 	if r.isOmp() {
 		return "AGENTS.md"
@@ -44,6 +58,14 @@ func botOmpMaterialize(b Backend, r *botRecord) error {
 	}
 	if err := botEnvInit(b, dir); err != nil {
 		return err
+	}
+	// The bridge's socket lives here: full control of the session, so 0700.
+	{
+		sockDir := filepath.Dir(botSocketPath(r.Name))
+		if err := os.MkdirAll(sockDir, 0o700); err != nil {
+			return fmt.Errorf("create %s: %w", sockDir, err)
+		}
+		_ = os.Chmod(sockDir, 0o700)
 	}
 	if err := botOmpWriteTask(b, r, dir); err != nil {
 		return err
@@ -128,11 +150,13 @@ func botOmpWriteMCP(b Backend, r *botRecord, dir string) error {
 	return nil
 }
 
+// botOmpWriteTask writes the launch and restart tasks and the bridge they
+// load. Every save and env change calls it; a running omp keeps the bridge it
+// loaded until it restarts (botOmpUpgrade).
 func botOmpWriteTask(b Backend, r *botRecord, dir string) error {
 	for path, body := range map[string]string{
 		botTaskPath(dir):    botOmpTaskScript(r, dir, botEnvKeys(b, dir)),
 		botRestartPath(dir): botOmpRestartScript(dir),
-		botAttachPath(dir):  botOmpAttachScript(r),
 	} {
 		if err := b.WriteFile(path, []byte(body), 0o755); err != nil {
 			return fmt.Errorf("write %s: %w", path, err)
@@ -141,14 +165,28 @@ func botOmpWriteTask(b Backend, r *botRecord, dir string) error {
 			_ = os.Chmod(path, 0o755)
 		}
 	}
+	bridge := botOmpBridgePath(dir)
+	if err := b.MkdirAll(filepath.Dir(bridge), 0o755); err != nil {
+		return err
+	}
+	if cur, err := b.ReadFile(bridge); err != nil || string(cur) != string(botOmpBridgeSource) {
+		if err := b.WriteFile(bridge, botOmpBridgeSource, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", bridge, err)
+		}
+	}
+	for _, old := range botOmpRetiredPaths(dir) {
+		if _, err := b.Stat(old); err == nil {
+			_ = b.RemoveAll(old)
+		}
+	}
 	return nil
 }
 
-// botOmpArgv is omp's argv for the bot, without the trailing "$@". RPC-UI
-// mode, so the questions and approvals omp would show a terminal arrive as
-// extension_ui_request frames lasso answers from the chat.
+// botOmpArgv is omp's argv for the bot, without the trailing "$@": the
+// interactive TUI with lasso's bridge loaded, which serves the bot's socket
+// and races every question and approval between the terminal and lasso.
 func botOmpArgv(r *botRecord, dir string) []string {
-	argv := []string{"omp", "--mode", "rpc-ui", "--session-dir", botOmpSessionDir(dir)}
+	argv := []string{"omp", "-e", botOmpBridgePath(dir), "--session-dir", botOmpSessionDir(dir)}
 	if r.PermissionMode != "" {
 		argv = append(argv, "--approval-mode", r.PermissionMode)
 	}
@@ -177,38 +215,68 @@ func botOmpArgv(r *botRecord, dir string) []string {
 	return append(argv, extra...)
 }
 
-// botOmpTaskScript renders an omp bot's .mise/tasks/bot. exec'd, unlike the
-// claude task: the bot host owns the process and relaunches it itself.
+// botOmpTaskScript renders an omp bot's .mise/tasks/bot, run in the bot's
+// herdr pane: by lasso's Start, keep-running and upgrade, and by herdr's
+// restore (`mise run <task> -- -c`, the resume argv the bridge reports). Like
+// a claude bot's task it waits on omp rather than exec'ing it, so a self
+// restart (the marker, botOmpRestartScript) relaunches the whole task with new
+// env, servers and settings, on the same conversation.
 func botOmpTaskScript(r *botRecord, dir string, envKeys []string) string {
+	q := shellQuote
 	var b strings.Builder
 	fmt.Fprintf(&b, "#!/bin/sh\n#MISE description=%q\n", "Run the "+r.Name+" bot")
 	if len(envKeys) > 0 {
 		keys, _ := json.Marshal(envKeys)
 		// interactive: a task that receives secrets otherwise gets its output
-		// redacted line by line and no stdin, and stdin/stdout are omp's RPC.
+		// redacted line by line and no stdin, and omp needs the terminal.
 		fmt.Fprintf(&b, "#MISE secrets=%s\n#MISE interactive=true\n", keys)
 	}
 	b.WriteString("# Generated by lasso from the bot's settings; lasso rewrites it on every save.\n")
-	b.WriteString("# lasso's bot host runs it (`lasso bot-host`) and speaks omp's RPC on stdin/stdout.\n")
 	b.WriteString("unset CLAUDECODE CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_SESSION_ID\n")
-	// Under the bot host, omp's RPC is fds 3 and 4 (bothost.go spawn): mise
-	// connects no stdin to a task with secrets unless it has a terminal. Run
-	// by hand, the task keeps its own stdin and stdout.
-	b.WriteString("if [ \"${LASSO_BOT_RPC:-}\" = fd ]; then exec 0<&3 1>&4 3<&- 4>&-; fi\n")
+	resume, _ := json.Marshal(botOmpResumeArgv(r.task()))
+	b.WriteString("# lasso's bridge (an omp extension) serves the bot's socket and reports this\n# pane to herdr; herdr's own omp extension, which keys on HERDR_ENV, stays out.\n")
+	fmt.Fprintf(&b, "export LASSO_BOT_NAME=%s LASSO_BOT_SOCKET=%s\n", q(r.Name), q(botSocketPath(r.Name)))
+	fmt.Fprintf(&b, "export LASSO_BOT_RESTART=%s LASSO_BOT_RESUME=%s LASSO_BRIDGE_VERSION=%s\n",
+		q(botRestartMarker(dir)), q(string(resume)), q(lassoVersion()))
+	b.WriteString("export LASSO_HERDR_SOCKET=\"${HERDR_SOCKET_PATH:-}\" LASSO_HERDR_PANE=\"${HERDR_PANE_ID:-}\"\n")
+	b.WriteString("unset HERDR_ENV\n")
 	argv := botOmpArgv(r, dir)
 	quoted := make([]string, len(argv))
 	for i, a := range argv {
-		quoted[i] = shellQuote(a)
+		quoted[i] = q(a)
 	}
 	quoted[0] = "omp"
-	// "$@" last, so the host's `-- -c` (continue the last session) applies.
-	fmt.Fprintf(&b, "exec %s \"$@\"\n", strings.Join(quoted, " "))
+	fmt.Fprintf(&b, "marker=%s\nrm -f \"$marker\"\n", q(botRestartMarker(dir)))
+	// "$@" last, so `-- -c` (continue the last session) applies.
+	fmt.Fprintf(&b, "%s \"$@\"\nstatus=$?\n", strings.Join(quoted, " "))
+	// The relaunch goes through the launch task, so a mode survives it.
+	fmt.Fprintf(&b, `if [ -f "$marker" ]; then
+  rm -f "$marker"
+  exec mise run %s -- -c
+fi
+exit $status
+`, r.task())
 	return b.String()
 }
 
+// botOmpLaunchCommand is what lasso types into the bot's new pane: the launch
+// task, continuing the last conversation unless fresh.
+func botOmpLaunchCommand(task string, fresh bool) string {
+	if fresh {
+		return "mise run " + task
+	}
+	return "mise run " + task + " -- -c"
+}
+
+// botOmpResumeArgv is how herdr brings the bot back: the same task, in the
+// pane's folder, continuing the conversation.
+func botOmpResumeArgv(task string) []string {
+	return []string{"mise", "run", task, "--", "-c"}
+}
+
 // botOmpRestartScript renders an omp bot's .mise/tasks/restart: the marker
-// alone. The bot host sees it once the current turn has ended, closes omp and
-// starts the launch task again on the same session.
+// alone. The bridge sees it once the current turn has ended and shuts omp
+// down; the launch task sees it and starts again on the same conversation.
 func botOmpRestartScript(dir string) string {
 	return `#!/bin/sh
 #MISE description="Restart this bot on the same conversation"
@@ -218,37 +286,15 @@ echo "Restarting once this turn ends; the conversation continues afterwards."
 `
 }
 
-// botOmpAttachScript renders .mise/tasks/attach: the bot's view in this
-// terminal (lasso bot-attach), for a pane whose view was closed. It names this
-// lasso binary, falling back to the one on PATH if that one is gone.
-func botOmpAttachScript(r *botRecord) string {
-	return `#!/bin/sh
-#MISE description="Show this bot in this terminal (Ctrl-C closes the view; the bot keeps running)"
-# Generated by lasso; it rewrites this file on every save.
-exe=` + shellQuote(botLassoExe()) + `
-[ -x "$exe" ] || exe=lasso
-# In a herdr pane the view must be the shell's own command, not this task's
-# child: herdr takes the view's restore command only from the pane's
-# foreground process. So it is typed into the pane, for the shell to run once
-# this task has exited.
-if [ -n "${HERDR_PANE_ID:-}" ] && command -v herdr >/dev/null 2>&1 &&
-  herdr pane send-text "$HERDR_PANE_ID" "$exe bot-attach ` + r.Name + `" >/dev/null 2>&1; then
-  herdr pane send-keys "$HERDR_PANE_ID" enter >/dev/null 2>&1
-  exit 0
-fi
-exec "$exe" bot-attach ` + r.Name + `
-`
-}
-
 // botOmpSystemPrompt tells an omp bot what it is and how it runs.
 func botOmpSystemPrompt(r *botRecord, dir string) string {
-	return fmt.Sprintf(`You are the bot %q: a long-lived omp session that lasso manages. lasso's bot host runs you in %s with `+"`mise run %s`"+`, in RPC mode: there is no terminal, and your human talks to you from lasso's Bots view. The host keeps you running across lasso restarts and continues this same session when you are relaunched, so this conversation outlives any one process.
+	return fmt.Sprintf(`You are the bot %q: a long-lived omp session that lasso manages. You run in a herdr pane in %s, launched there with `+"`mise run %s`"+`. Your human talks to you from lasso's Bots view, from that pane, and through the channels and jobs lasso delivers. When herdr restarts it brings you back on this same conversation, and lasso relaunches you if you stop unexpectedly, so this conversation outlives any one process.
 
 - AGENTS.md in that folder is your standing instructions. Project skills go in .claude/skills/ there.
-- lasso generates .omp/mcp.json, .mise/config.toml, .mise/tasks/bot, .mise/tasks/restart and .mise/tasks/attach from its Bots settings and overwrites them on every save: change those through lasso, not by editing the files. Any other task in .mise/tasks/ is the human's: a launch task (a mode, such as another provider) sets its environment and ends with `+"`exec mise run bot -- \"$@\"`"+`.
+- lasso generates .omp/mcp.json, .mise/config.toml, .mise/tasks/bot, .mise/tasks/restart and .lasso/omp-bridge.ts from its Bots settings and overwrites them on every save: change those through lasso, not by editing the files. Any other task in .mise/tasks/ is the human's: a launch task (a mode, such as another provider) sets its environment and ends with `+"`exec mise run bot -- \"$@\"`"+`.
 - Your environment and secrets come from fnox.toml through mise, and only reach you at launch.
 - You can configure yourself when your human asks. Lasso's MCP tools (server "lasso") take your name, %q: get_bot reads your settings, update_bot changes your model, effort, approval mode, MCP servers, extra args, launch task, keep-running and avatar, set_bot_avatar sets your picture from an image file, and set_bot_env / unset_bot_env manage your variables (secret ones encrypted). Edit AGENTS.md and the files in .claude/skills/ directly. A server that needs OAuth must be signed in by your human in lasso's Bots view. Settings, MCP servers and variables take effect after you restart.
-- You CAN restart yourself, and it is safe: run `+"`mise run restart`"+` in %s with your shell tool. That is the supported way, made for exactly this. The bot host restarts you once your turn finishes, on this same conversation. Do it whenever your human asks you to restart, and when you need a new skill, MCP server, setting or variable to take effect; say you are restarting before you run it.
+- You CAN restart yourself, and it is safe: run `+"`mise run restart`"+` in %s with your shell tool. That is the supported way, made for exactly this. You restart once your turn finishes, on this same conversation. Do it whenever your human asks you to restart, and when you need a new skill, MCP server, setting or variable to take effect; say you are restarting before you run it.
 
 %s`,
 		r.Name, dir, r.task(), r.Name, dir, botOmpJobInstructions)

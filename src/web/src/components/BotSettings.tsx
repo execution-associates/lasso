@@ -580,7 +580,7 @@ function GeneralTab({
             runtimeLocked
               ? "Stop the bot to change it."
               : omp
-                ? "omp in RPC mode, kept running by lasso on this machine, with a herdr pane to watch and talk to it. Its questions and approvals come to its chat and its pane."
+                ? "omp itself in a herdr pane on this machine, kept running by lasso. Its questions and approvals come to its chat and its pane, and either can answer."
                 : "Claude Code in a herdr pane, on any host lasso drives."
           }
         >
@@ -1028,6 +1028,10 @@ function ConnectionsTab({
       localStorage.setItem(CONN_FILTER_KEY, f)
     } catch {}
   }
+  // Channels are Claude Code's: an omp bot's servers are all tools, and its
+  // outside messages arrive as jobs and send_agent instead.
+  const omp = draft.runtime === "omp"
+  const view: ConnFilter = omp ? "all" : filter
   const [editing, setEditing] = React.useState<number | null>(null)
   const setServer = (id: number, patch: Partial<DraftServer>) =>
     set({ mcp: draft.mcp.map((s) => (s.id === id ? { ...s, ...patch } : s)) })
@@ -1040,12 +1044,12 @@ function ConnectionsTab({
     tools: draft.mcp.length - channels.length + (lassoCard ? 1 : 0),
   }
   const shown = draft.mcp.filter((s) =>
-    filter === "all" ? true : filter === "channels" ? s.channel : !s.channel
+    view === "all" ? true : view === "channels" ? s.channel : !s.channel
   )
-  const showLasso = lassoCard && filter !== "channels"
-  const showChannel = !!lassoChannel && filter !== "tools"
+  const showLasso = lassoCard && view !== "channels"
+  const showChannel = !!lassoChannel && view !== "tools"
   const add = () => {
-    const s = blankServer(filter === "channels")
+    const s = blankServer(view === "channels")
     set({ mcp: [...draft.mcp, s] })
     setEditing(s.id)
   }
@@ -1066,9 +1070,19 @@ function ConnectionsTab({
   return (
     <div className="flex flex-col gap-4">
       <p className="text-[12.5px] text-muted-foreground leading-relaxed">
-        The MCP servers this bot gets. A <b>channel</b> also delivers messages
-        (mail, chat, a schedule) that the bot answers without being asked. Keep
-        secrets out of this page: write{" "}
+        The MCP servers this bot gets.{" "}
+        {omp ? (
+          <>
+            Messages from outside (mail, chat, a schedule) reach it through its
+            Jobs.{" "}
+          </>
+        ) : (
+          <>
+            A <b>channel</b> also delivers messages (mail, chat, a schedule)
+            that the bot answers without being asked.{" "}
+          </>
+        )}
+        Keep secrets out of this page: write{" "}
         <code className="rounded bg-muted px-1 font-mono text-[11.5px]">
           ${"{VAR}"}
         </code>{" "}
@@ -1079,25 +1093,26 @@ function ConnectionsTab({
         under Environment, where it is stored encrypted.
       </p>
       <div className="flex flex-wrap items-center gap-1.5">
-        {chips.map((c) => (
-          <button
-            key={c.id}
-            type="button"
-            aria-pressed={filter === c.id}
-            onClick={() => setFilter(c.id)}
-            className={cn(
-              "rounded-full border px-3 py-1 text-[12px] transition-colors",
-              filter === c.id
-                ? "border-primary/50 bg-primary/15 text-foreground"
-                : "border-border text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {c.label}{" "}
-            <span className="text-muted-foreground tabular-nums">
-              {counts[c.id]}
-            </span>
-          </button>
-        ))}
+        {!omp &&
+          chips.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              aria-pressed={filter === c.id}
+              onClick={() => setFilter(c.id)}
+              className={cn(
+                "rounded-full border px-3 py-1 text-[12px] transition-colors",
+                filter === c.id
+                  ? "border-primary/50 bg-primary/15 text-foreground"
+                  : "border-border text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {c.label}{" "}
+              <span className="text-muted-foreground tabular-nums">
+                {counts[c.id]}
+              </span>
+            </button>
+          ))}
         <Button variant="outline" size="sm" className="ml-auto" onClick={add}>
           <Plus />
           Add connection
@@ -1105,9 +1120,9 @@ function ConnectionsTab({
       </div>
       {shown.length === 0 && !showLasso && !showChannel ? (
         <p className="rounded-lg border border-border border-dashed px-3 py-6 text-center text-[12.5px] text-muted-foreground">
-          {filter === "channels"
+          {view === "channels"
             ? "No channels yet. A channel is an MCP server that delivers messages to the bot."
-            : filter === "tools"
+            : view === "tools"
               ? "No tool servers yet."
               : "No connections yet."}
         </p>
@@ -1116,7 +1131,7 @@ function ConnectionsTab({
           {shown.map((s) => (
             <ServerCard
               key={s.id}
-              server={s}
+              server={omp ? { ...s, channel: false } : s}
               status={oauth.data?.servers[s.name.trim()]}
               dirty={!!bot && !saved.has(serverKey(serverOf(s)))}
               onOpen={() => setEditing(s.id)}
@@ -1157,6 +1172,7 @@ function ConnectionsTab({
             </DialogHeader>
             <ServerFields
               s={current}
+              channels={!omp}
               setServer={setServer}
               bot={bot}
               status={oauth.data?.servers[current.name.trim()]}
@@ -1312,12 +1328,15 @@ function LassoChannelCard() {
 // One server's settings, edited in the Connections dialog.
 function ServerFields({
   s,
+  channels,
   setServer,
   bot,
   status,
   refreshOAuth,
 }: {
   s: DraftServer
+  // Whether the bot's runtime has channels (Claude Code's; omp has none).
+  channels: boolean
   setServer: (id: number, patch: Partial<DraftServer>) => void
   bot?: BotView
   status?: BotOAuthStatus
@@ -1490,16 +1509,18 @@ function ServerFields({
           )}
         </>
       )}
-      <Check
-        id={`mcp-channel-${s.id}`}
-        checked={s.channel}
-        onChange={(channel) => setServer(s.id, { channel })}
-      >
-        Channel
-        <span className="block text-[11.5px] text-muted-foreground">
-          Messages it delivers reach the bot as incoming messages.
-        </span>
-      </Check>
+      {channels && (
+        <Check
+          id={`mcp-channel-${s.id}`}
+          checked={s.channel}
+          onChange={(channel) => setServer(s.id, { channel })}
+        >
+          Channel
+          <span className="block text-[11.5px] text-muted-foreground">
+            Messages it delivers reach the bot as incoming messages.
+          </span>
+        </Check>
+      )}
     </div>
   )
 }
@@ -2282,9 +2303,10 @@ function LaunchTab({
       {bot.error && <p className="text-[12px] text-destructive">{bot.error}</p>}
       {bot.host_outdated && (
         <p className="text-[12px] text-muted-foreground">
-          Its bot host is from lasso {bot.host_version || "an older version"}{" "}
-          and speaks another protocol than this lasso. lasso restarts it onto
-          this version, on the same conversation, as soon as the bot is idle.
+          It runs with lasso {bot.host_version || "an older version"}'s omp
+          bridge, which speaks another protocol than this lasso. lasso restarts
+          it onto this version, on the same conversation, as soon as the bot is
+          idle.
         </p>
       )}
       <Field

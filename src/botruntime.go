@@ -65,9 +65,9 @@ var bots = &botRuntime{
 // botBackend resolves the host a bot lives on. A seam for tests.
 var botBackend = func(host string) (Backend, error) { return namedHostBackend(host) }
 
-// findBotPane finds the bot's pane: by herdr agent name first (the task script
-// claims it), then the claude pane running in the bot's folder — a pane herdr
-// restored comes back unnamed until the script's rename lands.
+// findBotPane finds the bot's pane: by herdr agent name first (a claude bot's
+// task script claims it, an omp bot's bridge), then the bot's agent running in
+// its folder — a pane herdr restored comes back unnamed until the rename lands.
 //
 // A name match counts only in the bot's own folder: another agent may already
 // hold the name (a bot replacing a hand-run agent of the same name), and
@@ -84,11 +84,10 @@ func findBotPane(b Backend, r *botRecord) (pane, bool) {
 	if err != nil {
 		return pane{}, false
 	}
-	// An omp bot's pane is its viewer (lasso bot-attach), which reports itself
-	// to herdr as omp-bot.
+	// An omp bot's pane is omp itself, which its bridge reports to herdr.
 	want := "claude"
 	if r.isOmp() {
-		want = botAttachAgent
+		want = botOmpAgent
 	}
 	for _, p := range panes {
 		kind, _ := paneAgentPresence(p)
@@ -170,7 +169,7 @@ func openBotTab(b Backend, r *botRecord, dir string) (string, error) {
 // and the next Start resumes it.
 func stopBot(b Backend, r *botRecord) error {
 	if r.isOmp() {
-		return botOmpStop(r)
+		return botOmpStop(b, r)
 	}
 	if err := setBotStopped(r.Name, true); err != nil {
 		return err
@@ -225,8 +224,8 @@ type botView struct {
 	LastKind   string `json:"last_kind,omitempty"`
 	LastAt     string `json:"last_at,omitempty"`
 	Error      string `json:"error,omitempty"`
-	// An omp bot's host: the lasso version it runs, and whether it speaks
-	// another protocol than this lasso (restarted onto this binary once idle).
+	// An omp bot's bridge: the lasso version that wrote it, and whether it
+	// speaks another protocol than this lasso (restarted onto it once idle).
 	HostVersion  string `json:"host_version,omitempty"`
 	HostOutdated bool   `json:"host_outdated,omitempty"`
 	// What the bot runs right now, as omp reports it, and how full its context

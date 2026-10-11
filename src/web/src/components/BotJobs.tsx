@@ -385,7 +385,8 @@ function ChannelNote({
     return (
       <p className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
         <span className="size-1.5 rounded-full bg-emerald-500" />
-        Channel connected: {bot.name} is listening for jobs.
+        {bot.runtime === "omp" ? "Connected" : "Channel connected"}: {bot.name}{" "}
+        is listening for jobs.
       </p>
     )
   if (!botRunning(bot))
@@ -399,8 +400,9 @@ function ChannelNote({
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg bg-muted px-3 py-2 text-[12px] text-muted-foreground">
       <span className="min-w-0 flex-1">
-        {bot.name} isn't listening for jobs yet. It picks up lasso's channel the
-        next time it starts.
+        {bot.runtime === "omp"
+          ? `${bot.name} isn't listening for jobs yet: lasso has not reached it.`
+          : `${bot.name} isn't listening for jobs yet. It picks up lasso's channel the next time it starts.`}
       </span>
       <Button
         size="sm"
