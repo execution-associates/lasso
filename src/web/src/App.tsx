@@ -19,6 +19,7 @@ import {
   Search,
   Server,
   Settings,
+  Smartphone,
   SquareTerminal,
   Users,
 } from "lucide-react"
@@ -108,6 +109,13 @@ import {
   writeLeftView,
 } from "@/lib/url"
 import { cn } from "@/lib/utils"
+import {
+  isSimplePath,
+  SIMPLE_BASE,
+  switchUI,
+  wantsSimple,
+} from "@/simple/route"
+import { SimpleApp } from "@/simple/SimpleApp"
 
 // A built-in tab id (lib/sidebar-tabs.ts:BUILTIN_TABS — "agents" being below
 // md only: at md+ the fleet's agents are the docked column beside the chat
@@ -275,11 +283,19 @@ function Pane({
 export function App() {
   return (
     <AppProvider>
-      {botsApp ? <BotsApp /> : <Shell />}
+      {simpleApp ? <SimpleApp /> : botsApp ? <BotsApp /> : <Shell />}
       <Toaster />
     </AppProvider>
   )
 }
+
+// The simple app (src/simple): /m and below. A phone opening lasso's root
+// lands there unless this device chose the full UI (simple/route.ts). Only the
+// root redirects: a deep link into the full UI (/chat, /agents, /bots) is
+// taken as asked.
+if (window.location.pathname === "/" && wantsSimple())
+  window.location.replace(SIMPLE_BASE)
+const simpleApp = isSimplePath(window.location.pathname)
 
 // The Bots app: lasso installed from /bots (manifest-bots.json, start_url
 // /bots?app=bots) is its own home-screen app holding only the Bots view, so a
@@ -1050,6 +1066,13 @@ function Shell() {
           })}
         </>
       )}
+      {/* The way back to the simple app, from every width: the choice is
+          remembered on this device (simple/route.ts). */}
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onSelect={() => switchUI("simple")}>
+        <Smartphone />
+        Simple view
+      </DropdownMenuItem>
       {narrow && (
         <>
           <DropdownMenuSeparator />

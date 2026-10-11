@@ -178,6 +178,8 @@ function mergePatch(a: UIStatePatch, b: UIStatePatch): UIStatePatch {
   // Pin ops are per key too: two cards pinned in one round trip both land.
   if (a.agent_pins && b.agent_pins)
     out.agent_pins = { ...a.agent_pins, ...b.agent_pins }
+  if (a.card_dismiss && b.card_dismiss)
+    out.card_dismiss = { ...a.card_dismiss, ...b.card_dismiss }
   return out
 }
 
@@ -202,6 +204,7 @@ function mergeLocal(cached: UIState, patch: UIStatePatch): UIState {
     remember_background: remember,
     forget_background: forget,
     agent_pins: pins,
+    card_dismiss: dismiss,
     ...fields
   } = patch
   const out: UIState = { ...cached, ...fields }
@@ -242,7 +245,24 @@ function mergeLocal(cached: UIState, patch: UIStatePatch): UIState {
       .sort()
     out.pinned_agents = [...kept, ...adds].slice(-MAX_PINNED_AGENTS)
   }
+  if (dismiss) {
+    // mergeDismissedCards without the cap: null brings a card back. The cap
+    // only drops the oldest, which the refetch after the save settles.
+    const next = { ...cached.dismissed_cards }
+    for (const [k, at] of Object.entries(dismiss)) {
+      if (at === null) delete next[k]
+      else next[k] = at
+    }
+    out.dismissed_cards = next
+  }
   return out
+}
+
+// dismissCard clears one card from the human's attention on every device.
+// It changes nothing on the agent: the card returns when its moment (`at`)
+// is passed, by a new turn or a new question.
+export function dismissCard(key: string, at: number) {
+  patchUIState({ card_dismiss: { [key]: at } })
 }
 
 // setAgentPinned pins or unpins one agents-grid card, by paneKey. An op rather

@@ -18,6 +18,7 @@ import {
   Moon,
   Palette,
   RotateCw,
+  Smartphone,
   Sun,
   Upload,
   X,
@@ -155,6 +156,7 @@ import {
   setThemeBackground,
   themeBackgrounds,
 } from "@/lib/wallpaper"
+import { switchUI } from "@/simple/route"
 
 type SaveState = "idle" | "saving" | "saved" | "error"
 
@@ -379,6 +381,23 @@ export function SettingsTab({ active }: { active: boolean }) {
           forceMount
           className="min-h-0 overflow-y-auto px-3 py-4 data-[state=inactive]:hidden"
         >
+          {/* The way back to the simple app, remembered on this device. */}
+          <button
+            type="button"
+            onClick={() => switchUI("simple")}
+            className="mb-4 flex w-full items-center gap-2.5 rounded-lg border border-border px-3 py-2.5 text-left hover:bg-accent/40"
+          >
+            <Smartphone className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] text-foreground">
+                Switch to the simple view
+              </span>
+              <span className="block text-[11px] text-muted-foreground">
+                Inbox, agents, bots and settings, made for a phone. Remembered
+                on this device.
+              </span>
+            </span>
+          </button>
           {/* Grouped so a phone opens on a short list of headers. Agents is
               kept mounted: CreationSettings is a set of autosaving drafts
               with a save status, and the host picker's choice lives here. */}

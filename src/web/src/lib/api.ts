@@ -213,6 +213,8 @@ export interface HostPane {
   // When the agent's transcript was last written, unix milliseconds. Absent
   // when the pane has no transcript lasso can read.
   transcript_at?: number
+  // herdr's custom agent label (agent.list's name), when one was set.
+  agent_label?: string
 }
 
 export interface PanesPayload {
@@ -261,6 +263,15 @@ export interface ChatTool {
   // and on an ask whose payload lasso could not read (that one stays a plain
   // tool row rather than an empty form).
   ask?: ChatAsk
+  // Files the agent showed the human (Claude Code's SendUserFile), each
+  // classified by extension so a viewer is picked before anything is fetched.
+  files?: ChatFile[]
+}
+
+export interface ChatFile {
+  path: string
+  kind: "image" | "audio" | "video" | "file"
+  caption?: string
 }
 
 // A question an agent is waiting on. The options are the content: a chat that
@@ -504,6 +515,12 @@ export interface UIState {
   // Read-only here: write it through the agent_pins ops (setAgentPinned).
   // Optional because an older server never sends it.
   pinned_agents?: string[]
+  // Cards the human discarded, by key (a paneKey, or bot:<name>[#<ask id>]),
+  // each with the moment it was discarded up to: a pane's transcript_at, a
+  // bot's last_at in ms. A card returns once its own moment passes that.
+  // Read-only here: write it through the card_dismiss ops. Optional because
+  // an older server never sends it.
+  dismissed_cards?: Record<string, number>
   // How much character the palette chrome carries (lib/character.ts). Never
   // send "": the server answers 400, as it does for browser_mode.
   texture: Texture
@@ -611,6 +628,9 @@ export interface UIStatePatch
   forget_background?: string
   // Pin ops on pinned_agents, per paneKey: true pins, false unpins.
   agent_pins?: Record<string, boolean>
+  // Dismissal ops on dismissed_cards, per key: a value dismisses up to it,
+  // null brings the card back.
+  card_dismiss?: Record<string, number | null>
 }
 
 // What a POST /api/ui-state write sends beyond the preferences themselves: who
@@ -913,6 +933,8 @@ export interface BotView extends BotFields {
   // Its picture (.lasso/avatar.<ext> plus a ?v= revision), or "": see
   // botAvatarURL. Set through avatarSet, never by a save.
   avatar_image: string
+  // What an omp bot is waiting on the human for, as its chat would carry it.
+  pending_ui?: BotPendingUI[]
 }
 
 export interface BotDetail {
@@ -1979,7 +2001,16 @@ export const api = {
     pane: string,
     expect: string,
     labels: string[],
-    answers: { selected: number[]; multi: boolean; options: number }[]
+    answers: {
+      selected: number[]
+      multi: boolean
+      options: number
+      // Free text typed into the dialog's "Other" row.
+      custom?: string
+      // The question's options carry previews (claude lays those out with no
+      // "Other" row, so the server refuses `custom` there).
+      previews?: boolean
+    }[]
   ) =>
     postJSON<ChatAnswerResult>(withHost("/api/chat/answer", host), {
       pane_id: pane,
@@ -2341,6 +2372,10 @@ export const api = {
     pane_id?: string
     reveal?: boolean
   }) => postJSON<{ ok: boolean; reattach?: boolean }>("/api/focus", sel),
+  // Focus one pane on its OWN host, whatever host this tab is on: the simple
+  // app has no terminal of its own, so nothing here follows herdr's focus.
+  focusOn: (host: string, sel: { pane_id: string; workspace_id?: string }) =>
+    postJSON<{ ok: boolean }>(withHost("/api/focus", host), sel),
 
   // Both renames name their machine the way close does: omitted is the tab's
   // host, explicit is the pane's own.

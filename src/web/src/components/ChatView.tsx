@@ -252,6 +252,9 @@ function PickMark({ multi, chosen }: { multi: boolean; chosen: boolean }) {
   )
 }
 
+// When true, an ask card never answers on a single tap (see AskCard).
+export const AskConfirmContext = React.createContext(false)
+
 // AskCard is the one card that is not a record of work but a request to the
 // READER: the agent has stopped and will not continue until one of these options
 // is chosen. So it renders the dialog the terminal is showing — the question in
@@ -272,6 +275,7 @@ function AskCard({
   paneID: string
 }) {
   const questions = tool.ask?.questions ?? []
+  const confirm = React.useContext(AskConfirmContext)
   // Which option of each question the reader has picked. Local until it is
   // sent: the transcript cannot know about a choice that has not reached the
   // pane yet, and the harness will not either until it is submitted.
@@ -291,7 +295,11 @@ function AskCard({
   // gesture for nothing. Every other shape is a form, because the dialog walks
   // its questions in order and answering them one request at a time would race
   // the human's own taps.
-  const oneTap = questions.length === 1 && !questions[0]?.multi
+  //
+  // The simple app turns that off (AskConfirmContext): there a tap only
+  // selects and Answer sends, since a stray tap while scrolling a phone is
+  // the common mistake and an answer cannot be taken back.
+  const oneTap = !confirm && questions.length === 1 && !questions[0]?.multi
   // A question with no options is the free-text kind: the terminal is where it
   // is answered, so the card does not offer a form for it.
   const hasOptions = questions.some((q) => q.options.length > 0)
@@ -532,7 +540,11 @@ function AskCard({
             ) : (
               <Send className="size-3.5" />
             )}
-            {sending ? "Sending…" : "Send answers"}
+            {sending
+              ? "Sending…"
+              : questions.length > 1
+                ? "Send answers"
+                : "Answer"}
           </button>
           <span className="min-w-0 truncate text-[11px] text-muted-foreground">
             {ready

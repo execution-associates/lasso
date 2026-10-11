@@ -63,10 +63,22 @@ export const HOST_MOVED_EVENT = "lasso:host-moved"
 // A server-pushed toast (SSE "notice"): how background work that outlives its
 // request — auto-titling a new agent, which finishes long after create-agent
 // answered — reports a failure the user would otherwise only see in the log.
-interface Notice {
+export interface Notice {
   level?: "error" | "info" | "success"
   title: string
   detail?: string
+  // Unique per notice, and when it was raised (unix ms). Absent from an
+  // older server.
+  id?: string
+  at?: number
+}
+
+// Every notice is re-dispatched on window under this name (detail: Notice).
+export const NOTICE_EVENT = "lasso:notice"
+let noticesAsToasts = true
+// The simple app lists notices in its Inbox, so it turns the toasts off.
+export function setNoticeToasts(on: boolean) {
+  noticesAsToasts = on
 }
 
 function showNotice(raw: string) {
@@ -77,6 +89,9 @@ function showNotice(raw: string) {
     return
   }
   if (!n?.title) return
+  // The simple app keeps notices in its Inbox rather than as toasts.
+  window.dispatchEvent(new CustomEvent(NOTICE_EVENT, { detail: n }))
+  if (!noticesAsToasts) return
   const opts = n.detail ? { description: n.detail } : undefined
   if (n.level === "error") toast.error(n.title, opts)
   else if (n.level === "success") toast.success(n.title, opts)
