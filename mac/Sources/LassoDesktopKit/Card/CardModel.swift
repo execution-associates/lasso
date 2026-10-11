@@ -234,7 +234,7 @@ public final class CardModel: ComposerModel {
 
     public func focusComposer() { focusRequest += 1 }
 
-    public var composerPlaceholder: String { "Message \(current.displayName)…" }
+    public var composerPlaceholder: String { "Reply to \(current.displayName)" }
 
     /// V: a voice turn whose transcript lands in this composer, unsent.
     public var onRecord: () -> Void = {}
