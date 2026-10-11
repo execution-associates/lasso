@@ -875,7 +875,12 @@ func TestOmpBotSessions(t *testing.T) {
 	if err := botOmpSend(r.Name, "first chat", true); err != nil {
 		t.Fatal(err)
 	}
-	ompWaitFor(t, "the answer", func() bool { return botStatus(b, r, nil).LastText == "done: first chat" })
+	// The reply text lands a moment before the turn ends, and a new
+	// conversation is refused mid-turn: wait for both.
+	ompWaitFor(t, "the answer", func() bool {
+		st := botStatus(b, r, nil)
+		return st.LastText == "done: first chat" && st.State == "idle"
+	})
 	req := func(method, path, body string) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
 		serveBots(w, httptest.NewRequest(method, "/api/bots/convo/"+path, strings.NewReader(body)))
@@ -888,7 +893,10 @@ func TestOmpBotSessions(t *testing.T) {
 	if err := botOmpSend(r.Name, "second chat", true); err != nil {
 		t.Fatal(err)
 	}
-	ompWaitFor(t, "the second answer", func() bool { return botStatus(b, r, nil).LastText == "done: second chat" })
+	ompWaitFor(t, "the second answer", func() bool {
+		st := botStatus(b, r, nil)
+		return st.LastText == "done: second chat" && st.State == "idle"
+	})
 	var list struct {
 		Sessions []botSessionInfo `json:"sessions"`
 	}
