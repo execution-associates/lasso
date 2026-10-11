@@ -913,6 +913,7 @@ func botOmpChat(b Backend, r *botRecord, before string) chatPayload {
 	}
 	run, _ := fillChatLog(&out, b, path, "omp", info.Size(), before, false)
 	out.Running = run || s.streaming
+	annotateBotMeta(r.Name, out.Items)
 	return out
 }
 

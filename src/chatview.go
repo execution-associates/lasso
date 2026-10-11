@@ -81,6 +81,11 @@ type chatItem struct {
 	// Source is the channel server an incoming row came from
 	// ("gmail-channel"); its envelope is the row's Text.
 	Source string `json:"source,omitempty"`
+	// Meta is what the client said about a message it sent to an omp bot
+	// (`meta` on /api/bots/<name>/chat/send: how it was input, by which
+	// engine), matched back onto the user row by botmeta.go. omp's session
+	// file has nowhere to keep it.
+	Meta map[string]string `json:"meta,omitempty"`
 	// off is where in the transcript this row's record begins. Not on the wire:
 	// it is what makes paging exact (the oldest KEPT row is the cursor the next
 	// page is fetched before), and a row dropped by the per-read cap must not

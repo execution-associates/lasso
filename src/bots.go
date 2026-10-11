@@ -834,6 +834,7 @@ func reorderBots(names []string) error {
 func deleteBot(name string) error {
 	_, _ = db.Exec(`DELETE FROM bot_mcp_oauth WHERE bot = ?`, name)
 	deleteBotJobsOf(name)
+	_, _ = db.Exec(`DELETE FROM bot_message_meta WHERE bot = ?`, name)
 	_, err := db.Exec(`DELETE FROM bots WHERE name = ?`, name)
 	return err
 }

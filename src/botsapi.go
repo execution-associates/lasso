@@ -22,6 +22,9 @@ package main
 //	GET    /api/bots/<name>/skills            the folder's project skills
 //	POST   /api/bots/<name>/skills            {from}: copy a skill directory in
 //	DELETE /api/bots/<name>/skills?name=
+//	GET    /api/bots/<name>/chat[?before=]    an omp bot's chat; user rows carry the meta they were sent with
+//	POST   /api/bots/<name>/chat/send         {text, meta?}: meta is {key: string}, ≤16 keys, ≤1 KB (botmeta.go)
+//	POST   /api/bots/<name>/chat/stop|answer  abort the turn; {id, value?, confirmed?, cancelled?}
 //	…      /api/bots/<name>/jobs[/…]          scheduled jobs and webhooks (botjobs.go)
 //
 // CLAUDE.md is a file in the bot's folder and goes through /api/file.
@@ -32,12 +35,14 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 )
 
 func serveBots(w http.ResponseWriter, r *http.Request) {
@@ -600,6 +605,9 @@ func serveBotChat(w http.ResponseWriter, r *http.Request, b Backend, rec *botRec
 		Value     *string `json:"value"`
 		Confirmed *bool   `json:"confirmed"`
 		Cancelled bool    `json:"cancelled"`
+		// Meta rides a send: what the client says about the message (how it
+		// was input), shown on its row in the chat (botmeta.go).
+		Meta json.RawMessage `json:"meta"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil && !errors.Is(err, io.EOF) {
 		http.Error(w, "bad body", http.StatusBadRequest)
@@ -612,7 +620,17 @@ func serveBotChat(w http.ResponseWriter, r *http.Request, b Backend, rec *botRec
 			http.Error(w, "text is required", http.StatusBadRequest)
 			return
 		}
-		err = botOmpSend(rec.Name, in.Text, true)
+		meta, merr := decodeBotMeta(in.Meta)
+		if merr != nil {
+			http.Error(w, merr.Error(), http.StatusBadRequest)
+			return
+		}
+		sentAt := time.Now()
+		if err = botOmpSend(rec.Name, in.Text, true); err == nil && meta != nil {
+			if serr := storeBotMeta(rec.Name, in.Text, sentAt, meta); serr != nil {
+				log.Printf("bots: %s: storing a message's meta failed: %v", rec.Name, serr)
+			}
+		}
 	case "stop":
 		if !ompBotFor(rec.Name).snapshot().streaming {
 			writeJSON(w, map[string]any{"outcome": "refused", "detail": "the bot is not working"})
