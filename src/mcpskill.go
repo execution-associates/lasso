@@ -289,3 +289,25 @@ func answerMCPSkills(skills []*mcpSkill, method string, raw json.RawMessage) (ma
 	}
 	return result, nil
 }
+
+// cliSkill prints lasso's skill from the copy built into this binary, so it
+// needs no running server and always matches the installed version. A path
+// argument prints one of the skill's other files instead, by the same relative
+// path SKILL.md links it with (`lasso skill docs/mcp/tools.md`).
+func cliSkill(args []string, w io.Writer) error {
+	if len(args) > 1 {
+		return errors.New("usage: lasso skill [path]")
+	}
+	rel := "SKILL.md"
+	if len(args) == 1 {
+		rel = args[0]
+	}
+	uri := "skill://lasso/" + path.Clean(strings.TrimPrefix(rel, "./"))
+	for _, s := range mcpSkills() {
+		if b, ok := s.files[uri]; ok {
+			_, err := w.Write(b)
+			return err
+		}
+	}
+	return fmt.Errorf("no %s in lasso's skill", rel)
+}

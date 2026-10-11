@@ -259,3 +259,21 @@ func TestWithMCPSkillsPassesOtherRequestsThrough(t *testing.T) {
 		t.Errorf("skills/list notification: %d, want 202", rec.Code)
 	}
 }
+
+func TestCLISkillPrintsEmbeddedFiles(t *testing.T) {
+	want, _ := skillFS.ReadFile("skill/lasso/SKILL.md")
+	var out bytes.Buffer
+	if err := cliSkill(nil, &out); err != nil || !bytes.Equal(out.Bytes(), want) {
+		t.Fatalf("lasso skill: err %v, printed %d bytes, want SKILL.md's %d", err, out.Len(), len(want))
+	}
+	want, _ = skillFS.ReadFile("skill/lasso/docs/mcp/tools.md")
+	out.Reset()
+	if err := cliSkill([]string{"./docs/mcp/tools.md"}, &out); err != nil || !bytes.Equal(out.Bytes(), want) {
+		t.Fatalf("lasso skill docs/mcp/tools.md: err %v", err)
+	}
+	for _, args := range [][]string{{"docs/nope.md"}, {"../go.mod"}, {"a", "b"}} {
+		if err := cliSkill(args, io.Discard); err == nil {
+			t.Errorf("lasso skill %v: no error", args)
+		}
+	}
+}

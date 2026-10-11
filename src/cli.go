@@ -38,6 +38,7 @@ import (
 //	lasso channel         a bot's lasso channel (claude runs it from the bot's mcp.json)
 //	lasso bot-host        an omp bot's host (lasso runs it as the user unit lasso-bot-<name>)
 //	lasso bot-attach      an omp bot in a herdr pane (lasso opens it; herdr restores it)
+//	lasso skill [path]    print lasso's agent skill (SKILL.md), or one of its docs
 //	lasso version         print the version
 //
 // Subcommands are dispatched in main() BEFORE flag.Parse so the server's flags
@@ -108,6 +109,11 @@ func main() {
 		case "plugin", "plugins":
 			cliPlugin(os.Args[2:])
 			return
+		case "skill":
+			if err := cliSkill(os.Args[2:], os.Stdout); err != nil {
+				fatal("skill: %v", err)
+			}
+			return
 		case "version", "--version", "-v":
 			fmt.Println(lassoVersion())
 			return
@@ -150,6 +156,7 @@ usage:
   lasso channel --bot <n>  a bot's jobs channel (claude runs it from the bot's mcp.json)
   lasso bot-host --bot <n> an omp bot's host: owns omp's RPC pipes (lasso runs it as a systemd user unit)
   lasso bot-attach <n>     an omp bot in this terminal: its conversation, your messages, its state in herdr
+  lasso skill [path]       print lasso's agent skill (SKILL.md), or a doc it links to
   lasso version            print the version
 
 run "lasso -h" style flags after serve/start/restart; see docs/reference/cli.md for details.

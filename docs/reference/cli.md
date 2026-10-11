@@ -29,6 +29,7 @@ lasso serve -h    # every server flag
 | `lasso notify [flags] <message>` | | Push a notification to the human running lasso. |
 | `lasso open [flags] <path>` | | Show a file in the human's sidebar file viewer. |
 | `lasso closeme` | | Close the calling agent itself. |
+| `lasso skill [path]` | | Print lasso's agent skill, or a doc it links to. |
 | `lasso mcp-client <cmd>` | | Manage per-host MCP credentials. |
 | `lasso mcp-group <cmd>` | | Manage host groups. |
 | `lasso plugin <cmd>` | `plugins` | Manage plugins. |
@@ -109,7 +110,7 @@ These subcommands are clients of a running lasso. They find it the same way:
 | `LASSO_MCP_TOKEN` | Bearer token, sent when set (for a lasso with `MCP_OAUTH`). |
 | `UI_AUTH` | `user:pass`, sent as basic auth when set. |
 
-`lasso closeme` and the `plugin` commands differ slightly; see their sections.
+`lasso closeme`, `lasso skill` and the `plugin` commands differ slightly; see their sections.
 
 ### `lasso connect`
 
@@ -193,6 +194,12 @@ A relative path is resolved against this shell's working directory before the ca
 Closes the agent this command runs in: it POSTs `$HERDR_PANE_ID` to the local lasso's `/api/agent/close`, which performs the same soft close as the UI and the `close_agent` tool (stop the agent process, then close its pane). Takes no arguments. Fails if `$HERDR_PANE_ID` is unset.
 
 It always talks to `http://$LASSO_LISTEN` (default `127.0.0.1:8090`) on the same machine, sending `UI_AUTH` as basic auth when set. It does not read `LASSO_URL` or `LASSO_MCP_TOKEN`.
+
+### `lasso skill`
+
+Prints lasso's agent skill, the `SKILL.md` that `/mcp` also serves over the [Skills extension](../mcp/index.md#the-lasso-skill). With a path, it prints that file of the skill instead, by the same relative path `SKILL.md` links it with: `lasso skill docs/mcp/tools.md`. Only `SKILL.md` and the Markdown in `docs/` are there.
+
+It reads the copy built into the binary, so it needs no running lasso and always matches the installed version.
 
 ### `lasso channel`
 
