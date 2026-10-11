@@ -70,6 +70,16 @@ var (
 	// Cf-Access-* headers.
 	requireAccessHdr = flag.Bool("require-access-header", envOn("LASSO_REQUIRE_ACCESS_HEADER"),
 		"require a Cf-Access-Authenticated-User-Email header on every request (Cloudflare Access in front); env LASSO_REQUIRE_ACCESS_HEADER=1")
+	// The network listeners (caller.go). Each fails closed: a request without
+	// the front door's proof is refused.
+	listenAccess = flag.String("listen-access", os.Getenv("LASSO_LISTEN_ACCESS"),
+		"loopback address for cloudflared to target; every request must carry a Cloudflare Access assertion that verifies against LASSO_ACCESS_TEAM/LASSO_ACCESS_AUD; env LASSO_LISTEN_ACCESS")
+	tailnetOn = flag.Bool("tailnet", envOn("LASSO_TAILNET"),
+		"also serve HTTPS on this node's tailnet addresses, identifying each caller by tailscaled's whois; env LASSO_TAILNET=1")
+	tailnetPort = flag.String("tailnet-port", os.Getenv("LASSO_TAILNET_PORT"),
+		"port for -tailnet (default: the -listen port); env LASSO_TAILNET_PORT")
+	listenServe = flag.String("listen-serve", os.Getenv("LASSO_LISTEN_SERVE"),
+		"loopback address for tailscale serve to target; trusts the Tailscale-User-Login header tailscale serve sets, so nothing else may forward to it; env LASSO_LISTEN_SERVE")
 	accessEmails = flag.String("access-allowed-emails", os.Getenv("LASSO_ACCESS_ALLOWED_EMAILS"),
 		"comma-separated emails allowed through -require-access-header; empty = any Access-authenticated identity")
 	// Self-update shells `systemd-run --user` to pull+restart lasso. On a fleet
@@ -176,6 +186,38 @@ func runServer() {
 	// The Access header gate counts as auth for the non-loopback refusal below:
 	// a request without an edge-vouched identity never reaches a handler.
 	gate := newAccessGate(*requireAccessHdr, *accessEmails)
+	accessV, err := accessVerifierFromEnv()
+	if err != nil {
+		log.Fatalf("access: %v", err)
+	}
+	gate.verifier = accessV
+	edge := &edgeConfig{access: accessV, allow: parseAllowList(envList(allowEnv))}
+	if *listenAccess != "" {
+		if accessV == nil {
+			log.Fatalf("-listen-access needs %s and %s (the Access team and the application's Audience tag)", accessTeamEnv, accessAUDEnv)
+		}
+		if !isLoopback(*listenAccess) {
+			log.Fatalf("-listen-access %q must be a loopback address: cloudflared is the only thing that should reach it", *listenAccess)
+		}
+	}
+	if *listenServe != "" && !isLoopback(*listenServe) {
+		log.Fatalf("-listen-serve %q must be a loopback address: tailscale serve is the only thing that should reach it", *listenServe)
+	}
+	var tsAPI tailscaleAPI
+	var tsSelf tsStatus
+	if *tailnetOn || *listenServe != "" {
+		if tsAPI, err = newTailscaleAPI(filepath.Join(lassoDir(), "tailnet")); err != nil {
+			log.Fatalf("tailnet: %v", err)
+		}
+		sctx, scancel := context.WithTimeout(context.Background(), 10*time.Second)
+		tsSelf, err = tsAPI.status(sctx)
+		scancel()
+		if err != nil {
+			log.Fatalf("tailnet: asking tailscaled for this node: %v", err)
+		}
+		edge.owner = tsSelf.OwnerLogin
+		edge.tailnet = newTailnetIdentity(tsAPI)
+	}
 	if !isLoopback(*listenAddr) && !hasAuth && !*allowNoAuth && !gate.require {
 		log.Fatalf("refusing to listen on non-loopback %q without auth — set UI_AUTH=user:pass, "+
 			"pass -require-access-header when Cloudflare Access fronts this hostname, "+
@@ -467,6 +509,9 @@ func runServer() {
 	guard := defaultHostGuard(*listenAddr)
 	log.Printf("guard:    answers to IPs, localhost and %s (add names with %s)", strings.Join(guard.list(), ", "), hostnamesEnv)
 	handler = withLocalGuard(handler, guard)
+	// Who is calling (caller.go): outside the guard, so a network listener's
+	// missing proof is refused before anything else looks at the request.
+	handler = withCaller(handler, edge)
 	// lasso's own chrome-devtools-mcp children reach /cdp on an internal token,
 	// ahead of every gate above (see withInternalCDP for why outermost).
 	handler = withInternalCDP(handler, http.HandlerFunc(serveCDPRouted))
@@ -527,7 +572,55 @@ func runServer() {
 	// start may still be answered.
 	go resumeReplyInbox(ctx)
 
-	srv := &http.Server{Handler: handler}
+	srv := &http.Server{Handler: handler, ConnContext: withConnRole}
+	// The network listeners, each stamped with its role (caller.go).
+	var extra []net.Listener
+	if *listenAccess != "" {
+		l, err := net.Listen("tcp", *listenAccess)
+		if err != nil {
+			log.Fatalf("listen %s: %v", *listenAccess, err)
+		}
+		extra = append(extra, roleListener{Listener: l, role: roleAccess})
+		log.Printf("access:   %s verifies every request against %s (aud %s)", *listenAccess, accessV.issuer, strings.Join(sortedKeys(accessV.auds), ", "))
+	}
+	if *listenServe != "" {
+		l, err := net.Listen("tcp", *listenServe)
+		if err != nil {
+			log.Fatalf("listen %s: %v", *listenServe, err)
+		}
+		extra = append(extra, roleListener{Listener: l, role: roleServe})
+		log.Printf("serve:    %s trusts tailscale serve's Tailscale-User-Login; point only tailscale serve at it", *listenServe)
+	}
+	if *tailnetOn {
+		port := *tailnetPort
+		if port == "" {
+			_, port, _ = net.SplitHostPort(*listenAddr)
+		}
+		tctx, tcancel := context.WithTimeout(context.Background(), 60*time.Second)
+		lns, u, err := tailnetListeners(tctx, tsAPI, tsSelf, port)
+		tcancel()
+		if err != nil {
+			log.Fatalf("tailnet: %v", err)
+		}
+		extra = append(extra, lns...)
+		log.Printf("tailnet:  %s (callers identified by tailscaled's whois)", u)
+	}
+	if len(extra) > 0 {
+		who := "the node owner " + edge.owner
+		if edge.allow.set {
+			who = allowEnv
+		} else if edge.owner == "" {
+			who = "nobody on the tailnet until " + allowEnv + " names them (this node is tagged)"
+		}
+		log.Printf("allow:    access: %s; tailnet/serve: %s", map[bool]string{true: allowEnv, false: "whoever Access admits"}[edge.allow.set], who)
+	}
+	for _, l := range extra {
+		go func(l net.Listener) {
+			if err := srv.Serve(l); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("serve %s: %v", l.Addr(), err)
+			}
+		}(l)
+	}
 	shutdownDone := make(chan struct{})
 	go func() {
 		defer close(shutdownDone)
@@ -3294,11 +3387,23 @@ func withAuth(next http.Handler, user, pass string, enabled bool) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A caller a network front door proved (caller.go), or a device token
+		// a human granted the ui scope, needs no shared password.
+		if edgeVerified(r) || uiTokenOK(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		u, p, ok := r.BasicAuth()
 		userOK := subtle.ConstantTimeCompare([]byte(u), []byte(user)) == 1
 		passOK := subtle.ConstantTimeCompare([]byte(p), []byte(pass)) == 1
 		if !ok || !userOK || !passOK {
-			w.Header().Set("WWW-Authenticate", `Basic realm="herdr", charset="UTF-8"`)
+			if oauthCfg.Enabled {
+				// Point a native client at lasso's own authorization server,
+				// where it can get a ui-scoped device token (RFC 9728).
+				w.Header().Add("WWW-Authenticate", fmt.Sprintf(`Bearer realm="lasso", resource_metadata=%q, scope=%q`,
+					externalBaseURL(r)+"/.well-known/oauth-protected-resource", oauthScope+" "+scopeUI))
+			}
+			w.Header().Add("WWW-Authenticate", `Basic realm="herdr", charset="UTF-8"`)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

@@ -599,7 +599,7 @@ func browserRequestRefusal(r *http.Request, user, pass string, hasAuth bool) str
 	if !cdpOriginAllowed(r) {
 		return "the browser tools refuse a cross-origin request: a web page cannot drive lasso's browsers"
 	}
-	if oauthCfg.Enabled || !hasAuth {
+	if oauthCfg.Enabled || !hasAuth || edgeVerified(r) {
 		return ""
 	}
 	u, p, ok := r.BasicAuth()

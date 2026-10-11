@@ -236,7 +236,10 @@ func sameOriginRequest(r *http.Request) bool {
 // state-changing browser requests from another origin.
 func withLocalGuard(next http.Handler, g hostGuard) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !g.allows(r.Host) {
+		// On the access listener the verified Access assertion already proves
+		// the request came through Cloudflare for this application, which a
+		// rebinding page cannot fake; the public hostname needs no listing.
+		if roleOf(r) != roleAccess && !g.allows(r.Host) {
 			// 421: the request reached a server that is not configured for
 			// that name. Say how to add it, since a reverse proxy or tunnel
 			// lasso was not told about is the honest way to get here.

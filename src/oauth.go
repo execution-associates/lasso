@@ -50,6 +50,11 @@ const (
 	// oauthScope is the single scope this resource understands. Kept to one so
 	// clients that omit `scope` entirely (most do) still get a usable token.
 	oauthScope = "mcp"
+	// scopeUI is the device-token scope: a token granted it also reaches the
+	// UI and /api (uiTokenOK), which a plain mcp token never does — a
+	// host-scoped agent credential must not get the UI API, which has no host
+	// checks. Only the consent screen grants it, so a human approved it.
+	scopeUI = "ui"
 	// Access tokens are short so a leaked one ages out; refresh tokens are long
 	// so a connector survives lasso restarts and self-updates.
 	oauthAccessTTL  = time.Hour
@@ -374,7 +379,7 @@ func serveProtectedResourceMetadata(w http.ResponseWriter, r *http.Request) {
 	writeOAuthJSON(w, http.StatusOK, map[string]any{
 		"resource":                 base + "/mcp",
 		"authorization_servers":    []string{base},
-		"scopes_supported":         []string{oauthScope},
+		"scopes_supported":         []string{oauthScope, scopeUI},
 		"bearer_methods_supported": []string{"header"},
 		"resource_name":            "Lasso agent orchestrator",
 	})
@@ -392,7 +397,7 @@ func serveAuthServerMetadata(w http.ResponseWriter, r *http.Request) {
 		"authorization_endpoint":                base + "/oauth/authorize",
 		"token_endpoint":                        base + "/oauth/token",
 		"registration_endpoint":                 base + "/oauth/register",
-		"scopes_supported":                      []string{oauthScope},
+		"scopes_supported":                      []string{oauthScope, scopeUI},
 		"response_types_supported":              []string{"code"},
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token", "client_credentials"},
 		"code_challenge_methods_supported":      []string{"S256"},
@@ -561,7 +566,7 @@ func serveOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 	if _, err := db.Exec(
 		`INSERT INTO oauth_codes (code_hash, client_id, redirect_uri, code_challenge, scope, resource, expires_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		hashToken(code), client.ID, redirect, challenge, oauthScope, resource,
+		hashToken(code), client.ID, redirect, challenge, grantedScope(r.Form.Get("scope")), resource,
 		time.Now().UTC().Add(oauthCodeTTL).Format(time.RFC3339),
 	); err != nil {
 		fail("server_error", "could not persist the code")
@@ -593,7 +598,39 @@ func renderConsent(w http.ResponseWriter, c oauthClient, form url.Values) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	fmt.Fprintf(w, consentPage, html.EscapeString(name), html.EscapeString(form.Get("redirect_uri")), hidden.String())
+	what := "drive lasso's MCP server — it will be able to spawn, message, and close agents on every host this lasso can reach"
+	if strings.Contains(grantedScope(form.Get("scope")), scopeUI) {
+		what = "act as you in lasso: its whole UI and API, including the terminals and every file lasso can reach, as well as its MCP server"
+	}
+	fmt.Fprintf(w, consentPage, html.EscapeString(name), what, html.EscapeString(form.Get("redirect_uri")), html.EscapeString(grantedScope(form.Get("scope"))), hidden.String())
+}
+
+// grantedScope is the scope a consent grants: always mcp, plus ui when the
+// client asked for it.
+func grantedScope(requested string) string {
+	for _, s := range strings.Fields(requested) {
+		if s == scopeUI {
+			return oauthScope + " " + scopeUI
+		}
+	}
+	return oauthScope
+}
+
+// tokenHasScope reports whether a valid lasso access token was granted scope.
+func tokenHasScope(tok, scope string) bool {
+	if _, _, ok := verifyAccessToken(tok); !ok {
+		return false
+	}
+	var got string
+	if db.QueryRow(`SELECT scope FROM oauth_tokens WHERE token_hash = ? AND kind = 'access'`, hashToken(tok)).Scan(&got) != nil {
+		return false
+	}
+	for _, s := range strings.Fields(got) {
+		if s == scope {
+			return true
+		}
+	}
+	return false
 }
 
 // consentPage is intentionally self-contained (no assets, no JS): it has to
@@ -621,11 +658,10 @@ const consentPage = `<!doctype html>
 </style>
 <div class="card">
   <h1>Authorize MCP access</h1>
-  <p><strong>%s</strong> is asking to drive lasso's MCP server — it will be able to
-     spawn, message, and close agents on every host this lasso can reach.</p>
+  <p><strong>%s</strong> is asking to %s.</p>
   <dl>
     <dt>Redirect to</dt><dd>%s</dd>
-    <dt>Scope</dt><dd>mcp</dd>
+    <dt>Scope</dt><dd>%s</dd>
   </dl>
   <p class="warn">Only approve this if you recognise the redirect target above.</p>
   <form method="POST">
@@ -929,7 +965,15 @@ func withMCPAuth(next http.Handler, uiUser, uiPass string, uiEnabled bool) http.
 		// sessions) are server-side and don't preflight. The OAuth discovery and
 		// token endpoints DO send CORS — those are public documents.
 		fields := strings.Fields(r.Header.Get("Authorization"))
-		if len(fields) == 2 && strings.EqualFold(fields[0], "bearer") {
+		bearer := len(fields) == 2 && strings.EqualFold(fields[0], "bearer")
+		if !bearer && edgeVerified(r) {
+			// A network front door proved who this is (caller.go). Without a
+			// lasso token it gets the fleet view a person or an operator-granted
+			// service token has; with one, the token's scope applies below.
+			next.ServeHTTP(w, r)
+			return
+		}
+		if bearer {
 			// Delegate the bearer path to the SDK's own middleware rather than
 			// verifying inline: it is what puts the TokenInfo into the request
 			// context, which is the ONLY way the resolved identity reaches a tool

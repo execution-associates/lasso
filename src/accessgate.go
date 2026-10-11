@@ -40,6 +40,10 @@ const accessEmailHeader = "Cf-Access-Authenticated-User-Email"
 // all, and (optionally) the exact set of identities allowed through it.
 type accessGate struct {
 	require bool
+	// verifier, when Access is configured (LASSO_ACCESS_TEAM and
+	// LASSO_ACCESS_AUD), makes the gate verify Cf-Access-Jwt-Assertion
+	// instead of trusting the email header's presence.
+	verifier *accessVerifier
 	// allowed, when non-empty, restricts to these lowercased emails. Empty
 	// means "any identity Access vouched for".
 	allowed map[string]bool
@@ -82,6 +86,21 @@ func (g accessGate) wrap(next http.Handler) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if edgeVerified(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if g.verifier != nil {
+			// LASSO_ACCESS_TEAM/LASSO_ACCESS_AUD are set: check the signed
+			// assertion, which no client can forge, instead of the header.
+			id, err := g.verifier.verifyRequest(r)
+			if err != nil || (id.Email != "" && !g.allows(id.Email)) || (id.Email == "" && len(g.allowed) > 0) {
+				http.Error(w, "forbidden: this lasso requires a Cloudflare Access identity", http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
 		if !g.allows(r.Header.Get(accessEmailHeader)) {
 			// No WWW-Authenticate: there is no credential the client can
 			// supply here — the identity has to come from the edge.
