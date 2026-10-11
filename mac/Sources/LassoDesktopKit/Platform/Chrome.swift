@@ -197,3 +197,46 @@ struct ComposerRow<Model: ComposerModel>: View {
         .parityAnchor("composer")
     }
 }
+
+/// A one-line text field that takes the cursor as it appears, with its text
+/// selected (a rename in place). The panel's key handler owns ⏎ and esc.
+struct InlineField: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+    let label: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let f = NSTextField(string: text)
+        f.isBordered = false
+        f.isBezeled = false
+        f.drawsBackground = false
+        f.focusRingType = .none
+        f.font = Theme.Fonts.name.nsFont
+        f.textColor = Theme.Text.primary.nsColor
+        f.placeholderAttributedString = NSAttributedString(
+            string: placeholder, attributes: [.foregroundColor: Theme.Text.placeholder.nsColor, .font: Theme.Fonts.name.nsFont])
+        f.delegate = context.coordinator
+        f.setAccessibilityLabel(label)
+        DispatchQueue.main.async {
+            f.window?.makeKeyAndOrderFront(nil)
+            f.window?.makeFirstResponder(f)
+            f.currentEditor()?.selectAll(nil)
+        }
+        return f
+    }
+
+    func updateNSView(_ f: NSTextField, context: Context) {
+        if f.stringValue != text { f.stringValue = text }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var text: Binding<String>
+        init(text: Binding<String>) { self.text = text }
+        func controlTextDidChange(_ n: Notification) {
+            if let f = n.object as? NSTextField { text.wrappedValue = f.stringValue }
+        }
+    }
+}

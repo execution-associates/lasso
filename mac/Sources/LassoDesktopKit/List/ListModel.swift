@@ -9,6 +9,8 @@ public protocol FleetActions: AnyObject {
     /// herdr focus: brings the pane forward wherever its terminal is open.
     func focus(_ pane: HostPane) async throws
     func end(_ pane: HostPane) async throws -> String
+    /// herdr's custom agent label; "" clears it (the tab's name shows again).
+    func rename(_ pane: HostPane, to name: String) async throws
 }
 
 /// One workspace's agents.
@@ -31,6 +33,9 @@ public final class ListModel: ObservableObject {
     /// The agent whose End is waiting for a confirm.
     @Published public var confirmEnd: String?
     @Published public private(set) var notice: String?
+    /// The agent being renamed in place, and the name being typed.
+    @Published public private(set) var renaming: String?
+    @Published public var renameDraft = ""
 
     public let fleet: FleetModel
     public let actions: FleetActions
@@ -117,6 +122,29 @@ public final class ListModel: ObservableObject {
 
     /// End asks first: the row turns into a confirm, and only that ends it.
     public func askEnd(_ p: HostPane) { confirmEnd = p.key }
+
+    /// Rename in place: the row's name becomes a field holding it.
+    public func startRename(_ p: HostPane) {
+        confirmEnd = nil
+        renameDraft = p.agent_label ?? p.displayName
+        renaming = p.key
+    }
+
+    public func cancelRename() { renaming = nil }
+
+    /// Keep the typed name; an empty one clears the label.
+    public func commitRename() {
+        guard let key = renaming, let p = fleet.agents.first(where: { $0.key == key }) else {
+            renaming = nil
+            return
+        }
+        let name = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        renaming = nil
+        guard name != (p.agent_label ?? "") else { return }
+        Task {
+            do { try await actions.rename(p, to: name) } catch { notice = "Rename failed: \(error)" }
+        }
+    }
 
     public func end(_ p: HostPane) {
         confirmEnd = nil

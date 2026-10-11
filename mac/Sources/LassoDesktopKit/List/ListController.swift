@@ -129,6 +129,15 @@ public final class ListController {
     func follow() { if isOpen { place() } }
 
     private func handle(_ e: NSEvent) -> Bool {
+        // Renaming: ⏎ keeps the name, esc keeps the old one, the rest is typing.
+        if model.renaming != nil {
+            switch e.keyCode {
+            case KeyCode.escape: model.cancelRename()
+            case KeyCode.returnKey, KeyCode.keypadEnter: model.commitRename()
+            default: return false
+            }
+            return true
+        }
         switch e.keyCode {
         case KeyCode.escape:
             if model.confirmEnd != nil { model.confirmEnd = nil } else { close() }
@@ -172,6 +181,17 @@ public final class LiveFleetActions: FleetActions {
     }
 
     public func end(_ pane: HostPane) async throws -> String { try await card.kill(pane) }
+
+    struct Rename: Encodable {
+        var pane_id: String
+        var name: String
+    }
+    struct Renamed: Decodable { var ok: Bool? }
+
+    public func rename(_ pane: HostPane, to name: String) async throws {
+        let _: Renamed = try await client.post("/api/agent/rename", query: ["host": pane.host], json: Rename(pane_id: pane.pane_id, name: name))
+        fleet.relabel(pane.key, name.isEmpty ? nil : name)
+    }
 }
 
 /// The fixtures' list actions: recorded no-ops.
@@ -181,6 +201,7 @@ public final class FixtureFleetActions: FleetActions {
     public init() {}
     public func pin(_ pane: HostPane, _ on: Bool) async throws { calls.append("pin") }
     public func focus(_ pane: HostPane) async throws { calls.append("focus") }
+    public func rename(_ pane: HostPane, to name: String) async throws { calls.append("rename:\(name)") }
     public func end(_ pane: HostPane) async throws -> String {
         calls.append("end")
         return "fixture"

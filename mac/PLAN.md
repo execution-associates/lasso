@@ -873,6 +873,8 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
 
 A message you send shows at once, faded, under **Sending…**, until it appears in the transcript.
 
+**Renaming an agent:** right-click a row in the agents list, then **Rename…**. The name becomes a field holding the current name. ⏎ keeps the new name, esc keeps the old one, and an empty name clears the label so the tab's name shows again. It is herdr's custom agent label, set through lasso's `POST /api/agent/rename`. A bot's row has no Rename, because lasso finds a bot by that name; bots are renamed in their own settings.
+
 ## 20. Launching agents (the web app's ⌘O and ⌘⇧O)
 
 The Mac launches agents the way lasso's web New dialog does (`src/web/src/components/NewDialog.tsx`), over the same routes:

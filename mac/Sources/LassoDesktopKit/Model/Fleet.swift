@@ -27,6 +27,12 @@ public final class FleetModel: ObservableObject {
     }
 
     public func apply(bots: BotsPayload) { self.bots = bots.bots }
+
+    /// An agent was renamed: show it now, before the next poll says so.
+    public func relabel(_ key: String, _ label: String?) {
+        guard let i = panes.firstIndex(where: { $0.key == key }) else { return }
+        panes[i].agent_label = label
+    }
     public func apply(uiState: UIStateSlice) { self.uiState = uiState }
 
     /// Forget everything: another lasso is about to fill it.

@@ -327,3 +327,26 @@ private func key(_ c: String, _ code: UInt16) -> NSEvent {
         #expect(!(k == 31 && mods == .command))
     }
 }
+
+/// Rename in place: the field starts with the current name, ⏎ sends it
+/// (herdr's agent label), esc and an unchanged name send nothing.
+@MainActor @Test func renameInPlace() async throws {
+    var pane = HostPane(
+        host: "local", host_label: "titan", pane_id: "w1:p1", workspace_id: "w1", workspace_label: "Agents",
+        tab_id: "w1:t1", tab_label: "lasso", cwd: "/", agent: "claude", agent_status: "idle", has_agent: true, focused: false)
+    pane.agent_label = "old"
+    let fleet = FleetModel()
+    fleet.apply(panes: AllPanes(panes: [pane]))
+    let actions = FixtureFleetActions()
+    let m = ListModel(fleet: fleet, actions: actions)
+    m.startRename(pane)
+    #expect(m.renaming == pane.key && m.renameDraft == "old")
+    m.cancelRename()
+    m.startRename(pane)
+    m.commitRename()
+    m.startRename(pane)
+    m.renameDraft = "  HN digest "
+    m.commitRename()
+    try await Task.sleep(nanoseconds: 50_000_000)
+    #expect(actions.calls == ["rename:HN digest"] && m.renaming == nil)
+}
