@@ -11,7 +11,6 @@ import { cn } from "@/lib/utils"
 export function Screen({
   title,
   onBack,
-  backLabel,
   trailing,
   status,
   children,
@@ -19,7 +18,6 @@ export function Screen({
 }: {
   title: React.ReactNode
   onBack?: () => void
-  backLabel?: string
   trailing?: React.ReactNode
   status?: React.ReactNode
   children: React.ReactNode
@@ -33,10 +31,10 @@ export function Screen({
             <button
               type="button"
               onClick={onBack}
-              className="flex h-11 min-w-0 items-center gap-0.5 pr-2 text-[15px] text-muted-foreground active:text-foreground"
+              aria-label="Back"
+              className="flex h-11 items-center pr-2 text-muted-foreground active:text-foreground"
             >
               <ChevronLeft className="size-6 shrink-0" />
-              <span className="truncate">{backLabel}</span>
             </button>
           )}
         </div>

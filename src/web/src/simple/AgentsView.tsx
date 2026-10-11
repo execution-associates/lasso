@@ -181,18 +181,12 @@ function AgentRow({
   )
 }
 
-export function BackButton({
-  label,
-  onClick,
-}: {
-  label: string
-  onClick: () => void
-}) {
+export function BackButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-label={`Back to ${label}`}
+      aria-label="Back"
       className="-ml-1.5 flex h-10 shrink-0 items-center pr-1 text-muted-foreground active:text-foreground"
     >
       <ChevronLeft className="size-6" />
@@ -205,11 +199,11 @@ export function BackButton({
 export function AgentChat({
   host,
   pane: paneID,
-  go,
+  onBack: back,
 }: {
   host: string
   pane: string
-  go: (r: SimpleRoute) => void
+  onBack: () => void
 }) {
   const fleet = useFleet()
   const queryClient = useQueryClient()
@@ -218,7 +212,6 @@ export function AgentChat({
   )
   const name = pane ? simpleAgentName(pane) : paneID
   const [confirmKill, setConfirmKill] = React.useState(false)
-  const back = () => go({ view: "agents" })
 
   const kill = async () => {
     try {
@@ -240,7 +233,7 @@ export function AgentChat({
         address={{ host, paneID }}
         variant="bot"
         title={name}
-        headerLead={<BackButton label="Agents" onClick={back} />}
+        headerLead={<BackButton onClick={back} />}
         headerExtra={
           <button
             type="button"

@@ -42,12 +42,24 @@ export function SimpleApp() {
     return () => window.removeEventListener("popstate", onPop)
   }, [])
 
+  // Every move inside the app is a history entry marked as ours, so a chat's
+  // Back returns to whatever opened it (the Inbox, a list) through history.
   const go = React.useCallback((r: SimpleRoute) => {
     const path = simplePath(r)
     if (path !== window.location.pathname)
-      window.history.pushState(null, "", path)
+      window.history.pushState({ simple: true }, "", path)
     setRoute(r)
   }, [])
+  // Back from a chat: the previous entry when this app pushed the chat's, else
+  // (opened straight from a link or a reload) the list it belongs to.
+  const back = React.useCallback(
+    (fallback: SimpleRoute) => {
+      if ((window.history.state as { simple?: boolean } | null)?.simple)
+        window.history.back()
+      else go(fallback)
+    },
+    [go]
+  )
 
   // The badge means "new since you looked" and is computed here, so it shows
   // from every tab, not only the Inbox.
@@ -76,10 +88,16 @@ export function SimpleApp() {
           {route.view === "inbox" && <InboxView go={go} />}
           {route.view === "agents" && <AgentsList go={go} />}
           {route.view === "agent" && (
-            <AgentChat host={route.host} pane={route.pane} go={go} />
+            <AgentChat
+              host={route.host}
+              pane={route.pane}
+              onBack={() => back({ view: "agents" })}
+            />
           )}
           {route.view === "bots" && <BotsList go={go} />}
-          {route.view === "bot" && <BotChat name={route.name} go={go} />}
+          {route.view === "bot" && (
+            <BotChat name={route.name} onBack={() => back({ view: "bots" })} />
+          )}
           {route.view === "settings" && <SimpleSettings />}
         </main>
         {!inChat && (

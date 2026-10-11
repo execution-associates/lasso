@@ -4,7 +4,6 @@ import {
   ChevronRight,
   Inbox as InboxIcon,
   MessageSquare,
-  Monitor,
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
@@ -425,18 +424,6 @@ function PaneCard({
     }
     refresh()
   }
-  const focus = async () => {
-    try {
-      await api.focusOn(p.host, {
-        pane_id: p.pane_id,
-        workspace_id: p.workspace_id,
-      })
-      toast.success(`Focused ${name} in herdr`)
-    } catch (e) {
-      toast.error(`Could not focus ${name}: ${(e as Error).message}`)
-    }
-  }
-
   return (
     <Card className="flex flex-col gap-4 p-5">
       <div className="flex items-center justify-between gap-2">
@@ -495,19 +482,12 @@ function PaneCard({
         <ActionButton danger onClick={() => setConfirmKill(true)}>
           Kill agent
         </ActionButton>
-        {item.kind === "blocked" ? (
-          <ActionButton onClick={() => void focus()}>
-            <Monitor className="size-4" />
-            Focus in herdr
-          </ActionButton>
-        ) : (
-          <ActionButton
-            onClick={() => go({ view: "agent", host: p.host, pane: p.pane_id })}
-          >
-            <MessageSquare className="size-4" />
-            Chat
-          </ActionButton>
-        )}
+        <ActionButton
+          onClick={() => go({ view: "agent", host: p.host, pane: p.pane_id })}
+        >
+          <MessageSquare className="size-4" />
+          Chat
+        </ActionButton>
         {/* Answer is the card's one primary action while a question is open. */}
         <ActionButton primary={item.kind !== "ask"} onClick={discard}>
           Discard

@@ -103,14 +103,13 @@ export function BotsList({ go }: { go: (r: SimpleRoute) => void }) {
 
 export function BotChat({
   name,
-  go,
+  onBack: back,
 }: {
   name: string
-  go: (r: SimpleRoute) => void
+  onBack: () => void
 }) {
   const q = useBots(true)
   const bot = q.data?.bots.find((b) => b.name === name)
-  const back = () => go({ view: "bots" })
   // Reading the conversation is what marks the bot's reply read.
   React.useEffect(() => {
     if (bot) markBotSeen(bot.name, bot.last_at)
@@ -118,7 +117,7 @@ export function BotChat({
 
   if (!bot)
     return (
-      <Screen title={name} onBack={back} backLabel="Bots">
+      <Screen title={name} onBack={back}>
         {!q.isLoading && (
           <EmptyState title="No such bot">
             It may have been deleted in the full lasso.
@@ -140,7 +139,7 @@ export function BotChat({
       incoming
       variant="bot"
       title={bot.name}
-      headerLead={<BackButton label="Bots" onClick={back} />}
+      headerLead={<BackButton onClick={back} />}
       placeholder={`Message ${bot.name}…`}
       className="min-h-0 flex-1"
     />
@@ -150,7 +149,7 @@ export function BotChat({
 function StoppedBot({ bot, onBack }: { bot: BotView; onBack: () => void }) {
   const [busy, setBusy] = React.useState(false)
   return (
-    <Screen title={bot.name} onBack={onBack} backLabel="Bots">
+    <Screen title={bot.name} onBack={onBack}>
       <EmptyState
         icon={<BotAvatar bot={bot} size={64} />}
         title={`${bot.name} is stopped`}

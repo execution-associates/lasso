@@ -2372,11 +2372,6 @@ export const api = {
     pane_id?: string
     reveal?: boolean
   }) => postJSON<{ ok: boolean; reattach?: boolean }>("/api/focus", sel),
-  // Focus one pane on its OWN host, whatever host this tab is on: the simple
-  // app has no terminal of its own, so nothing here follows herdr's focus.
-  focusOn: (host: string, sel: { pane_id: string; workspace_id?: string }) =>
-    postJSON<{ ok: boolean }>(withHost("/api/focus", host), sel),
-
   // Both renames name their machine the way close does: omitted is the tab's
   // host, explicit is the pane's own.
   rename: (tab_id: string | undefined, label: string, host?: string) =>
