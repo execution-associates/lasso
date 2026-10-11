@@ -118,6 +118,8 @@ func serveBots(w http.ResponseWriter, r *http.Request) {
 		serveBotAvatar(w, r, b, rec)
 	case "model":
 		serveBotModel(w, r, b, rec)
+	case "sessions", "sessions/new", "sessions/resume":
+		serveBotSessions(w, r, b, rec, strings.TrimPrefix(strings.TrimPrefix(action, "sessions"), "/"))
 	case "chat", "chat/send", "chat/stop", "chat/answer":
 		serveBotChat(w, r, b, rec, strings.TrimPrefix(strings.TrimPrefix(action, "chat"), "/"))
 	default:
@@ -522,6 +524,53 @@ func serveBotModel(w http.ResponseWriter, r *http.Request, b Backend, rec *botRe
 		"bot":            botStatus(b, &next, readClaudeSessions(b)),
 		"restart_needed": !live && botRunning(b, &next),
 	})
+}
+
+// serveBotSessions lists a bot's conversations (GET), starts a new one (POST
+// new) and resumes an earlier one (POST resume {id}).
+func serveBotSessions(w http.ResponseWriter, r *http.Request, b Backend, rec *botRecord, op string) {
+	if op == "" {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET", http.StatusMethodNotAllowed)
+			return
+		}
+		list := botSessions(b, rec)
+		if list == nil {
+			list = []botSessionInfo{}
+		}
+		writeJSON(w, map[string]any{"sessions": list})
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST", http.StatusMethodNotAllowed)
+		return
+	}
+	var err error
+	switch op {
+	case "new":
+		err = botNewSession(b, rec)
+	case "resume":
+		var in struct {
+			ID string `json:"id"`
+		}
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in) != nil || strings.TrimSpace(in.ID) == "" {
+			http.Error(w, "id is required", http.StatusBadRequest)
+			return
+		}
+		err = botResumeSession(b, rec, strings.TrimSpace(in.ID))
+	}
+	switch {
+	case errors.Is(err, errBotBusy):
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	case err != nil:
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	if latest, err := getBot(rec.Name); err == nil {
+		rec = latest
+	}
+	writeJSON(w, map[string]any{"bot": botStatus(b, rec, readClaudeSessions(b))})
 }
 
 // serveBotChat is an omp bot's chat: it has a session file and a socket but

@@ -23,6 +23,7 @@ import {
   startBot,
   stopBot,
 } from "@/components/BotParts"
+import { BotSessionsMenu } from "@/components/BotSessionsMenu"
 import { BotSettings } from "@/components/BotSettings"
 import { BotsManage } from "@/components/BotsManage"
 import { ChatView } from "@/components/ChatView"
@@ -757,6 +758,7 @@ export function BotsView({
                   in the model chip's line instead. */}
               {!compact && <ContextMeter bot={current} />}
               <BotStateMark bot={current} words />
+              <BotSessionsMenu bot={current} />
               <SettingsButton
                 onClick={() => go({ page: "settings", name: current.name })}
               />

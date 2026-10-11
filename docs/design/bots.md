@@ -185,6 +185,12 @@ lasso (either instance) --unix socket--> lasso bot-host (systemd user unit lasso
 - **One source of truth, whoever changed it.** lasso keeps the row in step with omp's change events (the web UI, the pane, the bot's own `/switch`), writing only the column that changed, serialised, so a save never puts back a value it predates. The first reading on a connection is a baseline (launch's resolution of an alias or the default is never pinned) unless `host_hello` says the model or thinking changed since omp launched (`model_changed` / `thinking_changed`, protocol 3): then it is a change made while no lasso was connected, and it is kept.
 - **The pane's status line** sits above its input: model · thinking · ctx used/window % · state, redrawn in place on every change and cut to the terminal's width.
 
+### Conversations
+
+- **Listing** (`botsessions.go`, `GET /api/bots/<name>/sessions`): an omp bot's are its session files (`.lasso/sessions`), each read for its id, title, first user message and message count (entry types matched anywhere in a line, lines read whole); a claude bot's are Claude Code's for its folder (`~/.claude/projects/<slug>`), previewed by their first real prompt. Newest first, at most 50, the current one marked.
+- **New** (`POST …/sessions/new`): a running omp bot gets `new_session` over RPC, no restart; anything else restarts or starts fresh. **Resume** (`POST …/sessions/resume {id}`): an omp bot gets `switch_session {sessionPath}`, after its file's mtime is bumped, since the host's `-c` continues the newest file and the switch must survive a restart before anything is said in it; a claude bot's `last_session_id` becomes the id and it restarts or starts on it. omp answers a switch it declines with `{"cancelled": true}` (a session from another folder), read as a refusal. Both are refused mid-turn (409).
+- **The web UI** puts them under one New icon in the chat header: New conversation (with an Undo toast that resumes the previous one), then the list. **The pane** has `/new` (alias `/clear`), `/sessions` and `/resume <n>`; when omp reports the new session it prints a divider and the conversation's tail.
+
 ### omp bots in herdr
 
 An omp bot has no terminal of its own, so lasso gives it a herdr pane running **`lasso bot-attach <name>`** (`botattach.go`), a viewer connected to the bot host's socket. That makes the bot a herdr agent like any other: the sidebar shows its state, `herdr agent prompt`/`read`/`wait`/`send-keys` work on it, and herdr's restore brings the pane back.

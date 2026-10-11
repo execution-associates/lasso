@@ -217,8 +217,13 @@ type botAttach struct {
 	thinking string
 	efforts  []string
 	ctx      ompContextUsage
-	// models is the last /model listing, so `/model 2` picks from it.
-	models []string
+	// models is the last /model listing, so `/model 2` picks from it;
+	// sessions the last /sessions one, for `/resume 2`.
+	models   []string
+	sessions []botSessionInfo
+	// divider is printed, with the conversation's tail, once omp reports the
+	// session /new or /resume asked for.
+	divider string
 	// footerRows is how many rows the status line and the input take now,
 	// so the next print can clear them before writing above them.
 	footerRows int
@@ -583,9 +588,23 @@ func (a *botAttach) handle(line []byte) {
 		if !f.Success && f.Error != "" {
 			a.say("  (" + f.Error + ")")
 		}
+		// A session change took: read where it landed.
+		if f.Success && (f.Command == "new_session" || f.Command == "switch_session") && !ompCancelled(f.ompFrame.Data) {
+			_ = a.send(map[string]any{"type": "get_state"})
+		} else if f.Command == "new_session" || f.Command == "switch_session" {
+			a.mu.Lock()
+			a.divider = ""
+			a.mu.Unlock()
+			a.say("  (the conversation did not change)")
+		}
 		// get_state's answer: the only response that carries a session id.
 		if st, ok := decodeOmpState(f.ompFrame.Data); ok && st.SessionID != "" {
 			a.mu.Lock()
+			switched := a.sid != "" && a.sid != st.SessionID
+			divider, dir := a.divider, a.dir
+			if switched {
+				a.divider = ""
+			}
 			a.sid = st.SessionID
 			if st.Model != nil {
 				a.model, a.efforts = *st.Model, st.Efforts
@@ -595,6 +614,12 @@ func (a *botAttach) handle(line []byte) {
 				a.ctx = *st.Context
 			}
 			a.mu.Unlock()
+			if switched {
+				a.say("── " + firstNonEmpty(divider, "another conversation") + " ──")
+				if dir != "" {
+					a.showHistory(dir)
+				}
+			}
 			a.report()
 		}
 	}
@@ -1032,6 +1057,85 @@ func (a *botAttach) command(text string) bool {
 		}
 		a.say("  model → " + sel)
 		return true
+	case "/new", "/clear":
+		if a.isBusy() {
+			a.say("  (the bot is mid-turn: Esc stops it first)")
+			return true
+		}
+		a.mu.Lock()
+		a.divider = "new conversation (the last one is in /sessions)"
+		a.mu.Unlock()
+		if err := a.send(map[string]any{"type": "new_session"}); err != nil {
+			a.say("  (not sent: " + err.Error() + ")")
+		}
+		return true
+	case "/sessions":
+		a.mu.Lock()
+		dir, sid := a.dir, a.sid
+		a.mu.Unlock()
+		list := ompSessionList(botOmpSessionDir(dir), sid)
+		if len(list) > 20 {
+			list = list[:20]
+		}
+		a.mu.Lock()
+		a.sessions = list
+		a.mu.Unlock()
+		if len(list) == 0 {
+			a.say("  (no conversations yet)")
+			return true
+		}
+		var b strings.Builder
+		for i, ss := range list {
+			mark := ""
+			if ss.Current {
+				mark = "  ✓"
+			}
+			fmt.Fprintf(&b, "  %d) %-40s %-10s %4d msgs%s\n", i+1, attachSessionName(ss, 40), attachAgo(ss.mod), ss.Messages, mark)
+		}
+		b.WriteString("  /resume <n> to switch")
+		a.say(b.String())
+		return true
+	case "/resume":
+		if a.isBusy() {
+			a.say("  (the bot is mid-turn: Esc stops it first)")
+			return true
+		}
+		a.mu.Lock()
+		list, dir, sid := a.sessions, a.dir, a.sid
+		a.mu.Unlock()
+		if len(list) == 0 {
+			list = ompSessionList(botOmpSessionDir(dir), sid)
+		}
+		var target *botSessionInfo
+		if n, err := strconv.Atoi(arg); err == nil && n >= 1 && n <= len(list) {
+			target = &list[n-1]
+		} else {
+			for i := range list {
+				if arg != "" && strings.HasPrefix(list[i].ID, arg) {
+					target = &list[i]
+					break
+				}
+			}
+		}
+		if target == nil {
+			a.say("  (pick one from /sessions: /resume <n>)")
+			return true
+		}
+		if target.Current {
+			a.say("  (that is the current conversation)")
+			return true
+		}
+		// Newest file is what the host's -c continues: it stays this one
+		// across a restart.
+		now := time.Now()
+		_ = os.Chtimes(target.path, now, now)
+		a.mu.Lock()
+		a.divider = "resumed: " + attachSessionName(*target, 60)
+		a.mu.Unlock()
+		if err := a.send(map[string]any{"type": "switch_session", "sessionPath": target.path}); err != nil {
+			a.say("  (not sent: " + err.Error() + ")")
+		}
+		return true
 	case "/thinking", "/effort":
 		a.mu.Lock()
 		levels := append(append([]string{"off"}, a.efforts...), "auto")
@@ -1062,6 +1166,44 @@ func (a *botAttach) command(text string) bool {
 		return true
 	}
 	return false
+}
+
+func (a *botAttach) isBusy() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.busy
+}
+
+// attachSessionName is a conversation's title, or its first message quoted.
+func attachSessionName(s botSessionInfo, width int) string {
+	name := s.Title
+	if name == "" && s.Preview != "" {
+		name = `"` + s.Preview + `"`
+	}
+	if name == "" {
+		name = "(empty)"
+	}
+	if utf8.RuneCountInString(name) > width {
+		name = string([]rune(name)[:width-1]) + "…"
+	}
+	return name
+}
+
+// attachAgo is how long ago, in a word.
+func attachAgo(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	case d < 48*time.Hour:
+		return "yesterday"
+	default:
+		return t.Format("Jan 2")
+	}
 }
 
 // attachModels is what /model offers: the current model, then the models the

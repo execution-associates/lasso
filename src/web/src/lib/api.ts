@@ -377,6 +377,18 @@ export interface ChatSendResult {
   detail?: string
 }
 
+// One of a bot's conversations (botsessions.go): omp's own session files, or
+// Claude Code's for the bot's folder.
+export interface BotSession {
+  id: string
+  title?: string
+  // The first message, for a conversation with no title.
+  preview?: string
+  updated_at: string
+  messages?: number
+  current?: boolean
+}
+
 // A question an omp bot is waiting on (an extension_ui_request).
 export interface BotPendingUI {
   id: string
@@ -1989,6 +2001,14 @@ export const api = {
     reorder: (names: string[]) =>
       sendJSON<{ ok: boolean }>("PUT", "/api/bots/order", { names }),
     get: (name: string) => getJSON<BotDetail>(botURL(name)),
+    // Conversations: the list, a new one, and resuming an earlier one. An
+    // omp bot switches at once; a claude bot restarts into it. 409 mid-turn.
+    sessions: (name: string) =>
+      getJSON<{ sessions: BotSession[] }>(`${botURL(name)}/sessions`),
+    newSession: (name: string) =>
+      postJSON<{ bot: BotView }>(`${botURL(name)}/sessions/new`, {}),
+    resumeSession: (name: string, id: string) =>
+      postJSON<{ bot: BotView }>(`${botURL(name)}/sessions/resume`, { id }),
     // The chat header's pickers. A running omp bot switches at once; a claude
     // or stopped bot saves it, and restart_needed says a restart applies it.
     setModel: (name: string, body: { model?: string; thinking?: string }) =>

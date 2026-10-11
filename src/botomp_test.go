@@ -40,14 +40,23 @@ func runFakeOmp() int {
 	if os.Getenv("HERDR_PANE_ID") != "" {
 		logf("herdr-env-leaked")
 	}
+	// One session file per conversation, as omp keeps them; new_session and
+	// switch_session move between them.
 	var session string
-	if dir := os.Getenv("LASSO_TEST_FAKE_OMP_SESSIONS"); dir != "" {
-		_ = os.MkdirAll(dir, 0o755)
-		session = filepath.Join(dir, "2026-10-10T00-00-00-000Z_sess-1.jsonl")
+	sessionID := "sess-1"
+	sessDir := os.Getenv("LASSO_TEST_FAKE_OMP_SESSIONS")
+	openSession := func(id string) {
+		if sessDir == "" {
+			return
+		}
+		_ = os.MkdirAll(sessDir, 0o755)
+		session = filepath.Join(sessDir, "2026-10-10T00-00-00-000Z_"+id+".jsonl")
 		if _, err := os.Stat(session); err != nil {
-			_ = os.WriteFile(session, []byte(`{"type":"session","version":3,"id":"sess-1","timestamp":"2026-10-10T00:00:00Z","cwd":"/x"}`+"\n"), 0o644)
+			_ = os.WriteFile(session, []byte(`{"type":"session","version":3,"id":"`+id+`","timestamp":"2026-10-10T00:00:00Z","cwd":"/x"}`+"\n"), 0o644)
 		}
 	}
+	openSession(sessionID)
+	sessions := 1
 	var mu sync.Mutex
 	// Under the bot host the RPC is on fds 3 and 4, as the task script moves
 	// them for a real omp.
@@ -98,7 +107,7 @@ func runFakeOmp() int {
 		switch c.Type {
 		case "get_state":
 			emit(map[string]any{"type": "response", "id": c.ID, "command": c.Type, "success": true, "data": map[string]any{
-				"sessionId": "sess-1", "isStreaming": false, "thinkingLevel": fakeThinking,
+				"sessionId": sessionID, "isStreaming": false, "thinkingLevel": fakeThinking,
 				"model":        map[string]any{"id": fakeModelID, "name": "Fake " + fakeModelID, "provider": fakeProvider, "contextWindow": 200000, "thinking": map[string]any{"efforts": []string{"low", "high"}}},
 				"contextUsage": map[string]any{"tokens": 5000, "contextWindow": 200000, "percent": 2.5},
 			}})
@@ -119,6 +128,20 @@ func runFakeOmp() int {
 			fakeThinking = l.Level
 			emit(map[string]any{"type": "thinking_level_changed", "thinkingLevel": l.Level})
 			emit(map[string]any{"type": "response", "id": c.ID, "command": c.Type, "success": true})
+		case "new_session":
+			sessions++
+			sessionID = fmt.Sprintf("sess-%d", sessions)
+			openSession(sessionID)
+			emit(map[string]any{"type": "response", "id": c.ID, "command": c.Type, "success": true, "data": map[string]any{"cancelled": false}})
+		case "switch_session":
+			var sw struct {
+				SessionPath string `json:"sessionPath"`
+			}
+			_ = json.Unmarshal([]byte(line), &sw)
+			base := filepath.Base(sw.SessionPath)
+			sessionID = strings.TrimSuffix(base[strings.LastIndex(base, "_")+1:], ".jsonl")
+			openSession(sessionID)
+			emit(map[string]any{"type": "response", "id": c.ID, "command": c.Type, "success": true, "data": map[string]any{"cancelled": false}})
 		case "abort":
 			emit(map[string]any{"type": "response", "id": c.ID, "command": c.Type, "success": true})
 		case "extension_ui_response":
@@ -811,6 +834,19 @@ func TestBotAttachDrivesTheBot(t *testing.T) {
 	}
 	// lasso keeps the change once it is connected, as the Bots view's poll
 	// and the bot loop keep it.
+	// The pane's conversations: a new one, the list, and back.
+	for _, k := range (&attachDecoder{}).feed([]byte("/clear\r")) {
+		a.key(k)
+	}
+	ompWaitFor(t, "the new conversation in the pane", func() bool {
+		return strings.Contains(out.String(), "── new conversation (the last one is in /sessions) ──")
+	})
+	for _, k := range (&attachDecoder{}).feed([]byte("/sessions\r/resume 2\r")) {
+		a.key(k)
+	}
+	ompWaitFor(t, "the resumed conversation in the pane", func() bool {
+		return strings.Contains(out.String(), `── resumed: "hello pane" ──`)
+	})
 	ompWaitFor(t, "the change saved", func() bool {
 		botStatus(b, r, nil)
 		got, _ := getBot(r.Name)
@@ -905,4 +941,47 @@ func TestOmpBotModelPickers(t *testing.T) {
 		got, _ := getBot("picky")
 		return got.Model == "thirdco/m3" && got.Effort == "low"
 	})
+}
+
+func TestOmpBotSessions(t *testing.T) {
+	r, _ := useOmpBotEnv(t, "convo")
+	b, _ := botBackend("local")
+	if err := startBot(b, r, true); err != nil {
+		t.Fatal(err)
+	}
+	ompWaitFor(t, "idle", func() bool { return botStatus(b, r, nil).State == "idle" })
+	if err := botOmpSend(r.Name, "first chat", true); err != nil {
+		t.Fatal(err)
+	}
+	ompWaitFor(t, "the answer", func() bool { return botStatus(b, r, nil).LastText == "done: first chat" })
+	req := func(method, path, body string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		serveBots(w, httptest.NewRequest(method, "/api/bots/convo/"+path, strings.NewReader(body)))
+		return w
+	}
+	if w := req("POST", "sessions/new", ""); w.Code != 200 {
+		t.Fatalf("new: %d %s", w.Code, w.Body)
+	}
+	ompWaitFor(t, "the new conversation", func() bool { return ompBotFor("convo").snapshot().sessionID == "sess-2" })
+	if err := botOmpSend(r.Name, "second chat", true); err != nil {
+		t.Fatal(err)
+	}
+	ompWaitFor(t, "the second answer", func() bool { return botStatus(b, r, nil).LastText == "done: second chat" })
+	var list struct {
+		Sessions []botSessionInfo `json:"sessions"`
+	}
+	json.Unmarshal(req("GET", "sessions", "").Body.Bytes(), &list)
+	if len(list.Sessions) != 2 || !list.Sessions[0].Current || list.Sessions[1].ID != "sess-1" ||
+		list.Sessions[1].Preview != "first chat" || list.Sessions[1].Messages != 2 {
+		t.Fatalf("sessions = %+v", list.Sessions)
+	}
+	if w := req("POST", "sessions/resume", `{"id":"sess-1"}`); w.Code != 200 {
+		t.Fatalf("resume: %d %s", w.Code, w.Body)
+	}
+	ompWaitFor(t, "back on the first", func() bool {
+		return ompBotFor("convo").snapshot().sessionID == "sess-1" && botStatus(b, r, nil).LastText == "done: first chat"
+	})
+	if w := req("POST", "sessions/resume", `{"id":"nope"}`); w.Code != http.StatusBadGateway {
+		t.Errorf("unknown session: %d", w.Code)
+	}
 }
