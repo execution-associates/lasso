@@ -276,53 +276,52 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 
 ### 5.2 Capture
 
-- Each state is mounted in a borderless `NSWindow` with `colorSpace = .sRGB`.
-- It is rendered with `cacheDisplay(in:to:)` into an `NSBitmapImageRep` whose pixel size is 2× its point size. That gives **2× regardless of minime's display scale**.
-- The fallback is SwiftUI `ImageRenderer(scale: 2)` for subtrees AppKit cannot cache.
-- The result is converted to sRGB and written as `mac/dist/parity/<state>.png`.
-- Parity runs inside the Aqua session through a one-shot LaunchAgent (§7). It writes `report.json`, `report.txt` and the PNGs, and the dev script pulls them back to titan's `mac/dist/parity/`.
+- Each state is mounted in a borderless `NSWindow` (ordered in, off every screen) and drawn with `cacheDisplay(in:to:)` into an `NSBitmapImageRep` of our own: tagged sRGB, pixel size exactly 2× the point size. That gives **2× regardless of the Mac's display scale**.
+- Pixels are read from the bitmap's raw bytes. `colorAt(x:y:)` labels them generic RGB (gamma 1.8), and converting that "to sRGB" brightened every colour by 3–8 ΔE; that was the first run's only colour failure.
+- The PNG is written as `mac/dist/parity/<state>.png`.
+- Parity runs inside the Aqua session through a one-shot LaunchAgent (§7). It writes `report.json` (last, so its presence means done), `report.txt`, the PNGs and the motion samples (`probe-*.csv`); `dev.sh parity` copies them back to titan's `mac/dist/parity/`.
 
 ### 5.3 Comparison method
 
-- **Anchors**: views carry `.parityAnchor("rail.agents.capsule")`, a preference key that is a no-op outside parity mode. It reports frames in window coordinates.
-- **Geometry**:
-  - Anchor frames give layout truth.
-  - A pixel edge scan along a line confirms rims, glyph diameters and the card size, catching strokes drawn outside a frame.
-- **Colour**: the median of a named patch region (for example `lower-half-inset-4` of the capsule, glyph centre 5×5 px), compared with **CIEDE2000** against the token.
-- **Static**: every `Theme` value is compared with `tokens.json` (drift between code and spec).
-- **Accessibility**:
-  - A walk of the window's accessibility tree checks that every button, text field and row has a non-empty label.
-  - Each rendered keycap is a `KeyBinding` value from a single registry, not a string. The check asserts each one is registered in the active key handler for that state, so a legend and its binding cannot disagree.
+- **Anchors**: views carry `.parityAnchor("rail.agents.capsule")`, a preference key that is a no-op outside parity mode. It reports frames in the root view's coordinates.
+- **Geometry** (`tokens.json` `geometry`): anchor frames give layout truth (width, gap, pitch, pad_top, span…); pixel scans along a row confirm what was drawn (opaque width, fill vs rim width by nearest colour, glyph diameter against the capsule fill).
+- **Colour** (`tokens.json` `patches`): the per-channel median of an explicit rect (pt, relative to the anchor), compared with **CIEDE2000** against the token, and required opaque.
+- **Static**: every `Theme` token is compared with `tokens.json`: value, provenance and `proposed`, both ways (a token missing from either side fails).
+- **Fixture**: the state's `expect` (badge count, rail slot order) against the models.
+- **Accessibility**: the harness walks its own process through the accessibility client API (`AXUIElementCreateApplication(getpid())`), as VoiceOver would. SwiftUI builds its tree only for a client, so `NSView.accessibilityChildren` shows nothing; reading one's own process needs no Accessibility permission. Every `AXButton` must have a description, and the walk must find at least one.
+- **Keycaps** (from M4): each rendered keycap is a `KeyBinding` value from a single registry, not a string; the check asserts it is registered in the active key handler for that state.
 
 ### 5.4 Motion
 
 1. **Static**: Theme animation parameters equal the spec exactly.
-2. **Analytic**:
-   - Springs are sampled from SwiftUI `Spring(response:dampingRatio:)` at 1 ms over the spec travel. That gives overshoot and settle time (within 1 px).
-   - Curves have exact durations.
-3. **Probe**:
-   - An `AnimatableModifier` on each animated value records `(CACurrentMediaTime, value)` every time SwiftUI interpolates. Those are the real per-frame values, with no screen capture.
-   - The samples are fit to the spring or curve model. The check asserts the fit matches the spec, and that the fitted settle time and overshoot are within tolerance.
-   - Probe timing at 60 Hz can't resolve ±10 ms directly. The gate is the fit residual (≤1 px), and duration comes from the fitted model.
+2. **SwiftUI's spring, analytically**: `Spring(response:dampingRatio:)` sampled every 0.5 ms over the spec travel matches the closed-form oscillator (settle within 1 px, overshoot) — within 0.4 ms and 0.00 px on minime.
+3. **The app's animation, on SwiftUI's own clock**: the harness sets `RailModel.animationProbe`, which wraps the token's animation in `ProbedAnimation` (a `CustomAnimation`) that records the animation time and value SwiftUI computes. The same travel is animated by a **reference** SwiftUI spring built from `tokens.json`'s numbers (not Theme's) in a view of its own. Gate: the app's settle time (±0.5 pt band, interpolated between samples) and overshoot against the reference's.
+   - SwiftUI steps its spring frame by frame, so as run it sits up to ~3 pt off the closed form on 290 pt (settle ~215 ms, overshoot ~0.05 px, against 186 ms and 0.88 px closed-form). No SwiftUI spring can meet a ±1 px gate against the formula; the reference comparison is what catches a wrong, extra or delayed animation in the app. The closed-form numbers are reported as `info`.
+   - Timing frames by `CACurrentMediaTime` or the display link was tried first and rejected: SwiftUI evaluates an animation twice per 60 Hz frame, so per-frame timestamps scatter by several ms.
+4. **Drawn frames**: an `Animatable` modifier on the reveal records every value SwiftUI draws; the last must equal the rest position.
 
 ### 5.5 Tolerances
 
 | Check | Tolerance |
 |---|---|
-| Colour (CIEDE2000) on named patches | ≤ 2.0 |
-| Geometry (anchor frame and pixel edge) | ±1 pt |
-| Animation duration (fitted/analytic) | ±10 ms |
+| Colour (CIEDE2000) on named patches | ≤ 2.0, opaque |
+| Geometry (anchor frame and pixel scan) | ±1 pt |
+| Animation duration (app vs reference spring; SwiftUI vs closed form) | ±10 ms |
 | Spring overshoot | ±1 px |
-| Probe fit residual | ≤ 1 px |
+| Drawn frames end at rest | ±0.5 pt |
 | Accessibility labels, keycap/binding agreement | exact |
 
-`parity-check.sh` prints a table of `state | token | spec | measured | Δ | pass` and exits non-zero on any failure.
+`parity-check.sh` prints a table of `state | check | token | spec | measured | Δ | result` and exits non-zero on any failure. States not built yet report `pending`, which is not a failure; each milestone names the states it must turn green.
+
+### 5.6 Tests
+
+`Scripts/test.sh` (`dev.sh test`) runs swift-testing on the Mac. The Command Line Tools ship its macro plugin in `usr/lib/swift/host/plugins/testing`, a directory SwiftPM does not search, so the script passes `-plugin-path`. The tests cover CIEDE2000 against Sharma's reference pairs, the spring model, token/spec agreement, fixture ordering, and that no source calls `print(` or `NSLog(`.
 
 ## 6. Milestones (each ends with `mac/Scripts/dev.sh parity` exiting 0)
 
 **M1: Rail on minime, from fixtures (visible first)**
 - Probes first:
-  - compile `@State` and `@Observable` with Swift 6.4 CLT and record the result; fall back to `ObservableObject`
+  - compile `@State` and `@Observable` with Swift 6.4 CLT and record the result; fall back to `ObservableObject` (result: `@State` fails, `@Observable` compiles; the app uses `ObservableObject`)
   - minime's display scale
 - Set up:
   - signing identity (§7.2)
@@ -416,7 +415,7 @@ Restart=always
 RestartSec=5
 ```
 
-Install once with `systemctl --user link $PWD/mac/Scripts/lasso-desktop-tunnel.service && systemctl --user enable --now lasso-desktop-tunnel`. This changes titan, so do it only with the user's OK.
+Installed on titan (2026-10-11) as a copy, not a link, because the weekly prune can delete a worktree: `install -m 0644 mac/Scripts/lasso-desktop-tunnel.service ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now lasso-desktop-tunnel`.
 
 Check it with `ssh minime curl -s 127.0.0.1:18090/api/version`.
 
@@ -427,7 +426,9 @@ Check it with `ssh minime curl -s 127.0.0.1:18090/api/version`.
 2. Create `~/Library/Keychains/lasso-desktop-signing.keychain-db`. Its password is in 1Password and fed on stdin from titan's `secret LASSO_DESKTOP_SIGNING_KEYCHAIN`.
 3. `security import … -T /usr/bin/codesign`, then `set-key-partition-list -S apple-tool:,apple:`.
 4. Disable auto-lock.
-5. Only if `codesign` refuses an untrusted identity: `security add-trusted-cert -p codeSign` once. That needs a click on minime's screen.
+5. `codesign` accepts the untrusted self-signed identity, so no trust setting (and no click on minime's screen) is needed. The script ends by signing a probe binary to prove it.
+
+On minime the identity is `LassoDesktop Dev (mini)` (the CN takes `scutil --get LocalHostName`). If the keychain is locked after a reboot, `dev.sh unlock` unlocks it with the password from `secret LASSO_DESKTOP_SIGNING_KEYCHAIN`.
 
 The key carries this app's TCC grants, so it never leaves that keychain.
 

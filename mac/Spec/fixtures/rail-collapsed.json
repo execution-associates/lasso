@@ -1,0 +1,6 @@
+{
+  "about": "The rail at rest: the inbox alone on the screen edge, badged with what waits on the human. Same fleet as rail-expanded.",
+  "state": "rail-collapsed",
+  "extends": "rail-expanded",
+  "ui": { "rail": "collapsed", "card": null, "list": false, "chat": false, "recording": null }
+}

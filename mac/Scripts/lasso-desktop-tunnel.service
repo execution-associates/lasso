@@ -1,0 +1,32 @@
+# Reverse tunnel so LassoDesktop on minime reaches titan's lasso.
+# minime 127.0.0.1:18090 -> titan 127.0.0.1:8090 (prod lasso)
+# minime 127.0.0.1:18190 -> titan 127.0.0.1:8190 (a dev lasso, when one runs)
+#
+# Not 8090 on minime: that port is held by another service's ssh mux, and
+# ExitOnForwardFailure would make this unit fail on the clash.
+#
+# -F /dev/null skips ~/.ssh/config, whose minime block declares a LocalForward
+# bound elsewhere. ControlPath=none keeps the tunnel off any shared
+# ControlMaster, so its life is this unit's. ServerAlive* make a dead link exit
+# ssh, and Restart brings it back.
+#
+# Install: install -m 0644 mac/Scripts/lasso-desktop-tunnel.service ~/.config/systemd/user/ && systemctl --user daemon-reload
+#          systemctl --user enable --now lasso-desktop-tunnel
+[Unit]
+Description=Reverse tunnel from minime to titan's lasso (LassoDesktop)
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/ssh -F /dev/null -N \
+  -R 127.0.0.1:18090:127.0.0.1:8090 \
+  -R 127.0.0.1:18190:127.0.0.1:8190 \
+  -i %h/.ssh/id_ed25519 -o IdentitiesOnly=yes \
+  -o UserKnownHostsFile=%h/.ssh/known_hosts \
+  -o ControlMaster=no -o ControlPath=none -o BatchMode=yes \
+  -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+  stephanfitzpatrick@minime.tail9dd8e.ts.net
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

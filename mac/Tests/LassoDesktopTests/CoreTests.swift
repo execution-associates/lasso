@@ -1,0 +1,80 @@
+import Foundation
+import Testing
+
+@testable import LassoDesktopKit
+
+private let packageDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    .deletingLastPathComponent()
+private let specDir = packageDir.appendingPathComponent("Spec")
+
+@Test func ciede2000MatchesSharmaVectors() {
+    typealias L = ColorMath.Lab
+    let cases: [(L, L, Double)] = [
+        (L(l: 50, a: 2.6772, b: -79.7751), L(l: 50, a: 0, b: -82.7485), 2.0425),
+        (L(l: 50, a: 0, b: 0), L(l: 50, a: -1, b: 2), 2.3669),
+        (L(l: 50, a: 2.5, b: 0), L(l: 73, a: 25, b: -18), 27.1492),
+        (L(l: 2.0776, a: 0.0795, b: -1.1350), L(l: 0.9033, a: -0.0636, b: -0.5514), 0.9082),
+    ]
+    for (p, q, want) in cases {
+        #expect(abs(ColorMath.deltaE2000(p, q) - want) < 0.0005)
+    }
+}
+
+@Test func identicalColoursHaveNoDifference() {
+    let c = RGBA(parsing: "#1E2020")!
+    #expect(ColorMath.deltaE2000(c, c) < 1e-9)
+}
+
+@Test func specSpringOvershootsHalfAPointOn330() {
+    // The brief's own check: response 0.2, damping 0.9 overshoots <= 0.5 pt
+    // on ~330 pt of travel.
+    let m = SpringModel(response: 0.2, damping: 0.9)
+    #expect(abs(m.overshootFraction * 330 - 0.50) < 0.01)
+}
+
+@Test func tokenColoursParse() {
+    #expect(RGBA(parsing: "#3877F4") == RGBA(r: 0x38 / 255.0, g: 0x77 / 255.0, b: 0xF4 / 255.0, a: 1))
+    #expect(RGBA(parsing: "rgba(255,255,255,0.06)")?.a == 0.06)
+    #expect(RGBA(parsing: "blue") == nil)
+}
+
+@Test func everyThemeTokenIsInTheSpecWithTheSameValue() throws {
+    let spec = try Spec.load(specDir.appendingPathComponent("tokens.json"))
+    let ids = Set(Theme.all.map(\.id))
+    #expect(ids.count == Theme.all.count, "duplicate ids in Theme.all")
+    #expect(ids == Set(spec.tokens.keys))
+    for t in Theme.all {
+        #expect(spec.tokens[t.id]?.value == t.value, "\(t.id)")
+        #expect(spec.tokens[t.id]?.provenance == t.provenance.kind, "\(t.id)")
+    }
+}
+
+@MainActor @Test func fixtureOrdersTheRailByUrgency() throws {
+    let fx = try Fixture.load("rail-expanded", from: specDir.appendingPathComponent("fixtures"))
+    let fleet = FleetModel()
+    fleet.apply(panes: fx.server.all_panes)
+    fleet.apply(bots: fx.server.bots)
+    #expect(fleet.badgeCount == fx.expect?.badge)
+    #expect(fleet.railSlots(maxSlots: Theme.Rail.maxSlots.int).map(\.id) == fx.expect?.rail_slots)
+}
+
+@Test func collapsedFixtureExtendsExpanded() throws {
+    let fx = try Fixture.load("rail-collapsed", from: specDir.appendingPathComponent("fixtures"))
+    #expect(fx.ui.rail == "collapsed")
+    #expect(fx.server.all_panes.panes.count == 8)
+}
+
+/// Constraint 4: nothing may print to stdout/stderr from the app's sources
+/// (transcripts and keys must never reach a log). The parity report writes
+/// through FileHandle on purpose.
+@Test func sourcesNeverPrint() throws {
+    let src = packageDir.appendingPathComponent("Sources")
+    let files = FileManager.default.enumerator(at: src, includingPropertiesForKeys: nil)!
+        .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
+    #expect(!files.isEmpty)
+    for f in files {
+        let text = try String(contentsOf: f, encoding: .utf8)
+        #expect(!text.contains("print("), "\(f.lastPathComponent) calls print")
+        #expect(!text.contains("NSLog("), "\(f.lastPathComponent) calls NSLog")
+    }
+}
