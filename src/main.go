@@ -460,6 +460,13 @@ func runServer() {
 		"/oauth/register",
 		"/oauth/token",
 	))
+	// The local guard (localguard.go) runs ahead of every credential check:
+	// a request for a Host lasso does not answer to (DNS rebinding) or a
+	// state-changing browser request from another origin is refused whatever
+	// it carries.
+	guard := defaultHostGuard(*listenAddr)
+	log.Printf("guard:    answers to IPs, localhost and %s (add names with %s)", strings.Join(guard.list(), ", "), hostnamesEnv)
+	handler = withLocalGuard(handler, guard)
 	// lasso's own chrome-devtools-mcp children reach /cdp on an internal token,
 	// ahead of every gate above (see withInternalCDP for why outermost).
 	handler = withInternalCDP(handler, http.HandlerFunc(serveCDPRouted))
