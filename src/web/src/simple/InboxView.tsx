@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ChevronLeft,
   ChevronRight,
@@ -6,6 +6,7 @@ import {
   MessageSquare,
 } from "lucide-react"
 import * as React from "react"
+import { createPortal } from "react-dom"
 import { toast } from "sonner"
 
 import { EndAgentDialog } from "@/components/AgentParts"
@@ -18,6 +19,8 @@ import { ackCard } from "@/lib/ui-state"
 import { cn } from "@/lib/utils"
 import { BotAskForm, PaneAskForm } from "@/simple/AskForm"
 import {
+  botChatQuery,
+  chatQuery,
   dropNotice,
   type InboxItem,
   lastAgentText,
@@ -40,6 +43,15 @@ import { ReplyBox } from "@/simple/ReplyBox"
 import type { SimpleRoute } from "@/simple/route"
 import { SharedFiles, sharedFiles } from "@/simple/SharedFiles"
 
+// Where a card puts its reply box and actions: a bar pinned above the tab bar,
+// so they hold still while the reader pages and a card's content loads.
+const FooterSlot = React.createContext<HTMLElement | null>(null)
+
+function CardFooter({ children }: { children: React.ReactNode }) {
+  const slot = React.useContext(FooterSlot)
+  return slot ? createPortal(children, slot) : null
+}
+
 // The Inbox opens on its newest message, never a list, and pages through the
 // rest in Inbox order: the arrows, or a horizontal swipe. Landing on a card is
 // what marks it seen.
@@ -60,6 +72,20 @@ export function InboxView({ go }: { go: (r: SimpleRoute) => void }) {
   React.useEffect(() => {
     if (item) markSeen(item)
   }, [item])
+
+  // Every card's content is read ahead, so paging lands on a card that is
+  // already whole rather than one that grows under the reader. Each read is
+  // keyed by the transcript's moment, so it is fetched once per turn.
+  useQueries({
+    queries: items.flatMap((i) =>
+      "pane" in i
+        ? [chatQuery(i.pane)]
+        : i.kind === "bot-reply"
+          ? [botChatQuery(i.bot)]
+          : []
+    ),
+  })
+  const [footer, setFooter] = React.useState<HTMLElement | null>(null)
 
   const page = (d: number) => {
     const next = items[index + d]
@@ -117,11 +143,20 @@ export function InboxView({ go }: { go: (r: SimpleRoute) => void }) {
           </EmptyState>
         )
       ) : (
-        <ScrollBody className="pt-2">
-          <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-            <ItemCard key={item.key} item={item} go={go} />
-          </div>
-        </ScrollBody>
+        <FooterSlot.Provider value={footer}>
+          {/* Keyed by the card, so each one opens at its top. */}
+          <ScrollBody key={item.key} className="pt-2 pb-4">
+            <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+              <ItemCard item={item} go={go} />
+            </div>
+          </ScrollBody>
+          <div
+            ref={setFooter}
+            onTouchStart={onTouchStart}
+            onTouchEnd={onTouchEnd}
+            className="flex flex-none flex-col gap-2.5 border-border/60 border-t px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+96px)]"
+          />
+        </FooterSlot.Provider>
       )}
     </Screen>
   )
@@ -237,11 +272,13 @@ function ItemCard({
               {item.notice.body}
             </div>
           )}
-          <Actions>
-            <ActionButton primary onClick={() => dropNotice(item.key)}>
-              Acknowledge
-            </ActionButton>
-          </Actions>
+          <CardFooter>
+            <Actions>
+              <ActionButton primary onClick={() => dropNotice(item.key)}>
+                Acknowledge
+              </ActionButton>
+            </Actions>
+          </CardFooter>
         </Card>
       )
   }
@@ -249,7 +286,7 @@ function ItemCard({
 
 function Actions({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mt-1 flex flex-wrap items-center justify-end gap-2 border-border/60 border-t pt-4">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       {children}
     </div>
   )
@@ -275,7 +312,7 @@ function ActionButton({
       className={cn(
         // Buttons share the row, so one that wraps takes the full width
         // rather than hanging off the end of a short line.
-        "flex h-10 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-4 font-medium text-[14px]",
+        "flex h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 font-medium text-[14.5px]",
         primary
           ? "bg-primary text-primary-foreground"
           : danger
@@ -348,44 +385,10 @@ function AgentProse({
       cwd ? resolveMarkdownSrc(src, `${cwd}/`, dataHost ?? null) : src,
     [cwd, dataHost]
   )
-  // A long message is clipped so the reply and the card's actions stay in
-  // reach; whether it overflows is measured, not guessed from its length.
-  const body = React.useRef<HTMLDivElement>(null)
-  const [open, setOpen] = React.useState(false)
-  const [overflows, setOverflows] = React.useState(false)
-  React.useLayoutEffect(() => {
-    const el = body.current
-    if (!el || open) return
-    const check = () => setOverflows(el.scrollHeight > el.clientHeight + 1)
-    check()
-    const ro = new ResizeObserver(check)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [open])
   if (!text) return null
   return (
-    <div className="flex flex-col gap-1">
-      <div
-        ref={body}
-        className={cn(
-          "md-body md-chat text-[15px]",
-          !open && "max-h-[22rem] overflow-hidden",
-          !open &&
-            overflows &&
-            "[mask-image:linear-gradient(to_bottom,black_70%,transparent)]"
-        )}
-      >
-        <Markdown source={text} resolveImageSrc={resolve} />
-      </div>
-      {(overflows || open) && (
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          className="self-start py-1.5 font-medium text-[14px] text-primary"
-        >
-          {open ? "Show less" : "Show all"}
-        </button>
-      )}
+    <div className="md-body md-chat text-[15px]">
+      <Markdown source={text} resolveImageSrc={resolve} />
     </div>
   )
 }
@@ -467,11 +470,15 @@ function PaneCard({
       {item.kind === "done" && (
         <>
           {chatQ.isLoading ? (
-            <div className="h-16 animate-pulse rounded-xl bg-muted/50" />
+            <div className="h-24 animate-pulse rounded-xl bg-muted/50" />
           ) : (
             <AgentProse text={text} chat={chat} />
           )}
           <SharedFiles files={files} host={chat?.served_by || p.host} />
+        </>
+      )}
+      <CardFooter>
+        {item.kind === "done" && (
           <ReplyBox
             placeholder="Reply…"
             host={chat?.host ?? p.host}
@@ -481,23 +488,23 @@ function PaneCard({
               return r
             }}
           />
-        </>
-      )}
-      <Actions>
-        <ActionButton danger onClick={() => setConfirmKill(true)}>
-          Kill agent
-        </ActionButton>
-        <ActionButton
-          onClick={() => go({ view: "agent", host: p.host, pane: p.pane_id })}
-        >
-          <MessageSquare className="size-4" />
-          Chat
-        </ActionButton>
-        {/* Answer is the card's one primary action while a question is open. */}
-        <ActionButton primary={item.kind !== "ask"} onClick={ack}>
-          Acknowledge
-        </ActionButton>
-      </Actions>
+        )}
+        <Actions>
+          <ActionButton danger onClick={() => setConfirmKill(true)}>
+            Kill agent
+          </ActionButton>
+          <ActionButton
+            onClick={() => go({ view: "agent", host: p.host, pane: p.pane_id })}
+          >
+            <MessageSquare className="size-4" />
+            Chat
+          </ActionButton>
+          {/* Answer is the card's one primary action while a question is open. */}
+          <ActionButton primary={item.kind !== "ask"} onClick={ack}>
+            Acknowledge
+          </ActionButton>
+        </Actions>
+      </CardFooter>
       <EndAgentDialog
         open={confirmKill}
         onOpenChange={setConfirmKill}
@@ -522,10 +529,8 @@ function BotCard({
   // A reply's card reads the bot's chat for the whole message and its files;
   // the list carries only a one-line preview.
   const chatQ = useQuery({
-    queryKey: ["simple", "bot-chat", b.name, b.last_at ?? ""],
-    queryFn: () => api.bots.chat(b.name),
+    ...botChatQuery(b),
     enabled: item.kind === "bot-reply",
-    staleTime: Number.POSITIVE_INFINITY,
   })
   const chat = chatQ.data
   const refresh = () => {
@@ -553,6 +558,10 @@ function BotCard({
         <>
           <AgentProse text={text} chat={chat} />
           <SharedFiles files={files} host={chat?.served_by || b.host} />
+        </>
+      )}
+      <CardFooter>
+        {item.kind === "bot-reply" && (
           <ReplyBox
             placeholder="Reply…"
             send={async (t) => {
@@ -561,17 +570,17 @@ function BotCard({
               return r
             }}
           />
-        </>
-      )}
-      <Actions>
-        <ActionButton onClick={() => go({ view: "bot", name: b.name })}>
-          <MessageSquare className="size-4" />
-          Chat
-        </ActionButton>
-        <ActionButton primary={item.kind !== "bot-ask"} onClick={ack}>
-          Acknowledge
-        </ActionButton>
-      </Actions>
+        )}
+        <Actions>
+          <ActionButton onClick={() => go({ view: "bot", name: b.name })}>
+            <MessageSquare className="size-4" />
+            Chat
+          </ActionButton>
+          <ActionButton primary={item.kind !== "bot-ask"} onClick={ack}>
+            Acknowledge
+          </ActionButton>
+        </Actions>
+      </CardFooter>
     </Card>
   )
 }

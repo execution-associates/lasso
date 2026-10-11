@@ -240,10 +240,20 @@ export function useFleet() {
 
 // The chat of a pane, read only while it is a candidate and re-read only when
 // its transcript moves (the key carries transcript_at).
-function chatQuery(p: HostPane) {
+export function chatQuery(p: HostPane) {
   return {
     queryKey: ["simple", "chat", p.host, p.pane_id, p.transcript_at ?? 0],
     queryFn: () => api.chat(p.pane_id, undefined, p.host),
+    staleTime: Number.POSITIVE_INFINITY,
+    gcTime: 5 * 60_000,
+  }
+}
+
+// A bot's chat, for its reply card: re-read only when it speaks again.
+export function botChatQuery(b: BotView) {
+  return {
+    queryKey: ["simple", "bot-chat", b.name, b.last_at ?? ""],
+    queryFn: () => api.bots.chat(b.name),
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: 5 * 60_000,
   }
