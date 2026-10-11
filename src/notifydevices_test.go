@@ -139,3 +139,67 @@ func TestObserveNotifiesAFinishedTurn(t *testing.T) {
 		t.Errorf("done → idle is not another finished turn: %+v", again)
 	}
 }
+
+// A bot is a herdr agent, so one bot turn is both a finished pane and a bot
+// reply. A device hears it once: as the reply when it takes replies, else as
+// the finished turn.
+func TestNotifDeliversABotTurnOnce(t *testing.T) {
+	finished := notification{Kind: notifAgentFinished, Bot: "clem"}
+	reply := notification{Kind: notifBotMessage, Bot: "clem"}
+	plain := notification{Kind: notifAgentFinished}
+	cases := []struct {
+		name                     string
+		choices                  map[string]bool
+		finished, reply, plainOK bool
+	}{
+		{"defaults", map[string]bool{}, false, true, false},
+		{"both on", map[string]bool{"agent_finished": true}, false, true, true},
+		{"finished only", map[string]bool{"agent_finished": true, "bot_message": false}, true, false, true},
+		{"neither", map[string]bool{"bot_message": false}, false, false, false},
+	}
+	for _, c := range cases {
+		if got := notifDelivers(c.choices, finished); got != c.finished {
+			t.Errorf("%s: bot's finished turn delivered = %v", c.name, got)
+		}
+		if got := notifDelivers(c.choices, reply); got != c.reply {
+			t.Errorf("%s: bot reply delivered = %v", c.name, got)
+		}
+		if got := notifDelivers(c.choices, plain); got != c.plainOK {
+			t.Errorf("%s: an agent's finished turn delivered = %v", c.name, got)
+		}
+	}
+}
+
+func TestObserveTellsABotsPaneAsTheBot(t *testing.T) {
+	w := &blockedWatcher{bots: map[string]*botRecord{
+		"local\x00clem":  {Name: "clem", Host: "local", Notify: true},
+		"local\x00quiet": {Name: "quiet", Host: "local", Notify: false},
+	}}
+	now := time.Now()
+	clem := blockedTestPane("local", "p1", "working")
+	clem.AgentLabel = "clem"
+	quiet := blockedTestPane("local", "p2", "working")
+	quiet.AgentLabel = "quiet"
+	w.observe([]hostPane{clem, quiet}, now)
+	clem.AgentStatus, quiet.AgentStatus = "done", "done"
+	got := w.observe([]hostPane{clem, quiet}, now.Add(10*time.Second))
+	if len(got) != 1 {
+		t.Fatalf("want one finished turn (the quiet bot says nothing), got %+v", got)
+	}
+	n := got[0]
+	if n.Kind != notifAgentFinished || n.Bot != "clem" || n.Title != "clem" || n.URL != "/bots/clem" {
+		t.Errorf("notification = %+v", n)
+	}
+	// Blocked is told as the bot too, and a quiet bot is still announced:
+	// waiting on the human is not a reply.
+	clem.AgentStatus, quiet.AgentStatus = "blocked", "blocked"
+	got = w.observe([]hostPane{clem, quiet}, now.Add(20*time.Second))
+	if len(got) != 2 {
+		t.Fatalf("want both bots announced as blocked, got %+v", got)
+	}
+	for _, n := range got {
+		if n.Kind != notifAgentBlocked || n.Bot == "" || n.Title != n.Bot {
+			t.Errorf("blocked bot = %+v", n)
+		}
+	}
+}

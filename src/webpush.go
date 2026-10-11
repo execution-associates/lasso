@@ -528,7 +528,7 @@ func (webPushChannel) deliver(ctx context.Context, n notification) error {
 			c = d.Kinds
 			choices[s.DeviceID] = c
 		}
-		if !notifWants(c, n.Kind) {
+		if !notifDelivers(c, n) {
 			continue
 		}
 		switch err := sendWebPush(ctx, s, payload); {

@@ -588,17 +588,22 @@ func botNotification(r *botRecord, v botView) (notification, bool) {
 	if !seen || prev == v.LastAt {
 		return notification{}, false
 	}
-	icon := ""
-	if _, rev, ok := strings.Cut(r.AvatarImage, "?"); ok {
-		icon = "/api/bots/" + url.PathEscape(r.Name) + "/avatar?" + rev
-	}
 	return notification{
 		Kind:  notifBotMessage,
+		Bot:   r.Name,
 		Title: r.Name,
 		Body:  v.LastText,
 		Tag:   "bot:" + r.Name,
 		Host:  r.Host,
 		URL:   "/bots/" + url.PathEscape(r.Name),
-		Icon:  icon,
+		Icon:  botIconURL(r),
 	}, true
+}
+
+// botIconURL is the bot's picture for a notification, or "" for lasso's own.
+func botIconURL(r *botRecord) string {
+	if _, rev, ok := strings.Cut(r.AvatarImage, "?"); ok {
+		return "/api/bots/" + url.PathEscape(r.Name) + "/avatar?" + rev
+	}
+	return ""
 }

@@ -11,8 +11,9 @@ import (
 // right now: every tab and the Mac app, over their SSE stream, as a
 // `notification` event. The server does not know which device a stream
 // belongs to, so it hands every client every notification and each one
-// filters by its own device's choices (GET /api/notify?device=); a choice
-// governs what interrupts that client, never what it lists.
+// filters by its own device's choices (GET /api/notify?device=) with the
+// same rule as notifDelivers; a choice governs what interrupts that client,
+// never what it lists.
 type liveChannel struct{}
 
 // liveNotification is the `notification` SSE event. ID and At let a client
@@ -22,6 +23,9 @@ type liveNotification struct {
 	At    int64  `json:"at"`
 	Kind  string `json:"kind"`
 	Level string `json:"level,omitempty"`
+	// Bot names the bot a pane's event is about; a client applies the same
+	// once-per-bot-turn rule as Web Push (notifDelivers).
+	Bot   string `json:"bot,omitempty"`
 	Title string `json:"title"`
 	Body  string `json:"body,omitempty"`
 	Tag   string `json:"tag,omitempty"`
@@ -43,6 +47,7 @@ func (liveChannel) deliver(_ context.Context, n notification) error {
 		At:    time.Now().UnixMilli(),
 		Kind:  string(n.Kind),
 		Level: n.Level,
+		Bot:   n.Bot,
 		Title: n.Title,
 		Body:  n.Body,
 		Tag:   n.Tag,

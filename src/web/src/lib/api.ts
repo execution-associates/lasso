@@ -1617,6 +1617,8 @@ export interface LiveNotification {
   at: number
   kind: string
   level?: "error" | "info" | "success"
+  // The bot a pane's event is about (a bot is a herdr agent too).
+  bot?: string
   title: string
   body?: string
   tag?: string

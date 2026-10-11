@@ -102,9 +102,12 @@ export async function setNotifyKind(kind: string, on: boolean | null) {
 // Inbox lists lasso's notices).
 export const NOTIFICATION_EVENT = "lasso:notification"
 
-// Whether this device takes a kind. Before its choices have loaded, only
+// Whether this device is shown n: the server's notifDelivers. Its kind must be
+// one the device takes, and a bot's turn is shown once: a bot is a herdr
+// agent, so its pane finishing and its reply are the same turn, and a device
+// that takes replies hears the reply. Before the choices have loaded, only
 // lasso's own notices get through, as they always did as toasts.
-async function wants(kind: string): Promise<boolean> {
+async function delivers(n: LiveNotification): Promise<boolean> {
   let view = queryClient.getQueryData<NotifyView>(notifyKey())
   if (!view) {
     try {
@@ -114,10 +117,12 @@ async function wants(kind: string): Promise<boolean> {
         staleTime: 60_000,
       })
     } catch {
-      return kind === "lasso_notice"
+      return n.kind === "lasso_notice"
     }
   }
-  return view?.device.wants[kind] ?? false
+  const wants = view?.device.wants ?? {}
+  if (!wants[n.kind]) return false
+  return !(n.kind === "agent_finished" && n.bot && wants.bot_message)
 }
 
 // handleLiveNotification is the SSE `notification` handler (lib/app-store):
@@ -134,7 +139,7 @@ export async function handleLiveNotification(raw: string) {
   if (!n?.title) return
   window.dispatchEvent(new CustomEvent(NOTIFICATION_EVENT, { detail: n }))
   if (document.visibilityState !== "visible") return
-  if (!(await wants(n.kind))) return
+  if (!(await delivers(n))) return
   const opts = {
     description: n.body || undefined,
     action:

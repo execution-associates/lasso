@@ -81,6 +81,22 @@ var notifKindCatalog = []notifKindInfo{
 	{notifLassoNotice, "lasso's own notices", "Errors and results from lasso itself, like a theme a host would not take.", true},
 }
 
+// notifDelivers is whether a device with these choices is sent n. Its kind
+// must be one the device takes, and a bot's turn is announced once: a bot is
+// a herdr agent, so the watcher sees its pane finish the same turn the bot
+// loop reports as a reply. A device that takes bot replies hears the reply;
+// one that takes only finished turns still hears that the bot finished.
+func notifDelivers(choices map[string]bool, n notification) bool {
+	if !notifWants(choices, n.Kind) {
+		return false
+	}
+	if n.Kind == notifAgentFinished && n.Bot != "" &&
+		notifWants(choices, notifBotMessage) {
+		return false
+	}
+	return true
+}
+
 func notifKindKnown(k string) bool {
 	for _, c := range notifKindCatalog {
 		if string(c.ID) == k {
@@ -116,6 +132,10 @@ type notification struct {
 	// Level is a lasso notice's severity ("error", "info", "success"); empty
 	// for every other kind.
 	Level string
+	// Bot names the bot this is about when it happened in a bot's pane (a bot
+	// is a herdr agent too), so a device is told about one bot turn once
+	// (notifDelivers).
+	Bot string
 	// Tag collapses re-sends: a notification with a tag REPLACES an earlier one
 	// carrying the same tag on the device rather than stacking beside it. Keyed
 	// per pane by the watcher, so an agent that blocks, unblocks and blocks
