@@ -123,7 +123,7 @@ export function lastAgentText(chat: ChatPayload | undefined): string {
 // the pane. The first run seeds the baseline with every pane's current turn, so
 // the Inbox starts with what is waiting, not with history. Seen is separate: it
 // only decides the tab's badge, and a seen item stays listed until it is
-// answered, discarded, or no longer waiting.
+// answered, acknowledged, or no longer waiting.
 
 const BASELINE_KEY = "lasso-m-baseline"
 const SEEN_KEY = "lasso-m-seen"
@@ -257,7 +257,8 @@ export function useInbox() {
   const botsQ = useBots(true)
   const ui = useUIState()
   const noticeList = useNotices()
-  const dismissed = ui.dismissed_cards ?? {}
+  // Acknowledged cards, shared by every client (ui_state.dismissed_cards).
+  const acked = ui.dismissed_cards ?? {}
 
   const panes = React.useMemo(
     () => (fleet.data?.panes ?? []).filter((p) => p.has_agent),
@@ -269,7 +270,7 @@ export function useInbox() {
   if (fleet.data && fleet.dataUpdatedAt > 0) seedBaseline(panes)
 
   // Panes that are candidates: claude/omp, not an omp bot's pane (that one
-  // enters as the bot), blocked or finished past the baseline, not dismissed.
+  // enters as the bot), blocked or finished past the baseline, not acknowledged.
   const candidates = React.useMemo(() => {
     const out: { pane: HostPane; bot?: BotView; blocked: boolean }[] = []
     for (const p of panes) {
@@ -278,7 +279,7 @@ export function useInbox() {
       if (bot && bot.runtime !== "claude") continue
       const key = paneKey(p)
       const at = p.transcript_at ?? 0
-      const gone = dismissed[key]
+      const gone = acked[key]
       if (gone !== undefined && at <= gone) continue
       if (p.agent_status === "blocked")
         out.push({ pane: p, bot, blocked: true })
@@ -292,7 +293,7 @@ export function useInbox() {
         out.push({ pane: p, bot, blocked: false })
     }
     return out
-  }, [panes, bots, dismissed])
+  }, [panes, bots, acked])
 
   // Only a blocked pane's chat decides its group (an ask, or no choices).
   const blockedChats = useQueries({
@@ -327,7 +328,7 @@ export function useInbox() {
       const pending = b.pending_ui?.[0]
       if (b.state === "blocked" && pending) {
         const key = `bot:${b.name}#${pending.id}`
-        if (dismissed[key] === undefined)
+        if (acked[key] === undefined)
           asks.push({
             kind: "bot-ask",
             key,
@@ -342,7 +343,7 @@ export function useInbox() {
       if (
         b.last_kind === "agent" &&
         at > (botBaseline(b) ?? Number.POSITIVE_INFINITY) &&
-        !(dismissed[key] !== undefined && at <= dismissed[key])
+        !(acked[key] !== undefined && at <= acked[key])
       )
         done.push({ kind: "bot-reply", key, bot: b, at })
     }
@@ -355,7 +356,7 @@ export function useInbox() {
         (n): InboxItem => ({ kind: "notice", key: n.key, notice: n, at: n.at })
       ),
     ]
-  }, [candidates, blockedChats, bots, dismissed, noticeList])
+  }, [candidates, blockedChats, bots, acked, noticeList])
 
   return {
     items,

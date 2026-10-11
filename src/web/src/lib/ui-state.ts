@@ -258,10 +258,12 @@ function mergeLocal(cached: UIState, patch: UIStatePatch): UIState {
   return out
 }
 
-// dismissCard clears one card from the human's attention on every device.
-// It changes nothing on the agent: the card returns when its moment (`at`)
-// is passed, by a new turn or a new question.
-export function dismissCard(key: string, at: number) {
+// ackCard acknowledges one Inbox card on every device: the human has seen it
+// and needs nothing more from it. It changes nothing on the agent, and the
+// card returns when its moment (`at`) is passed, by a new turn or a new
+// question. Stored in ui_state.dismissed_cards (card_dismiss ops), the field
+// LassoDesktop shares.
+export function ackCard(key: string, at: number) {
   patchUIState({ card_dismiss: { [key]: at } })
 }
 

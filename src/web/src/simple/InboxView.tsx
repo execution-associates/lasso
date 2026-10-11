@@ -14,7 +14,7 @@ import { Markdown, resolveMarkdownSrc } from "@/components/Markdown"
 import { paneKey } from "@/lib/agents"
 import { api, type ChatPayload, type HostPane } from "@/lib/api"
 import { relativeTime, useMinuteClock } from "@/lib/bots"
-import { dismissCard } from "@/lib/ui-state"
+import { ackCard } from "@/lib/ui-state"
 import { cn } from "@/lib/utils"
 import { BotAskForm, PaneAskForm } from "@/simple/AskForm"
 import {
@@ -47,7 +47,7 @@ export function InboxView({ go }: { go: (r: SimpleRoute) => void }) {
   const inbox = useInbox()
   const { items } = inbox
   // The card on screen, by key, so a list reordering under it does not move
-  // the reader. When it leaves (answered, discarded) the next one takes its
+  // the reader. When it leaves (answered, acknowledged) the next one takes its
   // place.
   const [currentKey, setCurrentKey] = React.useState<string | null>(null)
   const lastIndex = React.useRef(0)
@@ -236,7 +236,7 @@ function ItemCard({
           )}
           <Actions>
             <ActionButton primary onClick={() => dropNotice(item.key)}>
-              Discard
+              Acknowledge
             </ActionButton>
           </Actions>
         </Card>
@@ -270,7 +270,9 @@ function ActionButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex h-10 items-center gap-1.5 rounded-full px-4 font-medium text-[14px]",
+        // Buttons share the row, so one that wraps takes the full width
+        // rather than hanging off the end of a short line.
+        "flex h-10 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-4 font-medium text-[14px]",
         primary
           ? "bg-primary text-primary-foreground"
           : danger
@@ -414,7 +416,7 @@ function PaneCard({
   const refresh = () =>
     void queryClient.invalidateQueries({ queryKey: ["simple"] })
 
-  const discard = () => dismissCard(paneKey(p), p.transcript_at ?? 0)
+  const ack = () => ackCard(paneKey(p), p.transcript_at ?? 0)
   const kill = async () => {
     try {
       await api.close([p.pane_id], p.host)
@@ -468,7 +470,7 @@ function PaneCard({
           )}
           <SharedFiles files={files} host={chat?.served_by || p.host} />
           <ReplyBox
-            placeholder={`Reply to ${name}`}
+            placeholder="Reply…"
             host={chat?.host ?? p.host}
             send={async (t) => {
               const r = await api.chatSend(chat?.host ?? p.host, p.pane_id, t)
@@ -489,8 +491,8 @@ function PaneCard({
           Chat
         </ActionButton>
         {/* Answer is the card's one primary action while a question is open. */}
-        <ActionButton primary={item.kind !== "ask"} onClick={discard}>
-          Discard
+        <ActionButton primary={item.kind !== "ask"} onClick={ack}>
+          Acknowledge
         </ActionButton>
       </Actions>
       <EndAgentDialog
@@ -529,10 +531,8 @@ function BotCard({
   }
   const text = lastAgentText(chat) || b.last_text || ""
   const files = sharedFiles(lastTurn(chat))
-  const discard = () =>
-    item.kind === "bot-ask"
-      ? dismissCard(item.key, 0)
-      : dismissCard(item.key, item.at)
+  const ack = () =>
+    item.kind === "bot-ask" ? ackCard(item.key, 0) : ackCard(item.key, item.at)
 
   return (
     <Card className="flex flex-col gap-4 p-5">
@@ -551,7 +551,7 @@ function BotCard({
           <AgentProse text={text} chat={chat} />
           <SharedFiles files={files} host={chat?.served_by || b.host} />
           <ReplyBox
-            placeholder={`Message ${b.name}`}
+            placeholder="Reply…"
             send={async (t) => {
               const r = await api.bots.chatSend(b.name, t)
               if (r.outcome === "confirmed") refresh()
@@ -565,8 +565,8 @@ function BotCard({
           <MessageSquare className="size-4" />
           Chat
         </ActionButton>
-        <ActionButton primary={item.kind !== "bot-ask"} onClick={discard}>
-          Discard
+        <ActionButton primary={item.kind !== "bot-ask"} onClick={ack}>
+          Acknowledge
         </ActionButton>
       </Actions>
     </Card>
