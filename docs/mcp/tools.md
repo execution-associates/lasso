@@ -474,7 +474,7 @@ These tools read and change what lasso's Settings tab shows. Each write runs thr
 
 | parameter | type | | description |
 | --- | --- | --- | --- |
-| `section` | string | optional | One of `ui`, `agents`, `repos`, `theme`, `notifications`, `browser`, `plugins`. Omit for all of them. |
+| `section` | string | optional | One of `ui`, `agents`, `repos`, `theme`, `notifications`, `browser`, `transcribe`, `plugins`. Omit for all of them. |
 | `host` | string | optional | Whose creator settings `agents` and `repos` show. Defaults to `local`. |
 
 Returns one key per section:
@@ -487,6 +487,7 @@ Returns one key per section:
 | `theme` | herdr's current theme, the selectable `themes`, `sync_agent_themes`, `theme_sync_off` and the installable `catalog`. |
 | `notifications` | Registered push `devices`, by id and label. Endpoints are never returned. |
 | `browser` | The browsers' status. `list_browsers` and the other browser tools manage them. |
+| `transcribe` | The speech-to-text provider `/api/transcribe` uses: `provider` (`off`, `groq`, `openai`, `openai-compatible`), `model`, `base_url` and `key_name`, the NAME of the key's variable. Never a key. |
 | `plugins` | Each plugin's state, read-only. |
 
 A section that fails (an unreachable host, say) is listed under `errors` and the others are still returned.
@@ -497,7 +498,7 @@ Pass only what changes; an omitted field is left alone. Returns the affected sec
 
 | parameter | type | | description |
 | --- | --- | --- | --- |
-| `ui` | object | optional | A patch of the `ui` section. Only the keys you send change. `typography`, `chat_text`, `terminal_text` and `theme_atmosphere` merge per field, and `""` or `null` deletes one; `sidebar_tabs` is replaced whole. Pinned agents change through `agent_pins: {<key>: true\|false}` and the background gallery through `remember_background` / `forget_background`. |
+| `ui` | object | optional | A patch of the `ui` section. Only the keys you send change. `typography`, `chat_text`, `terminal_text` and `theme_atmosphere` merge per field, and `""` or `null` deletes one; `sidebar_tabs` is replaced whole. Pinned agents change through `agent_pins: {<key>: true\|false}`, dismissed agent cards through `card_dismiss: {<key>: <transcript_at ms>\|null}`, and the background gallery through `remember_background` / `forget_background`. |
 | `auto_title` | boolean | optional | Name new agents from their prompt. |
 | `agent_defaults` | object | optional | `host`'s creator defaults: any of `repos_root`, `branch_prefix`, `default_agent`, `default_terminal_workspace`, `scratch_setup`. `""` clears one. |
 | `repo` | object | optional | `{path, copy_files?, setup?}`: one repository's per-repo settings on `host`. |
@@ -508,6 +509,7 @@ Pass only what changes; an omitted field is left alone. Returns the affected sec
 | `sync_theme_now` | boolean | optional | Push the current theme to every reachable host. Runs in the background; the outcome arrives as a toast in lasso. |
 | `install_theme_url` | string | optional | Install an Omarchy theme from a URL. |
 | `remove_push_device` | string | optional | Forget the notification device with this id. |
+| `transcribe` | object | optional | Any of `provider`, `model`, `base_url`, `key_name`; only the fields given change, `""` resets one to the provider's default, and changing `provider` resets the fields not given. `key_name` names a variable or secret; it never holds a key. |
 
 ## Plugin tools
 

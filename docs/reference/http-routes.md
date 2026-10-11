@@ -41,7 +41,7 @@ So on a loopback or tailnet lasso with no `UI_AUTH` and no `MCP_OAUTH`, **everyt
 | `/api/active`, `/api/panes`, `/api/all-panes` | The focused pane; one host's panes; panes across the fleet. A pane's `transcript_at` is its log's mtime on whichever host has the log. |
 | `/api/focus`, `/api/close`, `/api/rename`, `/api/workspace-rename` | Focus, close or rename herdr panes, tabs and workspaces. |
 | `/api/clients`, `/api/term-claim` | The browsers attached to this lasso; which tab owns the terminal's size. |
-| `/api/ui-state` | Read and patch the shared UI state stored in `lasso.db`. |
+| `/api/ui-state` | Read and patch the shared UI state stored in `lasso.db`. Collections a stale client must not overwrite change only through ops: `agent_pins` (for `pinned_agents`) and `card_dismiss: {<key>: <transcript_at ms>\|null}` (for `dismissed_cards`, at most 256, smallest `transcript_at` dropped first), each key a host, a NUL and a pane id. `assistant_bot` is a bot name or `""`. |
 
 Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` header or a `?host=` parameter. See [Hosts](../concepts/hosts.md).
 
@@ -65,6 +65,9 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 | `/api/create-terminal`, `/api/workspaces` | Open a plain terminal; list workspaces to put it in. |
 | `/api/agent-config`, `/api/repo-config`, `/api/repos`, `/api/repo-branches`, `/api/auto-title` | New dialog settings, repos and branches. |
 | `/api/chat`, `/api/chat/send`, `/api/chat/answer` | The chat view: read an agent's transcript, send it a message, answer its question dialog. `/api/chat`'s `host` is the pane's machine; the log may be served from another host lasso drives, named by `served_by`. An empty answer carries `unavailable: {reason, checked, unanswered}`. |
+| `/api/bots`, `/api/bots/<name>[/…]` | Bots: create, configure, start and stop them, their jobs, skills, env and sign-ins. An omp bot's chat is `/api/bots/<name>/chat` with `chat/send` (`{text, meta?}`; `meta` is up to 16 string values, at most 1 KB, shown back on the user's row), `chat/stop` and `chat/answer`. See [Bots](../design/bots.md). |
+| `/api/transcribe` | `POST` a PCM16 WAV (raw body, at most 4 MiB and 120 s; `?language=`, `?prompt=`) and get `{text, engine, provider, model, language, audio_ms, elapsed_ms}`; `GET` says whether it is `available` and its limits. 503 while the provider is off, 429 past 2 in flight. See [Transcription](../design/transcription.md). |
+| `/api/transcribe/config` | The `transcribe` setting: provider (`off`, `groq`, `openai`, `openai-compatible`), model, `base_url` and the NAME of the key's variable. |
 
 ### Settings, themes and maintenance
 

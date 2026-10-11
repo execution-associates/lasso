@@ -42,12 +42,13 @@ One SQLite file holds everything lasso remembers. It is local to the machine las
 | `oauth_clients`, `oauth_codes`, `oauth_tokens` | MCP OAuth clients (including per-host `lasso mcp-client` credentials), authorization codes and tokens, all stored as SHA-256 hashes. Used only with `MCP_OAUTH`. |
 | `mcp_groups`, `mcp_group_members`, `mcp_group_grants` | Host groups and grants from `lasso mcp-group`. |
 | `push_subscriptions` | Devices registered for Web Push, with the outcome of the last push to each. |
+| `bot_message_meta` | The `meta` a client sent with a message to an omp bot, keyed by a hash of the text, the newest 500 per bot. |
 
 Notable `settings` keys:
 
 | key | contents |
 | --- | --- |
-| `ui_state` | UI state shared by every browser: theme backdrops and appearance, sidebar layout and tab order, typography, browser mode, and similar. |
+| `ui_state` | UI state shared by every browser: theme backdrops and appearance, sidebar layout and tab order, typography, browser mode, pinned and dismissed agent cards, the assistant bot, and similar. |
 | `repos_root`, `branch_prefix`, `default_agent`, `scratch_setup` | New dialog defaults. |
 | `push_vapid_private` | The VAPID private key identifying this server to push services, generated once. If it changes, every registered device stops receiving notifications. |
 | `plugins`, `plugin_sources` | Plugin approvals (permission fingerprints), trust and VM flags; where each plugin was installed from. |
@@ -55,6 +56,7 @@ Notable `settings` keys:
 | `sync_agent_themes`, `theme_sync_off`, `theme_hub`, `theme_written:<host>` | Fleet theme sync: the agent-theme toggle, hosts opted out, and what lasso last wrote where. |
 | `omarchy_installed` | Omarchy themes installed from a URL. |
 | `auto_title_agents`, `terminal_workspace` | The auto-title toggle; the New terminal form's default workspace. |
+| `transcribe` | The speech-to-text provider `/api/transcribe` uses: provider, model, `base_url` and the name of the key's variable. Never a key. |
 
 ## Temporary files
 
