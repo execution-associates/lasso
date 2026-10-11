@@ -44,6 +44,7 @@ import { OnboardingTour, type TourPrepare } from "@/components/OnboardingTour"
 import { PluginTab } from "@/components/PluginTab"
 import { ScratchTab } from "@/components/ScratchTab"
 import { SettingsTab, ShortcutsDialog } from "@/components/SettingsTab"
+import { SignedOutBar } from "@/components/SignedOutBar"
 import { TerminalFrame } from "@/components/TerminalFrame"
 import { UsageFooter } from "@/components/UsageFooter"
 import { UsageTab } from "@/components/UsageTab"
@@ -276,6 +277,7 @@ export function App() {
   return (
     <AppProvider>
       {botsApp ? <BotsApp /> : <Shell />}
+      <SignedOutBar />
       <Toaster />
     </AppProvider>
   )
