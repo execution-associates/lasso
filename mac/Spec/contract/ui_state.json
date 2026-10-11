@@ -51,5 +51,12 @@
   "onboarding_done": true,
   "dismissed_cards": {
     "x": 1
+  },
+  "desktop_sound": {
+    "name": "x",
+    "sha256": "x",
+    "size": 1,
+    "content_type": "x",
+    "updated_at": 1
   }
 }

@@ -426,6 +426,12 @@ type uiState struct {
 	// the reason pins are: a stale copy would undo another device's dismissal.
 	// Capped at maxDismissedCards, smallest transcript_at dropped first.
 	DismissedCards map[string]int64 `json:"dismissed_cards"`
+	// DesktopSound describes the inbox arrival sound uploaded for LassoDesktop
+	// (desktopsound.go), absent when none is. Server-owned: only PUT and
+	// DELETE /api/desktop/sound change it, and POST /api/ui-state discards it,
+	// so a client learns of a new sound through the ui_state_rev it already
+	// watches and refetches the file only when sha256 moves.
+	DesktopSound *desktopSound `json:"desktop_sound,omitempty"`
 }
 
 // maxDismissedCards caps DismissedCards. A dismissal outlives its pane until
@@ -728,6 +734,9 @@ func getUIState() (uiState, error) {
 	us.ChatText = sanitizeChatText(us.ChatText)
 	us.TerminalText = terminalTextKind.sanitize(us.TerminalText)
 	us.DismissedCards = mergeDismissedCards(us.DismissedCards, nil)
+	if s := us.DesktopSound; s != nil && (s.SHA256 == "" || s.Size <= 0) {
+		us.DesktopSound = nil // a hand-edited blob: no sound rather than a broken one
+	}
 	return us, nil
 }
 

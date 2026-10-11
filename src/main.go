@@ -331,6 +331,9 @@ func runServer() {
 	mux.HandleFunc("/bot-channel/", serveBotChannel)
 	mux.HandleFunc("/api/all-panes", serveAllPanes)
 	mux.HandleFunc("/api/ui-state", serveUIState)
+	// LassoDesktop's inbox sound (desktopsound.go). Behind UI_AUTH like the
+	// rest of /api.
+	mux.HandleFunc("/api/desktop/sound", serveDesktopSound)
 	mux.HandleFunc("/api/clients", serveClients)
 	mux.HandleFunc("/api/term-claim", serveTermClaim)
 	mux.HandleFunc("/api/focus", serveFocus)

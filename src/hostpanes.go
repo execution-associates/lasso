@@ -496,6 +496,10 @@ func serveUIState(w http.ResponseWriter, r *http.Request) {
 		// Same as the pins: dismissed_cards changes only through card_dismiss,
 		// and detaching keeps the decode from writing into stored's map.
 		us.DismissedCards = nil
+		// Detached, and put back after the decode whatever the body said: the
+		// desktop sound's metadata describes a file on disk, so only
+		// /api/desktop/sound may change it.
+		us.DesktopSound = nil
 		if err := json.Unmarshal(body, &us); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -560,6 +564,7 @@ func serveUIState(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		us.DismissedCards = mergeDismissedCards(stored.DismissedCards, who.CardDismiss)
+		us.DesktopSound = stored.DesktopSound
 
 		// The sidebar layout is the one field group several clients write
 		// unprompted, so it is arbitrated rather than merged (see uilock.go).
