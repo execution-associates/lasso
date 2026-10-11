@@ -34,11 +34,16 @@ public final class SidePanel {
 
     public var isOpen: Bool { presence.shown }
 
-    public func open() {
+    /// `takeKey` false (a hover) shows the panel without taking the keyboard.
+    public func open(takeKey: Bool = true) {
         panel.setFrameOrigin(originBesideRail(railFrame(), size: panel.frame.size))
-        panel.makeKeyAndOrderFront(nil)
+        if takeKey { panel.makeKeyAndOrderFront(nil) } else { panel.orderFrontRegardless() }
         withAnimationToken(Theme.Motion.cardOpen) { presence.shown = true }
     }
+
+    var isKey: Bool { panel.isKeyWindow }
+
+    func takeKey() { panel.makeKeyAndOrderFront(nil) }
 
     /// The rail moved: stay beside it.
     func follow() { if isOpen { panel.setFrameOrigin(originBesideRail(railFrame(), size: panel.frame.size)) } }

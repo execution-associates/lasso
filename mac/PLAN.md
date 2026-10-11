@@ -45,7 +45,8 @@ Server additions:
 - **S1**: ui_state card dismissals (`dismissed_cards`, written through `card_dismiss`). Built on this branch. The Inbox's Discard uses it as is.
 - **S2**: `/api/transcribe`. Built, unused.
 - **S3**: bot-send `meta`. Built, unused.
-- **S4** (proposed, §13.4): free text on `POST /api/chat/answer`, for a pane ask's "Other" row.
+- **S4**: free text on `POST /api/chat/answer`, for a pane ask's "Other" row (§13.4). Built on this branch, verified against live claude and omp dialogs.
+- **S5**: `pending_ui` on `GET /api/bots`, `id`/`at` on SSE notices, `dev`/`listen` on a `-dev` lasso's `/api/version`. Built on this branch.
 
 ## 2. Token table (spec = `mac/Spec/tokens.json`, code = `Theme.swift`)
 
@@ -180,10 +181,10 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 
 **Drift guard**: a Go test writes golden JSON for `hostPane`, `botView`, `chatPayload` and `uiState` to `mac/Spec/contract/`, and Swift tests decode those goldens. Both sides then fail when a tag changes.
 
-**S4: free text on a pane's ask** (proposed, for the Inbox, §13.4)
+**S4: free text on a pane's ask** (built, for the Inbox, §13.4)
 - `POST /api/chat/answer`'s `answers[i]` gains an optional `custom: string` (≤ `chatAskQuestionCap` runes, no control characters). With it, `selected` may be empty, and lasso walks to the dialog's own "Other" row, types the text and submits, after the same `askScreenHolds` check as a pick.
 - Both dialogs have that row (`chatAskQuestion.custom` is what the transcript records from it). The keystroke walk for each harness is measured against a real dialog before it ships, as `claudeAskKeystrokes` and `ompAskKeystrokes` were, and is unit-tested the same way.
-- Today `chatAskPick` carries option indexes only, so the route cannot type free text at all.
+- As built: claude's Other is a text field the cursor walks onto; omp's is "Other (type your own)", whose Enter opens a prompt. The text goes in a write of its own and the following keys in a later one (`chatAskSegmentGap`, 200 ms), since claude takes a long write as a paste and drops its Enter, and omp loses keys that arrive with its prompt's Enter. A claude single-select question laid out with previews has no Other row, so a `custom` answer there is refused; the client sends `previews: true` for such a question. Text is at most 1200 characters with no newline (both dialogs take a newline as Enter).
 
 **Not proposed**
 - Bearer auth on `/api/*` (see §0).
@@ -598,8 +599,8 @@ The Inbox is the surface this app exists for: **the latest messages across lasso
 - It is re-read only when its `transcript_at`, its `last_at` or its `pending_ui` changes, or on a `bot-chat` nudge for that bot.
 - Reads are cached per (item, `transcript_at`), with at most 4 in flight.
 
-**Notices** carry no id and no timestamp, and are sent once.
-- The app stamps them on arrival and keeps the last 50 in memory.
+**Notices** are sent once, each with an `id` and an `at` (unix ms) from the server.
+- The app dedupes them by `id`, orders them by `at`, and keeps the last 50 in memory.
 - A relaunch loses them, as a browser tab loses its toasts.
 - They are this Mac's only. Nothing about them is shared.
 
@@ -647,9 +648,9 @@ The Inbox is the surface this app exists for: **the latest messages across lasso
 - `POST /api/bots/<name>/chat/answer` with `{id, value}`, `{id, confirmed}` or `{id, cancelled: true}`.
 - `id` comes from the capture. The bridge refuses an id that is no longer open ("that question is no longer open", `src/botomp.go:718`).
 
-**Free text on a pane's ask needs S4 (§3).**
-- Today the answer route takes option indexes only (`chatAskPick`), so it cannot type into the dialog's "Other" row.
-- Until S4 ships, an ask whose dialog offers Other shows an **Answer in the terminal** action (`POST /api/focus`) in place of the text field.
+**Free text on a pane's ask is S4 (§3):** `answers[i].custom`, typed into the dialog's own "Other" row after the same screen check.
+- A question with previews (claude lays those out with no Other row) gets no text field; it shows **Answer in the terminal** (`POST /api/focus`) for anything beyond its options.
+- Against a lasso without S4 (the request's `custom` is ignored, so the app checks `/api/version` for this branch's protocol), the text field is replaced by the same action.
 - The app never sends free text to a blocked pane through `/api/chat/send`: with a dialog up, that is a blind paste into it.
 
 ### 13.5 Blocked with no choices
@@ -754,3 +755,12 @@ The app can talk to any lasso this Mac reaches, and switches between them in pla
 - **The tunnel** (`lasso-desktop-tunnel.service`) forwards minime's 18190–18199 to titan's 8190–8199, so a dev lasso that bumped past 8190 is still reachable.
 - **A reinstall keeps the choice.** `agent.sh install` sets `baseURL` only on a fresh Mac or when `LASSO_BASE_URL` is given.
 - **A dev lasso is not a sandbox.** It drives the same herdr and reads the same `lasso.db` as production, so the agents in it are real, and Kill and answers act on them. Two lassos of different versions on one `lasso.db` also rewrite each other's `ui_state`: an older one drops fields it does not know, such as `dismissed_cards`. So while the server changes are unreleased, titan's production lasso runs this branch's build (§15).
+
+## 15. titan runs this branch's server until release
+
+The Inbox needs S1, S4 and S5 on the lasso the app talks to, and a dev lasso shares `lasso.db` with production (§14). So titan's production lasso runs this branch's build, not the 6.4.0 release, until these changes are released.
+- The binary is `~/.local/libexec/lasso-desktop/lasso`, built with `mise run build` from this worktree and copied there, so the weekly worktree prune cannot delete it.
+- A systemd drop-in, `/etc/systemd/system/lasso.service.d/desktop-branch.conf`, points `lasso.service` at it with production's own flags.
+- It reports `6.4.0 (dev)`: Go does not stamp a build made in a linked worktree with its commit. It is not a `-dev` instance and never self-updates.
+- **To update it:** `mise run build`, then `install -m 0755 lasso ~/.local/libexec/lasso-desktop/lasso.new && mv ~/.local/libexec/lasso-desktop/lasso.new ~/.local/libexec/lasso-desktop/lasso && sudo systemctl restart lasso`.
+- **To undo it, and once the release ships:** `sudo rm /etc/systemd/system/lasso.service.d/desktop-branch.conf && sudo systemctl daemon-reload && sudo systemctl restart lasso`. That puts back the mise-installed release.

@@ -133,36 +133,59 @@ public final class AppCoordinator {
         if let c = chat, keep !== c.panel { c.panel.close() }
     }
 
-    func openCard(_ p: HostPane) {
+    func openCard(_ p: HostPane, takeKey: Bool = true) {
         closeAll(except: card)
-        card.open(p)
+        card.open(p, takeKey: takeKey)
     }
 
-    func toggleList() {
+    /// A click on the agents capsule: open the list, give an open list that
+    /// a hover showed the keyboard, or close one that has it.
+    func toggleList(takeKey: Bool = true) {
+        if list.isOpen, takeKey, !list.isKey {
+            list.takeKey()
+            return
+        }
         closeAll(except: list)
-        list.toggle()
+        if list.isOpen { list.close() } else { list.open(takeKey: takeKey) }
     }
 
     /// The inbox drops straight into its newest message, a card that J/K
-    /// page through the rest; with nothing waiting it says so. Pressed again
-    /// while open, it closes.
-    func openInbox() {
+    /// page through the rest; with nothing waiting it says so. A click while
+    /// it is open gives it the keyboard if a hover showed it, else closes it.
+    func openInbox(takeKey: Bool = true) {
         if card.isOpen || inbox.isOpen {
-            closeAll()
+            if takeKey, card.isOpen, !card.isKey { card.takeKey() }
+            else if takeKey, inbox.isOpen, !inbox.isKey { inbox.takeKey() }
+            else if takeKey { closeAll() }
             return
         }
         if let first = inboxModel.panes.first {
-            openCard(first)
+            openCard(first, takeKey: takeKey)
         } else {
             closeAll(except: inbox)
-            inbox.open()
+            inbox.open(takeKey: takeKey)
         }
     }
 
-    func openSettings() {
+    func openSettings(takeKey: Bool = true) {
+        if settings.isOpen {
+            if takeKey { settings.takeKey() }
+            return
+        }
         closeAll(except: settings)
         settingsModel.refresh()
-        settings.open()
+        settings.open(takeKey: takeKey)
+    }
+
+    /// Resting on a rail control opens it, without the keyboard: the user may
+    /// be typing in another app, and the card's keys are single letters. A
+    /// click or the summon key gives the panel the keyboard.
+    func hoverOpen(_ item: RailModel.Item) {
+        switch item {
+        case .inbox: if !(card.isOpen || inbox.isOpen) { openInbox(takeKey: false) }
+        case .agents: if !list.isOpen { toggleList(takeKey: false) }
+        case .settings: if !settings.isOpen { openSettings(takeKey: false) }
+        }
     }
 
     /// Switch to another lasso: whatever was open belonged to the old one.
@@ -172,15 +195,6 @@ public final class AppCoordinator {
         chat = nil
         sync?.retarget(url)
         Trace.event("lasso \(url.absoluteString)")
-    }
-
-    /// Resting on a rail control opens it; one already showing stays as is.
-    func hoverOpen(_ item: RailModel.Item) {
-        switch item {
-        case .inbox: if !(card.isOpen || inbox.isOpen) { openInbox() }
-        case .agents: if !list.isOpen { toggleList() }
-        case .settings: if !settings.isOpen { openSettings() }
-        }
     }
 
     /// A bot's chat.

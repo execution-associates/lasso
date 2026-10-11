@@ -55,9 +55,12 @@ public final class CardController {
 
     public var isOpen: Bool { holder.model != nil }
 
-    public func open(_ pane: HostPane) {
+    /// Open the card on `pane`. `takeKey` false (a hover) shows it without
+    /// taking the keyboard from the app the user is typing in: its one-letter
+    /// keys act only once a click or the summon key has made it key.
+    public func open(_ pane: HostPane, takeKey: Bool = true) {
         if let m = holder.model, m.pane.key == pane.key {
-            panel.makeKeyAndOrderFront(nil)
+            front(takeKey)
             return
         }
         holder.model?.stopPolling()
@@ -68,9 +71,16 @@ public final class CardController {
         holder.model = model
         model.startPolling()
         place()
-        panel.makeKeyAndOrderFront(nil)
+        front(takeKey)
         withAnimationToken(Theme.Motion.cardOpen) { presence.shown = true }
     }
+
+    private func front(_ takeKey: Bool) { takeKey ? panel.makeKeyAndOrderFront(nil) : panel.orderFrontRegardless() }
+
+    /// Whether the keyboard is the card's.
+    var isKey: Bool { panel.isKeyWindow }
+
+    func takeKey() { panel.makeKeyAndOrderFront(nil) }
 
     func say(_ s: String) { holder.model?.say(s) }
 

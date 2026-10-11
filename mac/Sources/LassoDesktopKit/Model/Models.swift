@@ -150,6 +150,8 @@ public struct BotView: Codable, Sendable, Equatable, Identifiable {
     public var pane_id: String?
     public var dir_path: String?
     public var live_model: LiveModel?
+    /// What a blocked omp bot waits on, the same list its chat carries.
+    public var pending_ui: [ChatPayload.PendingUI]?
     public var waiting_for: String?
     public var last_text: String?
     public var last_kind: String?

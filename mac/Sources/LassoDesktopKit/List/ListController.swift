@@ -36,9 +36,10 @@ public final class ListController {
 
     public func toggle() { isOpen ? close() : open() }
 
-    public func open() {
+    /// `takeKey` false (a hover) shows the list without taking the keyboard.
+    public func open(takeKey: Bool = true) {
         place()
-        panel.makeKeyAndOrderFront(nil)
+        if takeKey { panel.makeKeyAndOrderFront(nil) } else { panel.orderFrontRegardless() }
         withAnimationToken(Theme.Motion.cardOpen) { presence.shown = true }
     }
 
@@ -54,6 +55,10 @@ public final class ListController {
     }
 
     private func place() { panel.setFrameOrigin(originBesideRail(railFrame(), size: Theme.List.size.size)) }
+
+    var isKey: Bool { panel.isKeyWindow }
+
+    func takeKey() { panel.makeKeyAndOrderFront(nil) }
 
     /// The rail moved: stay beside it.
     func follow() { if isOpen { place() } }
