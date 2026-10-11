@@ -80,7 +80,16 @@ public final class AppCoordinator {
         }
 
         card.inbox = inboxModel
+        rail.onMoved = { [weak self] in
+            guard let self else { return }
+            self.card.follow()
+            self.list.follow()
+            self.inbox.follow()
+            self.settings.follow()
+            self.chat?.panel.follow()
+        }
         rail.model.onInbox = { [weak self] in self?.openInbox() }
+        rail.model.onHoverOpen = { [weak self] item in self?.hoverOpen(item) }
         rail.model.onAgents = { [weak self] in self?.toggleList() }
         rail.model.onSettings = { [weak self] in self?.openSettings() }
 
@@ -163,6 +172,15 @@ public final class AppCoordinator {
         chat = nil
         sync?.retarget(url)
         Trace.event("lasso \(url.absoluteString)")
+    }
+
+    /// Resting on a rail control opens it; one already showing stays as is.
+    func hoverOpen(_ item: RailModel.Item) {
+        switch item {
+        case .inbox: if !(card.isOpen || inbox.isOpen) { openInbox() }
+        case .agents: if !list.isOpen { toggleList() }
+        case .settings: if !settings.isOpen { openSettings() }
+        }
     }
 
     /// A bot's chat.

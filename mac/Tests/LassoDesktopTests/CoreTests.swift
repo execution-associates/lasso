@@ -98,3 +98,23 @@ private let specDir = packageDir.appendingPathComponent("Spec")
         }
     }
 }
+
+/// Hover opens the control under the pointer, found from RailMetrics: its
+/// frames must be the ones the rail draws (the parity anchors).
+@MainActor @Test func hoverFramesMatchTheRendered() async throws {
+    let spec = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Spec")
+    let fx = try Fixture.load("rail-expanded", from: spec.appendingPathComponent("fixtures"))
+    let fleet = FleetModel()
+    fleet.apply(panes: fx.server.all_panes)
+    fleet.apply(bots: fx.server.bots)
+    fleet.apply(uiState: fx.server.ui_state)
+    let model = RailModel(fleet: fleet)
+    model.setExpanded(true, animated: false)
+    let cap = try await Capturer.capture(RailView(model: model), size: CGSize(
+        width: RailMetrics.panelWidth, height: RailMetrics.expandedHeight(Theme.Rail.maxSlots.int) + 2 * RailMetrics.margin))
+    let anchors: [RailModel.Item: String] = [.inbox: "rail.inbox", .agents: "rail.agents.capsule", .settings: "rail.ellipsis"]
+    for (item, frame) in RailMetrics.itemFrames(model.slots.count) {
+        let drawn = try #require(cap.frames[anchors[item]!])
+        #expect(abs(drawn.minY - frame.minY) <= 1 && abs(drawn.height - frame.height) <= 1, "\(item): \(drawn) vs \(frame)")
+    }
+}

@@ -690,11 +690,12 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 - **Discarded** is shared (§13.6). Discard is about the user's attention everywhere.
 - Each mark is the item's `transcript_at`, `last_at`, ask hash, or arrival time.
 
+**The Inbox opens on its newest message, never a list.** The rail's inbox button opens the card on the first item in Inbox order (the reference prototype's behaviour, which the user chose). `J`/`K` page through the rest in that order, and the unread bar shows where you are. With nothing waiting, a small panel shows the empty state. Pressed again while the card is open, the button closes it.
+- A bot's item opens on the pane the bot runs in. For an omp bot, the card reads and answers through the bot's routes: its `pending_ui` is the next steps, and a message goes through `chat/send`. A bot has no Kill in the card.
+- The Inbox panel's rows remain only for an item with no pane to show, such as a bot whose pane is gone.
+
 **What counts as seeing an item:**
-- An item is seen when it is selected in the Inbox (by pointer, or by `J`/`K`) or opened.
-- `J`/`K` move the selection down and up the Inbox, marking each item they land on.
-- ⏎ opens it: the pane's card, or the bot's chat.
-- In a card opened from the Inbox, `J`/`K` page through the Inbox's items in Inbox order, marking each one seen, so reading the Inbox and paging cards are one motion.
+- An item is seen when the card lands on it: opened from the rail, or paged to with `J`/`K`.
 
 **The badge means "new since you looked":**
 - It shows when at least one item that is not discarded is unseen.
@@ -727,9 +728,9 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 ### 13.9 Harness and tests
 
 **Parity states:**
-- **inbox-open**, with an extended fixture: a claude single-select ask with a `recommended` option and a folded `preview`, an omp multi-select ask, a blocked pane with no ask, a finished turn, an omp bot's `select`, and a notice.
+- **inbox-open**: the card the Inbox opens on, its newest item (a bot's question), with the unread bar over the rest. Its fixture grows to cover: a claude single-select ask with a `recommended` option and a folded `preview`, an omp multi-select ask, a blocked pane with no ask, a finished turn, an omp bot's `select`, and a notice.
 - **inbox-ask-picked**: a preview unfolded under its pick.
-- **inbox-empty**.
+- **inbox-empty**: the empty-state panel.
 - Each state gets geometry, colour and accessibility labels, and a ⌘-held keycap pass checking every legend against its live binding.
 
 **Contract:** the `chat_payload` golden already carries an `ask` (`mac/Spec/contract/chat_payload.json`). M8 adds `pending_ui` to the bot chat golden and a `notice` golden, written by `TestDesktopContract`.
@@ -742,3 +743,14 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 - Seen versus discarded, and the badge.
 - `J`/`K` marking seen.
 - No action ever calls `/api/chat/send` for a blocked pane.
+
+## 14. Connecting to a dev lasso
+
+The app can talk to any lasso this Mac reaches, and switches between them in place.
+
+- **Settings lists every lasso that answers** `/api/version`: the candidates are `lassoCandidates` in UserDefaults (on minime, the tunnel's 18090 and 18190–18199), else production's 8090 and the 8190–8199 a `mise run dev` lasso binds. Each row says production or dev (`/api/version`'s `dev`), its version, and for a dev lasso the address it bound. **Use** switches.
+- **Switching is in place.** Every live action shares one `LassoClient`. `FleetSync.retarget` repoints it, empties the fleet, restarts the event stream and refills from the new lasso, and the choice is remembered. Open panels close, since they belonged to the old lasso.
+- **From titan:** `mac/Scripts/dev.sh use dev` finds the `mise run dev` backend (this worktree's, else the first on 8190–8199), checks it answers through the tunnel and relaunches the app on it. `use prod` goes back, and `use PORT` picks one.
+- **The tunnel** (`lasso-desktop-tunnel.service`) forwards minime's 18190–18199 to titan's 8190–8199, so a dev lasso that bumped past 8190 is still reachable.
+- **A reinstall keeps the choice.** `agent.sh install` sets `baseURL` only on a fresh Mac or when `LASSO_BASE_URL` is given.
+- **A dev lasso is not a sandbox.** It drives the same herdr and reads the same `lasso.db` as production, so the agents in it are real, and Kill and answers act on them. Two lassos of different versions on one `lasso.db` also rewrite each other's `ui_state`: an older one drops fields it does not know, such as `dismissed_cards`. So while the server changes are unreleased, titan's production lasso runs this branch's build (§15).

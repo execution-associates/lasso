@@ -36,6 +36,20 @@ enum RailMetrics {
     }
 
     static func expandedHeight(_ slots: Int) -> CGFloat { outer + revealHeight(slots) }
+
+    /// Each revealed control's frame in the panel, top-left origin: what the
+    /// pointer is over (hover opens it) without asking the view.
+    static func itemFrames(_ slots: Int) -> [(RailModel.Item, CGRect)] {
+        var out: [(RailModel.Item, CGRect)] = [(.inbox, CGRect(x: margin, y: margin, width: outer, height: outer))]
+        var y = margin + outer + gap
+        if slots > 0 {
+            out.append((.agents, CGRect(x: margin, y: y, width: outer, height: agentsHeight(slots))))
+            y += agentsHeight(slots) + gap
+        }
+        let e = Theme.Rail.ellipsisOuter.pt
+        out.append((.settings, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
+        return out
+    }
 }
 
 /// A rail group's shape: fully rounded, a fill that is lit from above and a
@@ -174,6 +188,12 @@ public struct RailView: View {
             height: RailMetrics.expandedHeight(Theme.Rail.maxSlots.int) + 2 * RailMetrics.margin, alignment: .topLeading
         )
         .clipped()
+        // Drag the peek or the rail up and down the edge. A click stays a
+        // click: the drag claims the pointer only once it has moved.
+        .highPriorityGesture(
+            DragGesture(minimumDistance: Theme.Rail.drag.number("min_distance"), coordinateSpace: .global)
+                .onChanged { _ in model.onDrag(.changed) }
+                .onEnded { _ in model.onDrag(.ended) })
     }
 
     private func focused(_ item: RailModel.Item) -> Bool { model.focusVisible && model.focus == item }
@@ -197,6 +217,7 @@ public struct RailView: View {
         .buttonStyle(.plain)
         .parityAnchor("rail.peek")
         .accessibilityLabel("Show lasso controls")
+        .accessibilityHint("Drag up or down to move it along the edge")
         .accessibilityValue(fleet.attentionCount > 0 ? "\(fleet.attentionCount) waiting on you" : "")
         .help("Show lasso controls")
     }

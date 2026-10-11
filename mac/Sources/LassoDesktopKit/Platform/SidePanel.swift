@@ -35,17 +35,13 @@ public final class SidePanel {
     public var isOpen: Bool { presence.shown }
 
     public func open() {
-        let rail = railFrame()
-        let size = panel.frame.size
-        let gap = Theme.Card.placement.number("gap")
-        let margin = Theme.Rail.panelMargin.pt
-        let vis = NSScreen.main?.visibleFrame ?? .zero
-        let x = max(vis.minX, rail.minX + margin - gap - size.width)
-        let y = min(max(vis.minY, rail.maxY - margin - size.height), vis.maxY - size.height)
-        panel.setFrameOrigin(NSPoint(x: x.rounded(), y: y.rounded()))
+        panel.setFrameOrigin(originBesideRail(railFrame(), size: panel.frame.size))
         panel.makeKeyAndOrderFront(nil)
         withAnimationToken(Theme.Motion.cardOpen) { presence.shown = true }
     }
+
+    /// The rail moved: stay beside it.
+    func follow() { if isOpen { panel.setFrameOrigin(originBesideRail(railFrame(), size: panel.frame.size)) } }
 
     public func close() {
         guard presence.shown else { return }

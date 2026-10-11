@@ -137,8 +137,13 @@ public enum Theme {
             .measured("user's reference pill, 2026-10-11 (1.8 px per point, ±1)"))
         public static let peekFill = Token(
             "rail.peek.fill", "#090909", .measured("user's reference pill, 2026-10-11; ref b2"))
+        public static let drag = Token(
+            "rail.drag", ["min_distance": 3, "nudge": 24],
+            .inferred("past a click's jitter before a drag claims the pointer; ⌥↑/⌥↓ moves one control's height"),
+            proposed: true)
         public static let hover = Token(
-            "rail.hover", ["open_ms": 80, "close_ms": 450], .unmeasured("hover reveal timing"), proposed: true)
+            "rail.hover", ["open_ms": 80, "close_ms": 450, "item_open_ms": 150],
+            .unmeasured("hover reveal timing; item_open_ms: resting on a revealed control opens it"), proposed: true)
     }
 
     public enum State {
@@ -222,6 +227,10 @@ public enum Theme {
             "danger.text", "#FA686A", .measured("EXA: isb web/src/index.css :root.ea --destructive"))
 
     public enum Row {
+        public static let drag = Token(
+            "rail.drag", ["min_distance": 3, "nudge": 24],
+            .inferred("past a click's jitter before a drag claims the pointer; ⌥↑/⌥↓ moves one control's height"),
+            proposed: true)
         public static let hover = Token(
             "row.hover", "rgba(253,246,250,0.06)", .unmeasured("EXA white 6%"))
         public static let selected = Token(
@@ -329,7 +338,7 @@ public enum Theme {
         Rail.fillWidth, Rail.rimWidth, Rail.outer, Rail.radius, Rail.gap, Rail.backing, Rail.fillTop, Rail.fillBottom,
         Rail.rimTop, Rail.rimBottom, Rail.padTop, Rail.padBottom, Rail.glyphSize, Rail.glyphPitch, Rail.ringStroke,
         Rail.maxSlots, Rail.overflowFont, Rail.icon, Rail.ellipsisOuter, Rail.edge, Rail.edgeInset,
-        Rail.panelMargin, Rail.badgeSize, Rail.badgeRing, Rail.badgeCenter, Rail.peek, Rail.peekFill, Rail.hover,
+        Rail.panelMargin, Rail.badgeSize, Rail.badgeRing, Rail.badgeCenter, Rail.peek, Rail.peekFill, Rail.drag, Rail.hover,
         State.done, State.working, State.blocked, State.idle,
         Panel.surface, Panel.border, Panel.radius, Panel.inset, Panel.inner, Panel.divider, Panel.shadow,
         Control.round, Control.composer, Control.pill, Control.pillPrimary,

@@ -53,16 +53,10 @@ public final class ListController {
         }
     }
 
-    private func place() {
-        let rail = railFrame()
-        let size = Theme.List.size.size
-        let gap = Theme.Card.placement.number("gap")
-        let margin = Theme.Rail.panelMargin.pt
-        let vis = NSScreen.main?.visibleFrame ?? .zero
-        let x = max(vis.minX, rail.minX + margin - gap - size.width)
-        let y = min(max(vis.minY, rail.maxY - margin - size.height), vis.maxY - size.height)
-        panel.setFrameOrigin(NSPoint(x: x.rounded(), y: y.rounded()))
-    }
+    private func place() { panel.setFrameOrigin(originBesideRail(railFrame(), size: Theme.List.size.size)) }
+
+    /// The rail moved: stay beside it.
+    func follow() { if isOpen { place() } }
 
     private func handle(_ e: NSEvent) -> Bool {
         switch e.keyCode {

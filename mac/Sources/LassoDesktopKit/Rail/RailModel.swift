@@ -14,6 +14,9 @@ public final class RailModel: ObservableObject {
     @Published public var focus: Item?
     /// Keyboard focus is drawn only after a key moved it, as macOS does.
     @Published public var focusVisible = false
+    /// The control under the pointer: one value, since the pointer is over
+    /// one thing. Resting on it opens it (`onHoverOpen`).
+    @Published public var hovered: Item?
 
     public let fleet: FleetModel
     /// Set by the parity harness only: wraps the rail's animation so the
@@ -25,6 +28,13 @@ public final class RailModel: ObservableObject {
     public var onAgents: () -> Void = {}
     /// The ellipsis: settings.
     public var onSettings: () -> Void = {}
+    /// The pointer rested on a control: open what it opens (never toggle it
+    /// shut, as a click on an open one does).
+    public var onHoverOpen: (Item) -> Void = { _ in }
+    /// A drag on the peek or the rail (the controller moves the panel).
+    public var onDrag: (DragPhase) -> Void = { _ in }
+
+    public enum DragPhase { case changed, ended }
 
     public init(fleet: FleetModel) { self.fleet = fleet }
 

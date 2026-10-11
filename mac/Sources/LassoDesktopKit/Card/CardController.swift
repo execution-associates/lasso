@@ -87,20 +87,10 @@ public final class CardController {
         }
     }
 
-    /// Leading side of the rail, top-aligned with it, kept on screen
-    /// (Theme.Card.placement).
-    private func place() {
-        let rail = railFrame()
-        let size = Theme.Card.size.size
-        let gap = Theme.Card.placement.number("gap")
-        let margin = Theme.Rail.panelMargin.pt
-        let vis = NSScreen.main?.visibleFrame ?? .zero
-        var x = rail.minX + margin - gap - size.width
-        var y = rail.maxY - margin - size.height
-        x = max(vis.minX, x)
-        y = min(max(vis.minY, y), vis.maxY - size.height)
-        panel.setFrameOrigin(NSPoint(x: x.rounded(), y: y.rounded()))
-    }
+    private func place() { panel.setFrameOrigin(originBesideRail(railFrame(), size: Theme.Card.size.size)) }
+
+    /// The rail moved: stay beside it.
+    func follow() { if isOpen { place() } }
 
     private func handle(_ e: NSEvent) -> Bool {
         guard let m = holder.model else { return false }
