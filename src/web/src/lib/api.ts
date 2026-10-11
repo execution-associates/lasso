@@ -897,7 +897,8 @@ export interface BotView extends BotFields {
   host_version?: string
   host_outdated?: boolean
   // What an omp bot runs right now, as omp reports it, with the thinking
-  // levels that model takes. Absent while it is not running.
+  // levels that model takes. Absent while it is not running. A claude bot's
+  // is its newest turn's model in the transcript: id = name, no provider.
   live_model?: {
     id: string
     name: string

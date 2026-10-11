@@ -51,6 +51,7 @@ type botLastLine struct {
 	at     string
 	kind   string
 	tokens int64
+	model  string
 }
 
 var bots = &botRuntime{
@@ -228,9 +229,10 @@ type botView struct {
 	// another protocol than this lasso (restarted onto this binary once idle).
 	HostVersion  string `json:"host_version,omitempty"`
 	HostOutdated bool   `json:"host_outdated,omitempty"`
-	// What the bot runs right now, as omp reports it (omp bots only), and how
-	// full its context is. A claude bot reports only its context's tokens:
-	// Claude Code says nothing of its window.
+	// What the bot runs right now, as omp reports it, and how full its context
+	// is. A claude bot's model is its newest turn's in the transcript (id only,
+	// no provider), and its context only tokens: Claude Code says nothing of
+	// its window.
 	LiveModel      *ompModelInfo    `json:"live_model,omitempty"`
 	Thinking       string           `json:"thinking,omitempty"`
 	ThinkingLevels []string         `json:"thinking_levels,omitempty"`
@@ -267,8 +269,12 @@ func botStatus(b Backend, r *botRecord, sessions []claudeSessionEntry) botView {
 		v.State = "starting"
 	}
 	v.LastText, v.LastKind, v.LastAt = botLastLineFor(b, r.Name, p)
-	if t := botCachedTokens(r.Name); t > 0 {
-		v.Context = &ompContextUsage{Tokens: t}
+	tokens, model := botCachedUsage(r.Name)
+	if tokens > 0 {
+		v.Context = &ompContextUsage{Tokens: tokens}
+	}
+	if model != "" {
+		v.LiveModel = &ompModelInfo{ID: model, Name: model}
 	}
 	return v
 }
@@ -288,6 +294,7 @@ func botLastLineFor(b Backend, name string, p pane) (string, string, string) {
 	var line botLastLine
 	line.key = key
 	line.tokens = int64(payload.Tokens)
+	line.model = payload.Model
 	for i := len(payload.Items) - 1; i >= 0; i-- {
 		it := payload.Items[i]
 		if it.Text == "" || it.Thinking || (it.Kind != "agent" && it.Kind != "user" && it.Kind != "incoming") {
@@ -302,12 +309,13 @@ func botLastLineFor(b Backend, name string, p pane) (string, string, string) {
 	return line.text, line.kind, line.at
 }
 
-// botCachedTokens is the newest turn's prompt size from the last read of a
-// claude bot's transcript.
-func botCachedTokens(name string) int64 {
+// botCachedUsage is the newest turn's prompt size and model from the last
+// read of a claude bot's transcript.
+func botCachedUsage(name string) (int64, string) {
 	bots.mu.Lock()
 	defer bots.mu.Unlock()
-	return bots.lines[name].tokens
+	l := bots.lines[name]
+	return l.tokens, l.model
 }
 
 func botCachedLine(name string) (string, string, string) {

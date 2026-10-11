@@ -956,8 +956,9 @@ func parseClaudeLines(lines []jsonlLine, withIncoming bool) chatParse {
 		// never happened.
 		recordImages := 0
 		if role == "assistant" {
-			if rec.Message.Model != "" {
-				out.model = rec.Message.Model
+			// "<synthetic>" is Claude Code's own error rows, not a model.
+			if m := rec.Message.Model; m != "" && m != "<synthetic>" {
+				out.model = m
 			}
 			// The prompt size is the whole context sent: fresh tokens plus both
 			// cache directions, which is what claude itself counts against the
