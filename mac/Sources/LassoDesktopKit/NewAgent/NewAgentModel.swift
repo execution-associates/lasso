@@ -230,7 +230,11 @@ public final class NewAgentModel: ObservableObject {
         case "host": return hostChoices
         case "agent": return harnesses.map { Choice(value: $0.id, title: $0.label) }
         case "model":
-            return [Choice(value: "", title: "Default")] + (harness?.model_suggestions ?? []).map { Choice(value: $0, title: $0) }
+            // Suggestions are a hint, not a list to stay inside (the web's
+            // EditableCombobox): a model picked by hand stays listed.
+            var names = harness?.model_suggestions ?? []
+            if !model.isEmpty, !names.contains(model) { names.insert(model, at: 0) }
+            return [Choice(value: "", title: "Default")] + names.map { Choice(value: $0, title: $0) }
         case "effort":
             return [Choice(value: "", title: "Default")] + (harness?.effort_levels ?? []).map { Choice(value: $0, title: $0.capitalized) }
         default: return []
@@ -249,18 +253,23 @@ public final class NewAgentModel: ObservableObject {
         }
     }
 
-    /// Long lists get a filter: repositories, branches, a big fleet.
+    /// Long lists get a filter: repositories, branches, a big fleet; and the
+    /// model, which takes any name.
     public func searchable(_ chip: String) -> Bool {
-        chip == "repo" || chip == "branch" || (chip == "host" && hosts.count > 8)
+        chip == "repo" || chip == "branch" || chip == "model" || (chip == "host" && hosts.count > 8)
     }
 
-    /// The open picker's rows, filtered.
+    /// The open picker's rows, filtered. In the model's, a typed name no
+    /// suggestion has comes first, to use as it is.
     public var matches: [Choice] {
         guard let c = openChip else { return [] }
-        let q = chipFilter.trimmingCharacters(in: .whitespaces).lowercased()
-        return Array(
-            choices(c).filter { q.isEmpty || $0.title.lowercased().contains(q) || ($0.detail ?? "").lowercased().contains(q) }
-                .prefix(80))
+        let typed = chipFilter.trimmingCharacters(in: .whitespaces)
+        let q = typed.lowercased()
+        var rows = choices(c).filter { q.isEmpty || $0.title.lowercased().contains(q) || ($0.detail ?? "").lowercased().contains(q) }
+        if c == "model", !typed.isEmpty, !rows.contains(where: { $0.value.lowercased() == q }) {
+            rows.insert(Choice(value: typed, title: "Use \u{201C}\(typed)\u{201D}"), at: 0)
+        }
+        return Array(rows.prefix(80))
     }
 
     /// ↑/↓ in an open picker.

@@ -359,7 +359,7 @@ struct ChipMenu: View {
             if model.searchable(id) {
                 HStack(spacing: Theme.space("s")) {
                     Image(systemName: "magnifyingglass").foregroundStyle(Theme.Text.secondary.color)
-                    FilterField(text: $model.chipFilter, placeholder: id == "branch" ? "Filter branches" : id == "repo" ? "Filter repositories" : "Filter")
+                    FilterField(text: $model.chipFilter, placeholder: ["branch": "Filter branches", "repo": "Filter repositories", "model": "Filter or type a model"][id] ?? "Filter")
                 }
                 .font(Theme.Fonts.body.font)
                 .padding(.horizontal, Theme.space("l"))

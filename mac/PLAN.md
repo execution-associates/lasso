@@ -885,7 +885,7 @@ The Mac launches agents the way lasso's web New dialog does (`src/web/src/compon
 - Shift keeps ⌃O for terminals (Claude Code's transcript view, nano's save, vim's jump back, the shell) and ⌥O for typing "ø". ⌥⇧O no longer types "Ø" while it is set.
 - **⌘O and ⌘⇧O** do the same while a LassoDesktop window has the keyboard, as in the web app. They are never system-wide, because ⌘O is every app's File › Open.
 - The rail has a **+** button above the ellipsis, and the agents list a **New agent** button. The **+** opens the form on a click only: hovering lights it but does not open it, because the form takes the keyboard.
-- Each chip opens its menu inside the form, toward the side with room (a system popover from a floating panel can land half off screen). Long lists (repositories, branches, a big fleet) have a filter that takes the typing, like the web app's combobox; ↑/↓ move and ⏎ picks.
+- Each chip opens its menu inside the form, toward the side with room (a system popover from a floating panel can land half off screen). Long lists (repositories, branches, a big fleet) and the model have a filter that takes the typing, like the web app's combobox; ↑/↓ move and ⏎ picks. The model's suggestions are a hint, as in the web's EditableCombobox: a typed name no suggestion has is offered first as Use “<name>”.
 
 All three system-wide shortcuts (inbox, new agent, new scratch agent) are `ShortcutSlot`s, each stored on its own and recorded the same way.
 

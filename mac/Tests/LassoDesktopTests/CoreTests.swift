@@ -298,6 +298,17 @@ private func key(_ c: String, _ code: UInt16) -> NSEvent {
     m.moveCursor(2)
     m.chooseCursor()
     #expect(m.effort == "medium")
+    // The model filters, and takes a name no suggestion has.
+    m.openChip = "model"
+    m.chipFilter = "son"
+    #expect(m.matches.map(\.value) == ["son", "sonnet"])
+    m.moveCursor(1)
+    m.chooseCursor()
+    #expect(m.model == "sonnet")
+    m.openChip = "model"
+    m.chipFilter = "opus-4-7"
+    m.chooseCursor()
+    #expect(m.model == "opus-4-7" && m.choices("model").map(\.value).contains("opus-4-7"))
     m.openChip = "agent"
     m.choose("agent", "omp")
     #expect(m.agent == "omp" && m.effort == "")
