@@ -520,3 +520,15 @@ The user supplied reference screenshots of the intended look (kept out of git). 
 - **Parity covers all seven states: 211 checks pass.** New checks include colour patches read along a gradient, `x`/`right_inset` measures, the peek's visible width, and the ⌘-held keycap pass.
 - **The app traces state changes to its log** (`dev.sh logs`): events only, never typed or spoken text. The hover reveal was verified live on minime by moving the pointer onto the peek from inside the Aqua session.
 
+## 11. Execution Associates palette (2026-10-11)
+
+The colours are the Execution Associates palette as isb's web app applies it (`isb web/src/index.css`, `:root.ea`, oklch converted to sRGB). The shapes and sizes from §10 are unchanged.
+
+- **Panels and controls:** panels are ink `#1B0A2C` with a white-14 % border. The conversation box is `--muted` `#291838`. Buttons, pills, the composer and chat bubbles are `--secondary` `#2D1D3C`, and disabled ones `--card` `#210E33`. The white pill is `--primary` `#FDF6FA` with ink text.
+- **Text:** `--foreground` `#F4ECF2`, with secondary text `--muted-foreground` `#B7ADBB`.
+- **Brand accents:** the brand colour is glow pink `#F099BF` (the open card's unread pill and the selected segment). Focus is peach `#FEBE74`, and recording is magenta `#DD519B`.
+- **States** use isb's status colours, chosen to stay clear of the pink: done `--success` `#5ED99E`, working `--info` `#80B3FD`, blocked `--destructive` `#FA686A`, idle muted at 60 % on ink.
+- **The rail's glass** is re-tinted to ink: the fill runs `#352545` → ink-deep `#12071F`, and the rim `#947D99` → `#2A1D37`.
+
+The brand brief's own fonts (Geist, Archivo; OFL) would be bundled as app resources. That is not done; the app uses the system font.
+

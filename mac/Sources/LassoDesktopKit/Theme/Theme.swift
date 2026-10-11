@@ -6,11 +6,12 @@ import SwiftUI
 // mac/Spec/tokens.json spells them: the parity harness compares the two
 // exactly (Theme.all against the spec) before it measures any pixel.
 //
-// "ref a2/a3/a5" are the reference screenshots (Retina, 2 px per point),
-// measured by pixel scans; "ref b2" is the collapsed pill at 1 px per point.
-// Neutrals are taken as sampled. Saturated hues stay the brief's: the
-// references carry the display's own colour profile, which moves saturated
-// colours and leaves greys alone.
+// Shapes and sizes: "ref a2/a3/a5" are the reference screenshots (Retina,
+// 2 px per point), measured by pixel scans; "ref b2" is the collapsed pill at
+// 1 px per point. Colours: the Execution Associates palette ("EXA"), as isb's
+// web app applies it (isb web/src/index.css :root.ea, oklch converted to
+// sRGB): ink surfaces, white text, glow pink as the brand colour, peach for
+// focus, and status colours chosen to stay clear of the pink.
 
 public enum Provenance: Sendable, Equatable {
     /// Taken from a reference; the note names it.
@@ -101,12 +102,13 @@ public enum Theme {
         public static let gap = Token("rail.group.gap", 8, .measured("ref a2: 15-16 px between groups"))
         public static let backing = Token("rail.backing", "none", .measured("brief A.1"))
         public static let fillTop = Token(
-            "rail.capsule.fill_top", "#2E3032", .measured("ref a2: agents capsule just under its top rim"))
+            "rail.capsule.fill_top", "#352545", .inferred("EXA ink lifted to oklch(0.30 0.06 306), lit from above"))
         public static let fillBottom = Token(
-            "rail.capsule.fill_bottom", "#0C0E10", .measured("ref a2: agents capsule above its bottom rim"))
-        public static let rimTop = Token("rail.capsule.rim_top", "#8F8F8F", .measured("ref a2: tools capsule top edge"))
+            "rail.capsule.fill_bottom", "#12071F", .measured("EXA: isb web/src/index.css :root.ea --sidebar (ink-deep)"))
+        public static let rimTop = Token(
+            "rail.capsule.rim_top", "#947D99", .inferred("EXA glow-tinted light, oklch(0.62 0.05 320)"))
         public static let rimBottom = Token(
-            "rail.capsule.rim_bottom", "#1F2021", .measured("ref a2: agents capsule bottom edge"))
+            "rail.capsule.rim_bottom", "#2A1D37", .inferred("EXA ink, oklch(0.26 0.05 306)"))
         public static let padTop = Token("rail.capsule.pad_top", 8.5, .measured("brief A.1; ref a2: 82 pt for 4 slots"))
         public static let padBottom = Token("rail.capsule.pad_bottom", 8.5, .measured("ref a2: 82 pt for 4 slots"))
         public static let glyphSize = Token("rail.glyph.size", 11, .measured("ref a2: 22 px"))
@@ -115,12 +117,10 @@ public enum Theme {
         public static let maxSlots = Token(
             "rail.agents.max_slots", 5, .inferred("332 pt rail matches the brief's ~330 pt travel"), proposed: true)
         public static let overflowFont = Token(
-            "rail.overflow.font", ["size": 9, "weight": "semibold", "color": "#949290"],
-            .inferred("+N inside an 11 pt cell"), proposed: true)
+            "rail.overflow.font", ["size": 9, "weight": "semibold", "color": "#B7ADBB"], .inferred("+N inside an 11 pt cell, EXA muted text"), proposed: true)
         public static let toolsCell = Token("rail.tools.cell", 40, .measured("ref a2: three 80 px cells"))
         public static let icon = Token(
-            "rail.icon", ["size": 17, "weight": "regular", "color": "#FFFFFF"],
-            .measured("ref a2: white glyphs, about 34 px tall"))
+            "rail.icon", ["size": 17, "weight": "regular", "color": "#F4ECF2"], .measured("ref a2 size; EXA --foreground"))
         public static let ellipsisOuter = Token("rail.ellipsis.outer", 42, .measured("ref a2"))
         public static let edge = Token("rail.edge", "trailing", .measured("ref a2"))
         public static let edgeInset = Token("rail.edge_inset", 8, .measured("ref a2: 17 px from the screen edge"))
@@ -128,7 +128,7 @@ public enum Theme {
             "rail.panel.margin", 10, .inferred("room for the badge and the focus ring"), proposed: true)
         public static let badgeSize = Token("rail.badge.size", 10, .measured("ref a2: 20 px dot"))
         public static let badgeRing = Token(
-            "rail.badge.ring", ["width": 2, "color": "#0A0B0C"], .measured("ref a2: dark ring around the dot"))
+            "rail.badge.ring", ["width": 2, "color": "#12071F"], .measured("ref a2 ring; EXA ink-deep"))
         public static let badgeCenter = Token(
             "rail.badge.center", [37, 3], .measured("ref a2: on the inbox's top-right rim"))
         public static let peek = Token(
@@ -139,22 +139,28 @@ public enum Theme {
     }
 
     public enum State {
-        public static let done = Token("state.done", "#57C459", .measured("brief A.1 at-rest, A.5"))
-        public static let working = Token("state.working", "#3877F4", .measured("brief A.1, A.5"))
-        public static let blocked = Token("state.blocked", "#AB362F", .measured("brief A.1 needs-you, A.5"))
-        public static let idle = Token("state.idle", "#98989D", .measured("ref a2: idle dot (a grey)"))
+        public static let done = Token(
+            "state.done", "#5ED99E", .measured("EXA: isb web/src/index.css :root.ea --success"))
+        public static let working = Token(
+            "state.working", "#80B3FD", .measured("EXA: isb web/src/index.css :root.ea --info"))
+        public static let blocked = Token(
+            "state.blocked", "#FA686A", .measured("EXA: isb web/src/index.css :root.ea --destructive"))
+        public static let idle = Token(
+            "state.idle", "#796C82", .inferred("EXA muted text at 60% on ink"))
     }
 
     /// The surface every panel beside the rail shares: card, list, chat, setup.
     public enum Panel {
-        public static let surface = Token("panel.surface", "#040306", .measured("ref a2: card body"))
+        public static let surface = Token(
+            "panel.surface", "#1B0A2C", .measured("EXA: isb web/src/index.css :root.ea --background (ink)"))
         public static let border = Token(
-            "panel.border", "rgba(255,255,255,0.05)", .inferred("ref a2: the edge reads #0D0C0F on #040306"))
+            "panel.border", "rgba(253,246,250,0.14)", .measured("EXA: isb web/src/index.css :root.ea --border (white 14%)"))
         public static let radius = Token("panel.radius", 14, .measured("brief A.2; ref a2"))
         public static let inset = Token("panel.inset", 16, .measured("ref a2: 33 px right inset"))
         public static let inner = Token(
-            "panel.inner", ["fill": "#1B191C", "radius": 12, "pad": 15], .measured("ref a2: the conversation box"))
-        public static let divider = Token("panel.divider", "#161518", .measured("ref a2"))
+            "panel.inner", ["fill": "#291838", "radius": 12, "pad": 15], .measured("ref a2 shape; EXA --muted"))
+        public static let divider = Token(
+            "panel.divider", "rgba(253,246,250,0.09)", .measured("EXA: isb web/src/index.css :root.ea --sidebar-border (white 9%)"))
         public static let shadow = Token(
             "panel.shadow", ["radius": 24, "opacity": 0.45], .unmeasured("soft drop shadow"), proposed: true)
     }
@@ -162,16 +168,14 @@ public enum Theme {
     public enum Control {
         /// Round icon buttons: close, paging chevrons.
         public static let round = Token(
-            "control.round", ["size": 28, "fill": "#1D1C1E", "disabled": "#0C0B0E"],
-            .measured("ref a2: 57 px circles"))
+            "control.round", ["size": 28, "fill": "#2D1D3C", "disabled": "#210E33"], .measured("ref a2 size; EXA --secondary, --card"))
         /// The composer row: camera, field, send.
         public static let composer = Token(
-            "control.composer", ["height": 32, "fill": "#1D1C1E", "gap": 8, "send_disabled": "#0B090C"],
-            .measured("ref a2: 66 px row"))
+            "control.composer", ["height": 32, "fill": "#2D1D3C", "gap": 8, "send_disabled": "#210E33"], .measured("ref a2 size; EXA --secondary, --card"))
         public static let pill = Token(
-            "control.pill", ["height": 22, "pad_h": 12, "fill": "#1B1A1D"], .measured("ref a2: Kill agent, Retry"))
+            "control.pill", ["height": 22, "pad_h": 12, "fill": "#2D1D3C"], .measured("ref a2 size; EXA --secondary"))
         public static let pillPrimary = Token(
-            "control.pill.primary", ["fill": "#FFFFFF", "text": "#000000"], .measured("ref a2: Discard"))
+            "control.pill.primary", ["fill": "#FDF6FA", "text": "#1B0A2C"], .measured("EXA: isb web/src/index.css :root.ea --primary (the site's solid white button)"))
     }
 
     public enum Card {
@@ -179,40 +183,45 @@ public enum Theme {
         public static let titleX = Token("card.title_x", 53, .measured("ref a2: title at 107 px"))
         public static let contentX = Token("card.content_x", 51, .measured("ref a2: box at 102 px"))
         public static let unreadSegment = Token(
-            "card.unread_segment", ["w": 6, "h": 18, "color": "#3877F4"], .measured("ref a2: 13 x 38 px pill"))
+            "card.unread_segment", ["w": 6, "h": 18, "color": "#F099BF"], .measured("ref a2 size; EXA --brand (glow)"))
         public static let unreadDot = Token(
-            "card.unread_dot", ["size": 6, "color": "#9B9A9B"], .measured("ref a2: grey dots"))
+            "card.unread_dot", ["size": 6, "color": "#B7ADBB"], .measured("ref a2 size; EXA --muted-foreground"))
         public static let unreadGap = Token("card.unread_gap", 7, .measured("ref a2: 14 px"))
-        public static let keycapFill = Token("card.keycap.fill", "#333130", .measured("brief A.2"))
+        public static let keycapFill = Token(
+            "card.keycap.fill", "#3D2D4E", .inferred("EXA ink, oklch(0.33 0.06 306), above the controls"))
         public static let keycapFont = Token(
             "card.keycap.font", ["size": 10, "weight": "semibold"], .measured("brief A.2"))
         public static let keycapMinSize = Token("card.keycap.min_size", [18, 18], .unmeasured("keycap"), proposed: true)
         public static let keycapRadius = Token("card.keycap.radius", 4, .unmeasured("keycap"), proposed: true)
         public static let keycapPadH = Token("card.keycap.pad_h", 4, .unmeasured("keycap"), proposed: true)
         public static let toolRow = Token(
-            "card.tool_row", ["height": 24, "radius": 6, "fill": "rgba(255,255,255,0.05)"],
-            .unmeasured("one-line tool card"), proposed: true)
+            "card.tool_row", ["height": 24, "radius": 6, "fill": "rgba(253,246,250,0.05)"], .unmeasured("one-line tool card, EXA white 5%"), proposed: true)
         public static let machineChip = Token(
-            "card.machine_chip", ["radius": 4, "fill": "#1D1C1E", "font_size": 11, "pad_h": 6, "pad_v": 2],
-            .unmeasured("remote machine chip"), proposed: true)
+            "card.machine_chip", ["radius": 4, "fill": "#2D1D3C", "font_size": 11, "pad_h": 6, "pad_v": 2], .unmeasured("remote machine chip, EXA --secondary"), proposed: true)
         public static let placement = Token(
             "card.placement", ["side": "leading-of-rail", "gap": 8, "align": "top-of-rail"],
             .measured("ref a2: 8 pt from the rail"))
     }
 
     public enum Text {
-        public static let primary = Token("text.primary", "#F1EEED", .measured("brief A.2; ref a2 #EDEDED"))
-        public static let secondary = Token("text.secondary", "#949290", .measured("brief A.2; ref a2 #969697"))
-        public static let placeholder = Token("text.placeholder", "#7B7B7C", .measured("ref a2: composer placeholder"))
+        public static let primary = Token(
+            "text.primary", "#F4ECF2", .measured("EXA: isb web/src/index.css :root.ea --foreground"))
+        public static let secondary = Token(
+            "text.secondary", "#B7ADBB", .measured("EXA: isb web/src/index.css :root.ea --muted-foreground"))
+        public static let placeholder = Token(
+            "text.placeholder", "#887C90", .inferred("EXA muted text at 70% on ink"))
     }
 
-    public static let accent = Token("accent", "#3877F4", .measured("brief A.2"))
-    public static let dangerText = Token("danger.text", "#EB6E62", .measured("brief A.2; ref a2 Kill agent"))
+    public static let accent = Token(
+            "accent", "#F099BF", .measured("EXA: isb web/src/index.css :root.ea --brand (glow pink)"))
+    public static let dangerText = Token(
+            "danger.text", "#FA686A", .measured("EXA: isb web/src/index.css :root.ea --destructive"))
 
     public enum Row {
-        public static let hover = Token("row.hover", "rgba(255,255,255,0.06)", .unmeasured("brief A.2 provisional"))
+        public static let hover = Token(
+            "row.hover", "rgba(253,246,250,0.06)", .unmeasured("EXA white 6%"))
         public static let selected = Token(
-            "row.selected", "rgba(255,255,255,0.08)", .measured("ref a3: the selected row, #141316 on #040306"))
+            "row.selected", "rgba(253,246,250,0.10)", .inferred("ref a3 contrast, EXA white"))
         public static let radius = Token("row.radius", 8, .measured("brief A.2"))
     }
 
@@ -237,16 +246,17 @@ public enum Theme {
 
     public enum Chat {
         public static let bubble = Token(
-            "chat.bubble", ["fill": "#1D1C1E", "radius": 18, "pad_h": 19, "pad_v": 9], .measured("ref a5: your message"))
+            "chat.bubble", ["fill": "#2D1D3C", "radius": 18, "pad_h": 19, "pad_v": 9], .measured("ref a5 shape; EXA --secondary"))
     }
 
     public static let focusRing = Token(
-        "focus.ring", ["width": 2, "color": "#3877F4", "outset": 2], .unmeasured("keyboard focus"), proposed: true)
+            "focus.ring", ["width": 2, "color": "#FEBE74", "outset": 2], .measured("EXA: isb web/src/index.css :root.ea --ring (peach)"), proposed: true)
 
     public enum Recording {
-        public static let ring = Token("recording.ring", "#EB6E62", .unmeasured("recording, PLAN Q4"), proposed: true)
+        public static let ring = Token(
+            "recording.ring", "#DD519B", .measured("EXA brand brief: magenta (neon is light)"), proposed: true)
         public static let meterFill = Token(
-            "recording.meter.fill", "rgba(241,238,237,0.60)", .unmeasured("level bars"), proposed: true)
+            "recording.meter.fill", "rgba(244,236,242,0.60)", .unmeasured("level bars, EXA --foreground"), proposed: true)
         public static let meterHz = Token("recording.meter.hz", 30, .unmeasured("meter refresh"), proposed: true)
     }
 
