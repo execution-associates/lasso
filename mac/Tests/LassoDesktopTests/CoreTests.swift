@@ -259,6 +259,8 @@ private func key(_ c: String, _ code: UInt16) -> NSEvent {
     let m = NewAgentModel(kind: .git, source: FixtureNewAgentSource())
     await m.load()
     try await Task.sleep(nanoseconds: 100_000_000)
+    // lasso's own machine goes by its name, never "local".
+    #expect(m.host == "local" && m.hostName == "titan" && m.choices("host").map(\.title) == ["titan", "minime"])
     m.openChip = "branch"
     #expect(m.matches.map(\.value) == ["main", "lasso-desktop-mac"] && m.cursor == 0)
     m.moveCursor(1)

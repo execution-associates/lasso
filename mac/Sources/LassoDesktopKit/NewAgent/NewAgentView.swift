@@ -52,6 +52,12 @@ public struct NewAgentView: View {
             }
             RoundButton(symbol: "xmark", label: "Cancel (esc)") { model.onClose() }
         }
+        // The header moves the form.
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: Theme.Rail.drag.number("min_distance"), coordinateSpace: .global)
+                .onChanged { _ in model.onDrag(false) }
+                .onEnded { _ in model.onDrag(true) })
     }
 
     // MARK: prompt
@@ -108,7 +114,7 @@ public struct NewAgentView: View {
                     StaticChip(icon: "sparkles", value: "A fresh folder")
                 }
                 if model.hosts.count > 1 {
-                    Chip(id: "host", icon: "desktopcomputer", value: model.host, label: "Machine", model: model)
+                    Chip(id: "host", icon: "desktopcomputer", value: model.hostName, label: "Machine", model: model)
                 }
             }
             // Who runs it.
@@ -573,11 +579,14 @@ struct PromptEditor: NSViewRepresentable {
     }
 }
 
-/// The form's panel: centred high on the screen, with the keyboard.
+/// The form's panel, with the keyboard: where it was last dragged to, else
+/// centred high on the screen.
 @MainActor
 final class NewAgentController {
     let panel: RailPanel
     let model: NewAgentModel
+    static let originKey = "newAgentOrigin"
+    private var dragFrom: (pointer: NSPoint, origin: NSPoint)?
 
     init(model: NewAgentModel) {
         self.model = model
@@ -588,11 +597,15 @@ final class NewAgentController {
         panel.hasShadow = true
         panel.level = .floating
         panel.onKey = { [weak self] e in self?.handle(e) ?? false }
+        model.onDrag = { [weak self] ended in self?.drag(ended) }
     }
 
     func show() {
-        if let v = NSScreen.main?.visibleFrame {
-            let s = panel.frame.size
+        let s = panel.frame.size
+        let saved = UserDefaults.standard.string(forKey: Self.originKey).map(NSPointFromString)
+        if let o = saved, NSScreen.screens.contains(where: { $0.visibleFrame.contains(NSRect(origin: o, size: s)) }) {
+            panel.setFrameOrigin(o)
+        } else if let v = NSScreen.main?.visibleFrame {
             panel.setFrameOrigin(NSPoint(x: (v.midX - s.width / 2).rounded(), y: (v.midY - s.height / 2 + v.height / 8).rounded()))
         }
         panel.makeKeyAndOrderFront(nil)
@@ -600,6 +613,18 @@ final class NewAgentController {
     }
 
     func close() { panel.orderOut(nil) }
+
+    private func drag(_ ended: Bool) {
+        if ended {
+            dragFrom = nil
+            UserDefaults.standard.set(NSStringFromPoint(panel.frame.origin), forKey: Self.originKey)
+            return
+        }
+        let p = NSEvent.mouseLocation
+        if dragFrom == nil { dragFrom = (p, panel.frame.origin) }
+        guard let from = dragFrom else { return }
+        panel.setFrameOrigin(NSPoint(x: from.origin.x + p.x - from.pointer.x, y: from.origin.y + p.y - from.pointer.y))
+    }
 
     /// esc closes an open menu, else cancels; ↑/↓ and ⏎ work an open menu;
     /// ⌘⏎ creates; the rest is the form's.

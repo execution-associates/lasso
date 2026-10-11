@@ -68,7 +68,8 @@ public struct CreatedAgent: Codable, Sendable, Equatable {
 /// Where the New Agent form reads from and creates through: lasso, or a fixture.
 @MainActor
 public protocol NewAgentSource: AnyObject {
-    func hosts() async -> [String]
+    /// The machines to run on: lasso's value for each, and its name.
+    func hosts() async -> [NewAgentModel.Choice]
     func config(host: String) async throws -> AgentConfig
     func repos(host: String) async throws -> [RepoEntry]
     func branches(repo: String, host: String) async throws -> RepoBranches
@@ -80,10 +81,14 @@ public final class LiveNewAgentSource: NewAgentSource {
     let client: LassoClient
     public init(client: LassoClient) { self.client = client }
 
-    /// local, then every host lasso can drive right now.
-    public func hosts() async -> [String] {
-        guard let h = try? await client.get("/api/hosts", as: HostsPayload.self) else { return ["local"] }
-        return ["local"] + h.hosts.filter { $0.reachable && $0.running && $0.compatible }.map(\.alias)
+    /// lasso's own machine, then every host it can drive right now. Each by
+    /// its name: "local" means lasso's machine, which is rarely this Mac.
+    public func hosts() async -> [NewAgentModel.Choice] {
+        guard let h = try? await client.get("/api/hosts", as: HostsPayload.self) else {
+            return [.init(value: "local", title: "lasso's machine")]
+        }
+        return [.init(value: "local", title: h.local.hostname)]
+            + h.hosts.filter { $0.reachable && $0.running && $0.compatible }.map { .init(value: $0.alias, title: $0.alias) }
     }
 
     public func config(host: String) async throws -> AgentConfig {
@@ -120,7 +125,10 @@ public final class NewAgentModel: ObservableObject {
     @Published public var effort = ""
     @Published public var planMode = false
     @Published public var prompt = ""
-    @Published public private(set) var hosts: [String] = ["local"]
+    @Published public private(set) var hostChoices: [Choice] = []
+    public var hosts: [String] { hostChoices.map(\.value) }
+    /// The machine's name, never "local".
+    public var hostName: String { hostChoices.first { $0.value == host }?.title ?? (host == "local" ? "lasso's machine" : host) }
     @Published public private(set) var harnesses: [AgentConfig.Harness] = []
     @Published public private(set) var repos: [RepoEntry] = []
     @Published public private(set) var branches: [String] = []
@@ -141,6 +149,8 @@ public final class NewAgentModel: ObservableObject {
     /// The prompt has the cursor (its frame lights up).
     @Published public var promptFocused = false
     let source: NewAgentSource
+    /// The header was dragged (the controller moves the panel).
+    public var onDrag: (_ ended: Bool) -> Void = { _ in }
     /// The agent was created: open its window.
     public var onCreated: (HostPane) -> Void = { _ in }
     public var onClose: () -> Void = {}
@@ -163,7 +173,7 @@ public final class NewAgentModel: ObservableObject {
     }
 
     public func load() async {
-        hosts = await source.hosts()
+        hostChoices = await source.hosts()
         await loadHost()
     }
 
@@ -217,7 +227,7 @@ public final class NewAgentModel: ObservableObject {
         case "repo":
             return repos.map { Choice(value: $0.path, title: $0.name, detail: ($0.path as NSString).abbreviatingWithTildeInPath) }
         case "branch": return branches.map { Choice(value: $0, title: $0) }
-        case "host": return hosts.map { Choice(value: $0, title: $0) }
+        case "host": return hostChoices
         case "agent": return harnesses.map { Choice(value: $0.id, title: $0.label) }
         case "model":
             return [Choice(value: "", title: "Default")] + (harness?.model_suggestions ?? []).map { Choice(value: $0, title: $0) }
@@ -326,7 +336,9 @@ public final class FixtureNewAgentSource: NewAgentSource {
     public private(set) var created: [CreateAgent] = []
     public init() {}
 
-    public func hosts() async -> [String] { ["local", "minime"] }
+    public func hosts() async -> [NewAgentModel.Choice] {
+        [.init(value: "local", title: "titan"), .init(value: "minime", title: "minime")]
+    }
 
     public func config(host: String) async throws -> AgentConfig {
         AgentConfig(

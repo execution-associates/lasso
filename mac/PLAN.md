@@ -874,9 +874,10 @@ The Mac launches agents the way lasso's web New dialog does (`src/web/src/compon
 - In a repository (a Git agent: repository plus base branch, picked with a filter, since titan has 183 repositories and 502 branches in lasso), or Scratch.
 - The prompt: its first line names the agent.
 - Agent, model and thinking effort.
-- The machine, when lasso drives more than one.
+- The machine, when lasso drives more than one. Every machine shows by its name: lasso's own machine is "local" on the wire, but by its hostname on screen, because it is rarely the Mac the app runs on. Cards and agent windows always name the machine for the same reason.
 - Plan first, where the harness has it.
 - ⌘⏎ creates and esc cancels. A failed create says why and keeps the form.
+- Dragging the header moves the form. It opens where it was last left (UserDefaults `newAgentOrigin`), or centred high on the screen when that spot is off every screen.
 
 **Shortcuts** are configurable in Settings › New agents, like the inbox's:
 - **⌥⇧O** for an agent in a repository and **⌃⇧O** for a scratch agent, from any app. The user's rule is at most three keys, never four.

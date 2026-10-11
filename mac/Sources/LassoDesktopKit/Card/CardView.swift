@@ -151,7 +151,8 @@ public struct CardView: View {
                 .font(Theme.Fonts.body.font)
                 .foregroundStyle(Theme.Text.secondary.color)
                 .lineLimit(1)
-            if pane.host != "local" {
+            // Always named: "local" is lasso's machine, rarely this Mac.
+            if !pane.host_label.isEmpty {
                 Text(pane.host_label)
                     .font(Theme.Fonts.small.font)
                     .foregroundStyle(Theme.Text.primary.color)

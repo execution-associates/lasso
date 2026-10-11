@@ -28,7 +28,7 @@ func modelName(_ model: String?) -> String? {
 /// The state, the harness, where it runs: "idle · Claude Code in herdr · Agents".
 func agentStatusLine(_ p: HostPane) -> String {
     var parts = [p.state.label, "\(harnessName(p.agent)) in herdr", p.group]
-    if p.host != "local" { parts.append("on \(p.host_label)") }
+    if !p.host_label.isEmpty { parts.append("on \(p.host_label)") }
     return parts.filter { !$0.isEmpty }.joined(separator: " · ")
 }
 
