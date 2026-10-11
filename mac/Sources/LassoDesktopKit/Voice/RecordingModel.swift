@@ -151,7 +151,7 @@ struct RecordingStrip: View {
     var body: some View {
         switch model.phase {
         case .recording, .transcribing:
-            HStack(spacing: 8) {
+            HStack(spacing: Theme.space("m")) {
                 Circle()
                     .strokeBorder(Theme.Recording.ring.color, lineWidth: Theme.Rail.ringStroke.pt)
                     .frame(width: Theme.Rail.glyphSize.pt, height: Theme.Rail.glyphSize.pt)
@@ -166,7 +166,7 @@ struct RecordingStrip: View {
             }
             .font(Theme.Fonts.small.font)
             .foregroundStyle(Theme.Text.secondary.color)
-            .padding(.horizontal, 2)
+            .padding(.horizontal, Theme.space("2xs"))
             .frame(maxHeight: .infinity)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(
@@ -182,12 +182,14 @@ struct Meter: View {
     let level: Double
 
     var body: some View {
-        HStack(alignment: .center, spacing: 2) {
-            ForEach(0..<12, id: \.self) { i in
-                let on = Double(i) / 12 < level
+        HStack(alignment: .center, spacing: Theme.space("2xs")) {
+            let m = Theme.Recording.meter
+            let bars = Int(m.number("bars"))
+            ForEach(0..<bars, id: \.self) { i in
+                let on = Double(i) / Double(bars) < level
                 RoundedRectangle(cornerRadius: 1)
                     .fill(on ? Theme.Recording.meterFill.color : Theme.Row.hover.color)
-                    .frame(width: 3, height: 4 + CGFloat(i % 4) * 3)
+                    .frame(width: m.number("bar_w"), height: m.number("min_h") + CGFloat(i % 4) * m.number("step_h"))
             }
         }
         .parityAnchor("recording.meter")

@@ -78,3 +78,23 @@ private let specDir = packageDir.appendingPathComponent("Spec")
         #expect(!text.contains("NSLog("), "\(f.lastPathComponent) calls NSLog")
     }
 }
+
+/// Constraint 1: nothing visual is written inline. A view that pads, spaces,
+/// sizes or scales with a raw number (other than 0) fails here; the number
+/// belongs in Theme.swift with its provenance.
+@Test func viewsTakeTheirLayoutFromTheme() throws {
+    let src = packageDir.appendingPathComponent("Sources/LassoDesktopKit")
+    let views = ["Rail", "Card", "List", "Chat", "Onboarding", "Voice", "Platform"]
+    let literal = try Regex(
+        #"\.padding\((\.[a-zA-Z]+, )?[1-9][0-9]*(\.[0-9]+)?\)|spacing: [1-9]|(width|height|size): [1-9][0-9]*(\.[0-9]+)?[,)]|\* 0\.[0-9]|offset\(x: [1-9]"#)
+    for dir in views {
+        let files = FileManager.default.enumerator(at: src.appendingPathComponent(dir), includingPropertiesForKeys: nil)!
+            .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
+        for f in files {
+            for (n, line) in try String(contentsOf: f, encoding: .utf8).split(separator: "\n").enumerated()
+            where line.contains(literal) && !line.contains("//") {
+                Issue.record("\(f.lastPathComponent):\(n + 1): \(line.trimmingCharacters(in: .whitespaces))")
+            }
+        }
+    }
+}

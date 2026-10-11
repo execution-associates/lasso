@@ -265,7 +265,7 @@ public struct RailView: View {
                 if item == .record && model.recording {
                     Circle()
                         .strokeBorder(Theme.Recording.ring.color, lineWidth: Theme.Rail.ringStroke.pt)
-                        .frame(width: RailMetrics.cell - 8, height: RailMetrics.cell - 8)
+                        .frame(width: RailMetrics.cell - Theme.space("m"), height: RailMetrics.cell - Theme.space("m"))
                         .parityAnchor("rail.recording")
                 }
                 RailIcon(symbol: symbol)

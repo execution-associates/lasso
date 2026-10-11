@@ -13,22 +13,23 @@ public struct ChatView: View {
     }
 
     private var inset: CGFloat { Theme.Panel.inset.pt }
-    private var textX: CGFloat { 22 }
+    private var textX: CGFloat { Theme.Layout.chat.number("text_x") }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Spacer()
                 Button { model.onClose() } label: {
-                    Capsule().fill(Theme.Text.primary.color).frame(width: 16, height: 2.5)
-                        .frame(width: 28, height: 24)
+                    Capsule().fill(Theme.Text.primary.color)
+                        .frame(width: Theme.Layout.chat.size2("close_bar").width, height: Theme.Layout.chat.size2("close_bar").height)
+                        .frame(width: Theme.Layout.chat.size2("close_hit").width, height: Theme.Layout.chat.size2("close_hit").height)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Hide the chat (esc)")
                 .keyHint(Keys.esc)
             }
-            .padding(.top, 10)
+            .padding(.top, Theme.Layout.chat.number("top"))
             .padding(.trailing, inset)
 
             conversation
@@ -39,8 +40,8 @@ public struct ChatView: View {
                 .font(Theme.Fonts.small.font)
                 .foregroundStyle(Theme.Text.secondary.color)
                 .lineLimit(1)
-                .padding(.leading, textX + 34 + Theme.Control.composer.number("gap") + 14)
-                .padding(.bottom, 6)
+                .padding(.leading, Theme.Panel.inset.pt + Theme.Control.composer.number("height") + Theme.Control.composer.number("gap") + Theme.Control.composer.number("field_pad_l"))
+                .padding(.bottom, Theme.space("s"))
                 .parityAnchor("chat.talking")
             ComposerRow(model: model, recording: recording, attach: model.attachScreenshot, record: model.record)
                 .padding(.horizontal, inset)
@@ -64,7 +65,7 @@ public struct ChatView: View {
     private var conversation: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: Theme.Layout.chat.number("message_gap")) {
                     if let chat = model.chat {
                         ForEach(chat.items.suffix(80)) { item in
                             message(item).id(item.id)
@@ -79,7 +80,7 @@ public struct ChatView: View {
                     }
                 }
                 .padding(.horizontal, textX)
-                .padding(.vertical, 8)
+                .padding(.vertical, Theme.space("m"))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .onChange(of: model.chat?.items.last?.id) { _, last in
@@ -100,7 +101,7 @@ public struct ChatView: View {
     @ViewBuilder private func message(_ item: ChatItem) -> some View {
         let b = Theme.Chat.bubble
         if item.kind == "user" {
-            VStack(alignment: .trailing, spacing: 4) {
+            VStack(alignment: .trailing, spacing: Theme.space("xs")) {
                 Text(item.text ?? "")
                     .font(Theme.Fonts.chat.font)
                     .foregroundStyle(Theme.Text.primary.color)
@@ -117,7 +118,7 @@ public struct ChatView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
-            .padding(.leading, 60)
+            .padding(.leading, Theme.Layout.chat.number("bubble_inset"))
         } else {
             ChatRow(item: item, font: Theme.Fonts.chat.font)
         }
@@ -127,7 +128,7 @@ public struct ChatView: View {
     @ViewBuilder private var pending: some View {
         let opts = model.pendingOptions
         if let p = model.pending, !opts.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Theme.space("s")) {
                 Text("? " + [p.title, p.message].compactMap { $0 }.joined(separator: ": "))
                     .font(Theme.Fonts.chat.font)
                     .foregroundStyle(Theme.Text.primary.color)
@@ -135,20 +136,20 @@ public struct ChatView: View {
                 ForEach(Array(opts.enumerated()), id: \.offset) { i, label in
                     let on = (model.highlighted ?? 0) == i
                     Button { model.highlighted = i } label: {
-                        HStack(spacing: 6) {
+                        HStack(spacing: Theme.space("s")) {
                             Text("\(i + 1).").foregroundStyle(Theme.Text.secondary.color)
                             Text(label).foregroundStyle(Theme.Text.primary.color).lineLimit(1)
                             Spacer(minLength: 8)
                             if on {
                                 Image(systemName: "arrow.right")
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(.system(size: Theme.icon.number("step"), weight: .semibold))
                                     .foregroundStyle(Theme.Text.secondary.color)
                                     .keyHint(Keys.takeStep)
                             }
                         }
                         .font(Theme.Fonts.chat.font)
-                        .padding(.vertical, 2)
-                        .padding(.horizontal, 6)
+                        .padding(.vertical, Theme.space("2xs"))
+                        .padding(.horizontal, Theme.space("s"))
                         .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(on ? Theme.Row.selected.color : .clear))
                         .contentShape(Rectangle())
                     }
@@ -158,7 +159,7 @@ public struct ChatView: View {
                 }
             }
             .padding(.horizontal, textX - 6)
-            .padding(.bottom, 12)
+            .padding(.bottom, Theme.space("xl"))
             .parityAnchor("chat.pending")
         }
     }

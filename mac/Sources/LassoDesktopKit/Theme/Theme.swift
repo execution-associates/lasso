@@ -171,7 +171,8 @@ public enum Theme {
             "control.round", ["size": 28, "fill": "#2D1D3C", "disabled": "#210E33"], .measured("ref a2 size; EXA --secondary, --card"))
         /// The composer row: camera, field, send.
         public static let composer = Token(
-            "control.composer", ["height": 32, "fill": "#2D1D3C", "gap": 8, "send_disabled": "#210E33"], .measured("ref a2 size; EXA --secondary, --card"))
+            "control.composer",
+            ["height": 32, "fill": "#2D1D3C", "gap": 8, "send_disabled": "#210E33", "field_pad_l": 14, "field_pad_r": 12, "mic_w": 20], .measured("ref a2 size; EXA --secondary, --card"))
         public static let pill = Token(
             "control.pill", ["height": 22, "pad_h": 12, "fill": "#2D1D3C"], .measured("ref a2 size; EXA --secondary"))
         public static let pillPrimary = Token(
@@ -195,7 +196,7 @@ public enum Theme {
         public static let keycapRadius = Token("card.keycap.radius", 4, .unmeasured("keycap"), proposed: true)
         public static let keycapPadH = Token("card.keycap.pad_h", 4, .unmeasured("keycap"), proposed: true)
         public static let toolRow = Token(
-            "card.tool_row", ["height": 24, "radius": 6, "fill": "rgba(253,246,250,0.05)"], .unmeasured("one-line tool card, EXA white 5%"), proposed: true)
+            "card.tool_row", ["height": 24, "radius": 6, "fill": "rgba(253,246,250,0.05)", "dot": 6, "pad_h": 8], .unmeasured("one-line tool card, EXA white 5%"), proposed: true)
         public static let machineChip = Token(
             "card.machine_chip", ["radius": 4, "fill": "#2D1D3C", "font_size": 11, "pad_h": 6, "pad_v": 2], .unmeasured("remote machine chip, EXA --secondary"), proposed: true)
         public static let placement = Token(
@@ -241,7 +242,7 @@ public enum Theme {
     public enum List {
         public static let size = Token("list.size", [398, 560], .measured("ref a3: 797 px wide; height proposed"))
         public static let row = Token(
-            "list.row", ["height": 39, "pad_h": 22, "dot": 5, "avatar": 18, "name_x": 67],
+            "list.row", ["height": 39, "pad_h": 22, "dot": 5, "avatar": 18, "name_x": 67, "dot_col": 38, "action_w": 30],
             .measured("ref a3: 78 px pitch"))
     }
 
@@ -249,6 +250,37 @@ public enum Theme {
         public static let bubble = Token(
             "chat.bubble", ["fill": "#2D1D3C", "radius": 18, "pad_h": 19, "pad_v": 9], .measured("ref a5 shape; EXA --secondary"))
     }
+
+
+    /// The spacing scale every gap and inset is drawn from.
+    public static let spaceScale = Token(
+        "space",
+        ["hair": 1, "2xs": 2, "xs": 4, "s": 6, "m": 8, "l": 10, "xl": 12, "2xl": 14, "3xl": 16, "4xl": 18, "5xl": 22],
+        .unmeasured("spacing scale; steps the references use (ref a2/a3/a5)"), proposed: true)
+
+    public static func space(_ step: String) -> CGFloat { spaceScale.number(step) }
+
+    public enum Layout {
+        /// The card's vertical rhythm and its paging column (ref a2, 2 px per point).
+        public static let card = Token(
+            "layout.card",
+            ["top": 12.5, "identity_gap": 9, "box_gap": 16, "composer_gap": 22, "divider_gap": 12, "footer_gap": 14,
+             "bottom": 14, "column_x": 10, "column_gap": 5, "unread_top": 22, "avatar": 16],
+            .measured("ref a2: title 25 px from the top, box at 175 px, composer at 924 px, divider at 1015 px"))
+        public static let chat = Token(
+            "layout.chat",
+            ["top": 10, "text_x": 22, "message_gap": 14, "bubble_inset": 60, "close_bar": [16, 2.5], "close_hit": [28, 24]],
+            .measured("ref a5: text at 52 px, bubbles 28 px apart; bubble inset proposed"))
+    }
+
+    /// An agent avatar's proportions, as fractions of its size.
+    public static let avatar = Token(
+        "avatar", ["glyph": 0.62, "radius": 0.28, "dot": 0.42, "dot_offset": 0.12, "ring": 1.5],
+        .unmeasured("symbol avatar with a state dot on its corner"), proposed: true)
+
+    public static let icon = Token(
+        "icon", ["round_ratio": 0.42, "control": 14, "step": 11, "pin": 10],
+        .measured("ref a2: control glyphs about 28 px; the rest proposed"))
 
     public static let focusRing = Token(
             "focus.ring", ["width": 2, "color": "#FEBE74", "outset": 2], .measured("EXA: isb web/src/index.css :root.ea --ring (peach)"), proposed: true)
@@ -259,6 +291,8 @@ public enum Theme {
         public static let meterFill = Token(
             "recording.meter.fill", "rgba(244,236,242,0.60)", .unmeasured("level bars, EXA --foreground"), proposed: true)
         public static let meterHz = Token("recording.meter.hz", 30, .unmeasured("meter refresh"), proposed: true)
+        public static let meter = Token(
+            "recording.meter", ["bars": 12, "bar_w": 3, "min_h": 4, "step_h": 3], .unmeasured("level bars"), proposed: true)
     }
 
     public enum Motion {
@@ -324,7 +358,8 @@ public enum Theme {
         Row.hover, Row.selected, Row.radius,
         Fonts.title, Fonts.body, Fonts.chat, Fonts.name, Fonts.label, Fonts.header, Fonts.small, Fonts.terminal,
         List.size, List.row, Chat.bubble, focusRing,
-        Recording.ring, Recording.meterFill, Recording.meterHz,
+        Recording.ring, Recording.meterFill, Recording.meterHz, Recording.meter, spaceScale, Layout.card, Layout.chat,
+        avatar, icon,
         Motion.railExpand, Motion.railCollapse, Motion.cardOpen, Motion.cardClose, Motion.toastIn, Motion.cardPaging,
         Voice.sampleRate, Voice.vadFloorWindow, Voice.vadThreshold, Voice.vadEndSilence, Voice.vadMinSpeech,
         Voice.maxTurn, Voice.pttSplit,
@@ -416,4 +451,12 @@ public func withAnimationToken(
     var a = token.animation
     if let probe { a = Animation(ProbedAnimation(base: a, probe: probe, travel: travel)) }
     withAnimation(a, body)
+}
+
+extension Token {
+    /// A two-number array inside an object token ({key: [w, h]}).
+    public func size2(_ key: String) -> CGSize {
+        let a = value[key]?.array ?? []
+        return CGSize(width: a.first?.double ?? .nan, height: a.dropFirst().first?.double ?? .nan)
+    }
 }

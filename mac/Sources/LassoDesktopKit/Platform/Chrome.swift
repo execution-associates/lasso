@@ -28,7 +28,7 @@ struct KeyHint: ViewModifier {
     func body(content: Content) -> some View {
         content.overlay(alignment: alignment) {
             if hints.visible {
-                Keycap(binding).offset(x: 6, y: 6)
+                Keycap(binding).offset(x: Theme.space("s"), y: Theme.space("s"))
             }
         }
     }
@@ -91,7 +91,7 @@ struct RoundButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: size * 0.42, weight: .semibold))
+                .font(.system(size: size * Theme.icon.number("round_ratio"), weight: .semibold))
                 .foregroundStyle(enabled ? Theme.Text.primary.color : Theme.Text.secondary.color)
                 .frame(width: size, height: size)
                 .background(Circle().fill(enabled ? fill : Theme.Control.round.color("disabled")))
@@ -143,24 +143,24 @@ struct ComposerRow<Model: ComposerModel>: View {
         HStack(spacing: c.number("gap")) {
             RoundButton(symbol: "camera", size: h, fill: c.color("fill"), label: "Attach a screenshot (S)", action: attach)
                 .keyHint(Keys.attach)
-            HStack(spacing: 8) {
+            HStack(spacing: Theme.space("m")) {
                 ZStack(alignment: .leading) {
                     ComposerField(model: model).opacity(active ? 0 : 1)
                     RecordingStrip(model: recording)
                 }
                 Button(action: record) {
                     Image(systemName: recording.isRecording ? "mic.fill" : "mic")
-                        .font(.system(size: 14))
+                        .font(.system(size: Theme.icon.number("control")))
                         .foregroundStyle(recording.isRecording ? Theme.Recording.ring.color : Theme.Text.primary.color)
-                        .frame(width: 20, height: h)
+                        .frame(width: c.number("mic_w"), height: h)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(recording.isRecording ? "Stop recording (V)" : "Record (V)")
                 .keyHint(Keys.record)
             }
-            .padding(.leading, 14)
-            .padding(.trailing, 12)
+            .padding(.leading, c.number("field_pad_l"))
+            .padding(.trailing, c.number("field_pad_r"))
             .frame(height: h)
             .background(Capsule().fill(c.color("fill")))
             .parityAnchor("composer.field")

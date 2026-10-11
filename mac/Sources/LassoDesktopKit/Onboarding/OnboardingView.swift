@@ -26,21 +26,21 @@ public struct OnboardingView: View {
                     .keyHint(Keys.esc)
             }
             .padding(.horizontal, pad)
-            .padding(.top, 12.5)
+            .padding(.top, Theme.Layout.card.number("top"))
 
             ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: Theme.space("4xl")) {
                     section("lasso") { lassoSection }
                     section("Assistant") { assistantSection }
                     section("Voice") { voiceSection }
                     section("Permissions") { permissionsSection }
                 }
                 .padding(.horizontal, pad)
-                .padding(.vertical, 14)
+                .padding(.vertical, Theme.space("2xl"))
             }
 
-            Rectangle().fill(Theme.Panel.divider.color).frame(height: 1)
-            HStack(spacing: 10) {
+            Rectangle().fill(Theme.Panel.divider.color).frame(height: Theme.space("hair"))
+            HStack(spacing: Theme.space("l")) {
                 Text(model.notice ?? setup.status ?? "")
                     .font(Theme.Fonts.small.font)
                     .foregroundStyle(Theme.Text.secondary.color)
@@ -50,7 +50,7 @@ public struct OnboardingView: View {
                     .keyHint(Keys.send)
             }
             .padding(.horizontal, pad)
-            .padding(.vertical, 14)
+            .padding(.vertical, Theme.space("2xl"))
             .parityAnchor("onboarding.footer")
         }
         .panelChrome(Theme.Card.size.size, anchor: "onboarding")
@@ -59,7 +59,7 @@ public struct OnboardingView: View {
     }
 
     private func section<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Theme.space("s")) {
             Text(title)
                 .font(Theme.Fonts.header.font)
                 .foregroundStyle(Theme.Text.secondary.color)
@@ -89,7 +89,7 @@ public struct OnboardingView: View {
 
     @ViewBuilder private var assistantSection: some View {
         if let bot = setup.assistant {
-            HStack(spacing: 8) {
+            HStack(spacing: Theme.space("m")) {
                 AgentGlyph(slot: .agent(botPane(bot)))
                 line("\(bot.name) · \(bot.runtime) · \(bot.state)")
             }
@@ -98,7 +98,7 @@ public struct OnboardingView: View {
             line("No assistant chosen yet. Pick a bot, or make one.", secondary: true)
             ForEach(fleet.bots) { bot in
                 Button { Task { await setup.choose(bot.name) } } label: {
-                    HStack(spacing: 8) {
+                    HStack(spacing: Theme.space("m")) {
                         AgentGlyph(slot: .agent(botPane(bot)))
                         Text(bot.name).font(Theme.Fonts.name.font).foregroundStyle(Theme.Text.primary.color)
                         Text("\(bot.runtime) · \(bot.state)")
@@ -106,7 +106,7 @@ public struct OnboardingView: View {
                             .foregroundStyle(Theme.Text.secondary.color)
                         Spacer()
                     }
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, Theme.space("xl"))
                     .frame(height: Theme.List.row.number("height"))
                     .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(Theme.Panel.inner.color("fill")))
                     .contentShape(Rectangle())
@@ -133,7 +133,7 @@ public struct OnboardingView: View {
     }
 
     @ViewBuilder private var voiceSection: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: Theme.space("2xs")) {
             ForEach(VoiceEngine.allCases, id: \.self) { e in
                 let on = model.engine == e
                 Button { model.select(e) } label: {
@@ -141,7 +141,7 @@ public struct OnboardingView: View {
                         .font(Theme.Fonts.body.font)
                         .foregroundStyle(Theme.Text.primary.color)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 5)
+                        .padding(.vertical, Theme.space("xs"))
                         .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt - 2).fill(on ? Theme.accent.color : .clear))
                         .contentShape(Rectangle())
                 }
@@ -150,7 +150,7 @@ public struct OnboardingView: View {
                 .accessibilityLabel("\(e.displayName)\(on ? ", selected" : "")")
             }
         }
-        .padding(2)
+        .padding(Theme.space("2xs"))
         .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(Theme.Panel.inner.color("fill")))
         switch model.engine {
         case .lasso:
@@ -165,12 +165,12 @@ public struct OnboardingView: View {
         case .groq, .openai:
             let set = model.keyAccount.map(Keychain.isSet) ?? false
             line(set ? "\(model.engine.displayName) key is in the Keychain. Audio goes from this Mac to \(model.engine.displayName)." : "Add your \(model.engine.displayName) API key. It is kept in the Keychain.", secondary: true)
-            HStack(spacing: 8) {
+            HStack(spacing: Theme.space("m")) {
                 SecureField("API key", text: $model.keyDraft)
                     .textFieldStyle(.plain)
                     .font(Theme.Fonts.body.font)
                     .foregroundStyle(Theme.Text.primary.color)
-                    .padding(.horizontal, 14)
+                    .padding(.horizontal, Theme.space("2xl"))
                     .frame(height: Theme.Control.composer.number("height"))
                     .background(Capsule().fill(Theme.Control.composer.color("fill")))
                     .onSubmit { model.saveKey() }
@@ -205,14 +205,14 @@ public struct OnboardingView: View {
     private func permissionRow(
         _ name: String, _ why: String, _ state: PermissionState, action: String?, _ act: @escaping () -> Void
     ) -> some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: Theme.space("m")) {
             Circle()
                 .fill(state == .granted ? Theme.State.done.color : (state == .denied ? Theme.State.blocked.color : Theme.State.idle.color))
-                .frame(width: 8, height: 8)
+                .frame(width: Theme.space("m"), height: Theme.space("m"))
                 .parityAnchor("onboarding.permission[\(name)]")
-                .padding(.top, 5)
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 6) {
+                .padding(.top, Theme.space("xs"))
+            VStack(alignment: .leading, spacing: Theme.space("hair")) {
+                HStack(spacing: Theme.space("s")) {
                     Text(name).font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
                     Text(state.label).font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color)
                 }

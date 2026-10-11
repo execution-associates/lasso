@@ -39,10 +39,10 @@ public struct ListView: View {
                             .font(Theme.Fonts.small.font)
                             .foregroundStyle(Theme.Text.secondary.color)
                             .padding(.horizontal, row.number("pad_h"))
-                            .padding(.vertical, 8)
+                            .padding(.vertical, Theme.space("m"))
                     }
                 }
-                .padding(.vertical, 8)
+                .padding(.vertical, Theme.space("m"))
             }
             .onChange(of: model.selected) { _, key in
                 if let key { proxy.scrollTo(key) }
@@ -59,8 +59,8 @@ public struct ListView: View {
             .foregroundStyle(Theme.Text.secondary.color)
             .lineLimit(1)
             .padding(.horizontal, row.number("pad_h"))
-            .padding(.top, 12)
-            .padding(.bottom, 4)
+            .padding(.top, Theme.space("xl"))
+            .padding(.bottom, Theme.space("xs"))
             .parityAnchor(anchor)
             .accessibilityAddTraits(.isHeader)
     }
@@ -72,7 +72,7 @@ public struct ListView: View {
         let pinned = model.pinnedKeys.contains(key)
         return Group {
             if model.confirmEnd == key {
-                HStack(spacing: 10) {
+                HStack(spacing: Theme.space("l")) {
                     Text("End \(p.displayName)?")
                         .font(Theme.Fonts.name.font)
                         .foregroundStyle(Theme.Text.primary.color)
@@ -96,19 +96,19 @@ public struct ListView: View {
                                 .fill(StateStyle.color(p.state))
                                 .frame(width: row.number("dot"), height: row.number("dot"))
                                 .parityAnchor(pinnedSection ? "list.dot.pinned[\(key)]" : "list.dot[\(key)]")
-                                .frame(width: 38 - row.number("pad_h"), alignment: .leading)
+                                .frame(width: row.number("dot_col") - row.number("pad_h"), alignment: .leading)
                             AgentAvatar(agent: p.agent, state: p.state)
                             Text(p.displayName)
                                 .font(Theme.Fonts.name.font)
                                 .foregroundStyle(Theme.Text.primary.color)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
-                                .padding(.leading, row.number("name_x") - 38 - row.number("avatar"))
+                                .padding(.leading, row.number("name_x") - row.number("dot_col") - row.number("avatar"))
                             if pinned && !pinnedSection {
                                 Image(systemName: "pin.fill")
-                                    .font(.system(size: 10))
+                                    .font(.system(size: Theme.icon.number("pin")))
                                     .foregroundStyle(Theme.Text.secondary.color)
-                                    .padding(.leading, 6)
+                                    .padding(.leading, Theme.space("s"))
                             }
                             Spacer(minLength: 8)
                         }
@@ -118,25 +118,25 @@ public struct ListView: View {
                     .accessibilityLabel(
                         "\(p.displayName), \(p.state.label), \(p.agent) on \(p.host_label)\(pinned ? ", pinned" : "")")
                     Button { model.dictate(p) } label: {
-                        Image(systemName: "mic").frame(width: 30, height: row.number("height")).contentShape(Rectangle())
+                        Image(systemName: "mic").frame(width: row.number("action_w"), height: row.number("height")).contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Dictate to \(p.displayName)")
                     Button { model.askEnd(p) } label: {
-                        Image(systemName: "xmark").frame(width: 30, height: row.number("height")).contentShape(Rectangle())
+                        Image(systemName: "xmark").frame(width: row.number("action_w"), height: row.number("height")).contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("End \(p.displayName)")
                 }
-                .font(.system(size: 14))
+                .font(.system(size: Theme.icon.number("control")))
                 .foregroundStyle(Theme.Text.secondary.color)
                 .padding(.leading, row.number("pad_h"))
-                .padding(.trailing, row.number("pad_h") - 8)
+                .padding(.trailing, row.number("pad_h") - Theme.space("m"))
                 .frame(height: row.number("height"))
                 .background(
                     RoundedRectangle(cornerRadius: Theme.Row.radius.pt)
                         .fill(selected ? Theme.Row.selected.color : (hovered ? Theme.Row.hover.color : .clear))
-                        .padding(.horizontal, 8)
+                        .padding(.horizontal, Theme.space("m"))
                 )
                 .onHover { model.hovered = $0 ? key : (model.hovered == key ? nil : model.hovered) }
                 .contextMenu {

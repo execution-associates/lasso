@@ -39,16 +39,16 @@ struct AgentAvatar: View {
             default: "terminal"
             }
         Image(systemName: symbol)
-            .font(.system(size: size * 0.62, weight: .semibold))
+            .font(.system(size: size * Theme.avatar.number("glyph"), weight: .semibold))
             .foregroundStyle(Theme.Text.primary.color)
             .frame(width: size, height: size)
-            .background(RoundedRectangle(cornerRadius: size * 0.28).fill(Theme.Control.round.color("fill")))
+            .background(RoundedRectangle(cornerRadius: size * Theme.avatar.number("radius")).fill(Theme.Control.round.color("fill")))
             .overlay(alignment: .bottomTrailing) {
                 Circle()
                     .fill(StateStyle.color(state))
-                    .frame(width: size * 0.42, height: size * 0.42)
-                    .overlay(Circle().strokeBorder(Theme.Panel.surface.color, lineWidth: 1.5))
-                    .offset(x: size * 0.12, y: size * 0.12)
+                    .frame(width: size * Theme.avatar.number("dot"), height: size * Theme.avatar.number("dot"))
+                    .overlay(Circle().strokeBorder(Theme.Panel.surface.color, lineWidth: Theme.avatar.number("ring")))
+                    .offset(x: size * Theme.avatar.number("dot_offset"), y: size * Theme.avatar.number("dot_offset"))
             }
             .accessibilityHidden(true)
     }
@@ -76,7 +76,7 @@ public struct CardView: View {
             VStack(alignment: .leading, spacing: 0) {
                 header(pane)
                 identity(pane)
-                    .padding(.top, 9)
+                    .padding(.top, Theme.Layout.card.number("identity_gap"))
                 Group {
                     conversation
                 }
@@ -85,24 +85,24 @@ public struct CardView: View {
                     .asymmetric(
                         insertion: .opacity.combined(with: .offset(y: 12 * CGFloat(model.pageDirection))),
                         removal: .opacity))
-                .padding(.top, 16)
+                .padding(.top, Theme.Layout.card.number("box_gap"))
                 ComposerRow(
                     model: model, recording: recording, attach: model.attachScreenshot, record: model.record
                 )
-                .padding(.top, 22)
-                Rectangle().fill(Theme.Panel.divider.color).frame(height: 1)
+                .padding(.top, Theme.Layout.card.number("composer_gap"))
+                Rectangle().fill(Theme.Panel.divider.color).frame(height: Theme.space("hair"))
                     .parityAnchor("card.divider")
-                    .padding(.top, 12)
+                    .padding(.top, Theme.Layout.card.number("divider_gap"))
                 footer
-                    .padding(.top, 14)
+                    .padding(.top, Theme.Layout.card.number("footer_gap"))
             }
             .padding(.leading, contentX)
             .padding(.trailing, inset)
-            .padding(.top, 12.5)
-            .padding(.bottom, 14)
+            .padding(.top, Theme.Layout.card.number("top"))
+            .padding(.bottom, Theme.Layout.card.number("bottom"))
 
             // The paging column: K above, J below, then the unread bar.
-            VStack(spacing: 5) {
+            VStack(spacing: Theme.Layout.card.number("column_gap")) {
                 RoundButton(symbol: "chevron.up", enabled: pages.count > 1 && index > 0, label: "Previous card (K)") {
                     model.page(-1)
                 }
@@ -112,10 +112,10 @@ public struct CardView: View {
                 ) { model.page(1) }
                 .keyHint(Keys.next)
                 unreadBar(pages)
-                    .padding(.top, 22)
+                    .padding(.top, Theme.Layout.card.number("unread_top"))
             }
-            .padding(.leading, 10)
-            .padding(.top, 12.5)
+            .padding(.leading, Theme.Layout.card.number("column_x"))
+            .padding(.top, Theme.Layout.card.number("top"))
         }
         .panelChrome(Theme.Card.size.size, anchor: "card")
         .accessibilityElement(children: .contain)
@@ -125,7 +125,7 @@ public struct CardView: View {
     // MARK: header and identity
 
     private func header(_ pane: HostPane) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Theme.space("m")) {
             Text(pane.displayName)
                 .font(Theme.Fonts.title.font)
                 .foregroundStyle(Theme.Text.primary.color)
@@ -142,8 +142,8 @@ public struct CardView: View {
 
     private func identity(_ pane: HostPane) -> some View {
         let group = pane.repo_label ?? pane.repo ?? pane.workspace_label
-        return HStack(spacing: 8) {
-            AgentAvatar(agent: pane.agent, state: pane.state, size: 16)
+        return HStack(spacing: Theme.space("m")) {
+            AgentAvatar(agent: pane.agent, state: pane.state, size: Theme.Layout.card.number("avatar"))
             Text([statusPhrase(pane, now: model.now()), group].filter { !$0.isEmpty }.joined(separator: " · "))
                 .font(Theme.Fonts.body.font)
                 .foregroundStyle(Theme.Text.secondary.color)
@@ -197,7 +197,7 @@ public struct CardView: View {
         let inner = Theme.Panel.inner
         return ScrollViewReader { proxy in
             ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: Theme.space("s")) {
                     if let chat = model.chat {
                         ForEach(chat.items.suffix(80)) { item in
                             ChatRow(item: item).id(item.id)
@@ -237,8 +237,8 @@ public struct CardView: View {
 
     private var footer: some View {
         let steps = model.nextSteps
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
+        return VStack(alignment: .leading, spacing: Theme.space("l")) {
+            HStack(spacing: Theme.space("l")) {
                 Text("Next steps")
                     .font(Theme.Fonts.label.font)
                     .foregroundStyle(Theme.Text.secondary.color)
@@ -263,11 +263,11 @@ public struct CardView: View {
                     .lineLimit(1)
                     .padding(.leading, Theme.Card.titleX.pt - contentX)
             } else {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Theme.space("2xs")) {
                     ForEach(steps.prefix(3)) { step in
                         let on = (model.highlighted ?? 0) == step.index
                         Button { model.highlighted = step.index } label: {
-                            HStack(spacing: 8) {
+                            HStack(spacing: Theme.space("m")) {
                                 Text("\(step.index + 1).")
                                     .foregroundStyle(Theme.Text.secondary.color)
                                 Text(step.label)
@@ -276,13 +276,13 @@ public struct CardView: View {
                                 Spacer(minLength: 8)
                                 if on {
                                     Image(systemName: "arrow.right")
-                                        .font(.system(size: 11, weight: .semibold))
+                                        .font(.system(size: Theme.icon.number("step"), weight: .semibold))
                                         .foregroundStyle(Theme.Text.secondary.color)
                                         .keyHint(Keys.takeStep)
                                 }
                             }
                             .font(Theme.Fonts.body.font)
-                            .padding(.vertical, 3)
+                            .padding(.vertical, Theme.space("2xs"))
                             .padding(.horizontal, Theme.Card.titleX.pt - contentX)
                             .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(on ? Theme.Row.selected.color : .clear))
                             .contentShape(Rectangle())
@@ -341,8 +341,8 @@ struct ToolRow: View {
             case "error": .blocked
             default: .done
             }
-        HStack(spacing: 6) {
-            Circle().fill(StateStyle.color(state)).frame(width: 6, height: 6)
+        HStack(spacing: Theme.space("s")) {
+            Circle().fill(StateStyle.color(state)).frame(width: r.number("dot"), height: r.number("dot"))
             Text(tool.title ?? tool.name ?? "tool")
                 .foregroundStyle(Theme.Text.primary.color)
             Text(tool.subject ?? tool.command ?? "")
@@ -354,7 +354,7 @@ struct ToolRow: View {
         }
         .font(Theme.Fonts.terminal.font)
         .lineLimit(1)
-        .padding(.horizontal, 8)
+        .padding(.horizontal, r.number("pad_h"))
         .frame(height: r.number("height"))
         .background(RoundedRectangle(cornerRadius: r.number("radius")).fill(RGBA(parsing: r.value["fill"]?.string ?? "")?.color ?? .clear))
         .accessibilityElement(children: .combine)
