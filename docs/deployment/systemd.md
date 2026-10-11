@@ -120,7 +120,7 @@ lasso reaches your other hosts with `ssh`, using your normal `~/.ssh/config`. If
 - If the unit's main process is something else, such as a wrapper script that starts lasso among other things, it leaves the unit alone, since restarting it would bounce everything the wrapper runs. Restart lasso yourself in that case.
 - A user unit belonging to a different user is not touched; it prints the command to run as that user.
 
-Run from a shell inside lasso's own Terminal tab, the restart cuts that shell off; lasso queues the restart without waiting and says so first. See [Updating](./updating.md) for the rest.
+Run from a shell that lives inside lasso's own unit, the restart cuts that shell off; lasso queues the restart without waiting and says so first. See [Updating](./updating.md) for the rest.
 
 `LASSO_SYSTEMD_UNIT` matters only for a lasso built from a source checkout, where it names the unit to restart after a `git pull` (default `lasso`). Release-binary installs find their unit from the cgroup and ignore it.
 

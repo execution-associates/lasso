@@ -84,7 +84,7 @@ func mainPID(u systemdUnit) int {
 // restartUnit restarts u: a user unit through the caller's own manager, a
 // system unit directly as root or else via non-interactive sudo. On failure it
 // prints the command to run by hand rather than prompting. inside means this
-// process lives in u itself (a shell in lasso's own Terminal tab), where the
+// process lives in u itself (a shell lasso's own unit started), where the
 // restart kills us, so the job is queued with --no-block and announced first.
 func restartUnit(u systemdUnit, inside bool) {
 	verb := []string{"restart"}

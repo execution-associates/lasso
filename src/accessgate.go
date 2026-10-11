@@ -30,7 +30,7 @@ import (
 //
 // The gate runs OUTSIDE every other handler (before UI_AUTH, before the MCP
 // OAuth check, before the ttyd reverse proxies), so it covers /api/*, /mcp,
-// /terminal/, /shell/, their websocket upgrades, /api/file*, the OAuth
+// /terminal/, its websocket upgrades, /api/file*, the OAuth
 // endpoints and the SPA alike — a websocket upgrade is an ordinary HTTP request
 // until the handler that hijacks it sees it, and this gate answers first.
 
@@ -112,7 +112,7 @@ func (g accessGate) logStatus(listen string, hasBasicAuth bool) {
 	if len(g.allowed) > 0 {
 		who = strings.Join(sortedKeys(g.allowed), ", ")
 	}
-	log.Printf("access:   REQUIRED — every route (incl. /mcp, /terminal/, /shell/, websockets, /api/file*) needs %s: %s",
+	log.Printf("access:   REQUIRED — every route (incl. /mcp, /terminal/, websockets, /api/file*) needs %s: %s",
 		accessEmailHeader, who)
 	log.Printf("access:   this is only sound behind an edge that STRIPS client-supplied Cf-Access-* headers (Cloudflare Access on a protected hostname). listen=%s basic-auth=%v",
 		listen, hasBasicAuth)

@@ -47,8 +47,8 @@ Picking a host in the menu (the server icon in the desktop footer, or **Host** i
 
 - A new tab starts on the **default host**, `local`.
 - The choice survives a reload of that tab, and you can deep-link a tab to a host with `?host=<alias>` in the URL.
-- On a remote host, the main terminal runs `herdr --remote <alias>` and the sidebar's Terminal tab runs `ssh <alias>`. Both run on lasso's machine and multiplex over one ssh connection per host, shared by every tab on it.
-- Switching back to a host you used recently is instant, because its terminals are kept warm.
+- On a remote host, the terminal runs `herdr --remote <alias>`. It runs on lasso's machine and multiplexes over one ssh connection per host, shared by every tab on it.
+- Switching back to a host you used recently is instant, because its terminal is kept warm.
 
 lasso watches each host that some tab is looking at. A host nobody has watched for 90 seconds stops being polled, so an idle remote costs nothing. The default host is always watched, since it is where a fresh tab lands.
 

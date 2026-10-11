@@ -34,7 +34,6 @@ export default defineConfig({
       // it points here.
       "/hooks": { target: backend, changeOrigin: true },
       "/terminal": { target: backend, changeOrigin: true, ws: true },
-      "/shell": { target: backend, changeOrigin: true, ws: true },
       // The shared browser's CDP endpoint. changeOrigin stays OFF: /cdp refuses
       // a websocket whose Origin names a different host than its Host header
       // (cdpOriginAllowed, the cross-site hijacking guard), and rewriting Host
