@@ -28,6 +28,9 @@ jobs:
           bun run lint
           bun run build
 
+      - name: Stage the embedded MCP skill (SKILL.md + docs)
+        run: ./scripts/stage-skill.sh
+
       - name: Go (format, vet, build, test)
         working-directory: src
         run: |
