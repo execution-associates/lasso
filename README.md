@@ -51,6 +51,88 @@ you**.
   inspect and close the others, across the fleet, and `/herdr-mcp` serves
   herdr's own API as MCP tools on any host (no separate herdr-mcp to run).
 
+## What it looks like
+
+<table>
+  <tr>
+    <td width="33%" align="center" valign="top">
+      <a href="docs/web-ui/terminal.md#the-herdr-terminal"><img src="docs/assets/readme/terminal.webp" alt="The herdr terminal in lasso: herdr's workspaces and agents down the left, and an omp agent's pane reporting the change it made"></a><br>
+      <b>Your real herdr terminal</b><br>
+      <a href="docs/web-ui/terminal.md#the-herdr-terminal">The herdr terminal →</a>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <a href="docs/web-ui/terminal.md#grid"><img src="docs/assets/readme/grid.webp" alt="The Grid: every agent on three machines as a card with the tail of its conversation, one of them blocked and asking for input"></a><br>
+      <b>Every agent at once</b><br>
+      <a href="docs/web-ui/terminal.md#grid">Grid →</a>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <a href="docs/web-ui/bots.md#the-list"><img src="docs/assets/readme/bots.webp" alt="The Bots view: three bots in a list like a messaging app, one running, one idle, one stopped, and a conversation with one of them"></a><br>
+      <b>Bots that stay up</b><br>
+      <a href="docs/web-ui/bots.md#the-list">Bots →</a> ·
+      <a href="docs/web-ui/bots.md#talking-to-a-bot">talking to one</a>
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" align="center" valign="top">
+      <a href="docs/web-ui/sidebar.md#files"><img src="docs/assets/readme/files.webp" alt="The Files sidebar beside the terminal, showing the agent's worktree README rendered with its diagram and table"></a><br>
+      <b>Files follow the focused pane</b><br>
+      <a href="docs/web-ui/sidebar.md#files">Files →</a> ·
+      <a href="docs/concepts/hosts.md#the-sidebar-follows-the-pane-not-just-the-tab">on any host</a>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <a href="docs/web-ui/terminal.md#chat-view"><img src="docs/assets/readme/chat.webp" alt="Chat view of an agent on another machine: its tool calls, and the question it is asking as three options to pick from"></a><br>
+      <b>Read and answer it as a chat</b><br>
+      <a href="docs/web-ui/terminal.md#chat-view">Chat view →</a>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <a href="docs/concepts/shared-browser.md#what-you-and-agents-each-see"><img src="docs/assets/readme/browser.webp" alt="The Browser sidebar showing the page an agent just built, in the Chromium it shares with you"></a><br>
+      <b>A browser you share with agents</b><br>
+      <a href="docs/concepts/shared-browser.md#what-you-and-agents-each-see">Shared browser →</a> ·
+      <a href="docs/web-ui/sidebar.md#browser">Browser tab</a>
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" align="center" valign="top">
+      <a href="docs/web-ui/new-agent.md#the-agent-form"><img src="docs/assets/readme/new-agent.webp" alt="The New dialog over the Grid, starting a git agent on another machine: the prompt, the repository and branch, the harness and the host"></a><br>
+      <b>Start an agent on any host</b><br>
+      <a href="docs/web-ui/new-agent.md#the-agent-form">New dialog →</a> ·
+      <a href="docs/web-ui/new-agent.md#choosing-the-host">choosing the host</a>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <a href="docs/concepts/hosts.md#how-the-host-menu-groups-them"><img src="docs/assets/readme/hosts.webp" alt="The host menu over the Grid: lasso's own machine, two more reached over ssh, and a laptop that did not answer"></a><br>
+      <b>One lasso, every machine</b><br>
+      <a href="docs/concepts/hosts.md#how-the-host-menu-groups-them">Hosts →</a>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <a href="docs/mcp/index.md#two-servers"><img src="docs/assets/readme/mcp.webp" alt="An omp session using lasso's MCP tools to list the agents on every host and start another agent on a second machine"></a><br>
+      <b>Agents orchestrating agents</b><br>
+      <a href="docs/mcp/index.md#two-servers">MCP server →</a> ·
+      <a href="docs/mcp/cli.md#lasso-mcp">lasso mcp</a>
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" align="center" valign="top">
+      <a href="docs/web-ui/sidebar.md#diff"><img src="docs/assets/readme/diff.webp" alt="The Diff sidebar: the agent's dirty files with their line counts, one expanded to its hunks"></a><br>
+      <b>Live git diff</b><br>
+      <a href="docs/web-ui/sidebar.md#diff">Diff →</a>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <a href="docs/getting-started/phone.md"><img src="docs/assets/readme/phone.webp" alt="lasso on two phones: an agent's question to answer with a tap, and the terminal with the radial input dial open"></a><br>
+      <b>Answer from your phone</b><br>
+      <a href="docs/getting-started/phone.md">Phone app →</a> ·
+      <a href="docs/web-ui/terminal.md#the-input-dial-phones-and-narrow-windows">input dial</a>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <a href="docs/plugins/index.md#the-trust-model"><img src="docs/assets/readme/plugins.webp" alt="A plugin's approval dialog listing exactly what it asks for: a sidebar tab, a sandboxed MCP server, no network, no secrets"></a><br>
+      <b>Plugins you approve</b><br>
+      <a href="docs/plugins/index.md">Plugins →</a> ·
+      <a href="docs/plugins/index.md#the-trust-model">trust model</a>
+    </td>
+  </tr>
+</table>
+
+<p align="center"><sub>Taken from a demo lasso in a throwaway VM, with real omp agents at work on three machines. <code>mise run readme:shots</code> retakes them.</sub></p>
+
 ## Install
 
 ```bash

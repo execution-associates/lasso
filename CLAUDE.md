@@ -16,6 +16,7 @@ Backend (run from repo root, via [mise](https://mise.jdx.dev); Go sources are in
 - `mise run openbot:build` / `mise run openbot:check` — build the OpenBot example plugin's page into `examples/plugins/openbot/ui` (committed, so the plugin needs no build to install) / biome-fix it
 - `mise run icons` — re-render the favicons and home-screen icons from the raster mascot in `brand/icon/`
 - `mise run diagram` — render `docs/assets/architecture/*.reladraw` to SVG, in the `sandbox` incus container
+- `mise run readme:shots [NAME...]` — retake the README's screenshot grid (`docs/assets/readme/`) in a throwaway isb VM (`scripts/isb/readme-shots.yaml`, `scripts/readme-shots/`) with a demo fleet of real omp agents on DeepSeek. Never point it at a real lasso. `READMESHOTS_KEEP=1` keeps the VM; names reshoot just those cells
 - `mise run dev:containers` — list the per-worktree dev containers, the worktree each belongs to, and whether it still exists
 - `mise run dev:prune` — delete dev containers whose worktree is gone (dry run; `-y` to act). Never touches one whose worktree exists
 

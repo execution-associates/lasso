@@ -46,6 +46,18 @@ description = "Render docs/assets/architecture/*.reladraw to SVG, inside the san
 dir = "{{config_root}}"
 run = "./scripts/container-diagram.sh"
 
+# Runs in a throwaway isb VM (scripts/isb/readme-shots.yaml), never against a
+# real lasso: scripts/readme-shots/ provisions it, seeds a demo fleet whose omp
+# agents really work (on DeepSeek, whose key isb's egress proxy injects so it
+# never enters the VM), and screenshots it with the VM's own Chromium. Takes
+# the 1Password key through `op`. READMESHOTS_KEEP=1 keeps the VM for another
+# run; names reshoot just those cells (`mise run readme:shots diff chat`).
+[tasks."readme:shots"]
+description = "Retake the README's screenshot grid (docs/assets/readme) in a throwaway VM with a demo fleet"
+depends = ["build"]
+dir = "{{config_root}}"
+run = "./scripts/readme-shots/run.sh"
+
 # Runs in this worktree's dev container (scripts/container.sh), not on titan:
 # `bun install` executes third-party postinstall scripts, and that is the one place in this repo where
 # code we didn't write runs. See scripts/container-build-web.sh for the mount
