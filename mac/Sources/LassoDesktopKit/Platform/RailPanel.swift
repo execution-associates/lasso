@@ -109,10 +109,9 @@ public final class RailController {
             return NSRect(x: f.minX, y: f.minY, width: f.width + 2, height: f.height)
         }
         let p = Theme.Rail.peek
-        let peekTop = RailMetrics.margin + RailMetrics.outer / 2 - p.number("height") / 2
         return NSRect(
-            x: f.maxX - p.number("visible") - 2, y: f.maxY - peekTop - p.number("height"),
-            width: p.number("visible") + 4, height: p.number("height"))
+            x: f.maxX - p.number("width") - 2, y: f.maxY - RailMetrics.peekTop - p.number("height"),
+            width: p.number("width") + 4, height: p.number("height"))
     }
 
     private func pollHover() {

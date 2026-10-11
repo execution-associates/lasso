@@ -17,6 +17,9 @@ enum RailMetrics {
     /// The panel spans from the rail's leading margin to the screen edge.
     static var panelWidth: CGFloat { margin + outer + Theme.Rail.edgeInset.pt }
 
+    /// The peek's top: centred on where the inbox will appear, inside the panel.
+    static var peekTop: CGFloat { max(0, margin + outer / 2 - Theme.Rail.peek.number("height") / 2) }
+
     /// Each agent slot is a pitch-tall row with the glyph centred in it, so
     /// the space above the first row is pad_top less half the row's slack.
     static var slotInsetTop: CGFloat { Theme.Rail.padTop.pt - (pitch - glyph) / 2 }
@@ -98,6 +101,26 @@ struct RevealHeight: ViewModifier, @preconcurrency Animatable {
     }
 }
 
+/// The peek's outline in a rect whose trailing side is the screen edge: each
+/// end leaves the edge in a concave `flare` arc, then turns down the tab's
+/// outer side in a convex `corner` arc.
+struct PeekShape: Shape {
+    var flare: CGFloat
+    var corner: CGFloat
+
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        let (x0, x1, y0, y1) = (r.minX, r.maxX, r.minY, r.maxY)
+        p.move(to: CGPoint(x: x1, y: y0))
+        p.addArc(tangent1End: CGPoint(x: x1, y: y0 + flare), tangent2End: CGPoint(x: x0, y: y0 + flare), radius: flare)
+        p.addArc(tangent1End: CGPoint(x: x0, y: y0 + flare), tangent2End: CGPoint(x: x0, y: y1), radius: corner)
+        p.addArc(tangent1End: CGPoint(x: x0, y: y1 - flare), tangent2End: CGPoint(x: x1, y: y1 - flare), radius: corner)
+        p.addArc(tangent1End: CGPoint(x: x1, y: y1 - flare), tangent2End: CGPoint(x: x1, y: y1), radius: flare)
+        p.closeSubpath()
+        return p
+    }
+}
+
 /// The most urgent state among what waits on the human, for the badge dot
 /// and the peek's dot.
 extension FleetModel {
@@ -126,7 +149,7 @@ public struct RailView: View {
         let slots = model.slots
         ZStack(alignment: .topLeading) {
             peek
-                .offset(x: RailMetrics.panelWidth - Theme.Rail.peek.number("visible"), y: peekTop)
+                .offset(x: RailMetrics.panelWidth - Theme.Rail.peek.number("width"), y: RailMetrics.peekTop)
                 .opacity(model.expanded ? 0 : 1)
             VStack(spacing: 0) {
                 inbox
@@ -153,26 +176,22 @@ public struct RailView: View {
         .clipped()
     }
 
-    /// The peek's top, so it sits where the inbox will appear.
-    private var peekTop: CGFloat { RailMetrics.margin + RailMetrics.outer / 2 - Theme.Rail.peek.number("height") / 2 }
-
     private func focused(_ item: RailModel.Item) -> Bool { model.focusVisible && model.focus == item }
 
-    /// The sliver at rest: a rail pill mostly past the screen edge, with the
+    /// The tab at rest: a flat pill growing out of the screen edge, with the
     /// most urgent state as a dot.
     private var peek: some View {
         let p = Theme.Rail.peek
         return Button { model.activate(.inbox) } label: {
-            ZStack(alignment: .topLeading) {
-                GroupBackground()
-                    .frame(width: RailMetrics.outer, height: p.number("height"))
+            ZStack {
+                PeekShape(flare: p.number("flare"), corner: p.number("corner"))
+                    .fill(Theme.Rail.peekFill.color)
                 Circle()
                     .fill(StateStyle.color(fleet.attention ?? .idle))
                     .frame(width: p.number("dot"), height: p.number("dot"))
                     .parityAnchor("rail.peek.dot")
-                    .padding(.leading, (p.number("visible") - p.number("dot")) / 2)
-                    .padding(.top, p.number("dot_top"))
             }
+            .frame(width: p.number("width"), height: p.number("height"))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

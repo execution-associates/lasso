@@ -130,9 +130,13 @@ public enum Theme {
             "rail.badge.ring", ["width": 2, "color": "#12071F"], .measured("ref a2 ring; EXA ink-deep"))
         public static let badgeCenter = Token(
             "rail.badge.center", [37, 3], .measured("ref a2: on the inbox's top-right rim"))
+        /// The tab left at the screen edge at rest: flush with the edge, its
+        /// ends flaring into it (a concave `flare` arc, then a convex `corner`).
         public static let peek = Token(
-            "rail.peek", ["visible": 12, "height": 60, "dot": 6, "dot_top": 16],
-            .measured("ref b2 (1 px per point, ±2): the pill left showing at the screen edge"))
+            "rail.peek", ["width": 13, "height": 80, "flare": 5, "corner": 8, "dot": 8],
+            .measured("user's reference pill, 2026-10-11 (1.8 px per point, ±1)"))
+        public static let peekFill = Token(
+            "rail.peek.fill", "#090909", .measured("user's reference pill, 2026-10-11; ref b2"))
         public static let hover = Token(
             "rail.hover", ["open_ms": 80, "close_ms": 450], .unmeasured("hover reveal timing"), proposed: true)
     }
@@ -325,7 +329,7 @@ public enum Theme {
         Rail.fillWidth, Rail.rimWidth, Rail.outer, Rail.radius, Rail.gap, Rail.backing, Rail.fillTop, Rail.fillBottom,
         Rail.rimTop, Rail.rimBottom, Rail.padTop, Rail.padBottom, Rail.glyphSize, Rail.glyphPitch, Rail.ringStroke,
         Rail.maxSlots, Rail.overflowFont, Rail.icon, Rail.ellipsisOuter, Rail.edge, Rail.edgeInset,
-        Rail.panelMargin, Rail.badgeSize, Rail.badgeRing, Rail.badgeCenter, Rail.peek, Rail.hover,
+        Rail.panelMargin, Rail.badgeSize, Rail.badgeRing, Rail.badgeCenter, Rail.peek, Rail.peekFill, Rail.hover,
         State.done, State.working, State.blocked, State.idle,
         Panel.surface, Panel.border, Panel.radius, Panel.inset, Panel.inner, Panel.divider, Panel.shadow,
         Control.round, Control.composer, Control.pill, Control.pillPrimary,
