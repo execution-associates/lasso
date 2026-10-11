@@ -290,7 +290,7 @@ func (a *botAttach) shutdown() {
 // us. Not a terminal: nothing to do.
 func attachRawTerminal(in *os.File) func() {
 	fd := int(in.Fd())
-	old, err := unix.IoctlGetTermios(fd, unix.TCGETS)
+	old, err := unix.IoctlGetTermios(fd, attachGetTermios)
 	if err != nil {
 		return func() {}
 	}
@@ -298,13 +298,13 @@ func attachRawTerminal(in *os.File) func() {
 	raw.Lflag &^= unix.ECHO | unix.ICANON | unix.ISIG | unix.IEXTEN
 	raw.Iflag &^= unix.IXON | unix.ICRNL | unix.INLCR
 	raw.Cc[unix.VMIN], raw.Cc[unix.VTIME] = 1, 0
-	if err := unix.IoctlSetTermios(fd, unix.TCSETS, &raw); err != nil {
+	if err := unix.IoctlSetTermios(fd, attachSetTermios, &raw); err != nil {
 		return func() {}
 	}
 	fmt.Fprint(os.Stdout, "\x1b[?2004h")
 	return func() {
 		fmt.Fprint(os.Stdout, "\x1b[?2004l")
-		_ = unix.IoctlSetTermios(fd, unix.TCSETS, old)
+		_ = unix.IoctlSetTermios(fd, attachSetTermios, old)
 	}
 }
 
