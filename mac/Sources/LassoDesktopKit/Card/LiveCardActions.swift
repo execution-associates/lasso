@@ -230,9 +230,12 @@ public final class FixtureCardActions: CardActions {
 
     public func rename(_ pane: HostPane, to name: String) async throws { calls.append("rename:\(name)") }
 
+    /// What a send answers (a test sets "refused").
+    public var sendOutcome = "confirmed"
+
     public func send(_ pane: HostPane, text: String) async throws -> Outcome {
         calls.append("send")
-        return Outcome(outcome: "confirmed")
+        return Outcome(outcome: sendOutcome)
     }
 
     public func answer(_ pane: HostPane, question: ChatTool.Question, option: Int?, custom: String?) async throws -> Outcome {

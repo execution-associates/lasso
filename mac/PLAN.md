@@ -692,6 +692,7 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 - The 256-entry cap drops the smallest value first, so bot-ask keys (value `0`) go first. Losing one only brings its item back.
 - **An acknowledged item is hidden, not deleted:** the rule above decides on every update whether it shows.
 - Against a lasso without S1 (no `dismissed_cards` in GET), Acknowledge is hidden, as the card's is today.
+- **A reply from the inbox card acknowledges its entry.** ⏎ in the card's composer leaves the field at once, so J/K/A act while the reply goes; once lasso confirms delivery the entry is acknowledged and the card moves on, as **A** does. A refused or uncertain send acknowledges nothing and keeps its text. An agent's own window only sends.
 
 ### 13.7 Seen, the badge and the empty state
 
@@ -1091,7 +1092,7 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
 
 ## 22. lasso's herdr in a window
 
-**The rail's terminal button** (under the Bots button, or the agents, and above the Browser button, `rail.terminal`) opens lasso's herdr in a window of its own. Like the **+**, it opens on a click only, because the terminal takes the keyboard. **Every agent's header** has a terminal button too: the agent window's (beside minimize, `agent.herdr`) and the inbox card's (beside close, `card.herdr`), with **T** as its key. It focuses that agent's pane and shows the window. A blocked agent's **Focus in herdr** opens the window the same way. There is one window: a second open brings it forward.
+**The rail's terminal button** (under the Bots button, or the agents, and above the Browser button, `rail.terminal`) opens lasso's herdr in a window of its own. Like the **+**, it opens on a click only, because the terminal takes the keyboard. **Every agent's header** has a terminal button too: the agent window's (beside minimize, `agent.herdr`) and the inbox card's (beside close, `card.herdr`), with **T** as its key. Left of it, the inbox card's **chat button** (`card.window`, the web app's chat icon) opens that agent's own window, or brings it forward, and puts the inbox away, as **T** does. It focuses that agent's pane and shows the window. A blocked agent's **Focus in herdr** opens the window the same way. There is one window: a second open brings it forward.
 
 **As a window it is an agent window** around the terminal (`Page/PageWindow.swift`, §19). It is the same `AgentWindowPanel`: non-activating, at the floating level, on every Space and over full-screen apps, shown through `RailPanel.orderIn` (§16, "Spaces"). So it stays in front of a maximized or full-screen app and comes along when the user changes desktops, and it stays until it is closed.
 - **Its header** (`terminal.window.header`, 40 pt, the Browser window's bar height) is the terminal glyph, "herdr on <host>", the last focus's line under it, then minimize and close (`WindowControls`). Dragging it moves the window.

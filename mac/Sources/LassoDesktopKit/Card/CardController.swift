@@ -47,6 +47,8 @@ public final class CardController {
     var onInboxEmpty: () -> Void = {}
     /// The herdr window, focused on an agent (T, the header's button).
     var showInHerdr: ((HostPane) -> Void)?
+    /// The agent's own chat window (the header's chat button).
+    var openWindow: ((HostPane) -> Void)?
     /// Unsent replies by agent: a card put away (a click elsewhere, esc)
     /// keeps its draft for that agent's next card.
     private(set) var drafts: [String: String] = [:]
@@ -118,6 +120,7 @@ public final class CardController {
         model.onClose = { [weak self] in self?.close() }
         model.onInboxEmpty = { [weak self] in self?.onInboxEmpty() }
         model.onShowInHerdr = showInHerdr
+        model.onOpenWindow = openWindow
         holder.model = model
         model.startPolling()
         place()

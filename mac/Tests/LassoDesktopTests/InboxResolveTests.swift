@@ -78,6 +78,44 @@ private let settle: UInt64 = 100_000_000
     #expect(inbox.panes.map(\.pane_id) == ["w1:p2"])
 }
 
+/// A reply sent from the inbox is the answer to the entry: once delivered,
+/// it is acknowledged and the card moves on; Return leaves the composer so
+/// J/K/A act at once. A refused send acknowledges nothing and keeps the text.
+@MainActor @Test func aReplyFromTheInboxAcknowledgesAndMovesOn() async throws {
+    let fleet = FleetModel()
+    let all = [pane("w1:p1", "blocked", 30), pane("w1:p2", "blocked", 20)]
+    fleet.apply(panes: AllPanes(panes: all))
+    let inbox = InboxModel(fleet: fleet)
+    let actions = FixtureCardActions(chats: [:], canAcknowledge: true)
+    let m = CardModel(pane: all[0], fleet: fleet, actions: actions)
+    m.inbox = inbox
+    #expect(m.leavesFieldOnSend)
+    actions.sendOutcome = "refused"
+    m.composer = "not yet"
+    m.send()
+    try await Task.sleep(nanoseconds: settle)
+    #expect(actions.calls == ["send"] && m.pane.pane_id == "w1:p1" && m.composer == "not yet")
+    actions.sendOutcome = "confirmed"
+    m.send()
+    try await Task.sleep(nanoseconds: settle)
+    #expect(actions.calls == ["send", "send", "acknowledge"])
+    #expect(inbox.panes.map(\.pane_id) == ["w1:p2"] && m.pane.pane_id == "w1:p2")
+}
+
+/// An agent's own window keeps its composer and acknowledges nothing on send.
+@MainActor @Test func aReplyFromAWindowOnlySends() async throws {
+    let fleet = FleetModel()
+    let p = pane("w1:p1", "blocked", 30)
+    fleet.apply(panes: AllPanes(panes: [p]))
+    let actions = FixtureCardActions(chats: [:], canAcknowledge: true)
+    let m = CardModel(pane: p, fleet: fleet, actions: actions)
+    #expect(!m.leavesFieldOnSend)
+    m.composer = "carry on"
+    m.send()
+    try await Task.sleep(nanoseconds: settle)
+    #expect(actions.calls == ["send"])
+}
+
 /// A draft holds Acknowledge back: no A, and the button greyed.
 @MainActor @Test func acknowledgeWaitsForTheDraft() async throws {
     let fleet = FleetModel()
