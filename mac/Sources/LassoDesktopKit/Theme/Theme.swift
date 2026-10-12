@@ -303,6 +303,12 @@ public enum Theme {
         public static let row = Token(
             "list.row", ["height": 39, "pad_h": 22, "dot": 5, "avatar": 18, "name_x": 67, "dot_col": 38, "action_w": 30],
             .measured("ref a3: 78 px pitch"))
+        /// A column's hover preview: the rest that opens it, the rest that
+        /// moves it to another row, and how long it stays once the pointer
+        /// has left the rows and the preview.
+        public static let hover = Token(
+            "list.hover", ["open_ms": 60, "switch_ms": 50, "close_ms": 300],
+            .measured("reference app's hover timings: a row's preview opens 0.06 s after the pointer lands on it, moves to another row after 0.05 s, and goes 0.3 s after the pointer has left the rows and the preview"))
     }
 
     /// An agent's own window (a click on its row) and its hover preview,
@@ -468,7 +474,7 @@ public enum Theme {
         Rail.panelMargin, Rail.badgeSize, Rail.badgeRing, Rail.badgeCenter, Rail.peek, Rail.peekFill, Rail.drag, Rail.hover, Rail.hoverFill, Rail.pressed,
         Rail.browserPulse,
         State.done, State.working, State.blocked, State.idle,
-        Settings.footer, Agent.window, Agent.collapsed, Agent.preview, Agent.media, Agent.picker, NewAgent.layout,
+        List.hover, Settings.footer, Agent.window, Agent.collapsed, Agent.preview, Agent.media, Agent.picker, NewAgent.layout,
         Onboarding.layout,
         Panel.surface, Panel.border, Panel.radius, Panel.inset, Panel.inner, Panel.divider, Panel.shadow,
         Control.round, Control.composer, Control.pill, Control.pillPrimary,

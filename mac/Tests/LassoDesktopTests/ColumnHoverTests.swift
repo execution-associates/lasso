@@ -138,20 +138,19 @@ private extension ClosedRange where Bound == CGFloat {
     c.hover.now = { t }
     c.hover.showing = { showing }
     c.hover.onShow = { k, _ in shown.append(k); showing = k }
+    let rest = Theme.List.hover.number("open_ms") / 1000
     c.hover.tick()
-    t += 0.05
+    t += rest / 3
     c.hover.tick()
     // A poll: another agent's state changes, every row is drawn again.
     var next = ps
     next[0].agent_status = "working"
     fleet.apply(panes: AllPanes(panes: next))
     idle()
-    t += 0.05
+    t += rest / 3
     c.hover.tick()
     #expect(shown.isEmpty && c.model.hovered == ps[4].key)
-    t += 0.05
-    c.hover.tick()
-    t += 0.05
+    t += rest / 3 + 0.003
     c.hover.tick()
     #expect(shown == [ps[4].key] && c.model.hovered == ps[4].key)
 }

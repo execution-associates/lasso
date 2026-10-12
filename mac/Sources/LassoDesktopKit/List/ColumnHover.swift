@@ -41,9 +41,17 @@ extension View {
     }
 }
 
-/// The hover of a column and its preview (PLAN 16, 19): one 20 Hz poll maps
-/// the pointer to a row and that row is both the highlight and what the
-/// preview follows, so the two can never disagree.
+/// The hover of a column and its preview (PLAN 16, 19): one look maps the
+/// pointer to a row and that row is both the highlight and what the preview
+/// follows, so the two can never disagree.
+///
+/// It looks on every pointer event over the column (a tracking area that
+/// works with the app inactive, as it usually is behind a non-activating
+/// panel), so the highlight is on the row the moment the pointer is; at the
+/// exact moment a rest is due (a one-shot timer), so a preview opens on time
+/// rather than at the next tick; and on a 20 Hz poll, which catches what
+/// sends no event (a scroll moving rows under a still pointer, the preview
+/// put away elsewhere).
 ///
 /// The map is AppKit's, read on every tick: the pointer goes through the
 /// column's scroll view into its document (`NSView.convert`), where each row
@@ -64,7 +72,10 @@ final class ColumnHover {
         didSet {
             guard panel !== oldValue else { return }
             scroll = nil
-            if running { tick() }
+            if running {
+                track()
+                tick()
+            }
         }
     }
     private let column: HoverColumn
@@ -86,6 +97,13 @@ final class ColumnHover {
     var timerEnabled = true
 
     private var timer: Timer?
+    /// The next rest due (open, switch or close), one-shot.
+    private var due: Timer?
+    private var tracking: (view: NSView, area: NSTrackingArea)?
+    private lazy var tracker = HoverEvents { [weak self] in
+        guard let self, self.running else { return }
+        self.tick()
+    }
     /// Between `start` and `stop`: the column is open.
     private(set) var running = false
     private var intent = PreviewHover()
@@ -111,8 +129,25 @@ final class ColumnHover {
             }
             RunLoop.main.add(t, forMode: .common)
             timer = t
+            track()
         }
         tick()
+    }
+
+    /// Pointer events over the column's panel, whichever panel that is now.
+    private func track() {
+        untrack()
+        guard let v = panel.contentView else { return }
+        let area = NSTrackingArea(
+            rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: tracker, userInfo: nil)
+        v.addTrackingArea(area)
+        tracking = (v, area)
+    }
+
+    private func untrack() {
+        if let t = tracking { t.view.removeTrackingArea(t.area) }
+        tracking = nil
     }
 
     /// New row frames: look on the next turn of the run loop. Not inside
@@ -134,6 +169,9 @@ final class ColumnHover {
     func stop() {
         timer?.invalidate()
         timer = nil
+        due?.invalidate()
+        due = nil
+        untrack()
         running = false
         if showing() != nil { onHide() }
         intent = PreviewHover()
@@ -193,12 +231,16 @@ final class ColumnHover {
         return (id, screenRect(r))
     }
 
-    /// One poll: the highlight follows the pointer's row (the keyboard's,
+    /// One look: the highlight follows the pointer's row (the keyboard's,
     /// while the pointer has not moved since a key moved it), and the
-    /// preview opens on a row rested on for rail.hover's item_open_ms and goes
-    /// panel_close_ms after the pointer has left the row and the preview.
+    /// preview opens on a row rested on for list.hover's open_ms (switch_ms
+    /// when it is already showing another row) and goes close_ms after the
+    /// pointer has left the rows and the preview.
     func tick() {
-        let h = Theme.Rail.hover
+        let h = Theme.List.hover
+        let openAfter = h.number("open_ms") / 1000
+        let switchAfter = h.number("switch_ms") / 1000
+        let closeAfter = h.number("close_ms") / 1000
         let at = pointer()
         let moved = lastPointer.map { $0 != at } ?? true
         lastPointer = at
@@ -208,14 +250,32 @@ final class ColumnHover {
         if column.hovered != lit { column.hovered = lit }
         let action = intent.tick(
             row: row.map { keyFor($0.id) }, showing: showing(), holds: holds(), now: now(),
-            openAfter: h.number("item_open_ms") / 1000, closeAfter: h.number("panel_close_ms") / 1000)
+            openAfter: openAfter, switchAfter: switchAfter, closeAfter: closeAfter)
         switch action {
         case .none: break
         case .hide: onHide()
         case .show(let key):
-            guard let row else { return }
-            onShow(key, row.rect)
+            if let row { onShow(key, row.rect) }
         }
+        schedule(
+            intent.wait(
+                showing: showing(), holds: holds(), now: now(), openAfter: openAfter, switchAfter: switchAfter,
+                closeAfter: closeAfter))
+    }
+
+    /// Look again the moment the pending rest is due.
+    private func schedule(_ wait: TimeInterval?) {
+        due?.invalidate()
+        due = nil
+        guard running, timerEnabled, let wait else { return }
+        let t = Timer(timeInterval: wait, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.running else { return }
+                self.tick()
+            }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        due = t
     }
 
     /// J/K moved the selection: the keyboard has the highlight until the
@@ -230,7 +290,7 @@ final class ColumnHover {
 /// When a column's hover preview opens, moves and goes, from the row under
 /// the pointer and what the preview shows now (PLAN 16). Every row the
 /// pointer rests on for `openAfter` previews, moving to another row swaps
-/// it after the same rest, and the rest is timed per row key, so a fleet
+/// it after `switchAfter`, and the rest is timed per row key, so a fleet
 /// poll redrawing the rows does not restart it.
 struct PreviewHover {
     enum Action: Equatable {
@@ -248,7 +308,8 @@ struct PreviewHover {
     private(set) var spent: String?
 
     mutating func tick(
-        row: String?, showing: String?, holds: Bool, now: Date, openAfter: Double, closeAfter: Double
+        row: String?, showing: String?, holds: Bool, now: Date, openAfter: Double, switchAfter: Double? = nil,
+        closeAfter: Double
     ) -> Action {
         if let a = asked, showing != a {
             // Put away (or replaced) from elsewhere.
@@ -271,10 +332,41 @@ struct PreviewHover {
         away = nil
         if spent != row { spent = nil }
         if resting?.key != row { resting = (row, now) }
-        guard showing != row, spent != row, let since = resting?.since, now.timeIntervalSince(since) >= openAfter else {
+        let rest = showing == nil ? openAfter : (switchAfter ?? openAfter)
+        guard showing != row, spent != row, let since = resting?.since, now.timeIntervalSince(since) >= rest else {
             return .none
         }
         asked = row
         return .show(row)
     }
+
+    /// How long until the pending open, switch or close is due, after a
+    /// `tick` at `now`; nil when nothing is pending.
+    func wait(
+        showing: String?, holds: Bool, now: Date, openAfter: Double, switchAfter: Double? = nil, closeAfter: Double
+    ) -> TimeInterval? {
+        if let r = resting, showing != r.key, spent != r.key {
+            let rest = showing == nil ? openAfter : (switchAfter ?? openAfter)
+            return max(0, rest - now.timeIntervalSince(r.since))
+        }
+        if let a = away, showing != nil, !holds { return max(0, closeAfter - now.timeIntervalSince(a)) }
+        return nil
+    }
+}
+
+/// The owner of a column's tracking area: every pointer event over the
+/// panel (moved, entered, exited) is one look.
+@MainActor
+private final class HoverEvents: NSResponder {
+    private let look: () -> Void
+    init(_ look: @escaping () -> Void) {
+        self.look = look
+        super.init()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func mouseMoved(with event: NSEvent) { look() }
+    override func mouseEntered(with event: NSEvent) { look() }
+    override func mouseExited(with event: NSEvent) { look() }
 }

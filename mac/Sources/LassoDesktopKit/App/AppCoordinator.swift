@@ -25,7 +25,7 @@ public final class AppCoordinator {
     private var subs: Set<AnyCancellable> = []
     private var hotKey: HotKey?
     /// The hover preview beside the agents list, and each agent's own window.
-    private var preview: AgentPreviewController!
+    private(set) var preview: AgentPreviewController!
     private var windows: [String: AgentWindowController] = [:]
     /// The Bots column and each bot's own window (PLAN 23).
     let bots: BotsController

@@ -580,8 +580,22 @@ final class ConversationPreviewController<M: Conversation> {
         let x = max(vis.minX, column.minX - Theme.Agent.preview.number("gap") - size.width)
         let y = min(max(vis.minY, row.maxY - size.height), vis.maxY - size.height)
         panel.setFrameOrigin(NSPoint(x: x.rounded(), y: y.rounded()))
+        // In from hidden: the content is in place first and the window
+        // fades. A SwiftUI animation started as the window is ordered in
+        // stalls on its first frame (opacity 0) until something else
+        // redraws it, which left the first row hovered with an empty preview.
+        let fading = !presence.shown || !panel.isVisible
+        presence.shown = true
+        if fading { panel.alphaValue = 0 }
         panel.orderIn(takeKey: false) { panel = $0 }
-        if !presence.shown { withAnimationToken(Theme.Motion.cardOpen) { presence.shown = true } }
+        if fading {
+            let panel = panel
+            NSAnimationContext.runAnimationGroup { c in
+                c.duration = Theme.Motion.cardOpen.value["duration"]?.double ?? 0
+                c.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().alphaValue = 1
+            }
+        }
     }
 
     func close() {
