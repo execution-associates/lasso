@@ -130,6 +130,13 @@ public struct CardView: View {
             AgentTitle(model: model, anchor: "card.title")
                 .padding(.leading, Theme.Card.titleX.pt - contentX)
             Spacer(minLength: 8)
+            if model.canOpenWindow {
+                RoundButton(glyph: .lucide(.messageSquare), label: "Open \(pane.displayName)'s chat window") {
+                    model.openWindow()
+                }
+                .help("Open \(pane.displayName)'s chat window")
+                .parityAnchor("card.window")
+            }
             if model.canShowInHerdr {
                 RoundButton(glyph: .lucide(.squareTerminal), label: "Show \(pane.displayName) in herdr (T)") { model.showInHerdr() }
                     .help("Show \(pane.displayName) in herdr")

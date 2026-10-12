@@ -26,7 +26,7 @@ public final class AppCoordinator {
     private var hotKey: HotKey?
     /// The hover preview beside the agents list, and each agent's own window.
     private(set) var preview: AgentPreviewController!
-    private var windows: [String: AgentWindowController] = [:]
+    private(set) var windows: [String: AgentWindowController] = [:]
     /// The Bots column and each bot's own window (PLAN 23).
     let bots: BotsController
     private let botActions2: BotActions
@@ -304,6 +304,7 @@ public final class AppCoordinator {
             .store(in: &subs)
         sync?.onBrowserOpen = { [weak self] o in self?.browserOpened(o) }
         if client != nil { card.showInHerdr = { [weak self] p in self?.showInHerdr(p) } }
+        card.openWindow = { [weak self] p in self?.openWindowFromCard(p) }
 
         list.model.onOpen = { [weak self] p in self?.openWindow(p) }
         list.hover.onShow = { [weak self] key, row in
@@ -976,6 +977,14 @@ public final class AppCoordinator {
         browserAttention.arrived(o)
         banner.show()
         Trace.event("browser offer from an agent")
+    }
+
+    /// The inbox card's chat button: the inbox goes, as it does for T, and
+    /// the agent's own window opens (or comes forward) where the card was.
+    func openWindowFromCard(_ p: HostPane) {
+        let at = card.panel.frame
+        closeRailPanels()
+        openWindow(p, near: at)
     }
 
     /// An agent's header button, or T: herdr's window focused on its pane.

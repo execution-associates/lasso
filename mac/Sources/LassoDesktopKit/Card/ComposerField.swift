@@ -16,6 +16,13 @@ public protocol ComposerModel: ObservableObject, AttachingModel {
     /// "Stop <name>", its accessibility label.
     var stopLabel: String { get }
     func stop()
+    /// Return leaves the field once the message is on its way, so the
+    /// one-letter keys act again (the inbox card).
+    var leavesFieldOnSend: Bool { get }
+}
+
+extension ComposerModel {
+    public var leavesFieldOnSend: Bool { false }
 }
 
 /// The composer's text field: an NSTextField, because the card needs to give
@@ -84,7 +91,9 @@ struct ComposerField<Model: ComposerModel>: NSViewRepresentable {
         func control(_ control: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
             switch sel {
             case #selector(NSResponder.insertNewline(_:)):
+                let sending = !model.composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 model.send()
+                if sending, model.leavesFieldOnSend { control.window?.makeFirstResponder(nil) }
                 return true
             case #selector(NSResponder.cancelOperation(_:)):
                 // esc leaves the field first; a second esc closes the card.

@@ -162,6 +162,12 @@ public final class CardModel: ComposerModel {
     /// the agent has a pane to focus.
     public var canShowInHerdr: Bool { onShowInHerdr != nil && !current.pane_id.isEmpty }
 
+    /// The agent's own chat window (the header's chat button): set by the
+    /// inbox's card, which hands the agent over to it.
+    var onOpenWindow: ((HostPane) -> Void)?
+    public var canOpenWindow: Bool { onOpenWindow != nil }
+    public func openWindow() { onOpenWindow?(current) }
+
     /// T, or the header's terminal button.
     public func showInHerdr() {
         guard canShowInHerdr else { return }
@@ -399,17 +405,31 @@ public final class CardModel: ComposerModel {
             return
         }
         outgoing = text
+        let p = pane
+        let order = pages.map(\.key)
         run("Send") { [self] in
             let o: Outcome
-            do { o = try await actions.send(pane, text: text) } catch {
+            do { o = try await actions.send(p, text: text) } catch {
                 outgoing = nil
                 throw error
             }
             if o.ok { composer = "" } else { outgoing = nil }
             await load()
-            return o.ok ? "Sent" : "\(o.outcome.capitalized): \(o.detail ?? "")"
+            guard o.ok else { return "\(o.outcome.capitalized): \(o.detail ?? "")" }
+            // In the inbox, a reply is the answer to the entry: it is
+            // acknowledged, and the card moves on to the next.
+            guard inbox != nil, actions.canAcknowledge else { return "Sent" }
+            let entry = fleet.inbox.first { $0.id == p.key }
+            try await actions.acknowledge(p)
+            if let entry { fleet.markAcknowledged(entry) }
+            resolved(p, killed: false, order: order)
+            return "Sent and acknowledged"
         }
     }
+
+    /// The inbox card's Return leaves the composer: J/K/A act again while
+    /// the reply goes.
+    public var leavesFieldOnSend: Bool { inbox != nil }
 
     /// → : take the highlighted step (or the first): answer the open question
     /// with that option.
