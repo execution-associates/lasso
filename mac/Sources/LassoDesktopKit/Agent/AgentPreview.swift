@@ -8,6 +8,14 @@ import SwiftUI
 /// the open question's choices work once it is clicked.
 struct AgentPreviewView: View {
     @ObservedObject var model: CardModel
+    /// The header and the phase read the fleet's live row (`model.current`),
+    /// which changes without the card publishing anything.
+    @ObservedObject var fleet: FleetModel
+
+    init(model: CardModel) {
+        self.model = model
+        fleet = model.fleet
+    }
 
     var body: some View {
         let p = model.current
@@ -110,7 +118,12 @@ final class AgentPreviewController {
     }
 
     private func handle(_ e: NSEvent) -> Bool {
-        guard let m = holder.model, !m.composerFocused, !panel.editingText else { return false }
+        guard let m = holder.model else { return false }
+        if Keys.stop.matches(e), m.isWorking {
+            m.stop()
+            return true
+        }
+        guard !m.composerFocused, !panel.editingText else { return false }
         if Keys.esc.matches(e) {
             close()
             return true

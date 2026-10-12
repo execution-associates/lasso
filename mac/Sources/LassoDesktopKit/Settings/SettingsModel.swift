@@ -118,9 +118,43 @@ public final class SettingsModel: ObservableObject {
         if let u = Self.advancedSettingsURL(baseURL()) { NSWorkspace.shared.open(u) }
     }
 
-    /// Quit. The launch agent restarts the app only after a crash, so a quit
-    /// lasts until the next login.
+    /// Quit. It comes back at the next login only when Start at login is
+    /// on (or, in a dev build, by the dev launch agent).
     public func quit() { NSApp.terminate(nil) }
+
+    /// Start at login (SMAppService), read again each time Settings shows.
+    public var loginItems: LoginItems = .live() { didSet { refreshLoginItem() } }
+    @Published public private(set) var loginItem: LoginItemState = .off
+    /// Why the last change to Start at login failed.
+    @Published public private(set) var loginNote: String?
+
+    public func refreshLoginItem() { loginItem = loginItems.state }
+
+    public func setStartAtLogin(_ on: Bool) {
+        loginNote = loginItems.set(on)
+        refreshLoginItem()
+    }
+
+    public func openLoginItems() { loginItems.openSystemSettings() }
+
+    /// Onboarding finished: the one automatic registration (LoginItems).
+    public func autoRegisterLoginItem() {
+        if let note = loginItems.autoRegisterOnce() { loginNote = note }
+        refreshLoginItem()
+    }
+
+    /// The "This app" group's footnote: a dev build, approval pending, or a failure.
+    public var appFootnote: String? {
+        var lines: [String] = []
+        if AppUpdates.checkNow == nil || loginItem == .devAgent {
+            lines.append("A development build: it does not update itself.")
+        }
+        if loginItem == .needsApproval {
+            lines.append("macOS is waiting for you to allow Lasso in System Settings › General › Login Items.")
+        }
+        if let loginNote { lines.append(loginNote) }
+        return lines.isEmpty ? nil : lines.joined(separator: " ")
+    }
 
     /// The machine lasso runs on, for the connection row.
     public var lassoName: () -> String? = { nil }
@@ -223,7 +257,10 @@ public final class SettingsModel: ObservableObject {
         self.usableHosts = usableHosts
     }
 
-    public func refresh() { tick += 1 }
+    public func refresh() {
+        tick += 1
+        refreshLoginItem()
+    }
 
     /// Set only when the user has just picked a shortcut that needs
     /// Accessibility and it is not granted: Settings says so then, and only then.

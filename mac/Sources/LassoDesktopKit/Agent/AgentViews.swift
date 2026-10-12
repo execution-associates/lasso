@@ -420,6 +420,8 @@ struct AnswerExtras: View {
 struct AgentFooter: View {
     let pane: HostPane
     let model: String?
+    /// The window's Kill, at the row's trailing end (a preview has none).
+    var card: CardModel?
 
     var body: some View {
         HStack(spacing: Theme.space("l")) {
@@ -430,6 +432,7 @@ struct AgentFooter: View {
                 Label(m, systemImage: "cpu").lineLimit(1)
             }
             Spacer(minLength: 0)
+            if let card, !card.isBot { AgentKill(model: card) }
         }
         .font(Theme.Fonts.small.font)
         .foregroundStyle(Theme.Text.secondary.color)
@@ -438,9 +441,27 @@ struct AgentFooter: View {
     }
 }
 
+/// Kill, behind the inbox's confirm: a first press (or X) arms it, a second
+/// kills, and the window closes once it has gone through.
+struct AgentKill: View {
+    @ObservedObject var model: CardModel
+
+    var body: some View {
+        let name = model.current.displayName
+        PillButton(
+            title: model.killArmed ? "Confirm kill" : "Kill agent", textColor: Theme.dangerText.color,
+            label: model.killArmed ? "Confirm: kill \(name)" : "Kill \(name)"
+        ) { model.kill() }
+        .keyHint(Keys.kill)
+        .parityAnchor("agent.kill")
+    }
+}
+
 /// The composer and footer at the bottom of a window or preview.
 struct AgentComposer: View {
     @ObservedObject var model: CardModel
+    /// The window shows Kill in its footer; a hover preview does not.
+    var showsKill = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.space("m")) {
@@ -453,7 +474,7 @@ struct AgentComposer: View {
             }
             ComposerRow(model: model) { model.attachFile() }
                 .padding(.horizontal, Theme.Panel.inset.pt)
-            AgentFooter(pane: model.current, model: model.chat?.model)
+            AgentFooter(pane: model.current, model: model.chat?.model, card: showsKill ? model : nil)
         }
         .padding(.top, Theme.space("l"))
         .padding(.bottom, Theme.space("2xl"))

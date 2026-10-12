@@ -142,14 +142,21 @@ public final class LiveCardActions: CardActions {
         await refreshUIState()
     }
 
+    struct PaneStop: Encodable { var pane_id: String }
+    struct Empty: Encodable {}
+
+    /// POST /api/chat/stop on the pane's host, or an omp bot's own stop route.
+    public func stop(_ pane: HostPane) async throws -> Outcome {
+        if let b = ompBot(pane) { return try await client.post(botPath(b, "chat/stop"), json: Empty()) }
+        return try await client.post("/api/chat/stop", query: ["host": pane.host], json: PaneStop(pane_id: pane.pane_id))
+    }
+
     struct Focus: Encodable { var pane_id: String }
     struct Focused: Decodable { var ok: Bool? }
 
     public func focus(_ pane: HostPane) async throws {
         let _: Focused = try await client.post("/api/focus", query: ["host": pane.host], json: Focus(pane_id: pane.pane_id))
     }
-
-    struct Pasted: Decodable { var path: String }
 
     /// Upload a file to the agent's machine (lasso's paste-file route, as the
     /// web client's drop does) and hand back the path to put in the message.
@@ -158,10 +165,20 @@ public final class LiveCardActions: CardActions {
     }
 
     func upload(_ file: URL, host: String) async throws -> String {
-        var req = client.request("/api/paste-file", query: ["host": host, "name": file.lastPathComponent], method: "POST")
+        try await client.pasteFile(file, host: host)
+    }
+}
+
+extension LassoClient {
+    struct Pasted: Decodable { var path: String }
+
+    /// Upload a file to `host`'s machine (lasso's paste-file route) and
+    /// answer the path it was written to there.
+    func pasteFile(_ file: URL, host: String) async throws -> String {
+        var req = request("/api/paste-file", query: ["host": host, "name": file.lastPathComponent], method: "POST")
         let type = UTType(filenameExtension: file.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
         req.setValue(type, forHTTPHeaderField: "Content-Type")
-        let r: Pasted = try await client.upload(req, fromFile: file)
+        let r: Pasted = try await upload(req, fromFile: file)
         return r.path
     }
 }
@@ -170,7 +187,7 @@ public final class LiveCardActions: CardActions {
 /// side effect is a recorded no-op.
 @MainActor
 public final class FixtureCardActions: CardActions {
-    let chats: [String: ChatPayload]
+    public var chats: [String: ChatPayload]
     public private(set) var calls: [String] = []
     public let canAcknowledge: Bool
 
@@ -194,6 +211,14 @@ public final class FixtureCardActions: CardActions {
         calls.append(custom == nil ? "answer" : "answer-custom")
         return Outcome(outcome: "sent")
     }
+
+    public func stop(_ pane: HostPane) async throws -> Outcome {
+        calls.append("stop")
+        return stopOutcome
+    }
+
+    /// What the fixture's stop answers.
+    public var stopOutcome = Outcome(outcome: "sent")
 
     public func kill(_ pane: HostPane) async throws -> String {
         calls.append("kill")

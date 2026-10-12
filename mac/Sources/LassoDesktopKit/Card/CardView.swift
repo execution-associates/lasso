@@ -255,9 +255,12 @@ public struct CardView: View {
                     .parityAnchor("action.kill")
                 }
                 if model.actions.canAcknowledge {
-                    PillButton(title: "Acknowledge", primary: true, label: "Acknowledge (E)") { model.acknowledge() }
-                        .keyHint(Keys.acknowledge)
-                        .parityAnchor("action.acknowledge")
+                    PillButton(
+                        title: "Acknowledge", primary: true, enabled: model.canAcknowledgeNow,
+                        hint: "Send or clear your reply first", label: "Acknowledge (E)"
+                    ) { model.acknowledge() }
+                    .keyHint(Keys.acknowledge, active: model.canAcknowledgeNow)
+                    .parityAnchor("action.acknowledge")
                 }
             }
             .padding(.leading, Theme.Card.titleX.pt - contentX)

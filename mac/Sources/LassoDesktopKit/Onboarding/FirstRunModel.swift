@@ -92,6 +92,8 @@ public final class FirstRunModel: ObservableObject {
     /// Put the panel away; open Settings.
     public var onClose: () -> Void = {}
     public var onOpenSettings: () -> Void = {}
+    /// Onboarding is over for good (Done, or Open Settings).
+    public var onFinished: () -> Void = {}
     /// The header was dragged (true: the drag ended).
     public var onDrag: (Bool) -> Void = { _ in }
 
@@ -219,12 +221,14 @@ public final class FirstRunModel: ObservableObject {
     /// Done: finished for good.
     public func done() {
         defaults.set(true, forKey: Self.doneKey)
+        onFinished()
         onClose()
     }
 
     /// Open Settings: finished too, and Settings takes over.
     public func openSettings() {
         defaults.set(true, forKey: Self.doneKey)
+        onFinished()
         onClose()
         onOpenSettings()
     }

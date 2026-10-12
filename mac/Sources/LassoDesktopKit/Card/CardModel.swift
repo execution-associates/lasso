@@ -12,6 +12,8 @@ public protocol CardActions: AnyObject {
     func answer(_ pane: HostPane, question: ChatTool.Question, option: Int?, custom: String?) async throws -> Outcome
     /// An omp bot's open request (`pending_ui`), answered by its id.
     func answer(_ pane: HostPane, pending: ChatPayload.PendingUI, value: String) async throws -> Outcome
+    /// Interrupt the agent's turn (one Escape; lasso refuses unless it is working).
+    func stop(_ pane: HostPane) async throws -> Outcome
     func kill(_ pane: HostPane) async throws -> String
     /// Acknowledge the pane's inbox entry (S1, ui_state card_dismiss):
     /// nothing reaches the agent, and it returns when it has something new.
@@ -39,6 +41,17 @@ public struct Outcome: Decodable, Sendable, Equatable {
     public var ok: Bool { outcome == "confirmed" || outcome == "sent" }
 }
 
+/// What a Stop's answer puts in the notice line (the web chat's words).
+enum StopNotice {
+    static func text(_ o: Outcome, name: String) -> String {
+        switch o.outcome {
+        case "refused": o.detail.map { "Not stopped: \($0)" } ?? "\(name) was not stopped"
+        case "uncertain": "\(o.detail ?? "Stop unconfirmed"): check the terminal"
+        default: "Stopping \(name)…"
+        }
+    }
+}
+
 /// A suggested next step: an option of the agent's open question.
 public struct NextStep: Equatable, Sendable, Identifiable {
     public var id: Int { index }
@@ -59,6 +72,8 @@ public final class CardModel: ComposerModel {
     /// Bumped to ask the composer field to take focus.
     @Published public private(set) var focusRequest = 0
     @Published public private(set) var busy = false
+    /// Stop was pressed: its button waits (dimmed) until the turn ends.
+    @Published public private(set) var stopping = false
     /// One line of feedback in the footer (sent, refused, kill armed…).
     @Published public private(set) var notice: String?
     /// Your message, sent and not yet in the transcript: shown at once, faded.
@@ -200,7 +215,8 @@ public final class CardModel: ComposerModel {
     public var activeBindings: Set<KeyBinding> {
         var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.send, Keys.next, Keys.previous]
         if !isBot { b.insert(Keys.kill) }
-        if actions.canAcknowledge { b.insert(Keys.acknowledge) }
+        if isWorking { b.insert(Keys.stop) }
+        if canAcknowledgeNow { b.insert(Keys.acknowledge) }
         if !nextSteps.isEmpty { b.formUnion([Keys.editStep, Keys.takeStep]) }
         return b
     }
@@ -259,15 +275,58 @@ public final class CardModel: ComposerModel {
 
     /// What the conversation waits on: its first load, an agent still
     /// booting (no transcript yet, or an empty one), or the agent's turn.
+    /// herdr's state is read from `current`, the fleet's live row: `pane` is
+    /// the row this card opened on, so a window opened mid-turn would say
+    /// "working" for as long as it stays open.
     public var phase: ConversationPhase {
         let h = harnessName(pane.agent)
+        let state = current.state
         guard let c = chat else { return loadError == nil ? .loading : .idle }
         if c.items.isEmpty {
-            return c.starting == true || c.unavailable != nil || pane.state == .working || outgoing != nil ? .starting(h) : .idle
+            return c.starting == true || c.unavailable != nil || state == .working || outgoing != nil ? .starting(h) : .idle
         }
         // Waiting on the human is not working.
-        if pane.state == .blocked || pending != nil || captured != nil { return .idle }
-        return c.running == true || pane.state == .working || outgoing != nil ? .working(h) : .idle
+        if state == .blocked || pending != nil || captured != nil { return .idle }
+        return c.running == true || state == .working || outgoing != nil ? .working(h) : .idle
+    }
+
+    /// The agent is on its turn (or booting): Stop can interrupt it.
+    public var isWorking: Bool {
+        switch phase {
+        case .working, .starting: true
+        case .loading, .idle: false
+        }
+    }
+
+    /// Stop takes Send's place while the agent works and the composer is
+    /// empty; a draft brings Send back (the web chat's rule).
+    public var showsStop: Bool { isWorking && composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    public var stopLabel: String { "Stop \(current.displayName)" }
+
+    /// Stop (⌘.): one Escape to the agent through lasso. The button stays
+    /// down until a poll shows the turn over, or `live.stop_wait` passes.
+    public func stop() {
+        guard isWorking, !stopping else { return }
+        stopping = true
+        notice = nil
+        let p = pane
+        let name = current.displayName
+        Task {
+            do {
+                let o = try await actions.stop(p)
+                notice = StopNotice.text(o, name: name)
+                if o.outcome == "refused" { stopping = false }
+            } catch {
+                notice = "Stop failed: \(error)"
+                stopping = false
+            }
+            await load()
+        }
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Theme.Live.stopWait.seconds * 1e9))
+            self?.stopping = false
+        }
     }
 
     public func startPolling() {
@@ -293,6 +352,7 @@ public final class CardModel: ComposerModel {
             }
             recapture()
             loadError = nil
+            if stopping, !isWorking { stopping = false }
         } catch {
             loadError = String(describing: error)
         }
@@ -404,7 +464,13 @@ public final class CardModel: ComposerModel {
             return
         }
         killArmed = false
-        run("Kill") { [self] in try await actions.kill(pane) }
+        let p = pane
+        let order = pages.map(\.key)
+        run("Kill") { [self] in
+            let said = try await actions.kill(p)
+            resolved(p, killed: true, order: order)
+            return said
+        }
     }
 
     public func disarm() {
@@ -415,30 +481,78 @@ public final class CardModel: ComposerModel {
     }
 
 
+    /// A reply is being written: Acknowledge waits until it is sent or
+    /// cleared, so a draft is never left behind on an entry that goes away.
+    public var hasDraft: Bool { !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    /// Acknowledge can be pressed now (E, or its button).
+    public var canAcknowledgeNow: Bool { actions.canAcknowledge && !hasDraft }
+
     public func acknowledge() {
         guard actions.canAcknowledge else {
             notice = "Acknowledge needs a lasso with shared acknowledgements"
             return
         }
+        guard !hasDraft else { return }
+        let p = pane
+        let entry = fleet.inbox.first { $0.id == p.key }
+        let order = pages.map(\.key)
         run("Acknowledge") { [self] in
-            try await actions.acknowledge(pane)
-            page(1)
-            return "Acknowledged"
+            try await actions.acknowledge(p)
+            if let entry { fleet.markAcknowledged(entry) }
+            resolved(p, killed: false, order: order)
+            return "Acknowledged \(p.displayName)"
         }
     }
 
+    /// Kill or Acknowledge succeeded: the entry has left the inbox (the
+    /// fleet hides it at once, and a stale poll cannot bring it back). The
+    /// inbox card moves to the next entry in Inbox order, the previous one
+    /// when it was the last, or the empty inbox when none remain; a window
+    /// (no inbox) closes after a kill.
+    /// `order` is the Inbox order when the action was pressed.
+    func resolved(_ p: HostPane, killed: Bool, order before: [String]) {
+        if killed { fleet.markKilled(p.key) }
+        guard pane.key == p.key else { return }
+        guard inbox != nil else {
+            if killed { onClose() }
+            return
+        }
+        let rest = pages.filter { $0.key != p.key }
+        guard !rest.isEmpty else {
+            onInboxEmpty()
+            return
+        }
+        let i = before.firstIndex(of: p.key) ?? 0
+        let after = before[(i + 1)...].compactMap { k in rest.first { $0.key == k } }
+        let ahead = before[..<i].reversed().compactMap { k in rest.first { $0.key == k } }
+        show(after.first ?? ahead.first ?? rest[0], direction: after.isEmpty ? -1 : 1)
+    }
+
+    /// The inbox card resolved its last entry: show the empty inbox.
+    public var onInboxEmpty: () -> Void = {}
+
     /// The paperclip (A): choose files, upload them to the agent's machine,
     /// and put their paths in the message.
-    public func attachFile() {
-        let files = FilePicker.choose()
+    public func attachFile() { attach(FilePicker.choose(), at: nil) }
+
+    /// Upload files (the paperclip's, or pasted or dropped on the message box)
+    /// to the agent's machine and put their paths in the message at `caret`
+    /// (UTF-16), or at its end.
+    public func attach(_ files: [URL], at caret: Int?) {
         guard !files.isEmpty else { return }
+        guard !busy else {
+            files.forEach(Attachments.discardIfScratch)
+            notice = "Wait a moment: \(files.count == 1 ? files[0].lastPathComponent : "these files") can go once this finishes"
+            return
+        }
+        notice = Attachments.progress(files)
         run("Attach") { [self] in
-            for f in files {
-                let path = try await actions.attach(f, to: pane)
-                composer = composer.isEmpty ? path : composer + "\n" + path
+            let n = try await Attachments.upload(files, at: caret, into: \.composer, of: self) {
+                try await actions.attach($0, to: pane)
             }
-            focusComposer()
-            return files.count == 1 ? "Attached \(files[0].lastPathComponent)" : "Attached \(files.count) files"
+            if caret == nil { focusComposer() }
+            return n
         }
     }
 
@@ -455,7 +569,10 @@ public final class CardModel: ComposerModel {
     public func page(_ delta: Int) {
         let list = pages
         guard list.count > 1, let i = list.firstIndex(where: { $0.key == pane.key }) else { return }
-        let next = list[(i + delta + list.count) % list.count]
+        show(list[(i + delta + list.count) % list.count], direction: delta)
+    }
+
+    private func show(_ next: HostPane, direction delta: Int) {
         pageDirection = delta
         withAnimationToken(Theme.Motion.cardPaging, probe: animationProbe) { [self] in
             pane = next
@@ -466,6 +583,7 @@ public final class CardModel: ComposerModel {
         killArmed = false
         highlighted = nil
         notice = nil
+        stopping = false
         Task { await load() }
     }
 }

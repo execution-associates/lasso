@@ -148,6 +148,8 @@ public final class AppCoordinator {
         }
         m.onClose = { [weak self] in self?.firstRun?.close() }
         m.onOpenSettings = { [weak self] in self?.openSettings() }
+        // The rail is meant to be always there: add the login item once, now.
+        m.onFinished = { [weak self] in self?.settingsModel.autoRegisterLoginItem() }
         let c = FirstRunController(model: m)
         firstRun = c
         return c
@@ -192,6 +194,13 @@ public final class AppCoordinator {
         }
 
         card.inbox = inboxModel
+        // The last entry resolved: the card gives way to the empty inbox.
+        card.onInboxEmpty = { [weak self] in
+            guard let self else { return }
+            let key = self.card.isKey
+            self.card.close()
+            self.openInbox(takeKey: key)
+        }
         rail.onMoved = { [weak self] in
             guard let self else { return }
             self.card.follow()
@@ -532,6 +541,10 @@ public final class AppCoordinator {
     }
 
     private func chatKey(_ e: NSEvent, _ m: ChatModel) -> Bool {
+        if Keys.stop.matches(e), m.isWorking {
+            m.stop()
+            return true
+        }
         if m.composerFocused || chat?.panel.panel.editingText == true { return false }
         if Keys.esc.matches(e) {
             chat?.panel.close()

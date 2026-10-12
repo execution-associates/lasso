@@ -151,7 +151,7 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 | Card send (`⏎`) | POST `/api/chat/send?host=` | `{pane_id, text}` | `{outcome: confirmed\|refused\|uncertain, detail}`. Can take about 8 s; never auto-retry `uncertain` | `src/chatview.go:2091` |
 | Answer a question | POST `/api/chat/answer?host=` | `{pane_id, expect, labels, answers:[{selected,multi,options}]}` | `{outcome: sent\|refused}` | `src/chatview.go:2323` |
 | Stop | POST `/api/chat/stop?host=` | `{pane_id}` | `{outcome}` | `src/chatview.go:2128` |
-| Screenshot attach (`S`) | POST `/api/paste-file?host=&name=` | raw PNG body, `Content-Type: image/png` | `{path}`, which the client puts into the message text | `src/main.go:1956` |
+| Attach a file (paperclip, paste, drop) | POST `/api/paste-file?host=&name=` | the raw file, `Content-Type` its MIME type; at most 1 GiB, never empty | `{path}`, which the client puts into the message text | `src/main.go` `servePasteFile` |
 | Bots list | GET `/api/bots` | – | `{bots:[botView]}`: `botRecord` + `state, waiting_for, last_text, last_kind, last_at, live_model, error, …` | `src/botsapi.go:47`, `src/botruntime.go:215` |
 | Create assistant bot | POST `/api/bots` | `{name, runtime:"omp", start:true, instructions}` (host defaults to local; omp must be local) | `{bot, note?, error?}`; **a 200 can still carry `error`**; 409 on a duplicate | `src/botsapi.go:152`, rules `src/bots.go:178` |
 | Bot detail | GET `/api/bots/<name>` | – | `{bot, dir_path, …}` | `src/botsapi.go:233` |
@@ -538,6 +538,8 @@ The user supplied reference screenshots of the intended look (kept out of git). 
 - **The list** has group headers, then rows of dot, avatar, name, microphone and ×.
 - **The chat** puts your messages in `#1D1C1E` bubbles, with a "Talking to …" line over the composer.
 - **Keycaps are hidden**, since the references show none, and appear over their controls while ⌘ is held. Parity renders each state a second time with ⌘ held (`<state>-keys.png`) and checks every legend against its live binding.
+  - A local `flagsChanged` monitor shows them at once. Hiding them does not wait for the release: the inbox and agent windows are non-activating panels, so Lasso often has the keys without being the active app, and a ⌘ let go while another app or a screenshot overlay has the keyboard sends it no event.
+  - So while they show, a timer reads `NSEvent.modifierFlags` (the hardware state, which needs no focus or Accessibility) every `live.poll.reveal_keys` (0.2 s) and hides them once ⌘ is up. No timer runs while they are hidden. The activation observers stay as well.
 - **Parity covers all seven states: 211 checks pass.** New checks include colour patches read along a gradient, `x`/`right_inset` measures, the peek's visible width, and the ⌘-held keycap pass.
 - **The app traces state changes to its log** (`dev.sh logs`): events only, never typed or spoken text. The hover reveal was verified live on minime by moving the pointer onto the peek from inside the Aqua session.
 
@@ -735,9 +737,15 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 |---|---|
 | `j` / `k` | Next / previous item, in Inbox order (wrapping). The card lands on it, the unread bar shows where you are, and it is marked seen. |
 | `x` | Kill, behind its confirm: a first `x` arms it ("Press X again"), a second kills, and any other key disarms. A bot has none. |
-| `e` | Acknowledge (S1): writes the entry's own key, and nothing to the agent. It returns when the item has something new. |
+| `e` | Acknowledge (S1): writes the entry's own key, and nothing to the agent. It returns when the item has something new. Off while the reply composer holds a draft: the button is greyed with the hint "Send or clear your reply first", `e` does nothing and shows no keycap, and a focused composer types it. |
+
+**A resolved entry moves the card on.** Kill and Acknowledge share one path (`CardModel.resolved`). Once the action succeeds:
+- The entry leaves the inbox at once, without waiting for a poll. A killed pane is in `FleetModel.killed`, hidden from the whole fleet until a poll stops listing it. An acknowledged entry is in `FleetModel.acknowledged` with the mark it had, hidden until ui_state catches up or something new gives it another mark. So a stale poll cannot bring either back.
+- The card shows the next entry in the Inbox order taken when the key was pressed, or the previous one when it was the last. With none left, it gives way to the empty inbox (`onInboxEmpty`).
+- A kill from an agent window closes that window.
 | `1`–`9`, `→`, `↳` | Pick a choice, answer with it, or edit it into your own words. |
 | `⏎`, `a` | To the composer (or send); attach a file. |
+| `⌘.` | Stop: interrupts the agent's turn (one Escape through `/api/chat/stop`, or an omp bot's `chat/stop`). It works while the agent is working or starting, even with the composer focused, since a text field would take `⌘.` as esc. |
 | `esc` | Close. |
 
 **How the card gets the keyboard:**
@@ -752,7 +760,7 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
     - Typing meant for another app is cut off at its first key outside the set. The worst a stray word does is page the card or acknowledge one item.
 - **A key shows on hover.** While the card has the keyboard, a control's keycap appears when the pointer is on that control. The user found every key at once too noisy. One app-wide value says which control is hovered (`HoveredKey`). The keycaps:
   - `K`/`J` beside the paging chevrons, and `esc` on close
-  - `A` on the paperclip and `⏎` on send
+  - `A` on the paperclip, and `⏎` on send or `⌘.` on Stop
   - `X` on Kill and `E` on Acknowledge
   - the choice numbers, plus `↳` and `→` on the selected choice
 
@@ -799,7 +807,12 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 A Mac uses one lasso. Settings has three tabs, each laid out as macOS's grouped settings are: titled groups, each a rounded card of rows split by hairlines, a row's name and why on the left and its control on the right (switches for on/off), footnotes under a group. The tabs carry icons, and the chosen one is lifted onto its own pill.
 - **Notifications:** the arrival sound and Notify me about.
 - **Shortcuts:** opening the inbox, the new-agent shortcuts, and Accessibility, which only the double-tap shortcut needs.
-- **Info:** first the lasso, named by the machine it runs on ("titan"), with its release number (never a build's `(dev)` tag), the address this Mac reaches it at, sign-in, herdr's version, how many machines it drives, and **Advanced Settings**, which opens the lasso's web app at `/?open=settings` (its sidebar on Settings › General, read once on load) in the default browser. **Change…** opens the address field for moving to another lasso (§18); it stays closed otherwise. A sign-out opens Settings here, and so does opening Settings while no lasso answers. Then the app: its version and Check for updates, **Show in the Dock** (the app turns regular, with a menu bar of Settings… ⌘, and Quit ⌘Q; clicking the Dock icon opens the inbox), **Show in the menu bar** (the EXA monogram as a template image, `Resources/Brand/monogram-template*`, with the inbox's count, and Open Inbox, New Agent…, Settings…, Quit), both off by default and applied at once (`AppPresence`, UserDefaults `showInDock`/`showInMenuBar`), and **Quit Lasso**, which lasts until the next login: the launch agent restarts the app only after a crash.
+- **Info:** first the lasso, named by the machine it runs on ("titan"), with its release number (never a build's `(dev)` tag), the address this Mac reaches it at, sign-in, herdr's version, how many machines it drives, and **Advanced Settings**, which opens the lasso's web app at `/?open=settings` (its sidebar on Settings › General, read once on load) in the default browser. **Change…** opens the address field for moving to another lasso (§18); it stays closed otherwise. A sign-out opens Settings here, and so does opening Settings while no lasso answers. Then the app: its version and Check for updates, **Show in the Dock** (the app turns regular, with a menu bar of Settings… ⌘, and Quit ⌘Q; clicking the Dock icon opens the inbox), **Show in the menu bar** (the EXA monogram as a template image, `Resources/Brand/monogram-template*`, with the inbox's count, and Open Inbox, New Agent…, Settings…, Quit), both off by default and applied at once (`AppPresence`, UserDefaults `showInDock`/`showInMenuBar`), **Start at login**, and **Quit Lasso**.
+- **Start at login** (`Platform/LoginItem.swift`) is `SMAppService.mainApp`: the switch calls `register()`/`unregister()`, and its state is macOS's `status`, read each time Settings shows, since System Settings › General › Login Items changes it too. Nothing caches it.
+  - **On by default, once.** Onboarding's Done (or Open Settings) registers the app, since the rail is meant to be always there; macOS shows its "added a login item" notice then. UserDefaults `loginItemAutoRegistered` records that the one automatic registration happened, and any use of the switch sets it too, so turning it off sticks.
+  - `.requiresApproval` keeps the switch on with **Open Login Items** (`SMAppService.openSystemSettingsLoginItems()`), and the group's footnote says to allow Lasso there. A refused change is a footnote naming macOS's reason.
+  - **A dev build** (Info.plist names no update feed) never touches SMAppService. Its row reads "Started by the dev launch agent", because `Scripts/agent.sh`'s LaunchAgent starts it at login and restarts it after a crash. So minime never runs two.
+- **Quit Lasso** says what happens next: "It starts again at your next login" while Start at login is on (or in a dev build), else "Open Lasso again to bring the rail back."
 - **Switching is in place.** Every live action shares one `LassoClient`. `FleetSync.retarget` repoints it, empties the fleet, restarts the event stream and refills from the new lasso, and the choice is remembered. Open panels close, since they belonged to the old lasso.
 - **From titan:** `mac/Scripts/dev.sh use dev` finds the `mise run dev` backend (this worktree's, else the first on 8190–8199), checks it answers through the tunnel and relaunches the app on it. `use prod` goes back, and `use PORT` picks one.
 - **The tunnel** (`lasso-desktop-tunnel.service`) forwards minime's 18190–18199 to titan's 8190–8199, so a dev lasso that bumped past 8190 is still reachable.
@@ -873,7 +886,7 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
 **Waits are visible.** The conversation's foot shows three pulsing dots and what it waits on (`CardModel.phase`):
 - **Loading the conversation** before the first answer.
 - **Starting <harness>** while a new agent has no transcript yet.
-- **<harness> is working** while it is on its turn. This is never shown while it waits on you.
+- **<harness> is working** while it is on its turn: lasso's chat says `running` (an unanswered call in the transcript) or herdr's live state for the pane, read from the fleet's current row and not the one the window opened on, says working. This is never shown while it waits on you.
 
 A message you send shows at once, faded, under **Sending…**, until it appears in the transcript.
 
@@ -990,9 +1003,21 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
   - Anything else is a chip that opens the file.
   - The bytes come through `/api/file` (`download=1`) from the host that served the transcript. They are cached in `~/Library/Caches/Lasso/Media` per path and showing, since an agent may overwrite a file in place.
 - **Choices need a confirm.** A click (or 1–9) only selects a choice; the selected one shows **Answer**, and that button (or →) sends it. An answer cannot be taken back, and the preview appears under a moving pointer.
-- **No header menu:** the window's header is minimize and close. X X kills from the keyboard.
+- **No header menu:** the window's header is minimize and close. **Kill** is a red pill at the trailing end of the folder/model row (`AgentKill`; a bot has none, and neither does a hover preview), behind the inbox's confirm: X or a click arms it ("Confirm kill"), a second kills. Its accessibility label is "Kill <agent>". Once the kill goes through, the window closes and the agent's inbox entry goes with it (§13.7a).
 - The composer's paperclip (A) attaches any files: each goes through `/api/paste-file` to the agent's machine and its path into the message.
+- **Paste and drop attach too** (`Platform/Attachments.swift`), in every composer (inbox card, agent window and preview, bot chat) and the New Agent prompt.
+  - The composer's NSTextField uses its own field editor (`ComposerCell` → `AttachingTextView`), so ⌘V and Edit › Paste reach it. A drop works on the field and on its editor alike.
+  - `Attachments.plan` decides from the pasteboard: **file URLs first**, then image data (PNG before TIFF, any other image read as TIFF), then text. Screenshot tools like BetterShot and Finder's Copy put the file next to its path or name as text and an icon as an image, and the file is what goes. Image data beats text only when the text is a lone URL or path (a browser's Copy Image); words with a rendering (Word, Excel) paste as text.
+  - Raw image data is written to `$TMPDIR/LassoPaste/<uuid>/pasted-<time>.png`, uploaded, then deleted.
+  - Each uploaded path is inserted at the caret (the drop point, or the end for the paperclip), set off by spaces. Uploads go one by one, so a failure keeps the paths that already landed. The notice names the file and the reason.
+  - Refused before any upload: folders, empty files (lasso refuses an empty body), and anything over lasso's `maxUpload` (1 GiB, `src/main.go`).
+  - The New Agent prompt has no agent yet, so its files go to the chosen host through the same route, and Create waits for them.
 - One window per agent; a second click brings it forward. Where each agent's window was is kept in UserDefaults `agentWindowFrames`.
-- Keys while it has the keyboard: 1–9, →, ↳, ⏎, A (attach), and X X to kill. A focused composer keeps every key as text (§13.7a).
+- Keys while it has the keyboard: 1–9, →, ↳, ⏎, A (attach), ⌘. (Stop), and X X to kill. A focused composer keeps every key as text except ⌘. (§13.7a).
+- **Stop** (the web chat's rule). While the agent is working or starting and the composer is empty, the send button is Stop, a filled square with the label "Stop <agent>". A draft brings Send back.
+  - It is in every composer: the inbox card, the agent window and preview, and the bot chat.
+  - A press sends one Escape (`CardActions.stop`: `/api/chat/stop?host=` with `{pane_id}`, or an omp bot's `chat/stop`). The button then stays dimmed until a poll shows the turn over, or `live.stop_wait` (10 s) passes.
+  - A refusal comes back at once with "Not stopped: <reason>", and an uncertain outcome says to check the terminal.
+  - The `agent-window-markdown` parity state renders it.
 
 **Parity states:** `list-hover-preview`, `agent-window` and `agent-window-collapsed`, from the `card-open` fixture.
