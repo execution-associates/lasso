@@ -28,6 +28,15 @@ final class AgentWindowChrome: ObservableObject {
 struct AgentWindowView: View {
     @ObservedObject var model: CardModel
     @ObservedObject var chrome: AgentWindowChrome
+    /// The header and the phase read the fleet's live row (`model.current`),
+    /// which changes without the card publishing anything.
+    @ObservedObject var fleet: FleetModel
+
+    init(model: CardModel, chrome: AgentWindowChrome) {
+        self.model = model
+        self.chrome = chrome
+        fleet = model.fleet
+    }
 
     var body: some View {
         let w = Theme.Agent.window
@@ -45,7 +54,7 @@ struct AgentWindowView: View {
                     entries: ConversationEntry.fold(model.chat?.items.suffix(160).map { $0 } ?? [], cwd: model.chat?.cwd),
                     pending: model.pending, phase: model.phase, outgoing: model.outgoing, host: model.mediaHost)
                 StepList(model: model)
-                AgentComposer(model: model)
+                AgentComposer(model: model, showsKill: true)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -137,6 +146,8 @@ final class AgentWindowController {
         host.frame = NSRect(origin: .zero, size: frame.size)
         panel = AgentWindowPanel(content: host, frame: frame)
         panel.onKey = { [weak self] e in self?.handle(e) ?? false }
+        // A kill that went through closes the window (CardModel.resolved).
+        model.onClose = { [weak self] in self?.close() }
         chrome.onToggle = { [weak self] in self?.toggle() }
         chrome.onClose = { [weak self] in self?.close() }
         chrome.onDrag = { [weak self] ended in self?.drag(ended, resize: false) }
@@ -200,8 +211,14 @@ final class AgentWindowController {
     }
 
     /// The card's keys, minus paging and Acknowledge: 1–9 highlight a choice,
-    /// → takes it, ↳ edits it, ⏎ to the composer, A attaches, X X kills.
+    /// → takes it, ↳ edits it, ⏎ to the composer, A attaches, ⌘. stops,
+    /// X X kills.
     private func handle(_ e: NSEvent) -> Bool {
+        // ⌘. stops a working agent, the composer focused or not.
+        if Keys.stop.matches(e), model.isWorking {
+            model.stop()
+            return true
+        }
         if model.composerFocused || panel.editingText { return false }
         if !Keys.kill.matches(e) { model.disarm() }
         if let n = Keys.digit(e) {

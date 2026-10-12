@@ -400,7 +400,7 @@ public struct SettingsView: View {
                 PillButton(title: "Advanced Settings", label: "Open lasso's settings in the browser") { model.openAdvancedSettings() }
             }
         }
-        group("This app", footnote: AppUpdates.checkNow == nil ? "A development build: it does not update itself." : nil) {
+        group("This app", footnote: model.appFootnote) {
             row("Version") {
                 HStack(spacing: Theme.space("m")) {
                     value(AppUpdates.version)
@@ -412,13 +412,40 @@ public struct SettingsView: View {
             row("Show in the Dock", detail: "With a menu bar of Settings and Quit.") {
                 toggle(model.inDock, "Show in the Dock") { model.setDock(!model.inDock) }
             }
-            row("Show in the menu bar", detail: "The monogram, with the inbox's count.", last: true) {
+            row("Show in the menu bar", detail: "The monogram, with the inbox's count.") {
                 toggle(model.inMenuBar, "Show in the menu bar") { model.setMenuBar(!model.inMenuBar) }
             }
+            startAtLogin
         }
         group(nil) {
-            row("Quit Lasso", detail: "Until the next login. The rail goes with it.", last: true) {
+            row(
+                "Quit Lasso",
+                detail: model.loginItem.startsAtLogin
+                    ? "It starts again at your next login. The rail goes with it." : "Open Lasso again to bring the rail back.",
+                last: true
+            ) {
                 PillButton(title: "Quit", textColor: Theme.dangerText.color, label: "Quit Lasso") { model.quit() }
+            }
+        }
+    }
+
+    /// Start at login: macOS's login item, or in a dev build the dev launch agent.
+    @ViewBuilder private var startAtLogin: some View {
+        switch model.loginItem {
+        case .devAgent:
+            row("Start at login", detail: "Started by the dev launch agent.", last: true) { value("Dev agent") }
+        case .needsApproval:
+            row("Start at login", detail: "Allow it in Login Items.", last: true) {
+                HStack(spacing: Theme.space("m")) {
+                    PillButton(title: "Open Login Items", label: "Open System Settings › General › Login Items") {
+                        model.openLoginItems()
+                    }
+                    toggle(true, "Start at login") { model.setStartAtLogin(false) }
+                }
+            }
+        case .on, .off:
+            row("Start at login", detail: "The rail is there after a restart.", last: true) {
+                toggle(model.loginItem == .on, "Start at login") { model.setStartAtLogin(model.loginItem != .on) }
             }
         }
     }

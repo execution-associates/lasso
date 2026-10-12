@@ -108,7 +108,10 @@ extension FleetModel {
             }
         }
         let newest: (InboxEntry, InboxEntry) -> Bool = { $0.at != $1.at ? $0.at > $1.at : $0.id < $1.id }
-        return waiting.sorted(by: newest) + finished.sorted(by: newest)
+        // Acknowledged here, and not yet in ui_state: gone unless it is new.
+        let hidden = acknowledged
+        let shown: (InboxEntry) -> Bool = { hidden[$0.ackKey] != $0.mark }
+        return waiting.filter(shown).sorted(by: newest) + finished.filter(shown).sorted(by: newest)
     }
 
     /// What is new since this Mac looked: entries whose mark is not the one

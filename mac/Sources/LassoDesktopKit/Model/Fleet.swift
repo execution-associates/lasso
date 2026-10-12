@@ -24,10 +24,30 @@ public final class FleetModel: ObservableObject {
 
     public init() {}
 
+    /// Agents killed from this Mac, by pane key: gone from the fleet at
+    /// once, and kept gone while a poll still lists the dying pane.
+    @Published public private(set) var killed: Set<String> = []
+    /// Inbox entries acknowledged from this Mac, by key, with the mark they
+    /// had: hidden at once, before ui_state says so, until something new
+    /// (another mark) brings the entry back.
+    @Published public private(set) var acknowledged: [String: String] = [:]
+
     public func apply(panes: AllPanes) {
         self.panes = panes.panes
         hostErrors = panes.errors ?? [:]
+        // A killed pane is remembered until the fleet stops listing it.
+        let listed = Set(panes.panes.map(\.key))
+        if !killed.isSubset(of: listed) { killed.formIntersection(listed) }
+        if acknowledged.keys.contains(where: { !listed.contains($0) && !$0.hasPrefix("bot:") }) {
+            acknowledged = acknowledged.filter { listed.contains($0.key) || $0.key.hasPrefix("bot:") }
+        }
     }
+
+    /// The agent in this pane was killed: it leaves the fleet now.
+    public func markKilled(_ key: String) { killed.insert(key) }
+
+    /// This inbox entry was acknowledged: it leaves the inbox now.
+    public func markAcknowledged(_ entry: InboxEntry) { acknowledged[entry.ackKey] = entry.mark }
 
     public func apply(bots: BotsPayload) { self.bots = bots.bots }
 
@@ -44,12 +64,14 @@ public final class FleetModel: ObservableObject {
         bots = []
         uiState = UIStateSlice()
         hostErrors = [:]
+        killed = []
+        acknowledged = [:]
     }
 
     /// Agents only (a pane without one is not a fleet member, as in the web
     /// client), most urgent first, newest transcript first within a state.
     public var agents: [HostPane] {
-        panes.filter { $0.has_agent && $0.closed != true }.sorted(by: FleetModel.urgencyOrder)
+        panes.filter { $0.has_agent && $0.closed != true && !killed.contains($0.key) }.sorted(by: FleetModel.urgencyOrder)
     }
 
     nonisolated static func urgencyOrder(_ a: HostPane, _ b: HostPane) -> Bool {

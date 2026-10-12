@@ -65,7 +65,7 @@ public struct NewAgentView: View {
     private var prompt: some View {
         let r = n.number("radius")
         return ZStack(alignment: .topLeading) {
-            PromptEditor(text: $model.prompt, focused: $model.promptFocused, reclaim: model.openChip == nil)
+            PromptEditor(text: $model.prompt, focused: $model.promptFocused, reclaim: model.openChip == nil, attach: model)
             if model.prompt.isEmpty {
                 Text(model.kind == .git ? "What should it do in this repository?" : "What should it explore?")
                     .font(Theme.Fonts.chat.font)
@@ -85,11 +85,14 @@ public struct NewAgentView: View {
         .parityAnchor("new.prompt")
     }
 
-    /// What the agent will be called: the prompt's first line.
+    /// What the agent will be called: the prompt's first line. A paste or a
+    /// drop's progress, or why a file was refused, takes the line until you type.
     private var namePreview: some View {
         HStack(spacing: Theme.space("s")) {
-            Image(systemName: "tag").font(.system(size: Theme.icon.number("pin")))
-            if model.title.isEmpty {
+            Image(systemName: model.notice == nil ? "tag" : "paperclip").font(.system(size: Theme.icon.number("pin")))
+            if let notice = model.notice {
+                Text(notice).lineLimit(1).truncationMode(.middle)
+            } else if model.title.isEmpty {
                 Text("Its first line becomes the agent's name")
             } else {
                 Text("Named").foregroundStyle(Theme.Text.secondary.color)
@@ -526,20 +529,32 @@ struct CreateButton: View {
 
 /// The prompt: a multi-line text view that takes the cursor when the form
 /// opens (the Command Line Tools have no focus API SwiftUI can use).
+/// Files and images pasted or dropped on it are uploaded to the chosen
+/// machine (AttachingTextView), never pasted as a path on this Mac.
 struct PromptEditor: NSViewRepresentable {
     @Binding var text: String
     @Binding var focused: Bool
     /// No menu is open: the cursor comes back here when one closes.
     var reclaim = true
+    weak var attach: AttachingModel?
 
     func makeCoordinator() -> Coordinator { Coordinator(text: $text, focused: $focused) }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSTextView.scrollableTextView()
+        let scroll = NSScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
-        let tv = scroll.documentView as! NSTextView
+        // NSTextView.scrollableTextView() with the attaching text view in it.
+        let tv = AttachingTextView()
+        tv.attachTarget = attach
+        tv.isVerticallyResizable = true
+        tv.isHorizontallyResizable = false
+        tv.autoresizingMask = [.width]
+        tv.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        tv.textContainer?.widthTracksTextView = true
+        tv.textContainer?.containerSize = NSSize(width: scroll.contentSize.width, height: CGFloat.greatestFiniteMagnitude)
+        scroll.documentView = tv
         let inset = Theme.NewAgent.layout.number("prompt_inset")
         tv.textContainerInset = NSSize(width: inset - Theme.space("xs"), height: inset)
         tv.drawsBackground = false
@@ -556,6 +571,7 @@ struct PromptEditor: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let tv = scroll.documentView as? NSTextView else { return }
+        (tv as? AttachingTextView)?.attachTarget = attach
         if tv.string != text { tv.string = text }
         if reclaim {
             DispatchQueue.main.async {

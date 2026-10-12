@@ -11,10 +11,12 @@ public struct KeyBinding: Hashable, Sendable, Identifiable {
     public let action: String
     let keyCode: UInt16?
     let character: String?
+    /// Pressed with ⌘ (a menu-style key such as ⌘. for Stop).
+    var command = false
 
     public func matches(_ e: NSEvent) -> Bool {
         let mods = e.modifierFlags.intersection([.command, .control, .option])
-        guard mods.isEmpty else { return false }
+        guard mods == (command ? [.command] : []) else { return false }
         if let k = keyCode { return e.keyCode == k }
         return e.charactersIgnoringModifiers?.lowercased() == character
     }
@@ -38,7 +40,12 @@ public enum Keys {
     public static let takeStep = KeyBinding(
         id: "right", legend: "→", action: "Take this step", keyCode: 124, character: nil)
 
-    public static let all: [KeyBinding] = [esc, attach, send, kill, acknowledge, next, previous, editStep, takeStep]
+    /// Interrupt the agent's turn: ⌘., the Mac's "stop", which a text field
+    /// would otherwise take as esc, so every panel reads it before its field.
+    public static let stop = KeyBinding(
+        id: "stop", legend: "⌘.", action: "Stop", keyCode: 47, character: nil, command: true)
+
+    public static let all: [KeyBinding] = [esc, attach, send, stop, kill, acknowledge, next, previous, editStep, takeStep]
 
     /// 1-9 highlight a next step.
     public static func digit(_ e: NSEvent) -> Int? {

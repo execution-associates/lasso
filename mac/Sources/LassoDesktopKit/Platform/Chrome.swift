@@ -8,8 +8,38 @@ import SwiftUI
 @MainActor
 public final class KeyHints: ObservableObject {
     public static let shared = KeyHints()
-    @Published public var visible = false
+    @Published public var visible = false {
+        didSet { if visible != oldValue { visible ? startWatch() : stopWatch() } }
+    }
     private var monitor: Any?
+    /// Whether ⌘ is down: the class property is the hardware's state, read
+    /// without focus and without Accessibility. A test or the parity
+    /// harness's ⌘-held pass replaces it.
+    var commandDown: () -> Bool = { NSEvent.modifierFlags.contains(.command) }
+    private var watch: Timer?
+    /// The ⌘ watch is running (only while keycaps show).
+    var watching: Bool { watch != nil }
+
+    /// While keycaps show, ⌘ is read again every `live.poll.reveal_keys`,
+    /// and they go once it is up. The release event cannot be relied on:
+    /// the inbox and agent windows are non-activating panels, so Lasso has
+    /// the keyboard without being the active app, and ⌘ let go while another
+    /// app or a screenshot overlay has the keys sends it no flagsChanged and
+    /// no activation change. Nothing runs while they are hidden.
+    private func startWatch() {
+        guard watch == nil else { return }
+        watch = Timer.scheduledTimer(withTimeInterval: Theme.Live.revealKeys.seconds, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.check() }
+        }
+    }
+
+    private func stopWatch() {
+        watch?.invalidate()
+        watch = nil
+    }
+
+    /// One reading of the watch: hide the keycaps once ⌘ is up.
+    func check() { if visible, !commandDown() { visible = false } }
 
     public func start() {
         guard monitor == nil else { return }
@@ -54,6 +84,8 @@ final class HoveredKey: ObservableObject {
 struct KeyHint: ViewModifier {
     let binding: KeyBinding
     var alignment: Alignment = .bottomTrailing
+    /// The key does nothing right now (its control is disabled): no keycap.
+    var active = true
     @ObservedObject var hints = KeyHints.shared
     @ObservedObject var hovered = HoveredKey.shared
     @Environment(\.shownKeys) private var shown
@@ -64,7 +96,7 @@ struct KeyHint: ViewModifier {
                 if inside { hovered.id = binding.id } else if hovered.id == binding.id { hovered.id = nil }
             }
             .overlay(alignment: alignment) {
-            if hints.visible || (shown?.contains(binding.id) == true && hovered.id == binding.id) {
+            if active, hints.visible || (shown?.contains(binding.id) == true && hovered.id == binding.id) {
                 Keycap(binding).offset(x: Theme.space("s"), y: Theme.space("s"))
             }
         }
@@ -85,8 +117,8 @@ struct InlineKey: View {
 }
 
 extension View {
-    func keyHint(_ b: KeyBinding, _ alignment: Alignment = .bottomTrailing) -> some View {
-        modifier(KeyHint(binding: b, alignment: alignment))
+    func keyHint(_ b: KeyBinding, _ alignment: Alignment = .bottomTrailing, active: Bool = true) -> some View {
+        modifier(KeyHint(binding: b, alignment: alignment, active: active))
     }
 }
 
@@ -158,27 +190,34 @@ struct PillButton: View {
     let title: String
     var primary = false
     var textColor: Color = Theme.Text.primary.color
+    /// Off: greyed (secondary text, the plain fill, never the primary one)
+    /// and not clickable, with `hint` saying why.
+    var enabled = true
+    var hint: String?
     let label: String
     let action: () -> Void
 
     var body: some View {
         let p = Theme.Control.pill
+        let lit = primary && enabled
         Button(action: action) {
             Text(title)
                 .font(Theme.Fonts.label.font)
-                .foregroundStyle(primary ? Theme.Control.pillPrimary.color("text") : textColor)
+                .foregroundStyle(!enabled ? Theme.Text.secondary.color : lit ? Theme.Control.pillPrimary.color("text") : textColor)
                 .padding(.horizontal, p.number("pad_h"))
                 .frame(height: p.number("height"))
-                .background(Capsule().fill(primary ? Theme.Control.pillPrimary.color("fill") : p.color("fill")))
+                .background(Capsule().fill(lit ? Theme.Control.pillPrimary.color("fill") : p.color("fill")))
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
         .accessibilityLabel(label)
+        .accessibilityHint(enabled ? "" : hint ?? "")
     }
 }
 
-/// The composer row (ref a2/a5): a round camera button, the field, a round
-/// send button.
+/// The composer row (ref a2/a5): a round paperclip button, the field, and a
+/// round send button, which is Stop while the agent works and nothing is typed.
 struct ComposerRow<Model: ComposerModel>: View {
     @ObservedObject var model: Model
     let attach: () -> Void
@@ -196,11 +235,21 @@ struct ComposerRow<Model: ComposerModel>: View {
                 .frame(height: h)
                 .background(Capsule().fill(c.color("fill")))
                 .parityAnchor("composer.field")
-            RoundButton(
-                symbol: "arrow.up", enabled: canSend, size: h, fill: c.color("fill"), label: "Send (⏎)",
-                action: model.send
-            )
-            .keyHint(Keys.send)
+            if model.showsStop {
+                // The web chat's Stop: a filled square while the agent works.
+                RoundButton(
+                    symbol: "stop.fill", enabled: !model.stopping, size: h, fill: c.color("fill"),
+                    label: "\(model.stopLabel) (⌘.)", action: model.stop
+                )
+                .keyHint(Keys.stop)
+                .parityAnchor("composer.stop")
+            } else {
+                RoundButton(
+                    symbol: "arrow.up", enabled: canSend, size: h, fill: c.color("fill"), label: "Send (⏎)",
+                    action: model.send
+                )
+                .keyHint(Keys.send)
+            }
         }
         .parityAnchor("composer")
     }
