@@ -70,6 +70,8 @@ final class AgentPreviewController {
     private let presence = CardPresence()
     private let holder = PreviewHolder()
     private let make: (HostPane) -> CardModel
+    /// Unsent replies by agent, kept when the preview goes or moves on.
+    private var drafts: [String: String] = [:]
 
     init(media: MediaSource?, make: @escaping (HostPane) -> CardModel) {
         self.make = make
@@ -89,8 +91,10 @@ final class AgentPreviewController {
     /// Show `pane`'s preview beside `list`, top level with `row` (screen rects).
     func show(_ pane: HostPane, beside list: NSRect, row: NSRect) {
         if holder.model?.pane.key != pane.key {
+            keepDraft()
             holder.model?.stopPolling()
             let m = make(pane)
+            m.composer = drafts[pane.key] ?? ""
             holder.model = m
             m.startPolling()
         }
@@ -106,6 +110,7 @@ final class AgentPreviewController {
 
     func close() {
         guard presence.shown else { return }
+        keepDraft()
         holder.model?.stopPolling()
         withAnimationToken(Theme.Motion.cardClose) { presence.shown = false }
         let delay = Theme.Motion.cardClose.value["duration"]?.double ?? 0
@@ -115,6 +120,11 @@ final class AgentPreviewController {
             self.panel.orderOut(nil)
             self.holder.model = nil
         }
+    }
+
+    private func keepDraft() {
+        guard let m = holder.model else { return }
+        drafts[m.pane.key] = m.hasDraft ? m.composer : nil
     }
 
     /// A window's keys (CardKeys.previewSet) once a click made it the

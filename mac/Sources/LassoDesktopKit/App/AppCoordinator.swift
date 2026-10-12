@@ -41,6 +41,8 @@ public final class AppCoordinator {
     /// and since when the pointer has been away from both rail and panel.
     private var hoverShown: RailModel.Item?
     private var hoverAway: Date?
+    /// A click anywhere but the rail and its panels puts the panels away.
+    private let clickAway = ClickAwayWatch()
 
     public init(fleet: FleetModel, sync: FleetSync?, fixture: Fixture?) {
         self.fleet = fleet
@@ -200,6 +202,9 @@ public final class AppCoordinator {
                 || self.chat?.panel.isOpen == true
         }
 
+        clickAway.active = { [weak self] in self?.railPanelOpen ?? false }
+        clickAway.onClick = { [weak self] point, window in self?.clicked(at: point, in: window) }
+
         card.inbox = inboxModel
         // The last entry resolved: the card gives way to the empty inbox.
         card.onInboxEmpty = { [weak self] in
@@ -228,7 +233,12 @@ public final class AppCoordinator {
         list.model.onOpen = { [weak self] p in self?.openWindow(p) }
         list.onPreview = { [weak self] p, listFrame, row in
             guard let self else { return }
-            if let p { self.preview.show(p, beside: listFrame, row: row) } else { self.preview.close() }
+            if let p {
+                self.preview.show(p, beside: listFrame, row: row)
+                self.clickAway.start()
+            } else {
+                self.preview.close()
+            }
         }
         list.previewHolds = { [weak self] in
             guard let self, self.preview.isOpen else { return false }
@@ -317,6 +327,44 @@ public final class AppCoordinator {
     func openCard(_ p: HostPane, takeKey: Bool = true) {
         closeAll(except: card)
         card.open(p, takeKey: takeKey)
+        clickAway.start()
+    }
+
+    /// One of the panels that open off the rail is up (not Settings, which
+    /// the user works in, nor the windows they arrange).
+    var railPanelOpen: Bool {
+        card.isOpen || list.isOpen || inbox.isOpen || preview.isOpen || chat?.panel.isOpen == true
+    }
+
+    /// The rail and the panels off it: a click on one keeps them.
+    private var railWindows: [NSWindow] {
+        [rail.panel, card.panel, list.panel, inbox.panel, preview.panel] + (chat.map { [$0.panel.panel] } ?? [])
+    }
+
+    /// A mouse-down while a rail panel is open (ClickAwayWatch): anywhere
+    /// but the rail and its panels puts them away.
+    func clicked(at point: NSPoint, in window: NSWindow?) {
+        guard railPanelOpen, ClickAway.closes(point: point, window: window, kept: railWindows) else { return }
+        Trace.event("rail panels closed (a click elsewhere)")
+        closeRailPanels()
+    }
+
+    /// An agent's own window, if open (tests).
+    func agentWindow(_ key: String) -> AgentWindowController? { windows[key] }
+
+    /// Put away the panels that open off the rail, by their own close paths
+    /// (their keyboard, lent or not, goes with them). Agent windows, the
+    /// herdr window, Settings and the New Agent form stay. A card's unsent
+    /// reply is kept for that agent's next card (CardController.drafts), and
+    /// a bot chat's stays in its model.
+    func closeRailPanels() {
+        hoverShown = nil
+        hoverAway = nil
+        preview.close()
+        card.close()
+        list.close()
+        inbox.close()
+        chat?.panel.close()
     }
 
     /// A click on the agents capsule: open the list, give an open list that
@@ -327,7 +375,12 @@ public final class AppCoordinator {
             return
         }
         closeAll(except: list)
-        if list.isOpen { list.close() } else { list.open(takeKey: takeKey) }
+        if list.isOpen {
+            list.close()
+        } else {
+            list.open(takeKey: takeKey)
+            clickAway.start()
+        }
     }
 
     /// The inbox drops straight into its newest message, a card that J/K
@@ -353,6 +406,7 @@ public final class AppCoordinator {
             closeAll(except: inbox)
             inbox.open(takeKey: takeKey)
             inboxModel.markNoticesSeen()
+            clickAway.start()
         }
     }
 
@@ -542,11 +596,18 @@ public final class AppCoordinator {
         return t
     }
 
-    /// The rail's terminal button: lasso's herdr in its window.
-    func openTerminal() { herdrWindow()?.open() }
+    /// The rail's terminal button: lasso's herdr in its window, alone: the
+    /// rail's panels go first (agent windows stay).
+    func openTerminal() {
+        closeRailPanels()
+        herdrWindow()?.open()
+    }
 
     /// An agent's header button, or T: herdr's window focused on its pane.
-    func showInHerdr(_ p: HostPane) { herdrWindow()?.show(p) }
+    func showInHerdr(_ p: HostPane) {
+        closeRailPanels()
+        herdrWindow()?.show(p)
+    }
 
     /// A bot's chat.
     func openChat(_ bot: BotView) {
@@ -568,6 +629,7 @@ public final class AppCoordinator {
         closeAll(except: c.panel)
         c.model.startPolling()
         c.panel.open()
+        clickAway.start()
     }
 
     private func chatKey(_ e: NSEvent, _ m: ChatModel) -> Bool {

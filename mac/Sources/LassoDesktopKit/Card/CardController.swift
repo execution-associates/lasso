@@ -47,6 +47,9 @@ public final class CardController {
     var onInboxEmpty: () -> Void = {}
     /// The herdr window, focused on an agent (T, the header's button).
     var showInHerdr: ((HostPane) -> Void)?
+    /// Unsent replies by agent: a card put away (a click elsewhere, esc)
+    /// keeps its draft for that agent's next card.
+    private(set) var drafts: [String: String] = [:]
 
     public init(fleet: FleetModel, actions: CardActions) {
         self.fleet = fleet
@@ -84,11 +87,19 @@ public final class CardController {
     /// keys act only once a click or the summon key has made it key.
     public func open(_ pane: HostPane, takeKey: Bool = true) {
         if let m = holder.model, m.pane.key == pane.key {
+            // Still fading out from a close: it comes back as it was.
+            if !presence.shown {
+                m.startPolling()
+                place()
+                withAnimationToken(Theme.Motion.cardOpen) { presence.shown = true }
+            }
             front(takeKey)
             return
         }
+        keepDraft()
         holder.model?.stopPolling()
         let model = CardModel(pane: pane, fleet: fleet, actions: actions)
+        model.composer = drafts[pane.key] ?? ""
         model.inbox = inbox
         inbox?.markSeen(pane)
         model.keyMode = !panel.isKeyWindow ? .none : (pointerKeyed ? .lent : .full)
@@ -168,6 +179,7 @@ public final class CardController {
         pointerKeyed = false
         lentThisVisit = false
         heldBack = false
+        keepDraft()
         holder.model?.stopPolling()
         withAnimationToken(Theme.Motion.cardClose) { presence.shown = false }
         let delay = Theme.Motion.cardClose.value["duration"]?.double ?? 0
@@ -180,6 +192,15 @@ public final class CardController {
     }
 
     private func place() { panel.setFrameOrigin(originBesideRail(railFrame(), size: Theme.Card.size.size)) }
+
+    /// Keep the card's unsent reply under its agent (or drop a sent one).
+    private func keepDraft() {
+        guard let m = holder.model else { return }
+        drafts[m.pane.key] = m.hasDraft ? m.composer : nil
+    }
+
+    /// The card's model (tests).
+    var model: CardModel? { holder.model }
 
     /// The rail moved: stay beside it.
     func follow() { if isOpen { place() } }

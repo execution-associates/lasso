@@ -843,6 +843,12 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
 - **Pressed** (`rail.pressed`): the whole control drops to 0.71 opacity while pressed (f219–225, f355–361).
 - **Resting opens** (`rail.hover.item_open_ms`, 117 ms, f655→f662): the inbox, the agents capsule and settings open by hover alone. A hover-opened panel is ordered front **without the keyboard**, so typing in another app never lands on the card's one-letter keys. A click on it or on its control, or the summon key or inbox shortcut, gives it the keyboard.
 - **A hover-opened panel is a glance** (`rail.hover.panel_close_ms`, 317 ms, f707→f726): once the pointer has left both the rail and the panel for that long, it closes, unless a click made it the user's.
+- **A click elsewhere puts the rail's panels away**, however they opened: the inbox's card or panel, the agents column, a hover preview and a bot's chat (`ClickAway`, `AppCoordinator.closeRailPanels`). They close through their own close paths, so a lent keyboard, `keyMode` and the pointer's claim reset as on esc, and a click in another app leaves the keyboard with that app.
+  - **What counts as elsewhere:** another app's window, or another Lasso window (an agent's window, the herdr window, Settings, the New Agent form). A click on the rail (whose buttons keep their toggle), on one of those panels, on a menu or popover over one, or on a window one owns, keeps them.
+  - **How it is heard:** a global mouse-down monitor (left, right and other buttons; mouse events need no Accessibility) for other apps, and a local one for Lasso's own windows. Both run only while such a panel is open (`ClickAwayWatch`).
+  - **Nothing typed is lost.** A card's unsent reply is kept under its agent and comes back with that agent's next card or preview (`CardController.drafts`); a bot chat's draft stays in its model; a rename in place commits on the click, as Finder's does.
+  - **Opening the herdr window** (the rail's terminal button, **T**, a header's button) puts the same panels away first, so it comes up alone.
+  - **Agent windows, Settings and the New Agent form are untouched:** they stay open and visible, keep their level and their place over full-screen apps and across Spaces.
 - **The rail hides** 370 ms after the pointer leaves (`rail.hover.close_ms`, f959→f981).
 - **Panels fade in over 117 ms, ease-out, sliding 4.5 pt away from the rail**, and fade out over 67 ms (`motion.card_open`, f662–669; `motion.card_close`, f726–730). This replaces the brief's 70 ms.
 - **Not taken:**
