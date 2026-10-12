@@ -64,6 +64,14 @@ type HostInfo struct {
 	// however many times the button is pressed. Only restarting that host's
 	// herdr server picks the new binary up.
 	Stale bool `json:"stale,omitempty"`
+	// Sessions is the host's `herdr session list`, read in the same ssh round
+	// trip as the status (herdrsessions.go). Current marks the one Socket is.
+	// SessionsErr says why there is no roster when the host answered but could
+	// not list (an older herdr, say); a host that never answered has neither.
+	// MCP's list_hosts and machine_list serve them; /api/hosts does not (the
+	// Mac app's contract pins its shape, and no client of it reads them).
+	Sessions    []HerdrSession `json:"-"`
+	SessionsErr string         `json:"-"`
 }
 
 // hostsPayload is the body served at GET /api/hosts. Probing reports whether any
@@ -258,8 +266,9 @@ const (
 )
 
 // probeHost asks a host whether it has a compatible herdr server running by
-// running `herdr status server --json` over ssh. BatchMode makes hosts that
-// would prompt (password / unknown key) fail fast rather than hang.
+// running `herdr status server --json` over ssh, and lists its herdr sessions
+// in the same round trip (herdrProbeCmd). BatchMode makes hosts that would
+// prompt (password / unknown key) fail fast rather than hang.
 func probeHost(ctx context.Context, alias string, wantProto int) HostInfo {
 	hi := HostInfo{Alias: alias}
 	cctx, cancel := context.WithTimeout(ctx, hostProbeTimeout)
@@ -273,9 +282,13 @@ func probeHost(ctx context.Context, alias string, wantProto int) HostInfo {
 		"-o", "ClearAllForwardings=yes",
 		"-o", "ConnectTimeout="+probeConnectTimeout,
 		"-o", "StrictHostKeyChecking=accept-new",
-		alias, remoteHerdrShell("herdr status server --json"))
+		alias, remoteHerdrShell(herdrProbeCmd))
 	cmd.WaitDelay = probeWaitDelay
-	out, err := cmd.Output()
+	raw, err := cmd.Output()
+	// The marker only prints once the remote shell is running, so finding it
+	// proves the host answered whatever the exit code says: the code is the
+	// roster command's, not the status command's.
+	out, sessionsOut, marked := splitProbeOutput(raw)
 	if err != nil {
 		ee, isExit := err.(*exec.ExitError)
 		stderr := ""
@@ -294,9 +307,10 @@ func probeHost(ctx context.Context, alias string, wantProto int) HostInfo {
 			return hi
 		}
 		// ssh itself failed to connect (exit 255), or the process couldn't run at
-		// all → unreachable. Any other exit code means the remote ran the command
-		// (e.g. exit 127 "herdr: command not found") → reachable but no herdr.
-		if !isExit || ee.ExitCode() == 255 {
+		// all → unreachable. A marker in the output, or any other exit code, means
+		// the remote ran the command (e.g. exit 127 "herdr: command not found") →
+		// reachable but no herdr.
+		if !marked && (!isExit || ee.ExitCode() == 255) {
 			hi.Err = "unreachable"
 			if stderr != "" {
 				hi.Err = stderr
@@ -314,7 +328,7 @@ func probeHost(ctx context.Context, alias string, wantProto int) HostInfo {
 		// Non-zero exit but JSON on stdout (e.g. server stopped): fall through.
 	}
 	hi.Reachable = true
-	return herdrStatusInfo(hi, out, wantProto)
+	return probeSessions(herdrStatusInfo(hi, out, wantProto), sessionsOut)
 }
 
 // herdrStatusInfo reads `herdr status server --json` into a probed host's row:
@@ -384,6 +398,12 @@ var hostStore struct {
 	sweep   chan struct{}          // non-nil while a sweep runs; closed when it ends
 	at      time.Time              // when the last sweep COMPLETED
 	backoff map[string]hostBackoff // alias -> when an unreachable host is next probed
+	// local is lasso's own box's herdr session roster, refreshed by each sweep
+	// beside the remote probes so list_hosts reads it rather than running herdr.
+	local struct {
+		sessions []HerdrSession
+		err      string
+	}
 }
 
 // hostBackoff spaces out probes of a host that keeps failing to answer.
@@ -594,8 +614,20 @@ func runSweep(ctx context.Context, done chan struct{}, honorBackoff bool) {
 	}
 	rwg.Wait()
 
-	// Phase 2 — probe. Each result is published the moment it lands.
+	// Phase 2 — probe. Each result is published the moment it lands. The local
+	// roster rides along: it is a local exec, no ssh, so it takes no probe slot.
 	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		sessions, err := listLocalSessionsFn(ctx)
+		hostStore.mu.Lock()
+		hostStore.local.sessions, hostStore.local.err = sessions, ""
+		if err != nil {
+			hostStore.local.err = err.Error()
+		}
+		hostStore.mu.Unlock()
+	}()
 	sem := make(chan struct{}, hostProbeConcurrency)
 	now := time.Now()
 	for _, alias := range aliases {
@@ -695,6 +727,14 @@ func startHostRefresher() {
 			}
 		}()
 	})
+}
+
+// localSessions returns the last local herdr session roster, or why there is
+// none. Never blocks on herdr.
+func localSessions() ([]HerdrSession, string) {
+	hostStore.mu.Lock()
+	defer hostStore.mu.Unlock()
+	return hostStore.local.sessions, hostStore.local.err
 }
 
 // findHost returns the cached HostInfo for alias, if present.

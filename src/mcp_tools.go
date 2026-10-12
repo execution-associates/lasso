@@ -38,7 +38,7 @@ import (
 func registerMCPTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_hosts",
-		Description: "List the hosts lasso can drive (" + mcpLocalDesc() + " plus reachable, protocol-compatible SSH hosts). These are the ONLY hosts whose agents you can see or manage: an agent reaches agents on its own box and on hosts with an alias in lasso's ssh config, and nothing else — and if your credential is scoped to a single host, that host is the only row you get — a host that is absent here is refused by the other tools rather than answered from lasso's records. Use the returned `host` as the `host` argument of the other tools; omit `host` to target your own host. Answers immediately from lasso's background host probe, so it may be a PARTIAL picture: an entry with state \"probing\" has not finished being probed and one with state \"timeout\" did not answer in time — neither means the host is down, so call again in a second or two (or with refresh:true) instead of reporting those hosts as unavailable. Top-level `probing:true` says at least one entry is still filling in.",
+		Description: "List the hosts lasso can drive (" + mcpLocalDesc() + " plus reachable, protocol-compatible SSH hosts). These are the ONLY hosts whose agents you can see or manage: an agent reaches agents on its own box and on hosts with an alias in lasso's ssh config, and nothing else — and if your credential is scoped to a single host, that host is the only row you get — a host that is absent here is refused by the other tools rather than answered from lasso's records. Use the returned `host` as the `host` argument of the other tools; omit `host` to target your own host. Answers immediately from lasso's background host probe, so it may be a PARTIAL picture: an entry with state \"probing\" has not finished being probed and one with state \"timeout\" did not answer in time — neither means the host is down, so call again in a second or two (or with refresh:true) instead of reporting those hosts as unavailable. Top-level `probing:true` says at least one entry is still filling in. Each entry's `sessions` lists that host's herdr sessions (`herdr session list`; each session is its own herdr server, with its own workspaces, panes and agents), and `current:true` marks the one lasso drives there — the session every host-taking tool acts on. `sessions_error` says why a host that answered has no roster.",
 	}, listHostsTool)
 
 	addHostTool(s, &mcp.Tool{
@@ -531,6 +531,11 @@ type hostEntry struct {
 	State string `json:"state,omitempty"`
 	// Err is the probe's failure detail, when there is one.
 	Err string `json:"err,omitempty"`
+	// Sessions is the host's herdr sessions (`herdr session list`), each its own
+	// server; current marks the one lasso drives there. SessionsErr says why a
+	// host that answered has no roster.
+	Sessions    []HerdrSession `json:"sessions,omitempty"`
+	SessionsErr string         `json:"sessions_error,omitempty"`
 }
 
 type listHostsOut struct {
@@ -559,9 +564,11 @@ func listHostsTool(ctx context.Context, req *mcp.CallToolRequest, in listHostsIn
 	// not address would only invite refusals — and the fleet's shape is not its
 	// business either.
 	if cs.allows("local") {
+		sessions, sessionsErr := localSessions()
 		out.Hosts = append(out.Hosts, hostEntry{
 			Host: mcpHostName("local"), Label: localHostname(), Reachable: true,
 			Running: true, Compatible: true, Version: ver,
+			Sessions: sessions, SessionsErr: sessionsErr,
 		})
 	}
 	for _, h := range hosts {
@@ -572,6 +579,7 @@ func listHostsTool(ctx context.Context, req *mcp.CallToolRequest, in listHostsIn
 			Host: h.Alias, Label: h.Alias, Reachable: h.Reachable,
 			Running: h.Running, Compatible: h.Compatible, Version: h.Version,
 			State: h.State, Err: h.Err,
+			Sessions: h.Sessions, SessionsErr: h.SessionsErr,
 		})
 	}
 	return nil, out, nil

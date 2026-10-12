@@ -18,6 +18,7 @@ func resetHostStore(t *testing.T) {
 	hostStore.sweep = nil
 	hostStore.at = time.Time{}
 	hostStore.backoff = nil
+	hostStore.local.sessions, hostStore.local.err = nil, ""
 	hostStore.mu.Unlock()
 }
 
