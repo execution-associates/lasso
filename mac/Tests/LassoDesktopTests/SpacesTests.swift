@@ -21,6 +21,9 @@ import Testing
     return AppCoordinator(fleet: fleet, sync: nil, fixture: nil)
 }
 
+/// A page an agent opened for the human: the browser banner's offer.
+private let pageOffer = BrowserOpen(profile: "default", tab_id: "T1", url: "https://example.com/", from: "olivia")
+
 /// Run the main run loop for `seconds`, or until `done`.
 @MainActor private func wait(_ seconds: Double, until done: () -> Bool = { false }) async {
     let end = Date().addingTimeInterval(seconds)
@@ -143,10 +146,14 @@ import Testing
     app.hoverOpen(.agents)
     app.railActivated(.inbox, byPointer: true)
     app.openSettings()
+    app.browserOpened(pageOffer)
     await wait(0.3)
     app.closeRailPanels()
     app.closeSettings()
-    await wait(1) { !app.card.panel.isVisible && !app.list.panel.isVisible && !app.settingsWindow.isVisible }
+    app.dismissBrowserOffer()
+    await wait(1) {
+        !app.card.panel.isVisible && !app.list.panel.isVisible && !app.settingsWindow.isVisible && !app.banner.panel.isVisible
+    }
 
     // The herdr window: full screen, then closed in it.
     let herdr = NSWindow(
@@ -172,6 +179,7 @@ import Testing
     defer {
         app.closeRailPanels()
         app.closeSettings()
+        app.dismissBrowserOffer()
         app.rail.panel.orderOut(nil)
     }
     if wentFullScreen {
@@ -183,6 +191,8 @@ import Testing
         app.closeRailPanels()
         app.hoverOpen(.settings)
         #expect(app.settingsWindow.isOnActiveSpace, "settings")
+        app.browserOpened(pageOffer)
+        #expect(app.banner.panel.isOnActiveSpace, "the browser banner")
         #expect(app.rail.panel.isOnActiveSpace, "the rail")
     }
     await browser.quit()
@@ -209,6 +219,7 @@ import Testing
     for (i, w) in app.railWindows.dropFirst().enumerated() { check(w, "pop-out \(i)", level: .statusBar) }
     #expect(app.railWindows.count >= 7)
     check(app.settingsWindow, "settings", level: .statusBar)
+    check(app.banner.panel, "the browser banner", level: .statusBar)
     // Windows the user arranges float at the floating level.
     check(form.panel, "the New form", level: .floating)
     let p = HostPane(
@@ -232,13 +243,14 @@ import Testing
         RailPanel.onActiveSpace = seam
         app.closeRailPanels()
         app.closeSettings()
+        app.dismissBrowserOffer()
     }
-    func expectReplaced(_ old: RailPanel, by new: RailPanel, content: NSView?, _ name: String) {
+    func expectReplaced(_ old: RailPanel, by new: RailPanel, content: NSView?, keys: Bool = true, _ name: String) {
         #expect(new !== old && !old.isVisible && new.isVisible, "\(name)")
         #expect(new.contentView === content && content != nil, "\(name): its content moved over")
         #expect(new.level == old.level && new.collectionBehavior == old.collectionBehavior, "\(name)")
         #expect(new.frame == old.frame && new.hasShadow == old.hasShadow, "\(name)")
-        #expect(new.onKey != nil, "\(name): its keys came along")
+        if keys { #expect(new.onKey != nil, "\(name): its keys came along") }
     }
 
     // The agents column, by hover: the hover maps the pointer through the new panel.
@@ -276,6 +288,16 @@ import Testing
     app.openSettings(takeKey: false)
     expectReplaced(settings, by: app.settingsWindow as! RailPanel, content: settingsContent, "settings")
     app.closeSettings()
+
+    // The browser banner (no keys of its own): still never key.
+    let banner = app.banner.panel
+    let bannerContent = banner.contentView
+    pinned.insert(ObjectIdentifier(banner))
+    app.browserOpened(pageOffer)
+    expectReplaced(banner, by: app.banner.panel, content: bannerContent, keys: false, "the browser banner")
+    #expect(!app.banner.panel.canBecomeKey && !app.banner.panel.isKeyWindow)
+    app.dismissBrowserOffer()
+    #expect(!app.banner.panel.isVisible)
 
     // An agent's window keeps its kind, its level and ⌘W.
     let p = HostPane(

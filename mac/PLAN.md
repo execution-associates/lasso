@@ -560,7 +560,7 @@ The colours are the Execution Associates palette as isb's web app applies it (`i
 
 The user reshaped the app:
 
-- **The rail, top to bottom:** the **inbox** (what waits on the human: blocked agents, agents that finished unseen and aren't dismissed, bots waiting on an answer, and bots with an unread reply), the agents capsule (the **agents** list), the **Bots** button while lasso has bots (§23), the **terminal** (§22), the **+** (the New form, §20) and the ellipsis (**settings**). The tools capsule is gone.
+- **The rail, top to bottom:** the **inbox** (what waits on the human: blocked agents, agents that finished unseen and aren't dismissed, bots waiting on an answer, and bots with an unread reply), the agents capsule (the **agents** list), the **Bots** button while lasso has bots (§23), the **terminal** (§22), the **Browser** button (§24), the **+** (the New form, §20) and the ellipsis (**settings**). The tools capsule is gone.
 - **Voice is removed for now.** The capture, transcription and recording UI are gone, along with the V binding, the microphone permission and every voice and recording token. `/api/transcribe` (S2) and bot-send `meta` (S3) stay on the server, unused by the app. The voice code is in git history (`mac: M6 and M7 …`).
 - **"Bot", never "assistant", and no default bot.** The app has no single bot of its own; that will come later. A bot's chat opens from the inbox, or from its pane in the agents list. The default-bot setting and its Create button are gone, from the app and from the server (ui_state `default_bot` was removed before release). So brief B.5's "ensure the app's bot exists" is deferred.
 - **Agents are grouped by herdr workspace and named by their label, else their tab name** (herdr.dev/docs/agents, "custom agent labels").
@@ -944,7 +944,7 @@ The Mac launches agents and terminals the way lasso's web New dialog does (`src/
 - **⌥⇧O** for an agent in a repository, **⌃⇧O** for a scratch agent and **⌥⇧I** for a terminal (the web's ⌘I), from any app. ⌘⇧I is taken in many apps (Safari's Mail This Page), and ⌥I alone is a dead key. The user's rule is at most three keys, never four.
 - Shift keeps ⌃O for terminals (Claude Code's transcript view, nano's save, vim's jump back, the shell) and ⌥O for typing "ø". ⌥⇧O no longer types "Ø" while it is set.
 - **⌘O, ⌘⇧O and ⌘I** do the same while a Lasso window has the keyboard, as in the web app. They are never system-wide, because ⌘O is every app's File › Open.
-- The rail has a **+** button ("New…") under the terminal (§22) and above the ellipsis, and the agents list a **New** button that opens the same form. The **+** opens the form on a click only: hovering lights it but does not open it, because the form takes the keyboard.
+- The rail has a **+** button ("New…") under the Browser button (§24) and above the ellipsis, and the agents list a **New** button that opens the same form. The **+** opens the form on a click only: hovering lights it but does not open it, because the form takes the keyboard.
 - Each chip opens its menu inside the form, toward the side with room (a system popover from a floating panel can land half off screen). Long lists (repositories, branches, a big fleet) and the model have a filter that takes the typing, like the web app's combobox; ↑/↓ move and ⏎ picks. The model's suggestions are a hint, as in the web's EditableCombobox: a typed name no suggestion has is offered first as Use “<name>”.
 
 All four system-wide shortcuts (inbox, new agent, new scratch agent, new terminal) are `ShortcutSlot`s, each stored on its own and recorded the same way.
@@ -1062,9 +1062,9 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
 
 ## 22. lasso's herdr in a window
 
-**The rail's terminal button** (under the Bots button, or the agents, and above the **+**, `rail.terminal`) opens lasso's herdr in a window of its own. Like the **+**, it opens on a click only, because the terminal takes the keyboard. **Every agent's header** has a terminal button too: the agent window's (beside minimize, `agent.herdr`) and the inbox card's (beside close, `card.herdr`), with **T** as its key. It focuses that agent's pane and shows the window. A blocked agent's **Focus in herdr** opens the window the same way. There is one window: a second open brings it forward.
+**The rail's terminal button** (under the Bots button, or the agents, and above the Browser button, `rail.terminal`) opens lasso's herdr in a window of its own. Like the **+**, it opens on a click only, because the terminal takes the keyboard. **Every agent's header** has a terminal button too: the agent window's (beside minimize, `agent.herdr`) and the inbox card's (beside close, `card.herdr`), with **T** as its key. It focuses that agent's pane and shows the window. A blocked agent's **Focus in herdr** opens the window the same way. There is one window: a second open brings it forward.
 
-**The window is lasso's own web terminal**, ttyd's document under `/terminal/<slug>/`, the page the web app frames. It runs in a WKWebView whose page never reaches the network itself (`Terminal/TerminalBridge.swift`):
+**The window is lasso's own web terminal**, ttyd's document under `/terminal/<slug>/`, the page the web app frames. It runs in a WKWebView whose page never reaches the network itself. This is how every lasso page runs in the app (`Page/LassoPage.swift`, shared with the Browser window, §24); `Terminal/TerminalBridge.swift` adds the terminal's part:
 - **Its document and its `token` fetch** come through the `lasso-terminal:` URL scheme. The app answers each one with a request through its `LassoClient`, carrying the same credentials as every API call.
 - **Its WebSocket** is a stand-in, injected before ttyd's script, that hands every frame to a native `URLSessionWebSocketTask`. That task carries the same headers on its upgrade.
 - **Both are confined to the one terminal** the window shows. Any other path is refused, so the page cannot reach `/api/file` with this Mac's sign-in.
@@ -1091,7 +1091,9 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
 - A key, a pointer or the window taking focus claims the size (`/api/term-claim`), renewed at most every `live.term_claim` (15 s).
 - While another client holds the size, the page's resize frames are held and the last one goes when the size is free or ours. A size taken before layout settles (under 20×4) is never sent.
 
-**Right-clicks are herdr's.** WebKit's context menu (Reload, Inspect Element, Copy) never opens in the window. The page script cancels the `contextmenu` event and nothing else, so a right button's press and release reach xterm, and through its mouse reporting herdr, as in a browser tab. A Control-click is a right-click, as everywhere on the Mac: the script swallows its left-button press and release and hands xterm the right button's instead. `TerminalWebView.willOpenMenu` empties the menu for a click the page did not see (one before it loaded). ⌘C and ⌘V are key equivalents and unaffected.
+**Right-clicks are herdr's.** WebKit's context menu (Reload, Inspect Element, Copy) never opens in the window. The page script cancels the `contextmenu` event and nothing else, so a right button's press and release reach xterm, and through its mouse reporting herdr, as in a browser tab. A Control-click is a right-click, as everywhere on the Mac: the script swallows its left-button press and release and hands xterm the right button's instead. `LassoPageWebView.willOpenMenu` empties the menu for a click the page did not see (one before it loaded). ⌘C and ⌘V are key equivalents and unaffected.
+- **Checked on minime** (macOS 27.0.1, 2026-10-12), with clicks posted through the window server into the app's own window: a right-click reaches ttyd 1.7.7's page as the right button's press and release, xterm reports both (`ESC[<2;col;rowM`, then `…m`), and herdr 0.9.3 opens its pane menu (Rename pane … Close pane). A Control-click does the same, and so does a right-click while the app is in the background. No WebKit menu tracks. `rightClicksInTheHerdrWindowReachHerdr` pins the app's half of this (window, page script, native socket) against a stand-in page and ttyd.
+- A pane whose herdr menu has **Send right-clicks to pane** on hands its right-clicks to the program in it whenever that program reads the mouse, so herdr shows no menu there. That is herdr's setting, the same in a browser tab.
 
 **A new terminal** from the New form's Terminal mode (§20) opens the window on its host and pane, as an agent's header button does.
 
@@ -1136,3 +1138,28 @@ lasso's bots get a place of their own on the rail, following the web app's Bots 
 
 **Parity states:** `bots-column`, `bot-window` (an omp bot holding an approval, with a long model name: close stays 16 pt from the edge, the terminal button 80), `bot-window-stopped` (the terminal button drawn, dimmed) and `bot-preview` (clicked, holding a reply). `rail-expanded`'s fixture has an asking, a working, an idle and a stopped bot, so the rail draws the Bots button with a red dot.
 
+## 24. lasso's browsers in a window
+
+The web Browser tab's **Agent** view, in a window of its own: the rail's Browser button (`globe`, between the terminal and the **+**, `rail.browser`) opens it on a click. It shows one of the connected lasso's browsers at a time (lasso's own Chromium, or a remote one lasso dials, `docs/design/shared-browser.md`). There is no Iframe view and no mode switch.
+
+**The window** (`Browser/BrowserWindow.swift`) persists until it is closed (⌘W, or its close button), remembers its frame (`LassoBrowser`) and starts at `browser.window`. Like the herdr window it is an ordinary window that activates the app and can go full screen, and opening it puts the rail's pop-outs away first.
+- **Its bar** is native: the title and the **browser picker**, a menu of the browsers `GET /api/browser` lists for this lasso, each with its open pages counted. The pick is remembered (UserDefaults `browserProfile`); one lasso no longer has gives way to its default.
+- **Below it is lasso's page** `/desktop-browser.html` (`src/web/src/desktop/browser-window.tsx`): the web tab's `LiveBrowser` and nothing else of the web app. Its toolbar (back, forward, reload, the port-or-URL field, **↗** open in the Mac's browser), its page tabs (✕ closes one, **+** opens one) and its live view are the web tab's own: a CDP screencast with clicks, scrolling and typing forwarded to the real browser. A page an agent asked to show is selected.
+- **It streams only while it is in view.** Closing or hiding the window hides the page, which stops the screencast and closes its socket, as the web tab does, so lasso's idle stop still fires.
+
+**How the page runs.** It is a lasso page (§22's machinery, `Page/LassoPage.swift`) under the `lasso-browser:` scheme (`Browser/BrowserPage.swift`). Its requests go through the app's `LassoClient`, with its credentials, and its websockets are native tasks.
+- **What it may reach:** its document, the build's `/assets/` files (one level, no escapes), and `/api/browser` (read, and POSTed to start a stopped browser). Its sockets go only to `/cdp` and `/cdp/p/<id>` (ids as lasso makes them). `/api/browser/profiles`, `/api/file` and every other route are refused.
+- **`cdpOriginAllowed`** passes the native socket, which carries no Origin (lasso's rule for a client that is not a web page). `/cdp`'s gate then takes the app's credentials as it takes an agent's: UI_AUTH basic, or under `MCP_OAUTH` the app's lasso token with `local` reach.
+- **The bar and the page talk** through `window.__lassoBrowser` (`select(id)`, `show({profile, tab_id, url, from})`). The page says `ready` once mounted, and the window hands over what came before it.
+
+**When an agent opens a page for the human** (`open_browser_tab`, `show_browser_tab`: lasso's `browser-open` event on the app's stream, `FleetSync.onBrowserOpen`):
+- **With the Browser window in view**, the page is selected there, as the web tab does. The window is not raised and the keyboard stays where it is.
+- **Otherwise nothing opens.** The rail's Browser button **pulses** (`rail.browser.pulse`: an accent ring on its rim, breathing) and a **banner** comes up beside the rail (`Browser/BrowserBanner.swift`): "<agent> opened a page for you", the page's host and path, **Dismiss** and **Open**. The banner's panel never becomes key, and it is a rail pop-out: shown through `RailPanel.orderIn` (§16, "Spaces"), on the Space the user is on, another app's full screen included, and replaced (as a `BannerPanel`) when macOS pinned it elsewhere. It goes by itself after `browser.banner`'s linger.
+- **Open**, or a click on the pulsing button, opens the window on that browser and that page. **Dismiss** stops the pulse and leaves the page open in the browser. A pulse whose banner went unanswered stops once the rail has been opened and closed again (`BrowserAttention`). A newer page replaces an older one.
+
+**Parity:** `browser-window` (the bar over the opening status: the page itself comes from a live lasso), `browser-banner`, `rail-browser-pulse` (drawn still at its brightest), and `rail.browser` rows in `rail-expanded`.
+
+**Not yet verified live** (it needs an install on a Mac, and minime's app belongs to another session):
+- The real `/desktop-browser.html` and its module scripts loading over the custom scheme, and the screencast's frame rate through the native socket.
+- `/cdp` through Cloudflare Access with the app's bearer token, and under `MCP_OAUTH`.
+- Typing, paste and the page tabs against a browser an agent is using at the same time.
