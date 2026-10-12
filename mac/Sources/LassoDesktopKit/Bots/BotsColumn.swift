@@ -188,6 +188,7 @@ public final class BotsController {
     var isKey: Bool { panel.isKeyWindow }
 
     func open(takeKey: Bool) {
+        if !presence.shown { model.freezeOrder() }
         panel.setFrameOrigin(originBesideRail(railFrame(), size: Theme.List.size.size))
         front(takeKey)
         withAnimationToken(Theme.Motion.cardOpen) { presence.shown = true }
@@ -215,6 +216,7 @@ public final class BotsController {
             try? await Task.sleep(nanoseconds: UInt64(delay * 1e9) + 20_000_000)
             guard let self, !self.presence.shown else { return }
             self.panel.orderOut(nil)
+            self.model.thawOrder()
         }
     }
 

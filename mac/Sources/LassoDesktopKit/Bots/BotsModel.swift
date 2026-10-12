@@ -212,7 +212,21 @@ public final class BotsListModel: ObservableObject, HoverColumn {
         self.now = now
     }
 
-    public var bots: [BotView] { BotStanding.ordered(fleet.bots) }
+    /// The row order held while the column is open. Not published: held
+    /// as the column opens, it is the order already drawn, and a redraw then
+    /// lays the rows out before the column's scroll view exists, where the
+    /// hover cannot map the pointer to them.
+    public private(set) var held = FrozenOrder()
+
+    public var bots: [BotView] { held.apply(BotStanding.ordered(fleet.bots), key: \.name) }
+
+    /// Hold the rows where they are now, until `thawOrder`.
+    public func freezeOrder() { held.freeze(BotStanding.ordered(fleet.bots).map(\.name)) }
+    /// Back to the live order, drawn while the column is away.
+    public func thawOrder() {
+        held.thaw()
+        objectWillChange.send()
+    }
 
     /// J/K (and ↑/↓) move the selection.
     public func move(_ delta: Int) {

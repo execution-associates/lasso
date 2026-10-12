@@ -50,6 +50,11 @@ public final class ListModel: ObservableObject, HoverColumn {
     /// The agent being renamed in place, and the name being typed.
     @Published public private(set) var renaming: String?
     @Published public var renameDraft = ""
+    /// The row order held while the column is open. Not published: held
+    /// as the column opens, it is the order already drawn, and a redraw then
+    /// lays the rows out before the column's scroll view exists, where the
+    /// hover cannot map the pointer to them.
+    public private(set) var held = FrozenOrder()
 
     public let fleet: FleetModel
     public let actions: FleetActions
@@ -72,8 +77,16 @@ public final class ListModel: ObservableObject, HoverColumn {
         return pinnedKeys.compactMap { byKey[$0] }
     }
 
+    /// Hold the rows where they are now, until `thawOrder`.
+    public func freezeOrder() { held.freeze(fleet.agents.map(\.key)) }
+    /// Back to the live order, drawn while the column is away.
+    public func thawOrder() {
+        held.thaw()
+        objectWillChange.send()
+    }
+
     public var groups: [FleetGroup] {
-        let agents = fleet.agents
+        let agents = held.apply(fleet.agents, key: \.key)
         let machines = Set(agents.map(\.host)).count > 1
         var order: [String] = []
         var byID: [String: FleetGroup] = [:]
