@@ -5,7 +5,7 @@ import Security
 /// (constraint 4). Generic passwords under one service; read at the moment
 /// of use. Values are never logged.
 public enum Keychain {
-    public static let service = "com.orangecountyai.LassoDesktop"
+    public static let service = "com.orangecountyai.Lasso"
 
     public enum Account: String, CaseIterable, Sendable {
         /// "user:pass" for a lasso behind UI_AUTH.

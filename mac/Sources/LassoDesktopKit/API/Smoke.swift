@@ -1,6 +1,6 @@
 import Foundation
 
-/// `LassoDesktop --smoke [seconds]`: read-only checks against the configured
+/// `Lasso --smoke [seconds]`: read-only checks against the configured
 /// lasso. Every request is a GET; nothing here changes the user's machine. It
 /// reports shapes and counts, never content (no pane titles, no chat text).
 public enum Smoke {

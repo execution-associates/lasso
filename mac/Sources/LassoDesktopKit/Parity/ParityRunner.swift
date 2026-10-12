@@ -2,7 +2,7 @@ import AppKit
 import ApplicationServices
 import SwiftUI
 
-/// `LassoDesktop --parity <state,...|all> --out <dir> [--spec <dir>]`: render
+/// `Lasso --parity <state,...|all> --out <dir> [--spec <dir>]`: render
 /// each named state from its fixture, measure it against tokens.json, write
 /// the screenshots and a report, and exit non-zero on any failure. Runs the
 /// shipped views; fixtures make every action a no-op.

@@ -17,7 +17,7 @@ import { NOTIFICATION_EVENT } from "@/lib/notify"
 import { useUIState } from "@/lib/ui-state"
 
 // The Inbox: what waits on the human, across lasso's claude and omp agents.
-// The rules are LassoDesktop's (mac/PLAN.md §13), so the Mac and the phone
+// The rules are the Mac app's (mac/PLAN.md §13), so the Mac and the phone
 // agree on what is waiting; only the presentation differs.
 //
 // Order: asks, then blocked with no choices, then finished turns, then

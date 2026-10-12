@@ -68,7 +68,7 @@ public enum NotifyDevice {
         return id
     }
 
-    public static var label: String { "LassoDesktop on \(Host.current().localizedName ?? "this Mac")" }
+    public static var label: String { "Lasso on \(Host.current().localizedName ?? "this Mac")" }
 
     struct Write: Encodable {
         var id: String

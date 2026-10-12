@@ -13,7 +13,14 @@ import {
   languageExtension,
 } from "@/lib/codemirror"
 import { changedNewLines } from "@/lib/diff"
-import { isHtml, isImage, isMarkdown, isPdf, isVideo } from "@/lib/format"
+import {
+  isAudio,
+  isHtml,
+  isImage,
+  isMarkdown,
+  isPdf,
+  isVideo,
+} from "@/lib/format"
 import { useDiff } from "@/lib/git"
 import { HTML_PREVIEW_SANDBOX, htmlPreviewDoc } from "@/lib/html-preview"
 
@@ -74,16 +81,17 @@ export function FileViewer({
   const image = isImage(path)
   const pdf = isPdf(path)
   const video = isVideo(path)
+  const audio = isAudio(path)
   const markdown = isMarkdown(path)
   const html = isHtml(path)
   // Text files with a rendered form: they open rendered, and toggle into the
   // raw editor to make changes.
   const previewable = markdown || html
-  // Binary previews (images, PDFs, videos) render straight from the file URL —
-  // no text is fetched and there's nothing to edit or save. The Go handler
-  // serves these via http.ServeContent, which honors Range requests so the
-  // browser can seek/stream video.
-  const binary = image || pdf || video
+  // Binary previews (images, PDFs, video, audio) render straight from the file
+  // URL — no text is fetched and there's nothing to edit or save. The Go
+  // handler serves these via http.ServeContent, which honors Range requests so
+  // the browser can seek/stream video and audio.
+  const binary = image || pdf || video || audio
   // Consumed once, by the initial load below; after that the editor owns the
   // buffer and a reload means the file (or its host) actually changed.
   const carry = React.useRef(initialDraft ?? null)
@@ -400,6 +408,12 @@ export function FileViewer({
             <video src={mediaURL} controls>
               <track kind="captions" />
             </video>
+          </div>
+        ) : audio ? (
+          <div className="vaudio">
+            <audio src={mediaURL} controls>
+              <track kind="captions" />
+            </audio>
           </div>
         ) : error ? (
           <div className="vloading">error: {error}</div>

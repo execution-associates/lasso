@@ -121,7 +121,7 @@ public enum InboxShortcutChoice: Equatable, Sendable {
 /// What a system-wide shortcut does. Each is the user's to change (Settings ›
 /// Shortcuts) and works from any app, so none may be a combination every app
 /// already uses (⌘O is File › Open nearly everywhere; ⌘O itself works only
-/// while a LassoDesktop window has the keyboard).
+/// while a Lasso window has the keyboard).
 public enum ShortcutSlot: String, CaseIterable, Sendable {
     case inbox, newAgent, newScratch
 

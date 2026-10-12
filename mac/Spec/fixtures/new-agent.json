@@ -1,5 +1,5 @@
 {
-  "about": "The New Agent form (⌥⇧O from anywhere, ⌘O in a LassoDesktop window): in a repository or scratch, the prompt whose first line names it, the repository and base branch, the agent, model and thinking, the machine, plan-first, and Create (⌘⏎).",
+  "about": "The New Agent form (⌥⇧O from anywhere, ⌘O in a Lasso window): in a repository or scratch, the prompt whose first line names it, the repository and base branch, the agent, model and thinking, the machine, plan-first, and Create (⌘⏎).",
   "state": "new-agent",
   "extends": "rail-expanded",
   "ui": {

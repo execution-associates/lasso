@@ -58,7 +58,7 @@ public enum InboxSound {
 public enum CustomSound {
     static var dir: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("LassoDesktop/Sounds", isDirectory: true)
+            .appendingPathComponent("Lasso/Sounds", isDirectory: true)
     }
 
     /// The cached file, named by its hash.

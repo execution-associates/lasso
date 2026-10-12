@@ -148,6 +148,35 @@ private func settle(_ m: FirstRunModel) async {
         #expect(m.connected?.address == "127.0.0.1:8090")
     }
 
+    /// A lasso older than 7.0.0 on this Mac is not taken: the field shows.
+    @Test func anOldLassoOnThisMacIsSkipped() async {
+        let log = Log()
+        let m = model(log, answers: false) { url, _ in url == FirstRunModel.localLasso ? .tooOld("lasso 2.13.0") : .unreachable("x") }
+        await m.begin()
+        #expect(m.step == .connect)
+        #expect(log.used.isEmpty)
+    }
+
+    /// Connecting to one by hand says why, and what to do.
+    @Test func anOldLassoIsRefusedWithAReason() async {
+        let log = Log()
+        let c = connector(log) { _, _ in .tooOld("lasso 2.13.0") }
+        let r = await c.connect("127.0.0.1:8090")
+        guard case .failed(let why) = r else { Issue.record("connected to a lasso too old"); return }
+        #expect(why.contains("lasso 2.13.0") && why.contains("7.0.0 or later") && why.contains("lasso update"))
+        #expect(log.used.isEmpty)
+    }
+
+    @Test func releasesAreComparedByNumber() {
+        func v(_ s: String) -> VersionInfo { VersionInfo(lasso_protocol: 22, lasso_version: s, compatible: true) }
+        #expect(LassoCompat.supports(v("7.0.0 (6ab86064a6df)")))
+        #expect(LassoCompat.supports(v("7.0.1")) && LassoCompat.supports(v("10.0.0")) && LassoCompat.supports(v("7.1.0 (dev)")))
+        #expect(!LassoCompat.supports(v("6.4.0 (dev)")) && !LassoCompat.supports(v("2.13.0")))
+        #expect(LassoCompat.supports(v("dev")))
+        #expect(LassoChoice(url: "http://127.0.0.1:8090", version: v("2.13.0 (dev)")).detail
+            == "lasso 2.13.0, too old: needs 7.0.0 or later · 127.0.0.1:8090")
+    }
+
     @Test func nothingAnsweringShowsTheField() async {
         let log = Log()
         let m = model(log, answers: false) { _, _ in .unreachable("Could not connect to the server.") }

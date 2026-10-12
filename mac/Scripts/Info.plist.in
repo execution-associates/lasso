@@ -3,15 +3,15 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>com.orangecountyai.LassoDesktop</string>
+	<string>com.orangecountyai.Lasso</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleName</key>
-	<string>LassoDesktop</string>
+	<string>Lasso</string>
 	<key>CFBundleDisplayName</key>
 	<string>Lasso</string>
 	<key>CFBundleExecutable</key>
-	<string>LassoDesktop</string>
+	<string>Lasso</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

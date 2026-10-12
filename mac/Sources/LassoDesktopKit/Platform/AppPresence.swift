@@ -95,7 +95,7 @@ public final class AppPresence: NSObject {
         m.addItem(action("New Agent…", #selector(doNewAgent)))
         m.addItem(action("Settings…", #selector(doOpenSettings)))
         m.addItem(.separator())
-        m.addItem(NSMenuItem(title: "Quit LassoDesktop", action: #selector(NSApplication.terminate(_:)), keyEquivalent: ""))
+        m.addItem(NSMenuItem(title: "Quit Lasso", action: #selector(NSApplication.terminate(_:)), keyEquivalent: ""))
         return m
     }
 
@@ -103,11 +103,11 @@ public final class AppPresence: NSObject {
 
     private func mainMenu() -> NSMenu {
         let main = NSMenu()
-        let app = NSMenu(title: "LassoDesktop")
+        let app = NSMenu(title: "Lasso")
         app.addItem(action("Settings…", #selector(doOpenSettings), key: ","))
         app.addItem(.separator())
-        app.addItem(NSMenuItem(title: "Hide LassoDesktop", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
-        app.addItem(NSMenuItem(title: "Quit LassoDesktop", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        app.addItem(NSMenuItem(title: "Hide Lasso", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
+        app.addItem(NSMenuItem(title: "Quit Lasso", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         let edit = NSMenu(title: "Edit")
         for (title, sel, key) in [
             ("Undo", Selector(("undo:")), "z"), ("Redo", Selector(("redo:")), "Z"), ("Cut", #selector(NSText.cut(_:)), "x"),

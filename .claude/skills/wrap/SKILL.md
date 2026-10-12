@@ -323,7 +323,7 @@ Don't proceed to update against a missing/failed release.
 
 ## 6b. Publish the Mac app to the release
 
-LassoDesktop, the Mac app, ships with every lasso release: its DMG and Sparkle
+Lasso, the Mac app, ships with every lasso release: its DMG and Sparkle
 `appcast.xml` are assets of the release, and every installed app checks
 `releases/latest/download/appcast.xml` for updates. **A release without them
 silently stops every Mac from updating**, because it becomes the newest release

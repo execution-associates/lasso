@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Build a LassoDesktop release on minime: Developer ID signed, notarized,
+# Build a release of Lasso, the Mac app, on minime: Developer ID signed, notarized,
 # stapled, in a DMG, with the Sparkle appcast that announces it.
 #
 #   Scripts/release.sh <version>        # lasso's version, e.g. 6.5.0
 #
-# Writes dist/LassoDesktop-<version>.dmg and dist/appcast.xml. Scripts/publish.sh
+# Writes dist/Lasso-<version>.dmg and dist/appcast.xml. Scripts/publish.sh
 # runs it from titan and attaches both to lasso's GitHub release v<version>, so
 # the app's feed, .../releases/latest/download/appcast.xml, names the newest.
 #
@@ -16,7 +16,7 @@
 #   ASC_KEY_ID_SECRET, ASC_ISSUER_SECRET, ASC_KEY_P8_SECRET   App Store Connect API key (notarization)
 #   SPARKLE_KEY_SECRET                          the EdDSA private key updates are signed with
 # The certificate and notary key are Recap's (same Developer ID, JF4UNR89NW);
-# the update key is LassoDesktop's own. Sparkle's public key is committed in
+# the update key is the Mac app's own. Sparkle's public key is committed in
 # Scripts/sparkle-public-key.txt.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -24,7 +24,7 @@ cd "$(dirname "$0")/.."
 VERSION="${1:?usage: Scripts/release.sh <version>}"
 REPO="execution-associates/lasso"
 FEED="https://github.com/$REPO/releases/latest/download/appcast.xml"
-DMG_NAME="LassoDesktop-$VERSION.dmg"
+DMG_NAME="Lasso-$VERSION.dmg"
 DMG_URL="https://github.com/$REPO/releases/download/v$VERSION/$DMG_NAME"
 
 SIGN_P12_SECRET="${SIGN_P12_SECRET:-RECAP_SIGN_P12_B64}"
@@ -65,7 +65,7 @@ IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | sed -n 's/.*"
 # 2. Build and sign: hardened runtime, timestamps, the feed and its key.
 LASSO_DESKTOP_VERSION="$VERSION" SIGN_IDENTITY="$IDENTITY" SIGN_KEYCHAIN="$KEYCHAIN" \
   SPARKLE_FEED="$FEED" SPARKLE_ED_KEY="$ED_PUBLIC" Scripts/build-app.sh release
-APP="dist/LassoDesktop.app"
+APP="dist/Lasso.app"
 
 # 3. Notarize the app and staple the ticket to it.
 fnox get "$ASC_KEY_P8_SECRET" >"$WORK/AuthKey.p8"
@@ -77,7 +77,7 @@ xcrun stapler staple "$APP"
 # 4. The DMG: the app and an Applications link; signed, notarized, stapled.
 STAGE="$WORK/dmg"
 mkdir -p "$STAGE"
-ditto "$APP" "$STAGE/LassoDesktop.app"
+ditto "$APP" "$STAGE/Lasso.app"
 ln -s /Applications "$STAGE/Applications"
 rm -f "dist/$DMG_NAME"
 hdiutil create -volname "Lasso" -srcfolder "$STAGE" -ov -format UDZO -quiet "dist/$DMG_NAME"
@@ -95,10 +95,10 @@ cat >dist/appcast.xml <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
   <channel>
-    <title>LassoDesktop</title>
+    <title>Lasso</title>
     <link>$FEED</link>
     <item>
-      <title>LassoDesktop $VERSION</title>
+      <title>Lasso $VERSION</title>
       <link>https://github.com/$REPO/releases/tag/v$VERSION</link>
       <sparkle:version>$VERSION</sparkle:version>
       <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>

@@ -25,8 +25,12 @@ public struct LassoChoice: Identifiable, Equatable, Sendable, Codable {
     public var detail: String {
         let here = URL(string: url).map(LassoConnector.shown) ?? url
         guard let v = version else { return "Not answering · \(here)" }
+        guard supported else { return "\(Self.release(v)), too old: needs \(LassoCompat.minimumText) or later · \(here)" }
         return "\(Self.release(v)) · \(here)"
     }
+
+    /// It answered, and is a lasso this app can use.
+    public var supported: Bool { version.map(LassoCompat.supports) ?? false }
 
     /// "lasso 6.4.0": the release number, never a build's "(dev)" tag.
     public static func release(_ v: VersionInfo) -> String {

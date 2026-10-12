@@ -205,7 +205,7 @@ trap 'kill "$backend" "$tailpid" 2>/dev/null; rm -f "$logf"' EXIT
 
 echo "lasso (dev): backend on 127.0.0.1:$port · Vite UI in this worktree's dev container, URL printed below (frontend hot reload ON)"
 echo "edit anything under src/web/src and the browser hot-reloads; restart this task for Go changes."
-echo "LassoDesktop: mac/Scripts/dev.sh use dev points the Mac app at this backend (use prod to go back)."
+echo "Mac app: mac/Scripts/dev.sh use dev points it at this backend (use prod to go back)."
 ./scripts/container-dev-web.sh "$port" "$dns"
 '''
 

@@ -18,7 +18,7 @@
       "url": "http://127.0.0.1:18090",
       "version": {
         "lasso_protocol": 22,
-        "lasso_version": "6.3.0 (fixture)",
+        "lasso_version": "7.0.0 (fixture)",
         "herdr_protocol": 22,
         "herdr_version": "0.9.3",
         "compatible": true,
@@ -31,7 +31,7 @@
       "url": "http://127.0.0.1:18191",
       "version": {
         "lasso_protocol": 22,
-        "lasso_version": "6.4.0-dev (fixture)",
+        "lasso_version": "7.0.0-dev (fixture)",
         "herdr_protocol": 22,
         "herdr_version": "0.9.3",
         "compatible": true,
@@ -78,7 +78,7 @@
     ],
     "device": {
       "id": "mac-fixture0000000",
-      "label": "LassoDesktop on minime",
+      "label": "Lasso on minime",
       "wants": {
         "agent_finished": true
       }

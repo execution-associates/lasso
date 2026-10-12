@@ -21,7 +21,7 @@ lasso keeps its own state in one directory and one SQLite database. Beyond that 
 | `prompts/<agent-id>.md` | The initial prompt staged for an agent, removed when lasso closes that agent. |
 | `plugins/<name>/` | Installed and hand-placed plugins, each with a `plugin.json`. `plugins/.staging/` holds GitHub installs being previewed. `plugins/.runner.lock` is held by the one lasso that runs this directory's plugin MCP servers, and names its pid and listen address. |
 | `plugin-data/<name>/` | Each plugin's one writable directory (mode 0700). Survives uninstall unless you purge it. |
-| `desktop/sound` | The inbox arrival sound uploaded for LassoDesktop (mode 0600, in a 0700 directory), served at `/api/desktop/sound` to every Mac using this lasso. Its name, SHA-256, size and type are `desktop_sound` in the `ui_state` setting. |
+| `desktop/sound` | The inbox arrival sound uploaded for the Mac app (mode 0600, in a 0700 directory), served at `/api/desktop/sound` to every Mac using this lasso. Its name, SHA-256, size and type are `desktop_sound` in the `ui_state` setting. |
 | `omarchy/themes/<name>/` | Omarchy themes installed from a git URL in Settings. |
 | `browser-profile/` | The default browser's Chromium data directory (mode 0700): cookies, logins, and a `lasso-browser.pid`. Two lasso instances cannot share it. |
 | `browser-profiles/<id>/` | The data directory of each other browser, by id. |

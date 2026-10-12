@@ -1,8 +1,8 @@
-# LassoDesktop — plan
+# Lasso, the Mac app — plan
 
 A native macOS client for a running lasso: a rail on the screen edge for the fleet, a card per agent, and a chat
 with a lasso bot (the assistant), with speech-to-text input. This document is the plan; the brief it answers is
-the LassoDesktop brief (plan mode, 2026-10-11). The spec the harness asserts against is `mac/Spec/tokens.json`;
+the Mac app brief (plan mode, 2026-10-11). The spec the harness asserts against is `mac/Spec/tokens.json`;
 `mac/Spec/fixtures/rail-expanded.json` sketches how a named state is produced from the server's own JSON shapes.
 
 ## Facts this plan rests on (checked 2026-10-11)
@@ -23,10 +23,10 @@ the LassoDesktop brief (plan mode, 2026-10-11). The spec the harness asserts aga
 |---|---|---|
 | Optional bearer token for a remote lasso | Whatever the lasso's network proves (§18): nothing on loopback or the tailnet, a bearer token from the network's OAuth server behind Cloudflare Access or with `MCP_OAUTH`, UI_AUTH basic for an older install, and an Access service token for an unattended Mac. All come from the Keychain. | A host-scoped MCP credential must not reach the whole UI API, which has no `requireHost` checks. So the token is the device's own sign-in, never a copied MCP token (the lasso-auth design). |
 | Ad-hoc `codesign` | Sign with a self-signed identity in a dedicated keychain on minime. Ad-hoc is only the fallback for a fresh Mac and prints a warning. | TCC keys grants on the designated requirement. An ad-hoc cdhash changes every build. |
-| `dist/LassoDesktop.app`, `dist/parity/` | `mac/dist/…` | The repo-root `dist/` is the release workflow's output (`dist/lasso-*`). |
+| `dist/Lasso.app`, `dist/parity/` | `mac/dist/…` | The repo-root `dist/` is the release workflow's output (`dist/lasso-*`). |
 | Mac's `127.0.0.1:8090` | The app defaults to `http://127.0.0.1:8090` as the brief says. On minime, the dev script points it at our own tunnel on `127.0.0.1:18090`. | `jessica-triage`'s mux holds 8090 on minime, and binding over it would fail `ExitOnForwardFailure`. |
 | Frameworks: SwiftUI, AppKit, Foundation, AVFoundation, CoreGraphics only | The rule is **no third-party code**. Other Apple frameworks are allowed: Combine (`@Published`), Security (Keychain, required by constraint 4), ScreenCaptureKit (`S` attach), ApplicationServices (`AXIsProcessTrusted`), Carbon (`RegisterEventHotKey`, optional summon key). CoreML and Accelerate come later, for on-device ASR. | Constraints 3 and 4 can't be met with the brief's list. |
-| One executable target | One executable `LassoDesktop` plus a library `LassoDesktopKit` and a test target | The harness is `LassoDesktop --parity`, the same shipped binary, so parity measures the real code. |
+| One executable target | One executable `Lasso` plus a library `LassoDesktopKit` and a test target (`LassoDesktopTests`) | The harness is `Lasso --parity`, the same shipped binary, so parity measures the real code. |
 | No third-party code | Sparkle, for updates, is the one exception (the user asked for it). Only the executable target links it; the kit, its tests and the parity harness do not. | Updates need a signed feed and an installer, and Sparkle is the standard one. Recap already ships it the same way. |
 
 ## 1. Scope
@@ -201,7 +201,7 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 - **`V` push-to-talk**:
   - Hold `V` to record; release to transcribe.
   - A tap (<250 ms) records hands-free until the VAD ends the turn.
-  - `V` works when LassoDesktop is key. A global push-to-talk is optional and is the only thing the Accessibility permission gates.
+  - `V` works when Lasso is key. A global push-to-talk is optional and is the only thing the Accessibility permission gates.
 - **Microphone permission**: `AVCaptureDevice.authorizationStatus(for: .audio)`. The request happens only from onboarding or the first `V`. Denied means the record glyph is disabled with a label explaining why. `NSMicrophoneUsageDescription` goes in `Info.plist`.
 - **Encoding**: WAV PCM16, 16 kHz mono, in memory only (32 kB/s, so 120 s ≈ 3.84 MB). Nothing is written to disk.
 - **The transcript goes to the bot as a normal user message**: `POST /api/bots/<name>/chat/send` with `meta` once S3 lands.
@@ -218,7 +218,7 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 | **Parakeet** (*later*) | Never leaves the Mac | CoreML encoder, Accelerate mel front end, TDT greedy decoder, vocab, all written in-house; weights (~0.6 B params) downloaded once with consent into Application Support, checksum-pinned | none | none |
 
 **Keys**
-- Keychain generic passwords under service `com.orangecountyai.LassoDesktop`, accounts `groq`, `openai`, `ui-auth`, `cf-access-id`, `cf-access-secret`.
+- Keychain generic passwords under service `com.orangecountyai.Lasso`, accounts `groq`, `openai`, `ui-auth`, `cf-access-id`, `cf-access-secret`.
 - A key is read only at the moment of use, never written to UserDefaults, and settings show only "set ✓".
 
 **Logging**
@@ -272,7 +272,7 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 
 ### 5.1 Producing states deterministically
 
-- `LassoDesktop --parity <state|all> --out <dir>` runs the shipped binary in parity mode.
+- `Lasso --parity <state|all> --out <dir>` runs the shipped binary in parity mode.
 - **`FixtureSource`** implements the same `LassoAPI` protocol as `LiveSource`:
   - It decodes `mac/Spec/fixtures/<state>.json`, in the server's JSON shapes, through the same `Codable` models.
   - Every action is a recorded no-op, so the harness *cannot* cause a side effect.
@@ -460,19 +460,19 @@ mac/Scripts/dev.sh doctor     # swift version, display scale, tunnel, identity, 
 mac/Scripts/dev.sh run        # sync → build → install → relaunch
 #   sync:     rsync -a --delete --exclude .build --exclude dist mac/ minime:src/lasso-desktop/mac/
 #   build:    ssh minime 'cd ~/src/lasso-desktop/mac && Scripts/build-app.sh release'
-#             (swift build -c release --arch arm64 → mac/dist/LassoDesktop.app,
+#             (swift build -c release --arch arm64 → mac/dist/Lasso.app,
 #              Info.plist, codesign -s "LassoDesktop Dev (minime)" --keychain …)
-#   install:  ditto mac/dist/LassoDesktop.app ~/Applications/LassoDesktop.app
-#             defaults write com.orangecountyai.LassoDesktop baseURL http://127.0.0.1:18090
-#             (first time) launchctl bootstrap gui/501 ~/Library/LaunchAgents/com.orangecountyai.LassoDesktop.plist
-#   relaunch: launchctl kickstart -k gui/501/com.orangecountyai.LassoDesktop
-mac/Scripts/dev.sh parity [states]   # sync → build → kickstart the …LassoDesktop.parity agent →
+#   install:  ditto mac/dist/Lasso.app ~/Applications/Lasso.app
+#             defaults write com.orangecountyai.Lasso baseURL http://127.0.0.1:18090
+#             (first time) launchctl bootstrap gui/501 ~/Library/LaunchAgents/com.orangecountyai.Lasso.plist
+#   relaunch: launchctl kickstart -k gui/501/com.orangecountyai.Lasso
+mac/Scripts/dev.sh parity [states]   # sync → build → kickstart the …Lasso.parity agent →
                                      # wait for report.json (timeout 120 s) → rsync results back → exit with its code
-mac/Scripts/dev.sh logs       # tail ~/Library/Logs/LassoDesktop.log (never holds secrets or transcripts)
+mac/Scripts/dev.sh logs       # tail ~/Library/Logs/Lasso.log (never holds secrets or transcripts)
 ```
 
 **LaunchAgent plist**
-- `ProgramArguments` = the bundle's `Contents/MacOS/LassoDesktop`
+- `ProgramArguments` = the bundle's `Contents/MacOS/Lasso`
 - `LimitLoadToSessionType` = `Aqua`
 - `RunAtLoad` = true
 - `KeepAlive` = `{SuccessfulExit: false}`
@@ -799,7 +799,7 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 A Mac uses one lasso. Settings has three tabs, each laid out as macOS's grouped settings are: titled groups, each a rounded card of rows split by hairlines, a row's name and why on the left and its control on the right (switches for on/off), footnotes under a group. The tabs carry icons, and the chosen one is lifted onto its own pill.
 - **Notifications:** the arrival sound and Notify me about.
 - **Shortcuts:** opening the inbox, the new-agent shortcuts, and Accessibility, which only the double-tap shortcut needs.
-- **Info:** first the lasso, named by the machine it runs on ("titan"), with its release number (never a build's `(dev)` tag), the address this Mac reaches it at, sign-in, herdr's version, how many machines it drives, and **Advanced Settings**, which opens the lasso's web app at `/?open=settings` (its sidebar on Settings › General, read once on load) in the default browser. **Change…** opens the address field for moving to another lasso (§18); it stays closed otherwise. A sign-out opens Settings here, and so does opening Settings while no lasso answers. Then the app: its version and Check for updates, **Show in the Dock** (the app turns regular, with a menu bar of Settings… ⌘, and Quit ⌘Q; clicking the Dock icon opens the inbox), **Show in the menu bar** (the EXA monogram as a template image, `Resources/Brand/monogram-template*`, with the inbox's count, and Open Inbox, New Agent…, Settings…, Quit), both off by default and applied at once (`AppPresence`, UserDefaults `showInDock`/`showInMenuBar`), and **Quit LassoDesktop**, which lasts until the next login: the launch agent restarts the app only after a crash.
+- **Info:** first the lasso, named by the machine it runs on ("titan"), with its release number (never a build's `(dev)` tag), the address this Mac reaches it at, sign-in, herdr's version, how many machines it drives, and **Advanced Settings**, which opens the lasso's web app at `/?open=settings` (its sidebar on Settings › General, read once on load) in the default browser. **Change…** opens the address field for moving to another lasso (§18); it stays closed otherwise. A sign-out opens Settings here, and so does opening Settings while no lasso answers. Then the app: its version and Check for updates, **Show in the Dock** (the app turns regular, with a menu bar of Settings… ⌘, and Quit ⌘Q; clicking the Dock icon opens the inbox), **Show in the menu bar** (the EXA monogram as a template image, `Resources/Brand/monogram-template*`, with the inbox's count, and Open Inbox, New Agent…, Settings…, Quit), both off by default and applied at once (`AppPresence`, UserDefaults `showInDock`/`showInMenuBar`), and **Quit Lasso**, which lasts until the next login: the launch agent restarts the app only after a crash.
 - **Switching is in place.** Every live action shares one `LassoClient`. `FleetSync.retarget` repoints it, empties the fleet, restarts the event stream and refills from the new lasso, and the choice is remembered. Open panels close, since they belonged to the old lasso.
 - **From titan:** `mac/Scripts/dev.sh use dev` finds the `mise run dev` backend (this worktree's, else the first on 8190–8199), checks it answers through the tunnel and relaunches the app on it. `use prod` goes back, and `use PORT` picks one.
 - **The tunnel** (`lasso-desktop-tunnel.service`) forwards minime's 18190–18199 to titan's 8190–8199, so a dev lasso that bumped past 8190 is still reachable.
@@ -810,7 +810,7 @@ A Mac uses one lasso. Settings has three tabs, each laid out as macOS's grouped 
 
 The first launch shows the **first-run panel** (`Onboarding/`), never Settings. It comes back on any later launch while this Mac has never had an answer from a lasso (UserDefaults `connectedOnce`, set by `FleetSync` on its first good fleet read) and the configured lasso does not answer. It is a `RailPanel` at the floating level, centred high on the screen and moved by dragging its header, like the New Agent form. Every number is `onboarding.layout`; the heading is `font.display`.
 - **Checking:** before showing a field it asks, quietly, the configured lasso through the live client (credentials and all), then lasso's own port on this Mac (`127.0.0.1:8090`) anonymously. One that answers is used and the panel goes straight to step 3; on a later launch it then does not show at all.
-- **Step 1, Connect:** the app's icon over a soft glow, "Connect LassoDesktop to your lasso", one address field with the keyboard, and Connect (⏎). Under it, three kinds of place a lasso runs, each with an example address a click puts in the field: on your tailnet (no sign-in), behind Cloudflare Access (you sign in in your browser), on this Mac. A failure says why under the field and keeps the address.
+- **Step 1, Connect:** the app's icon over a soft glow, "Connect this Mac to your lasso", one address field with the keyboard, and Connect (⏎). Under it, three kinds of place a lasso runs, each with an example address a click puts in the field: on your tailnet (no sign-in), behind Cloudflare Access (you sign in in your browser), on this Mac. A failure says why under the field and keeps the address.
 - **Step 2, only when asked:** a browser sign-in shows "Finish signing in in the window that opened" with Cancel, which closes the sign-in window. A UI_AUTH lasso shows a user and password form (⏎ in the user field moves to the password), checked before it is kept (§18).
 - **Step 3, Connected:** "Connected to <machine>" (the local pane's `host_label`, else `/api/hosts`' hostname), its release and address, then three tips: the inbox, the + (with the scratch shortcut) and the ellipsis. Each shortcut shows as a keycap read from `ShortcutSlot` as set now, and an Off shortcut shows none. **Open Settings** and **Done** (⏎) end the first run for good (UserDefaults `onboarded`).
 - **esc** puts the panel away. Before step 3 that leaves `onboarded` unset; at step 3 it is Done.
@@ -851,13 +851,13 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
   - The shortcut opens the inbox with the keyboard in it; pressed again while the inbox has the keyboard, it closes it.
 - **Arrival sound**, in Settings › Inbox (UserDefaults `inboxSound`, default Whoosh):
   - Three bundled sounds made with ElevenLabs on fal: Whoosh, Marimba and Lasso (`mac/Resources/Sounds/README.md` has the prompts). They are levelled to a −4 dBFS peak, and choosing one plays it.
-  - **Your own sound:** Upload picks an audio file (at most 1 MB) and stores it on lasso: `PUT /api/desktop/sound` keeps the file at `<lassoDir>/desktop/sound`, typed by its bytes, and ui_state's server-owned `desktop_sound` names it with its sha256. Every Mac on that lasso gets it. The app caches the file in `~/Library/Application Support/LassoDesktop/Sounds/custom-<sha256>` and downloads it only when the record's hash differs from the cached one, so playing it never touches the network. Remove deletes it from lasso. Until the cache has it, the custom choice plays Whoosh.
+  - **Your own sound:** Upload picks an audio file (at most 1 MB) and stores it on lasso: `PUT /api/desktop/sound` keeps the file at `<lassoDir>/desktop/sound`, typed by its bytes, and ui_state's server-owned `desktop_sound` names it with its sha256. Every Mac on that lasso gets it. The app caches the file in `~/Library/Application Support/Lasso/Sounds/custom-<sha256>` and downloads it only when the record's hash differs from the cached one, so playing it never touches the network. Remove deletes it from lasso. Until the cache has it, the custom choice plays Whoosh.
   - It plays when the inbox holds an item, a new turn or a new question it did not hold before (`InboxItem.arrivalKey`). The first reading is a baseline, and arrivals within 2 s make one sound (`live.arrival_sound`).
 - **Settings footer**: the Execution Associates lockup as isb ships it (`Resources/Brand`), tinted like secondary text, linking to execution.associates.
 - **App icon**: the EXA monogram, exactly as `exa/brand-assets/logo/exa-mark-white.png` draws it, on a macOS icon plate in the rail's ink gradient (`Resources/AppIcon.png`). `build-app.sh` packs `AppIcon.icns`.
 
 - **Notifications by kind** (the server side is on branch `lasso-notify-kinds`, `docs/design/notifications.md` there):
-  - The Mac is one device. It has a stable id (UserDefaults `notifyDevice`, `mac-` plus 16 characters) and registers as "LassoDesktop on <Mac name>".
+  - The Mac is one device. It has a stable id (UserDefaults `notifyDevice`, `mac-` plus 16 characters) and registers as "Lasso on <Mac name>".
   - Settings › Inbox lists **Notify me about** from the server's catalog (`GET /api/notify?device=`), and each On/Off is written per kind (`POST /api/notify/device`).
   - The arrival sound plays only for a kind this Mac wants. Each arrival maps to a kind:
     - a waiting entry is `agent_blocked`
@@ -898,7 +898,7 @@ The Mac launches agents the way lasso's web New dialog does (`src/web/src/compon
 **Shortcuts** are configurable in Settings › New agents, like the inbox's:
 - **⌥⇧O** for an agent in a repository and **⌃⇧O** for a scratch agent, from any app. The user's rule is at most three keys, never four.
 - Shift keeps ⌃O for terminals (Claude Code's transcript view, nano's save, vim's jump back, the shell) and ⌥O for typing "ø". ⌥⇧O no longer types "Ø" while it is set.
-- **⌘O and ⌘⇧O** do the same while a LassoDesktop window has the keyboard, as in the web app. They are never system-wide, because ⌘O is every app's File › Open.
+- **⌘O and ⌘⇧O** do the same while a Lasso window has the keyboard, as in the web app. They are never system-wide, because ⌘O is every app's File › Open.
 - The rail has a **+** button above the ellipsis, and the agents list a **New agent** button. The **+** opens the form on a click only: hovering lights it but does not open it, because the form takes the keyboard.
 - Each chip opens its menu inside the form, toward the side with room (a system popover from a floating panel can land half off screen). Long lists (repositories, branches, a big fleet) and the model have a filter that takes the typing, like the web app's combobox; ↑/↓ move and ⏎ picks. The model's suggestions are a hint, as in the web's EditableCombobox: a typed name no suggestion has is offered first as Use “<name>”.
 
@@ -907,6 +907,8 @@ All three system-wide shortcuts (inbox, new agent, new scratch agent) are `Short
 ## 18. Signing in to a lasso
 
 The app uses one lasso at a time and reaches it by address (`API/Auth.swift`, `API/LassoClient.swift`, Settings › lasso). This is step 8 of the lasso-auth design. The server's side is on branch `lasso-auth`.
+
+**The app needs lasso 7.0.0 or later** (`LassoCompat.minimum`). The anonymous probe of `/api/version` compares the release at the front of `lasso_version` and answers `tooOld` for an older one, so Connect refuses it with the reason, the first run's look at `127.0.0.1:8090` passes it over, and a configured lasso that is older does not count as answering; a version with no release number passes. Behind a sign-in the probe cannot see the version, so Settings › Info shows it after: "lasso 2.13.0, too old: needs 7.0.0 or later", with a red dot. The version is re-read every minute, not once, so a first read that lost a race with sign-in, or a lasso updated under the app, does not leave a stale "Not answering".
 
 **Settings › Info's Change… and the first-run panel share one connector** (`Settings/LassoConnector.swift`), so they behave and word their answers the same. A bare hostname means `https://`, and `127.*`, `localhost` and bare IP addresses (a tailnet's 100.x) mean `http://`; a bare hostname nothing answers over https is asked once over http, since a tailnet listener often speaks plain http. Connect asks `GET /api/version` with no credential, sending `X-Requested-With: XMLHttpRequest`, which is Cloudflare's way of getting a clean 401 rather than a login redirect.
 - **200:** nothing to send. The address is loopback, or a tailnet listener that knows the device by Tailscale whois. The app switches to it.
@@ -937,7 +939,7 @@ Both are step 2 of the auth plan: `~/.lasso/worktrees/lasso/lasso-auth-notes/ste
 
 ## 21. Releases and updates (Sparkle)
 
-LassoDesktop ships with every lasso release, at lasso's version, as assets on lasso's GitHub release. The app's feed is `https://github.com/execution-associates/lasso/releases/latest/download/appcast.xml`, so it always names the newest release.
+Lasso, the Mac app, ships with every lasso release, at lasso's version, as assets on lasso's GitHub release. The app's feed is `https://github.com/execution-associates/lasso/releases/latest/download/appcast.xml`, so it always names the newest release.
 
 **Build** (`Scripts/build-app.sh`):
 - Bundles `Sparkle.framework` from SwiftPM's artifacts. The rpath is set in `Package.swift`.
@@ -951,14 +953,14 @@ LassoDesktop ships with every lasso release, at lasso's version, as assets on la
    - Import the Developer ID .p12 from fnox into a throwaway keychain.
    - Build with hardened runtime and timestamps.
    - Notarize and staple the app with an App Store Connect API key.
-   - Make a DMG (the app and an Applications link), then sign, notarize and staple it.
+   - Make `Lasso-<version>.dmg` (volume "Lasso": `Lasso.app` and an Applications link), then sign, notarize and staple it.
    - Run Sparkle's `sign_update` (it ships in SwiftPM's Sparkle artifact) and write a one-item `appcast.xml`.
 3. Copies the DMG and appcast back to `mac/dist/release/`.
-4. Attaches them to the release with `gh`. `--no-upload` stops before this step.
+4. Attaches them to the release with `gh`, the DMG also as `Lasso.dmg`, so `releases/latest/download/Lasso.dmg` is a stable download link. The appcast names the versioned DMG. `--no-upload` stops before this step.
 
 **Credentials:**
 - The certificate and notary key are Recap's, the same Developer ID `JF4UNR89NW`, read from minime's fnox: `RECAP_SIGN_P12_B64`, `RECAP_SIGN_P12_PASSWORD`, `RECAP_ASC_*`.
-- The EdDSA update key is LassoDesktop's own:
+- The EdDSA update key is the Mac app's own:
   - Private half: 1Password `titan/global` field `LASSO_DESKTOP_SPARKLE_PRIVATE_KEY`, and minime's global fnox under the same name.
   - Public half: committed as `Scripts/sparkle-public-key.txt`.
 - fnox on minime decrypts with the Mac's ssh key (`FNOX_AGE_KEY_FILE`). In fnox 1.26, `fnox set -d` with a piped value stores only the description, so set the value without `-d`.
@@ -986,7 +988,7 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
   - An image renders inline; a click opens it in its app.
   - Audio gets a play button; video gets AVKit's inline player.
   - Anything else is a chip that opens the file.
-  - The bytes come through `/api/file` (`download=1`) from the host that served the transcript. They are cached in `~/Library/Caches/LassoDesktop/Media` per path and showing, since an agent may overwrite a file in place.
+  - The bytes come through `/api/file` (`download=1`) from the host that served the transcript. They are cached in `~/Library/Caches/Lasso/Media` per path and showing, since an agent may overwrite a file in place.
 - **Choices need a confirm.** A click (or 1–9) only selects a choice; the selected one shows **Answer**, and that button (or →) sends it. An answer cannot be taken back, and the preview appears under a moving pointer.
 - **No header menu:** the window's header is minimize and close. X X kills from the keyboard.
 - The composer's paperclip (A) attaches any files: each goes through `/api/paste-file` to the agent's machine and its path into the message.

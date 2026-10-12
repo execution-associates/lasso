@@ -1,7 +1,7 @@
 import AppKit
 import os
 
-let log = Logger(subsystem: "com.orangecountyai.LassoDesktop", category: "app")
+let log = Logger(subsystem: "com.orangecountyai.Lasso", category: "app")
 
 /// Starts either the app (the rail on the screen edge) or, with --parity,
 /// the conformance harness, which exits when it is done.

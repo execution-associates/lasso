@@ -38,8 +38,8 @@ you**.
   Inbox of what is waiting on you, answered with a tap or by dictation; the
   full UI is a switch away, with a radial dial for Esc/Ctrl-C/Tab/arrows and
   photo upload straight to the agent's host.
-- **A Mac app.** LassoDesktop keeps that Inbox on the edge of your screen, with
-  a window per agent and a shortcut to start one from anywhere.
+- **A Mac app.** Lasso for the Mac keeps that Inbox on the edge of your
+  screen, with a window per agent and a shortcut to start one from anywhere.
 - **It tells you when an agent is stuck.** Web Push to a locked phone when an
   agent blocks on an approval or a question, on any host. Each device picks
   what may interrupt it.
@@ -65,7 +65,7 @@ you**.
       <a href="docs/web-ui/terminal.md#the-herdr-terminal">The herdr terminal →</a>
     </td>
     <td width="33%" align="center" valign="top">
-      <a href="docs/assets/readme/desktop.webp"><img src="docs/assets/readme/desktop.webp" alt="LassoDesktop on a Mac: the edge rail with the inbox's count, the inbox card answering an agent's question, and an agent's own window rendering its Markdown reply"></a><br>
+      <a href="docs/assets/readme/desktop.webp"><img src="docs/assets/readme/desktop.webp" alt="Lasso, the Mac app: the edge rail with the inbox's count, the inbox card answering an agent's question, and an agent's own window rendering its Markdown reply"></a><br>
       <b>The Mac app: an edge rail, an inbox of what's waiting, agent windows</b><br>
       <a href="docs/getting-started/desktop.md">Mac app →</a> ·
       <a href="docs/getting-started/desktop.md#using-it">the Inbox</a>
@@ -157,7 +157,7 @@ lasso connect
 
 ### The Mac app
 
-[Download LassoDesktop](https://github.com/execution-associates/lasso/releases/latest/download/LassoDesktop.dmg)
+[Download Lasso for the Mac](https://github.com/execution-associates/lasso/releases/latest/download/Lasso.dmg)
 for a Mac with Apple silicon on macOS 14 or later, and drag it onto
 Applications. It keeps lasso's Inbox on the edge of your screen and connects to
 a lasso you already run, on the same Mac or another machine: first launch asks

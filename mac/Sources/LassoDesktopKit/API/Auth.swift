@@ -20,6 +20,31 @@ public enum LassoAccess: Equatable, Sendable {
     case password
     /// No answer, or one this app cannot use.
     case unreachable(String)
+    /// A lasso older than this app can use (LassoCompat), by its release.
+    case tooOld(String)
+}
+
+/// The oldest lasso this app works with: 7.0.0 brought the API it reads
+/// (the inbox's routes, notification kinds, sign-in). An older one may still
+/// answer /api/version, so connecting asks its release, not just whether it
+/// answers.
+public enum LassoCompat {
+    public static let minimum = [7, 0, 0]
+    public static var minimumText: String { minimum.map(String.init).joined(separator: ".") }
+
+    /// The release number at the front of lasso_version ("7.0.0 (6ab8…)",
+    /// "6.4.0 (dev)"), nil when there is none.
+    public static func release(_ version: String) -> [Int]? {
+        guard let r = version.range(of: #"^\d+\.\d+\.\d+"#, options: .regularExpression) else { return nil }
+        return version[r].split(separator: ".").compactMap { Int($0) }
+    }
+
+    /// Whether this app can use it. A version with no release number (a
+    /// hand-built binary) gets the benefit of the doubt.
+    public static func supports(_ v: VersionInfo) -> Bool {
+        guard let r = release(v.lasso_version) else { return true }
+        return r.lexicographicallyPrecedes(minimum) == false
+    }
 }
 
 /// The tokens one sign-in gave, kept in the Keychain per lasso.
@@ -78,8 +103,9 @@ public enum LassoAuth {
             let (data, resp) = try await session.data(for: r)
             guard let http = resp as? HTTPURLResponse else { return .unreachable("no HTTP answer") }
             switch http.statusCode {
-            case 200 where (try? JSONDecoder().decode(VersionInfo.self, from: data)) != nil:
-                return .open
+            case 200:
+                guard let v = try? JSONDecoder().decode(VersionInfo.self, from: data) else { return .unreachable("HTTP 200 that is not lasso's") }
+                return LassoCompat.supports(v) ? .open : .tooOld(LassoChoice.release(v))
             case 401, 403:
                 let challenge = http.value(forHTTPHeaderField: "WWW-Authenticate") ?? ""
                 if let m = resourceMetadata(challenge) { return .signIn(resourceMetadata: m) }
@@ -317,7 +343,7 @@ public final class OAuthSignIn: NSObject, ASWebAuthenticationPresentationContext
             throw OAuthError.registration("the sign-in server takes no registrations")
         }
         struct Body: Encodable {
-            var client_name = "LassoDesktop"
+            var client_name = "Lasso"
             var redirect_uris: [String]
             var grant_types = ["authorization_code", "refresh_token"]
             var response_types = ["code"]

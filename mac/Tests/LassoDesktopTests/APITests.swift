@@ -72,9 +72,9 @@ private func golden<T: Decodable>(_ name: String, _ type: T.Type) throws -> T {
 @Test func lassoChoiceNamesTheMachine() throws {
     let v = try JSONDecoder().decode(
         VersionInfo.self,
-        from: Data(#"{"lasso_protocol":1,"lasso_version":"6.4.0 (dev)","compatible":true,"dev":true,"listen":"127.0.0.1:8090"}"#.utf8))
+        from: Data(#"{"lasso_protocol":1,"lasso_version":"7.0.0 (dev)","compatible":true,"dev":true,"listen":"127.0.0.1:8090"}"#.utf8))
     let c = LassoChoice(url: "http://127.0.0.1:18090", version: v, name: "titan")
-    #expect(c.title == "titan" && c.detail == "lasso 6.4.0 · 127.0.0.1:18090")
+    #expect(c.title == "titan" && c.detail == "lasso 7.0.0 · 127.0.0.1:18090")
     #expect(LassoChoice(url: "https://lasso.example.com", version: nil).detail == "Not answering · lasso.example.com")
 }
 

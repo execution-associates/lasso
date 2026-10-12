@@ -1,6 +1,6 @@
 package main
 
-// The inbox arrival sound LassoDesktop plays, uploaded by the human and kept
+// The inbox arrival sound the Mac app plays, uploaded by the human and kept
 // on the server so every Mac using this lasso plays the same one. One file at
 // <lassoDir>/desktop/sound, served at /api/desktop/sound; its metadata rides
 // in ui_state (uiState.DesktopSound), so a client learns of a change through

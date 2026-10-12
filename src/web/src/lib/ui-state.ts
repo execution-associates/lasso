@@ -262,7 +262,7 @@ function mergeLocal(cached: UIState, patch: UIStatePatch): UIState {
 // and needs nothing more from it. It changes nothing on the agent, and the
 // card returns when its moment (`at`) is passed, by a new turn or a new
 // question. Stored in ui_state.dismissed_cards (card_dismiss ops), the field
-// LassoDesktop shares.
+// the Mac app shares.
 export function ackCard(key: string, at: number) {
   patchUIState({ card_dismiss: { [key]: at } })
 }
