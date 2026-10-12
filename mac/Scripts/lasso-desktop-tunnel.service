@@ -1,4 +1,4 @@
-# Reverse tunnel so LassoDesktop on minime reaches titan's lasso.
+# Reverse tunnel so the Mac app (Lasso) on minime reaches titan's lasso.
 # minime 127.0.0.1:18090 -> titan 127.0.0.1:8090 (prod lasso)
 # minime 127.0.0.1:18190-18199 -> titan 127.0.0.1:8190-8199 (dev lassos: `mise run dev`
 #   binds 8190, or the next free port up when another dev lasso holds it)
@@ -14,7 +14,7 @@
 # Install: install -m 0644 mac/Scripts/lasso-desktop-tunnel.service ~/.config/systemd/user/ && systemctl --user daemon-reload
 #          systemctl --user enable --now lasso-desktop-tunnel
 [Unit]
-Description=Reverse tunnel from minime to titan's lasso (LassoDesktop)
+Description=Reverse tunnel from minime to titan's lasso (the Mac app)
 After=network-online.target
 
 [Service]

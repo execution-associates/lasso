@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run ON THE MAC, once: create a self-signed code-signing identity for
-# LassoDesktop in its own keychain. The keychain password arrives on stdin
+# the Mac app in its own keychain. The keychain password arrives on stdin
 # (dev.sh pipes it from `secret LASSO_DESKTOP_SIGNING_KEYCHAIN` on titan).
 #
 # Why: macOS keeps microphone, screen-recording and accessibility grants per

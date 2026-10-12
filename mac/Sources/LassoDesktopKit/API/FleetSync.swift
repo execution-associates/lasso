@@ -2,7 +2,7 @@ import Combine
 import Foundation
 import os
 
-private let syncLog = Logger(subsystem: "com.orangecountyai.LassoDesktop", category: "sync")
+private let syncLog = Logger(subsystem: "com.orangecountyai.Lasso", category: "sync")
 
 /// Keeps a FleetModel in step with a live lasso: the event stream says when
 /// something changed, and a poll floor refetches anyway, so a dead stream

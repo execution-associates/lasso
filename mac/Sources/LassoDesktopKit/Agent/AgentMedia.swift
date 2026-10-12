@@ -20,7 +20,7 @@ public protocol MediaSource: AnyObject, Sendable {
     func local(_ path: String, host: String, version: String) async throws -> URL
 }
 
-/// lasso's /api/file, cached in ~/Library/Caches/LassoDesktop/Media.
+/// lasso's /api/file, cached in ~/Library/Caches/Lasso/Media.
 @MainActor
 public final class LiveMediaSource: MediaSource {
     let client: LassoClient
@@ -30,7 +30,7 @@ public final class LiveMediaSource: MediaSource {
 
     static var dir: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("LassoDesktop/Media", isDirectory: true)
+            .appendingPathComponent("Lasso/Media", isDirectory: true)
     }
 
     public func local(_ path: String, host: String, version: String) async throws -> URL {

@@ -37,7 +37,7 @@ public struct FirstRunView: View {
         }
         .panelChrome(o.size2("size"), anchor: "onboarding")
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Connect LassoDesktop")
+        .accessibilityLabel("Connect Lasso")
         .animation(.easeOut(duration: Theme.Motion.cardOpen.number("duration")), value: model.step)
     }
 
@@ -46,7 +46,7 @@ public struct FirstRunView: View {
     private var title: String {
         switch model.step {
         case .checking: "Looking for your lasso"
-        case .connect: "Connect LassoDesktop to your lasso"
+        case .connect: "Connect this Mac to your lasso"
         case .password: "Sign in to \(model.pending.map(LassoConnector.shown) ?? "lasso")"
         case .signingIn: "Finish signing in in the window that opened"
         case .connected: "Connected to \(model.connected?.name ?? "lasso")"
@@ -58,11 +58,11 @@ public struct FirstRunView: View {
         case .checking:
             "One moment."
         case .connect:
-            "lasso runs your agents on one of your machines. Tell LassoDesktop where it is, and they come to this Mac's screen edge."
+            "lasso runs your agents on one of your machines. Tell this app where it is, and they come to this Mac's screen edge."
         case .password:
             "This lasso asks for the user and password in its UI_AUTH setting. They stay in this Mac's Keychain."
         case .signingIn:
-            "\(model.pending.map(LassoConnector.shown) ?? "lasso") signs you in through your browser. LassoDesktop carries on once you are through."
+            "\(model.pending.map(LassoConnector.shown) ?? "lasso") signs you in through your browser. This app carries on once you are through."
         case .connected:
             [model.connected?.version, model.connected?.address].compactMap { $0 }.joined(separator: " · ")
         }

@@ -78,7 +78,7 @@
     ],
     "device": {
       "id": "mac-fixture0000000",
-      "label": "LassoDesktop on minime",
+      "label": "Lasso on minime",
       "wants": {
         "agent_finished": true
       }

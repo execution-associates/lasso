@@ -70,7 +70,7 @@ public struct ParityRow: Codable, Sendable {
 
 extension Theme {
     /// Theme.all in tokens.json's shape, to seed the spec when the tokens
-    /// are reworked (`LassoDesktop --dump-tokens`). The spec is then edited
+    /// are reworked (`Lasso --dump-tokens`). The spec is then edited
     /// by hand and checked against the code like any other spec.
     public static func dumpTokens() -> Data {
         var out: [String: Any] = [:]

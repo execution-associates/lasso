@@ -96,7 +96,7 @@ public final class AppCoordinator {
             sc.apply(InboxShortcutChoice.stored(slot))
             shortcuts[slot] = sc
         }
-        // ⌘O / ⇧⌘O, as in the web app, while a LassoDesktop window has the
+        // ⌘O / ⇧⌘O, as in the web app, while a Lasso window has the
         // keyboard (never system-wide: every app's File › Open is ⌘O).
         commandO = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
             let mods = e.modifierFlags.intersection([.command, .shift, .option, .control])

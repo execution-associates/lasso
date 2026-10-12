@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run ON TITAN after lasso's release v<version> exists: build, sign and
-# notarize LassoDesktop on the Mac (Scripts/release.sh, over ssh) and attach
-# the DMG and its Sparkle appcast to that release.
+# notarize Lasso, the Mac app, on the Mac (Scripts/release.sh, over ssh) and
+# attach the DMG and its Sparkle appcast to that release.
 #
 #   mac/Scripts/publish.sh [version] [--no-upload]
 #
@@ -34,13 +34,13 @@ ssh "$MAC" "export PATH=/opt/homebrew/bin:\$HOME/.local/share/mise/shims:\$PATH 
 
 OUT="$HERE/dist/release"
 mkdir -p "$OUT"
-rsync -a "$MAC:$REMOTE/dist/LassoDesktop-$VERSION.dmg" "$MAC:$REMOTE/dist/appcast.xml" "$OUT/"
+rsync -a "$MAC:$REMOTE/dist/Lasso-$VERSION.dmg" "$MAC:$REMOTE/dist/appcast.xml" "$OUT/"
 # The same DMG under a name without the version, so the download link the
-# website and README use, releases/latest/download/LassoDesktop.dmg, always
-# reaches the newest one. The appcast names the versioned file.
-cp "$OUT/LassoDesktop-$VERSION.dmg" "$OUT/LassoDesktop.dmg"
+# website and README use, releases/latest/download/Lasso.dmg, always reaches
+# the newest one. The appcast names the versioned file.
+cp "$OUT/Lasso-$VERSION.dmg" "$OUT/Lasso.dmg"
 echo "copied to $OUT"
 if [ "$UPLOAD" = 1 ]; then
-  gh release upload "v$VERSION" "$OUT/LassoDesktop-$VERSION.dmg" "$OUT/LassoDesktop.dmg" "$OUT/appcast.xml" --clobber --repo "$REPO"
+  gh release upload "v$VERSION" "$OUT/Lasso-$VERSION.dmg" "$OUT/Lasso.dmg" "$OUT/appcast.xml" --clobber --repo "$REPO"
   echo "attached to $REPO v$VERSION"
 fi

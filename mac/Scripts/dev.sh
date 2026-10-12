@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run ON TITAN, from anywhere in the repo. Drives LassoDesktop on the Mac:
+# Run ON TITAN, from anywhere in the repo. Drives Lasso, the Mac app, on the Mac:
 #
 #   mac/Scripts/dev.sh doctor          toolchain, display, tunnel, signing identity, agent state
 #   mac/Scripts/dev.sh sync            rsync mac/ to the Mac
@@ -57,9 +57,9 @@ echo "swift:    $(swift --version 2>&1 | head -1)"
 echo "display:  $(system_profiler SPDisplaysDataType 2>/dev/null | awk -F': ' '/UI Looks like/ {print $2; exit}')"
 printf 'tunnel:   '; curl -s -m5 -o /dev/null -w '%{http_code} (127.0.0.1:18090)\n' http://127.0.0.1:18090/api/version || echo down
 printf 'identity: '; security find-identity -p codesigning ~/Library/Keychains/lasso-desktop-signing.keychain-db 2>/dev/null | awk -F'"' '/LassoDesktop Dev/ {print $2; f=1; exit} END {if (!f) print "missing"}'
-printf 'baseURL:  '; defaults read com.orangecountyai.LassoDesktop baseURL 2>/dev/null || echo "(default http://127.0.0.1:8090)"
-case "$(defaults read com.orangecountyai.LassoDesktop baseURL 2>/dev/null)" in *:8090*|"") echo "          WARNING: 8090 on this Mac is another service's tunnel, not ours";; esac
-printf 'agent:    '; launchctl print gui/$(id -u)/com.orangecountyai.LassoDesktop 2>/dev/null | awk '/state =/ {print $3; f=1; exit} END {if (!f) print "not loaded"}'
+printf 'baseURL:  '; defaults read com.orangecountyai.Lasso baseURL 2>/dev/null || echo "(default http://127.0.0.1:8090)"
+case "$(defaults read com.orangecountyai.Lasso baseURL 2>/dev/null)" in *:8090*|"") echo "          WARNING: 8090 on this Mac is another service's tunnel, not ours";; esac
+printf 'agent:    '; launchctl print gui/$(id -u)/com.orangecountyai.Lasso 2>/dev/null | awk '/state =/ {print $3; f=1; exit} END {if (!f) print "not loaded"}'
 DOC
     ;;
   sync) sync ;;
@@ -87,7 +87,7 @@ DOC
     ;;
   smoke)
     sync
-    build_app release >/dev/null && on_mac "${LASSO_BASE_URL:+LASSO_BASE_URL=$LASSO_BASE_URL} dist/LassoDesktop.app/Contents/MacOS/LassoDesktop --smoke ${1:-30}"
+    build_app release >/dev/null && on_mac "${LASSO_BASE_URL:+LASSO_BASE_URL=$LASSO_BASE_URL} dist/Lasso.app/Contents/MacOS/Lasso --smoke ${1:-30}"
     ;;
   use)
     case "${1:-}" in
@@ -111,11 +111,11 @@ DOC
     case "$port" in 8090) mac=18090 ;; 819[0-9]) mac=$((port + 10000)) ;; *) echo "port $port is not on the tunnel (8090, 8190-8199)" >&2; exit 2 ;; esac
     ssh "$MAC" "curl -s -m5 -o /dev/null -w '%{http_code}' http://127.0.0.1:$mac/api/version" | grep -q 200 \
       || { echo "lasso on titan:$port is not answering at minime:$mac (is lasso-desktop-tunnel up, with the 8190-8199 forwards?)" >&2; exit 1; }
-    ssh "$MAC" "defaults write com.orangecountyai.LassoDesktop baseURL http://127.0.0.1:$mac"
+    ssh "$MAC" "defaults write com.orangecountyai.Lasso baseURL http://127.0.0.1:$mac"
     on_mac "Scripts/agent.sh relaunch"
-    echo "LassoDesktop now talks to titan:$port (minime:$mac)"
+    echo "the Mac app now talks to titan:$port (minime:$mac)"
     ;;
-  logs) ssh "$MAC" "tail -n ${1:-100} ~/Library/Logs/LassoDesktop.log" ;;
+  logs) ssh "$MAC" "tail -n ${1:-100} ~/Library/Logs/Lasso.log" ;;
   unlock) unlock ;;
   *)
     sed -n '2,18p' "$0"

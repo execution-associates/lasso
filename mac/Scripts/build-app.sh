@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build LassoDesktop.app on the Mac with the Command Line Tools only:
+# Build Lasso.app, the Mac app, on the Mac with the Command Line Tools only:
 # swift build, then assemble the bundle (the window server will not talk to a
 # bare binary) and sign it.
 #
@@ -20,17 +20,17 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIG="${1:-release}"
-APP="dist/LassoDesktop.app"
+APP="dist/Lasso.app"
 KC="$HOME/Library/Keychains/lasso-desktop-signing.keychain-db"
 VERSION="${LASSO_DESKTOP_VERSION:-0.1.0}"
 BUILD="${LASSO_DESKTOP_VERSION:-$(date +%Y%m%d%H%M%S)}"
 
 swift build -c "$CONFIG" --arch arm64
-BIN="$(swift build -c "$CONFIG" --arch arm64 --show-bin-path)/LassoDesktop"
+BIN="$(swift build -c "$CONFIG" --arch arm64 --show-bin-path)/Lasso"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
-cp "$BIN" "$APP/Contents/MacOS/LassoDesktop"
+cp "$BIN" "$APP/Contents/MacOS/Lasso"
 sed -e "s/@VERSION@/$VERSION/" -e "s/@BUILD@/$BUILD/" \
   -e "s|@FEED@|${SPARKLE_FEED:-}|" -e "s|@EDKEY@|${SPARKLE_ED_KEY:-}|" Scripts/Info.plist.in >"$APP/Contents/Info.plist"
 # Sparkle ships as an XCFramework through SwiftPM; the executable finds it
@@ -63,7 +63,7 @@ sign_all() {
   "$@" "$fw/Autoupdate"
   "$@" "$fw/Updater.app"
   "$@" "$APP/Contents/Frameworks/Sparkle.framework"
-  "$@" --identifier com.orangecountyai.LassoDesktop "$APP"
+  "$@" --identifier com.orangecountyai.Lasso "$APP"
 }
 
 if [ -n "${SIGN_IDENTITY:-}" ]; then

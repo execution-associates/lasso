@@ -1,7 +1,7 @@
 import Foundation
 
 /// One line per state change on stderr, which the LaunchAgent writes to
-/// ~/Library/Logs/LassoDesktop.log (dev.sh logs). Events only: never text a
+/// ~/Library/Logs/Lasso.log (dev.sh logs). Events only: never text a
 /// user typed or said, audio, or a key.
 enum Trace {
     nonisolated(unsafe) private static let stamp: ISO8601DateFormatter = {

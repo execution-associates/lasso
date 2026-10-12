@@ -12,12 +12,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 STATES="${1:-all}"
-LABEL=com.orangecountyai.LassoDesktop.parity
+LABEL=com.orangecountyai.Lasso.parity
 DOMAIN="gui/$(id -u)"
 OUT="$PWD/dist/parity"
 PLIST="$PWD/dist/parity-agent.plist"
 LOG="$PWD/dist/parity.log"
-BIN="$PWD/dist/LassoDesktop.app/Contents/MacOS/LassoDesktop"
+BIN="$PWD/dist/Lasso.app/Contents/MacOS/Lasso"
 
 [ -x "$BIN" ] || Scripts/build-app.sh release
 rm -rf "$OUT"

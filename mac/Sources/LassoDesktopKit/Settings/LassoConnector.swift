@@ -204,7 +204,7 @@ public final class LassoConnector {
         case .signIn:
             return .failed("\(host) asks for a sign-in instead.")
         case .tooOld(let release):
-            return .failed("\(host) runs \(release), and LassoDesktop needs lasso \(LassoCompat.minimumText) or later. Update that lasso (lasso update), then connect again.")
+            return .failed("\(host) runs \(release), and this app needs lasso \(LassoCompat.minimumText) or later. Update that lasso (lasso update), then connect again.")
         case .password, .open:
             return .failed("\(host) did not let this Mac in.")
         }

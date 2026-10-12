@@ -273,7 +273,7 @@ public struct SettingsView: View {
                 .parityAnchor("settings.shortcut")
             }
             if model.needsAccessibility {
-                row("A double tap needs Accessibility", detail: "It reads modifier keys in every app. Allow LassoDesktop there, then it works.", last: true) {
+                row("A double tap needs Accessibility", detail: "It reads modifier keys in every app. Allow Lasso there, then it works.", last: true) {
                     PillButton(title: "Open", label: "Open Accessibility settings") { model.permissions.openAccessibilitySettings() }
                 }
                 .parityAnchor("settings.shortcut.accessibility")
@@ -283,7 +283,7 @@ public struct SettingsView: View {
             "New agents",
             footnote: model.recordingSlot.map { $0 != .inbox } == true
                 ? "Press the combination, with ⌘, ⌥ or ⌃. esc cancels."
-                : "From any app. While a LassoDesktop window has the keyboard, ⌘O and ⇧⌘O do the same."
+                : "From any app. While a Lasso window has the keyboard, ⌘O and ⇧⌘O do the same."
         ) {
             ForEach(Array([ShortcutSlot.newAgent, .newScratch].enumerated()), id: \.element) { i, slot in
                 let s = model.shortcuts[slot] ?? slot.fallback
@@ -400,12 +400,12 @@ public struct SettingsView: View {
                 PillButton(title: "Advanced Settings", label: "Open lasso's settings in the browser") { model.openAdvancedSettings() }
             }
         }
-        group("LassoDesktop", footnote: AppUpdates.checkNow == nil ? "A development build: it does not update itself." : nil) {
+        group("This app", footnote: AppUpdates.checkNow == nil ? "A development build: it does not update itself." : nil) {
             row("Version") {
                 HStack(spacing: Theme.space("m")) {
                     value(AppUpdates.version)
                     if let check = AppUpdates.checkNow {
-                        PillButton(title: "Check for updates", label: "Check for a newer LassoDesktop") { check() }
+                        PillButton(title: "Check for updates", label: "Check for a newer Lasso") { check() }
                     }
                 }
             }
@@ -417,8 +417,8 @@ public struct SettingsView: View {
             }
         }
         group(nil) {
-            row("Quit LassoDesktop", detail: "Until the next login. The rail goes with it.", last: true) {
-                PillButton(title: "Quit", textColor: Theme.dangerText.color, label: "Quit LassoDesktop") { model.quit() }
+            row("Quit Lasso", detail: "Until the next login. The rail goes with it.", last: true) {
+                PillButton(title: "Quit", textColor: Theme.dangerText.color, label: "Quit Lasso") { model.quit() }
             }
         }
     }

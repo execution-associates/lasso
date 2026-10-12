@@ -343,7 +343,7 @@ public final class OAuthSignIn: NSObject, ASWebAuthenticationPresentationContext
             throw OAuthError.registration("the sign-in server takes no registrations")
         }
         struct Body: Encodable {
-            var client_name = "LassoDesktop"
+            var client_name = "Lasso"
             var redirect_uris: [String]
             var grant_types = ["authorization_code", "refresh_token"]
             var response_types = ["code"]
