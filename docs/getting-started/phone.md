@@ -67,7 +67,7 @@ To get your [bots](../web-ui/bots.md) as an app of their own, install the [Bots 
 
 A phone (a touch screen under 768 px wide) that opens lasso's address goes to `/m`, the simple app. It has four tabs:
 
-- **Inbox.** What is waiting on you across lasso's Claude Code and omp agents: questions to answer, agents blocked with nothing to pick from, finished turns, and lasso's notices. It opens on the newest card; swipe sideways or use the arrows to page through the rest. Answer a question with a tap, reply to a finished turn, or **Acknowledge** a card that needs nothing more. Acknowledge is shared by every device and by the [Mac app](./desktop.md); which cards this phone has seen, and an unsent reply, stay on this phone.
+- **Inbox.** What is waiting on you across lasso's Claude Code and omp agents: questions to answer, agents blocked with nothing to pick from, finished turns, and lasso's notices. It opens on the newest card; swipe sideways or use the arrows to page through the rest. Answer a question with a tap, reply to a finished turn, or **Acknowledge** a card that needs nothing more. While a reply to a card is half written, its Acknowledge is greyed out until you send the reply or clear it. Acknowledge is shared by every device and by the [Mac app](./desktop.md); which cards this phone has seen, and an unsent reply, stay on this phone.
 - **Agents.** Every agent on every host, each opening as a conversation you can read and answer, with any images, audio and video it shared.
 - **Bots.** Your [bots](../web-ui/bots.md) and their conversations.
 - **Settings.** Notifications and their kinds, appearance, **Text**, the lasso this phone is connected to, and **Switch to the advanced view**.

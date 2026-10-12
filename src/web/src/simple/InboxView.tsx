@@ -306,6 +306,10 @@ function ItemCard({
   }
 }
 
+// A card whose reply is half written is not acknowledged out from under it:
+// Acknowledge waits until the reply is sent or cleared.
+const HELD_BY_DRAFT = "Send or clear your reply first"
+
 function Actions({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
@@ -314,23 +318,30 @@ function Actions({ children }: { children: React.ReactNode }) {
   )
 }
 
+// heldBy, when set, greys the button out and says why: aria-disabled rather
+// than disabled, so it stays focusable and a tap can still explain itself (a
+// title never shows on a touch screen).
 function ActionButton({
   children,
   onClick,
   primary,
   danger,
+  heldBy,
   className,
 }: {
   children: React.ReactNode
   onClick: () => void
   primary?: boolean
   danger?: boolean
+  heldBy?: string
   className?: string
 }) {
   return (
     <button
       type="button"
-      onClick={onClick}
+      aria-disabled={heldBy ? true : undefined}
+      title={heldBy}
+      onClick={() => (heldBy ? toast(heldBy) : onClick())}
       className={cn(
         // Buttons share the row, so one that wraps takes the full width
         // rather than hanging off the end of a short line.
@@ -340,6 +351,7 @@ function ActionButton({
           : danger
             ? "bg-secondary text-destructive"
             : "bg-secondary text-secondary-foreground",
+        heldBy && "opacity-40",
         className
       )}
     >
@@ -428,6 +440,7 @@ function PaneCard({
   const chatQ = usePaneChat(p)
   const chat = chatQ.data ?? undefined
   const [confirmKill, setConfirmKill] = React.useState(false)
+  const [drafting, setDrafting] = React.useState(false)
   const name = item.bot?.name ?? simpleAgentName(p)
   // The workspace, unless the name already is it.
   const ws = simpleWorkspace(p)
@@ -510,6 +523,7 @@ function PaneCard({
               if (r.outcome === "confirmed") refresh()
               return r
             }}
+            onDraftChange={setDrafting}
           />
         )}
         <Actions>
@@ -523,7 +537,11 @@ function PaneCard({
             Chat
           </ActionButton>
           {/* Answer is the card's one primary action while a question is open. */}
-          <ActionButton primary={item.kind !== "ask"} onClick={ack}>
+          <ActionButton
+            primary={item.kind !== "ask"}
+            heldBy={drafting ? HELD_BY_DRAFT : undefined}
+            onClick={ack}
+          >
             Acknowledge
           </ActionButton>
         </Actions>
@@ -564,6 +582,7 @@ function BotCard({
   const files = sharedFiles(lastTurn(chat))
   const ack = () =>
     item.kind === "bot-ask" ? ackCard(item.key, 0) : ackCard(item.key, item.at)
+  const [drafting, setDrafting] = React.useState(false)
 
   return (
     <Card className="flex flex-col gap-4 p-5">
@@ -593,6 +612,7 @@ function BotCard({
               if (r.outcome === "confirmed") refresh()
               return r
             }}
+            onDraftChange={setDrafting}
           />
         )}
         <Actions>
@@ -600,7 +620,11 @@ function BotCard({
             <MessageSquare className="size-4" />
             Chat
           </ActionButton>
-          <ActionButton primary={item.kind !== "bot-ask"} onClick={ack}>
+          <ActionButton
+            primary={item.kind !== "bot-ask"}
+            heldBy={drafting ? HELD_BY_DRAFT : undefined}
+            onClick={ack}
+          >
             Acknowledge
           </ActionButton>
         </Actions>
