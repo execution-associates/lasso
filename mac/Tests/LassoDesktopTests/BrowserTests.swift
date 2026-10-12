@@ -230,8 +230,7 @@ final class BrowserStub: URLProtocol, @unchecked Sendable {
     let c = BrowserWindowController(source: FixtureBrowserSource(browsers()), client: client)
     c.show(offer)
     defer { c.close() }
-    let w = try #require(NSApp.windows.first { $0.frameAutosaveName == BrowserWindowController.frameName })
-    let web = try #require(w.contentView?.subviews.first { $0 is LassoPageWebView } as? WKWebView)
+    let web = try #require(c.pageView)
     func log() async -> String { (try? await web.evaluateJavaScript("__log.join(' ')")) as? String ?? "" }
     await until(10) {
         guard cdp.frames.count >= 1 else { return false }

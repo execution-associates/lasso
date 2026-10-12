@@ -111,9 +111,9 @@ final class StandInSocketServer: @unchecked Sendable {
     let c = HerdrTerminalController(source: StubSource(), client: client, fleet: FleetModel())
     c.open()
     defer { c.close() }
-    let w = try #require(NSApp.windows.first { $0.frameAutosaveName == HerdrTerminalController.frameName })
+    let w = c.hostWindow
     w.setFrame(NSRect(x: 200, y: 200, width: 640, height: 400), display: true)
-    let web = try #require(w.contentView?.subviews.first { $0 is TerminalWebView } as? TerminalWebView)
+    let web = try #require(c.pageView)
     await until(10) {
         guard c.model.phase == .live else { return false }
         return ((try? await web.evaluateJavaScript("window.__open === true")) as? Bool) == true
@@ -127,7 +127,8 @@ final class StandInSocketServer: @unchecked Sendable {
         m?.cancelTracking()
     }
     defer { NotificationCenter.default.removeObserver(watch) }
-    let at = NSPoint(x: 205, y: w.contentLayoutRect.height - 105)  // the page's (205, 105): cell 21;6
+    // The page's (205, 105): cell 21;6.
+    let at = web.convert(NSPoint(x: 205, y: web.isFlipped ? 105 : web.bounds.height - 105), to: nil)
     func click(_ down: NSEvent.EventType, _ up: NSEvent.EventType, _ flags: NSEvent.ModifierFlags = []) -> (NSEvent, NSEvent) {
         let make = { (t: NSEvent.EventType) in
             NSEvent.mouseEvent(

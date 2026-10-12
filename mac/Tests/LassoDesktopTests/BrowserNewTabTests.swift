@@ -168,7 +168,7 @@ final class DistStub: URLProtocol, @unchecked Sendable {
     let c = BrowserWindowController(source: FixtureBrowserSource(BrowserStatusPayload(profiles: [])), client: client)
     c.open()
     defer { c.close() }
-    let w = try #require(c.hostWindow)
+    let w = c.hostWindow
     let web = try #require(c.pageView)
     // A test process's windows never hear they are on screen (it is not a
     // launched app), and the page connects only while it is visible.
@@ -230,7 +230,7 @@ final class ButtonPageStub: URLProtocol, @unchecked Sendable {
     let c = BrowserWindowController(source: FixtureBrowserSource(BrowserStatusPayload(profiles: [])), client: client)
     c.open()
     defer { c.close() }
-    let w = try #require(c.hostWindow)
+    let w = c.hostWindow
     let web = try #require(c.pageView)
     await until(10) {
         guard c.model.phase == .live else { return false }

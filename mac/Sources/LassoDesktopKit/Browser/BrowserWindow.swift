@@ -6,7 +6,9 @@ import WebKit
 // lasso's browsers in a window of their own (PLAN 24): the rail's Browser
 // button opens it. Its bar picks which of the connected lasso's browsers it
 // shows; below is the web Browser tab's Agent view (BrowserPage), whose own
-// toolbar, page tabs and live view drive that browser.
+// toolbar, page tabs and live view drive that browser. It is an agent
+// window's panel (PageWindow): over every app and on every Space, and never
+// full screen.
 
 /// What the Browser window asks of lasso.
 @MainActor
@@ -116,12 +118,25 @@ public final class BrowserWindowModel: ObservableObject {
     }
 }
 
-/// The window's bar: what it is and which browser it shows.
+/// The window's bar, its header: what it is and which browser it shows,
+/// then the window's minimize and close. Dragging it moves the window.
 struct BrowserBar: View {
+    @ObservedObject var model: BrowserWindowModel
+    @ObservedObject var chrome: AgentWindowChrome
+
+    var body: some View {
+        PageWindowHeader(chrome: chrome, anchor: "browser", height: Theme.Browser.bar.number("height")) {
+            BrowserTitle(model: model)
+        }
+        .parityAnchor("browser.bar")
+    }
+}
+
+/// The bar's leading end: the globe, "Browser" and the browser picker.
+struct BrowserTitle: View {
     @ObservedObject var model: BrowserWindowModel
 
     var body: some View {
-        let bar = Theme.Browser.bar
         HStack(spacing: Theme.space("m")) {
             LucideIcon(.globe, size: Theme.Rail.icon.number("size") - 3)
                 .foregroundStyle(Theme.Text.secondary.color)
@@ -146,14 +161,7 @@ struct BrowserBar: View {
             .accessibilityLabel("Browser")
             .accessibilityValue(model.currentName)
             .help("Which of lasso's browsers to show")
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, Theme.Panel.inset.pt)
-        .frame(height: bar.number("height"))
-        .frame(maxWidth: .infinity)
-        .background(Theme.Panel.surface.color)
-        .overlay(alignment: .bottom) { Rectangle().fill(Theme.Panel.border.color).frame(height: 1) }
-        .parityAnchor("browser.bar")
     }
 }
 
@@ -189,10 +197,11 @@ struct BrowserStatus: View {
 /// over the status that covers the page until it is up.
 struct BrowserWindowView: View {
     @ObservedObject var model: BrowserWindowModel
+    @ObservedObject var chrome = AgentWindowChrome()
 
     var body: some View {
         VStack(spacing: 0) {
-            BrowserBar(model: model)
+            BrowserBar(model: model, chrome: chrome)
             BrowserStatus(model: model)
         }
         .background(Theme.Panel.surface.color)
@@ -205,7 +214,7 @@ struct BrowserWindowView: View {
 public final class BrowserWindowController: NSObject {
     public let model: BrowserWindowModel
     private let client: LassoClient
-    private var window: NSWindow?
+    private var window: PageWindow?
     private var web: LassoPageWebView?
     private var bridge: BrowserBridge?
     private var status: NSHostingView<BrowserStatus>?
@@ -225,17 +234,18 @@ public final class BrowserWindowController: NSObject {
         model.onSelect = { [weak self] id in self?.bridge?.select(id) }
     }
 
-    public var isOpen: Bool { window?.isVisible == true }
+    public var isOpen: Bool { window?.isOpen == true }
 
-    /// The window and its page, once made (tests).
-    var hostWindow: NSWindow? { window }
+    /// The window's panel, made if it is not yet, and its page (tests).
+    var hostWindow: NSWindow { (window ?? makeWindow()).panel }
     var pageView: LassoPageWebView? { web }
+    var pageWindow: PageWindow? { window }
 
-    /// On screen where the human can see it: open, not minimized, not
-    /// covered entirely.
+    /// On screen where the human can see it: open, not collapsed to its
+    /// header, not covered entirely.
     public var isOnScreen: Bool {
-        guard let w = window, w.isVisible, !w.isMiniaturized else { return false }
-        return w.occlusionState.contains(.visible)
+        guard let w = window, w.isOpen, !w.collapsed else { return false }
+        return w.panel.occlusionState.contains(.visible)
     }
 
     /// The rail's button: the window as it is, else the remembered browser.
@@ -266,31 +276,20 @@ public final class BrowserWindowController: NSObject {
         Trace.event("browser window showing an agent's page")
     }
 
-    public func close() { window?.performClose(nil) }
+    public func close() { window?.close() }
 
+    /// On the Space the user is on, over whatever is in front, with the
+    /// keyboard in the page: without activating the app, as an agent's
+    /// window opens. A collapsed window opens out again.
     private func present() {
         let w = window ?? makeWindow()
-        NSApp.activate()
-        w.makeKeyAndOrderFront(nil)
-        if let web { w.makeFirstResponder(web) }
+        if w.collapsed { w.toggle() }
+        w.show(takeKey: true)
     }
 
-    private func makeWindow() -> NSWindow {
+    private func makeWindow() -> PageWindow {
         let t = Theme.Browser.window
         let size = t.size2("size")
-        let w = NSWindow(
-            contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered, defer: false)
-        w.isReleasedWhenClosed = false
-        w.minSize = t.size2("min")
-        w.tabbingMode = .disallowed
-        w.appearance = NSAppearance(named: .darkAqua)
-        w.backgroundColor = Theme.Panel.surface.nsColor
-        w.collectionBehavior = [.fullScreenPrimary]
-        w.title = "Browser"
-        w.center()
-        w.setFrameAutosaveName(Self.frameName)
-        w.delegate = self
 
         let bridge = BrowserBridge(client: client)
         bridge.onLink = { NSWorkspace.shared.open($0) }
@@ -303,8 +302,8 @@ public final class BrowserWindowController: NSObject {
             WKUserScript(source: BrowserBridge.script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
 
         let barHeight = Theme.Browser.bar.number("height")
-        let content = NSView(frame: NSRect(origin: .zero, size: size))
         let pageFrame = NSRect(x: 0, y: 0, width: size.width, height: size.height - barHeight)
+        let content = NSView(frame: pageFrame)
         let web = LassoPageWebView(frame: pageFrame, configuration: config)
         web.navigationDelegate = self
         web.uiDelegate = self
@@ -316,13 +315,14 @@ public final class BrowserWindowController: NSObject {
         let status = NSHostingView(rootView: BrowserStatus(model: model))
         status.frame = pageFrame
         status.autoresizingMask = [.width, .height]
-        let bar = NSHostingView(rootView: BrowserBar(model: model))
-        bar.frame = NSRect(x: 0, y: size.height - barHeight, width: size.width, height: barHeight)
-        bar.autoresizingMask = [.width, .minYMargin]
         content.addSubview(web)
         content.addSubview(status)
-        content.addSubview(bar)
-        w.contentView = content
+        let w = PageWindow(name: Self.frameName, size: size, min: t.size2("min"), headerHeight: barHeight, page: content) {
+            [model] chrome in BrowserBar(model: model, chrome: chrome)
+        }
+        w.panel.title = "Browser"
+        w.focus = web
+        w.onClosed = { [weak self] in self?.teardown() }
 
         model.$phase
             .receive(on: RunLoop.main)
@@ -365,10 +365,6 @@ public final class BrowserWindowController: NSObject {
         model.phase = .closed
         Trace.event("browser window closed")
     }
-}
-
-extension BrowserWindowController: NSWindowDelegate {
-    public func windowWillClose(_ notification: Notification) { teardown() }
 }
 
 extension BrowserWindowController: WKNavigationDelegate {

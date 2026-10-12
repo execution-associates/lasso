@@ -87,6 +87,7 @@ public class RailPanel: NSPanel {
         p.isMovable = isMovable
         p.alphaValue = alphaValue
         p.appearance = appearance
+        p.title = title
         p.onKey = onKey
         p.onKeyUp = onKeyUp
         p.onMouseDown = onMouseDown

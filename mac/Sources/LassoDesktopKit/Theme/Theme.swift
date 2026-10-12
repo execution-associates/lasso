@@ -424,8 +424,8 @@ public enum Theme {
     /// lasso's herdr in a window of its own (PLAN 22).
     public enum Terminal {
         public static let window = Token(
-            "terminal.window", ["size": [1040, 680], "min": [560, 360]],
-            .inferred("ttyd's 14 pt terminal face: about 120 columns by 38 rows, room for herdr's sidebar beside a pane"),
+            "terminal.window", ["size": [1040, 680], "min": [560, 360], "header": 40],
+            .inferred("ttyd's 14 pt terminal face: about 120 columns by 38 rows, room for herdr's sidebar beside a pane; its header one row as the Browser window's bar (browser.bar)"),
             proposed: true)
         /// The window's text size (⌘= ⌘- ⌘0), in xterm's px (PLAN 22).
         public static let zoom = Token(
