@@ -383,6 +383,15 @@ func (b *remoteBackend) runStdin(remoteCmd string, stdin []byte) ([]byte, error)
 	return out, nil
 }
 
+// runStreams runs remoteCmd on the host over the control master, its stdout
+// and stderr into the writers, bounded by ctx rather than sshOpTimeout: a bot
+// watch's command may run for up to an hour (execBotCommandRemote).
+func (b *remoteBackend) runStreams(ctx context.Context, remoteCmd string, stdout, stderr io.Writer) error {
+	cmd := sshCmd(ctx, append(b.ctlOpts(), b.alias, remoteCmd)...)
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	return cmd.Run()
+}
+
 func (b *remoteBackend) GitOut(dir string, args ...string) (string, error) {
 	// Build a single shell-quoted command so paths with spaces survive ssh's
 	// argv-join into one remote shell string.

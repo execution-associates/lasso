@@ -474,14 +474,18 @@ func botEventQueued(bot, stamp string) {
 // claimBotEvents hands the channel the bot's queued events (and any claim
 // that was never acked), marking them in flight.
 func claimBotEvents(bot string, now time.Time) ([]botEvent, error) {
+	return claimBotEventsWhere(bot, now, `(status = 'pending' OR (status = 'claimed' AND claimed_at < ?))`, nowStamp(now.Add(-botEventReclaim)))
+}
+
+// claimBotEventsWhere claims up to 20 of the bot's events matching cond.
+func claimBotEventsWhere(bot string, now time.Time, cond string, args ...any) ([]botEvent, error) {
 	tx, err := db.Begin()
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 	rows, err := tx.Query(`SELECT id, job, kind, content, count, created_at, fired_at, runs != '', run_status FROM bot_events
-		WHERE bot = ? AND (status = 'pending' OR (status = 'claimed' AND claimed_at < ?)) ORDER BY id LIMIT 20`,
-		bot, nowStamp(now.Add(-botEventReclaim)))
+		WHERE bot = ? AND `+cond+` ORDER BY id LIMIT 20`, append([]any{bot}, args...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -606,26 +610,35 @@ func botLassoBase() (string, bool) {
 // botChannelOffered reports whether lasso adds its channel to the bot's
 // mcp.json, and why not when it does not.
 func botChannelOffered(r *botRecord) (bool, string) {
-	if r.Host != "local" {
-		return false, "jobs reach a bot through lasso's channel, which runs only for a bot on lasso's own machine"
-	}
 	// An omp bot's jobs are prompts lasso sends over the bridge's socket
 	// (botOmpDeliver): no channel process, no listen address to reach back to.
+	// The socket is on lasso's machine, so an omp bot is too.
 	if r.isOmp() {
+		if r.Host != "local" {
+			return false, "an omp bot runs on lasso's own machine"
+		}
 		return true, ""
-	}
-	if _, ok := botLassoBase(); !ok {
-		return false, "lasso's listen address is not one a bot can reach"
 	}
 	for _, s := range r.MCP {
 		if s.Name == botChannelName {
 			return false, "a connection of the bot's own is named " + botChannelName
 		}
 	}
+	// On another host the channel is that host's lasso reading a spool lasso
+	// writes over ssh (botspool.go): nothing there dials lasso.
+	if r.Host != "local" {
+		if _, err := botRemoteChannel(r.Host); err != nil {
+			return false, err.Error()
+		}
+		return true, ""
+	}
+	if _, ok := botLassoBase(); !ok {
+		return false, "lasso's listen address is not one a bot can reach"
+	}
 	return true, ""
 }
 
-// botLassoExe is the lasso binary the bot's channel runs: this one.
+// botLassoExe is the lasso binary a local bot's channel runs: this one.
 func botLassoExe() string {
 	exe, err := os.Executable()
 	if err != nil {

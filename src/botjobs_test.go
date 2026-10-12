@@ -186,7 +186,7 @@ func TestBotJobValidation(t *testing.T) {
 	}
 	remote := &botRecord{Name: "far", Host: "citadel"}
 	if _, err := createBotJob(remote, botJobInput{Name: ptr("a"), Message: ptr("x")}); err == nil {
-		t.Error("created a job for a bot on another host")
+		t.Error("created a job for a bot whose host has no lasso that can deliver it")
 	}
 	j, err := createBotJob(rec, botJobInput{Name: ptr("hook"), Webhook: ptr(true)})
 	if err != nil || len(j.WebhookKey) < 20 {
@@ -349,7 +349,8 @@ func TestBotChannelInMCPJSON(t *testing.T) {
 	if !strings.Contains(botTaskScript(r, "/d", nil), "I am using this for local development") {
 		t.Error("the task does not answer the development-channel menu")
 	}
-	// Not for a bot on another host, nor over a server of the bot's own name.
+	// Not for a bot on a host without a lasso that can spool (TestMain's
+	// probe answers none), nor over a server of the bot's own name.
 	for _, other := range []*botRecord{
 		{Name: "jess", Host: "citadel", channelToken: "tok"},
 		{Name: "jess", Host: "local", channelToken: "tok", MCP: []botMCPServer{{Name: botChannelName, Type: "stdio", Command: "mine"}}},

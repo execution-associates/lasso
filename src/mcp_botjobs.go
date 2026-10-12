@@ -15,7 +15,7 @@ import (
 
 const botJobScheduleHelp = "5-field cron (minute hour day-of-month month day-of-week) in `timezone`; several expressions may be joined with \";\" (e.g. \"47 7 * * *; 15 9 * * 1-5\"). Empty for no schedule (webhook or Run now only). For a single run instead, leave cron empty and set once_at."
 
-const botJobCommandHelp = " A job with a command is a watch: each firing runs the command (sh -c, in the bot's folder, as lasso's user with a minimal environment, not a login shell, so use absolute paths and have the script fetch its own secrets) and delivers only if it prints: exit 0 and no output delivers nothing, output is delivered after the message, and a failure or timeout is reported damped (1st, 2nd, 4th, 8th... in a row, plus one recovery notice)."
+const botJobCommandHelp = " A job with a command is a watch: each firing runs the command (sh -c, in the bot's folder on the bot's host, as lasso's user or, on another host, the user lasso connects as, with a minimal environment, not a login shell, so use absolute paths and have the script fetch its own secrets) and delivers only if it prints: exit 0 and no output delivers nothing, output is delivered after the message, and a failure or timeout is reported damped (1st, 2nd, 4th, 8th... in a row, plus one recovery notice)."
 
 type botJobsIn struct {
 	Name string `json:"name" jsonschema:"the bot's name"`

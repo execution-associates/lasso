@@ -993,8 +993,12 @@ function JobEditor({
           {fields.command
             ? `A watch: each firing runs this in ${bot.name}'s folder and delivers only what it prints. No output, nothing delivered. A failure or a timeout is reported, damped to the 1st, 2nd, 4th, 8th… in a row.`
             : `Optional. With a command the job becomes a watch: it checks each time and wakes ${bot.name} only when the command prints something.`}{" "}
-          It runs as lasso's user with a minimal environment, not a login shell:
-          use absolute paths, and have the script fetch its own secrets.
+          It runs{" "}
+          {bot.host && bot.host !== "local"
+            ? `on ${bot.host}, as the user lasso connects as,`
+            : "as lasso's user"}{" "}
+          with a minimal environment, not a login shell: use absolute paths, and
+          have the script fetch its own secrets.
         </span>
         {timeoutBad && (
           <span className="text-[11.5px] text-destructive">

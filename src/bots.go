@@ -386,10 +386,20 @@ func botMCPJSON(r *botRecord, dir string, signedIn map[string]bool) []byte {
 		}
 	}
 	// Lasso's channel, which delivers the bot's jobs and webhooks
-	// (botjobs.go). It runs this lasso binary and reaches back over loopback
-	// on the bot's own token, so it is offered under MCP_OAUTH too.
-	if base, ok := botLassoBase(); ok && r.channelToken != "" {
-		if offered, _ := botChannelOffered(r); offered {
+	// (botjobs.go). On lasso's machine it runs this lasso binary and reaches
+	// back over loopback on the bot's own token, so it is offered under
+	// MCP_OAUTH too. On another host it runs that host's lasso over the spool
+	// lasso writes into the folder (botspool.go), and holds no credential.
+	if offered, _ := botChannelOffered(r); offered && r.channelToken != "" {
+		if r.Host != "local" {
+			if exe, err := botRemoteChannel(r.Host); err == nil {
+				servers[botChannelName] = map[string]any{
+					"type":    "stdio",
+					"command": exe,
+					"args":    []string{"channel", "--bot", r.Name, "--spool", botSpoolDir(dir)},
+				}
+			}
+		} else if base, ok := botLassoBase(); ok {
 			servers[botChannelName] = map[string]any{
 				"type":    "stdio",
 				"command": botLassoExe(),
