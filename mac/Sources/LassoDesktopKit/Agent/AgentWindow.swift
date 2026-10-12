@@ -28,6 +28,15 @@ final class AgentWindowChrome: ObservableObject {
 struct AgentWindowView: View {
     @ObservedObject var model: CardModel
     @ObservedObject var chrome: AgentWindowChrome
+    /// The header and the phase read the fleet's live row (`model.current`),
+    /// which changes without the card publishing anything.
+    @ObservedObject var fleet: FleetModel
+
+    init(model: CardModel, chrome: AgentWindowChrome) {
+        self.model = model
+        self.chrome = chrome
+        fleet = model.fleet
+    }
 
     var body: some View {
         let w = Theme.Agent.window

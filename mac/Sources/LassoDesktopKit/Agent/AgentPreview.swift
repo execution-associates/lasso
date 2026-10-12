@@ -8,6 +8,14 @@ import SwiftUI
 /// the open question's choices work once it is clicked.
 struct AgentPreviewView: View {
     @ObservedObject var model: CardModel
+    /// The header and the phase read the fleet's live row (`model.current`),
+    /// which changes without the card publishing anything.
+    @ObservedObject var fleet: FleetModel
+
+    init(model: CardModel) {
+        self.model = model
+        fleet = model.fleet
+    }
 
     var body: some View {
         let p = model.current

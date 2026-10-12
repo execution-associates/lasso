@@ -275,15 +275,19 @@ public final class CardModel: ComposerModel {
 
     /// What the conversation waits on: its first load, an agent still
     /// booting (no transcript yet, or an empty one), or the agent's turn.
+    /// herdr's state is read from `current`, the fleet's live row: `pane` is
+    /// the row this card opened on, so a window opened mid-turn would say
+    /// "working" for as long as it stays open.
     public var phase: ConversationPhase {
         let h = harnessName(pane.agent)
+        let state = current.state
         guard let c = chat else { return loadError == nil ? .loading : .idle }
         if c.items.isEmpty {
-            return c.starting == true || c.unavailable != nil || pane.state == .working || outgoing != nil ? .starting(h) : .idle
+            return c.starting == true || c.unavailable != nil || state == .working || outgoing != nil ? .starting(h) : .idle
         }
         // Waiting on the human is not working.
-        if pane.state == .blocked || pending != nil || captured != nil { return .idle }
-        return c.running == true || pane.state == .working || outgoing != nil ? .working(h) : .idle
+        if state == .blocked || pending != nil || captured != nil { return .idle }
+        return c.running == true || state == .working || outgoing != nil ? .working(h) : .idle
     }
 
     /// The agent is on its turn (or booting): Stop can interrupt it.
