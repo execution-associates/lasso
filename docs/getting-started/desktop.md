@@ -16,20 +16,20 @@ LassoDesktop is a native macOS app for a running lasso. It lives on the edge of 
 
 ## Install
 
-Every lasso release on [GitHub](https://github.com/execution-associates/lasso/releases/latest) carries the app as `LassoDesktop-<version>.dmg`, at lasso's own version. Open the DMG and drag **LassoDesktop** onto **Applications**. The app is signed with a Developer ID and notarized by Apple, so it opens without a Gatekeeper warning.
+[Download LassoDesktop](https://github.com/execution-associates/lasso/releases/latest/download/LassoDesktop.dmg), the newest release's DMG. Every lasso release on [GitHub](https://github.com/execution-associates/lasso/releases/latest) carries it, as `LassoDesktop.dmg` and as `LassoDesktop-<version>.dmg`, at lasso's own version. Open the DMG and drag **LassoDesktop** onto **Applications**. The app is signed with a Developer ID and notarized by Apple, so it opens without a Gatekeeper warning, and it updates itself from then on.
 
-On first launch Settings opens by itself. The lasso connection is the first section of its **Info** tab.
+On first launch the app looks for a lasso at the address it last used and at `127.0.0.1:8090`. If neither answers, a first-run panel asks for your lasso's address; when one does, it says so and shows a few tips. Until a lasso answers, the rail's inbox shows a grey **!** and opens that panel.
 
 ## Connect it to your lasso
 
-Settings › Info names the lasso the app uses by its machine. **Change…** opens the address field: type the address and press **Connect**.
+Type the address in the first-run panel, or later in Settings › Info, which names the lasso the app uses by its machine: **Change…** opens the address field there. Press **Connect**.
 
 - A bare hostname (`titan.example.ts.net`, `lasso.example.com`) means `https://`. `127.0.0.1` and `localhost` mean `http://`, for a lasso on the same Mac.
 - The app asks lasso what proof it needs, and signs in the way that lasso's network expects:
   - **On the same Mac, or on your tailnet** (`-tailnet`): nothing to sign in to. The tailnet already says who the Mac belongs to.
   - **Behind Cloudflare Access** (`-listen-access`): your browser opens Access's sign-in once, then lands back in the app. The app keeps the tokens in the Keychain and refreshes them itself.
   - **On a lasso with `MCP_OAUTH`** and no edge in front: the same browser sign-in, against lasso's own consent screen.
-  - **A lasso that uses `UI_AUTH`**: the app reads the password from a Keychain item named `ui-auth`, and Connect says so when it is missing.
+  - **A lasso that uses `UI_AUTH`**: the app asks for its user and password, checks them against lasso, and keeps them in the Keychain.
 - When a sign-in runs out and cannot be refreshed, Settings shows **Sign in again**, and everything on screen stays as it was until you do. **Sign out** forgets that lasso's tokens.
 
 The app uses one lasso at a time. [Security](../security.md) and [Authentication](../design/auth.md) describe what each network proves.

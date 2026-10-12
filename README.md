@@ -155,6 +155,15 @@ the machine:
 lasso connect
 ```
 
+### The Mac app
+
+[Download LassoDesktop](https://github.com/execution-associates/lasso/releases/latest/download/LassoDesktop.dmg)
+for a Mac with Apple silicon on macOS 14 or later, and drag it onto
+Applications. It keeps lasso's Inbox on the edge of your screen and connects to
+a lasso you already run, on the same Mac or another machine: first launch asks
+for its address. It is signed, notarized and updates itself.
+[The Mac app](docs/getting-started/desktop.md) has the details.
+
 ### Reach it from your other devices
 
 lasso listens on loopback only. To reach it from your phone or another
