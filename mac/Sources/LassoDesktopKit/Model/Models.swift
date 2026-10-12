@@ -134,6 +134,9 @@ public struct HostsPayload: Codable, Sendable, Equatable {
 public struct UIStateSlice: Codable, Sendable, Equatable {
     public var pinned_agents: [String]?
     public var dismissed_cards: [String: Int64]?
+    /// Where the inbox's finished turns start counting (unix ms), the same
+    /// on every device; set once by lasso. Absent from an older lasso.
+    public var inbox_since: Int64?
     /// The uploaded arrival sound, if any (src/desktopsound.go).
     public var desktop_sound: DesktopSound?
 }

@@ -174,6 +174,10 @@ func runServer() {
 	// in the middle of — mark it failed (but adoptable, see createAgent's resume
 	// path) so it surfaces instead of lingering as a phantom.
 	sweepInterruptedCreates()
+	// The Inbox's shared baseline, set once per lasso (seedInboxSince).
+	if _, err := seedInboxSince(); err != nil {
+		log.Printf("inbox_since: %v", err)
+	}
 
 	// Auth credentials come from the environment (UI_AUTH=user:pass), never
 	// argv — so they don't leak via `ps`. Safety guard: refuse to bind to a
@@ -421,6 +425,7 @@ func runServer() {
 	mux.HandleFunc("/api/push/unsubscribe", servePushUnsubscribe)
 	mux.HandleFunc("/api/push/test", servePushTest)
 	mux.HandleFunc("/api/notify", serveNotify)
+	mux.HandleFunc("/api/notices", serveNotices)
 	mux.HandleFunc("/api/notify/device", serveNotifyDevice)
 	// Plugins: the listing and its actions are ordinary UI routes behind
 	// UI_AUTH, and so is /plugins/ — the tab documents, served under a CSP

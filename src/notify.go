@@ -154,6 +154,10 @@ type notification struct {
 	// Icon is a root-relative image shown with it (a bot's picture); "" is
 	// lasso's own icon.
 	Icon string
+	// ID and At (unix ms) are set once by stampNotification, so every
+	// transport and the Inbox's kept notices (inboxnotices.go) name it alike.
+	ID string
+	At int64
 }
 
 // notifTransport is one way a notification reaches a human.
@@ -219,6 +223,7 @@ func notifyEnabled() bool { return len(activeNotifTransports()) > 0 }
 // A partial result is a real one: sent names the transports that accepted it and
 // err carries the others' failures, so both can be reported at once.
 func deliverNotification(ctx context.Context, n notification) (sent []string, err error) {
+	n = stampNotification(n)
 	var errs []error
 	for _, t := range activeNotifTransports() {
 		if e := t.deliver(ctx, n); e != nil {
@@ -280,6 +285,9 @@ func notifyNow(ctx context.Context, n notification) notifyResult {
 // delivery failure is theirs to ignore — deliverNotification logs both the
 // outcome and any failure, so there is nothing left for this to report.
 func publishNotification(n notification) {
+	// Stamped (and a notice kept for the Inbox) even when nothing is
+	// subscribed: a client that opens later lists it.
+	n = stampNotification(n)
 	if !notifyEnabled() {
 		return
 	}

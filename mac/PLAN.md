@@ -403,7 +403,7 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 **M8: Inbox** (§13; built alongside M4's card, on M1, M2 and S1)
 - Membership and order (§13.2): asks, then blocked with no choices, then finished turns, then notices, newest first in each; claude and omp only.
 - Asks drawn from `chatAsk` and an omp bot's `pending_ui`, answered in place with the draw-time capture (§13.3, §13.4).
-- Kill (panes, behind a confirm) and Acknowledge (no write to the agent; S1 for panes and bots, local for notices) (§13.6).
+- Kill (panes, behind a confirm) and Acknowledge (no write to the agent; S1 for panes, bots and notices) (§13.6).
 - Blocked with no choices: status plus Focus in herdr (§13.5).
 - Per-item seen state, the badge as "new since you looked", `J`/`K` marking seen, the empty state (§13.7).
 - S4 on the server, if the user takes it (§13.4).
@@ -580,17 +580,17 @@ The Inbox is the surface this app exists for: **the latest messages across lasso
 ### 13.1 Scope
 
 **claude and omp only**: claude and omp panes (`hostPane.agent` is `claude` or `omp`), plus omp bots. No other harness enters the Inbox, even when herdr reports it blocked, and nothing here is designed for one.
-- A claude-runtime bot runs in a claude pane, so it enters as that pane, through the pane chat routes.
-- A pane that is an omp bot's (by `pane_id` or herdr label, `FleetModel.bot(for:)`) enters once, as the bot.
+- A bot of either runtime enters on the pane it runs in (by `pane_id` or herdr label, `FleetModel.bot(for:)`), once. Its finished turn is its last reply (`last_at`), not its pane's `transcript_at`. A claude-runtime bot is read and answered through the pane chat routes, an omp bot through its own.
+- **One rule, lasso's state only.** The Mac (`FleetModel.inbox`) and the phone's simple app (`src/web/src/simple/inbox-rule.ts`) compute membership from what lasso serves and nothing a device keeps: the fleet, the bots, ui_state's `dismissed_cards` and `inbox_since`, and `/api/notices`. So both list the same entries and the rail's badge equals the phone's count. Both run the same cases, `mac/Spec/inbox/rules.json` (the phone reads a copy, kept equal by the Go test `TestInboxRulesCopyInSync`).
 
 ### 13.2 Membership and order
 
 | Group | An item when | Read from |
 |---|---|---|
-| **1. Waiting on you: ask** | A pane has `agent_status == "blocked"` and its chat's newest tool item carries an open `ask` (no `selected`, no `custom`). Or an omp bot has `state == "blocked"` and its chat carries `pending_ui`. | `GET /api/all-panes` (`src/hostpanes.go:923`; status from `src/panestatus.go`), then `GET /api/chat?pane=&host=` (`src/chatview.go:1823`, `ask` on `chatTool`, `:100-175`). Bots: `GET /api/bots`, then `GET /api/bots/<name>/chat` (`src/botsapi.go:578`), `pending_ui` (`src/botomp.go:125`). |
+| **1. Waiting on you: ask** | A pane has `agent_status == "blocked"` and its chat's newest tool item carries an open `ask` (no `selected`, no `custom`). Or an omp bot's pane is listed and the bot has `pending_ui`. | `GET /api/all-panes` (`src/hostpanes.go:923`; status from `src/panestatus.go`), then `GET /api/chat?pane=&host=` (`src/chatview.go:1823`, `ask` on `chatTool`, `:100-175`). Bots: `GET /api/bots`, then `GET /api/bots/<name>/chat` (`src/botsapi.go:578`), `pending_ui` (`src/botomp.go:125`). |
 | **1. Waiting on you: no choices** | A pane is blocked and its chat has no open ask (§13.5). | The same reads. |
-| **2. Finished turn** | A pane is `done` or `idle` and its `transcript_at` is newer than this Mac's seen mark for it. Or an omp bot's `last_kind == "agent"` and its `last_at` is newer than the seen mark. | `transcript_at` on the pane row; `last_at` on the bot view. |
-| **3. Notice** | The server raised one. | SSE `notice {level, title, detail}` (`hub.notify`, `src/main.go:2620`). |
+| **2. Finished turn** | A pane is not working (`done`, `idle`, or a status herdr does not name) and its `transcript_at` is newer than lasso's `inbox_since`. For a bot's pane: the bot's `last_kind == "agent"` and its `last_at` is newer than `inbox_since`. Either way, not acknowledged at or past it. | `transcript_at` on the pane row; `last_at` on the bot view; `inbox_since` in `GET /api/ui-state`. |
+| **3. Notice** | lasso keeps it and nobody has acknowledged it. | `GET /api/notices` (`src/inboxnotices.go`), and the SSE `notification` event for a new one (same `id`). |
 
 **Order:** group 1, then 2, then 3. Inside each group, newest first: by `transcript_at`, or by `last_at` for a bot, or by arrival for a notice.
 
@@ -604,12 +604,12 @@ The Inbox is the surface this app exists for: **the latest messages across lasso
 - It is re-read only when its `transcript_at`, its `last_at` or its `pending_ui` changes, or on a `bot-chat` nudge for that bot.
 - Reads are cached per (item, `transcript_at`), with at most 4 in flight.
 
-**Notices** are sent once, each with an `id` and an `at` (unix ms) from the server.
-- The app dedupes them by `id`, orders them by `at`, and keeps the last 50 in memory.
-- A relaunch loses them, as a browser tab loses its toasts.
-- They are this Mac's only. Nothing about them is shared.
+**Notices** are lasso's own notices and agents' messages (`lasso_notice`, `agent_message`), each with an `id` and an `at` (unix ms).
+- lasso keeps the last 50 in memory (`GET /api/notices`, oldest first), whether or not a client was open when one was raised. A lasso restart starts the list empty.
+- The app reads the list every 30 s and adds one heard live (the `notification` event) at once, deduped by `id`.
+- Acknowledge is shared: `notice:<id>` in `dismissed_cards`.
 
-**First launch:** the seen store is seeded with every current pane's `transcript_at` and every bot's `last_at`, so the Inbox starts with what is waiting, not with history. After that, a pane seen for the first time enters with its first finished turn.
+**The baseline is lasso's:** `ui_state.inbox_since` (unix ms), set once by lasso (at boot, or by the first read that finds none) and never by a client. A finished turn counts only after it, so a new lasso starts with what is waiting, not with history, and every device starts from the same moment. Against a lasso too old to have one, the app counts from its own launch.
 
 ### 13.3 Addressing: the agent's own choices
 
@@ -682,7 +682,7 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 | Pane (ask, no choices, finished turn) | paneKey `host\u0000pane_id` | its `transcript_at` | `transcript_at` moves past the value: a new question, or a new turn |
 | omp bot ask | `bot:<name>#<pending_ui id>` | `0` | a different question opens (a new id, so a new key) |
 | omp bot finished turn | `bot:<name>` | `last_at` in unix ms | `last_at` moves past it |
-| Notice | none: removed from this Mac's memory | | never; a notice is one-shot |
+| Notice | `notice:<id>` | its `at` | never; a notice is one-shot |
 
 - The server takes any key of 1–300 bytes (`mergeDismissedCards`, `src/hostpanes.go:711`), so bot keys need no server change.
 - The 256-entry cap drops the smallest value first, so bot-ask keys (value `0`) go first. Losing one only brings its item back.
@@ -704,7 +704,7 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 - An item is seen when the card lands on it: opened from the rail, or paged to with `J`/`K`.
 
 **The badge counts the inbox:**
-- It shows the number of messages the inbox holds: entries plus notices, "99+" past 99. It is hidden when the inbox is empty.
+- It shows the number of messages the inbox holds: entries plus notices (`FleetModel.badgeCount`), "99+" past 99. It is hidden when the inbox is empty. It is the phone's Inbox count for the same lasso: seen marks never change it.
 - It is red while one of them waits on the human, and green when only finished turns and notices are left.
 - **The peek's dot means "new since you looked":** it shows when at least one item that is not acknowledged is unseen, in the colour of the most urgent such item.
 - Seen items stay listed until they are answered, acknowledged, or no longer qualify. Seeing an item only takes it out of the peek's dot.
@@ -779,14 +779,14 @@ The keys are `KeyBinding`s in `Theme/Keys.swift`; `CardKeys` (`Card/CardControll
 
 - **One computation:** `FleetModel.inbox` serves the card, the badge, the peek's dot and the arrival sound.
   - **Waiting:** a claude or omp pane that is blocked, or an omp bot with `pending_ui`.
-  - **Finished:** a turn newer than this Mac's `inboxSince` (its first launch) and not acknowledged.
+  - **Finished:** a turn newer than lasso's `inbox_since` and not acknowledged; a bot's turn is its last reply.
   - **Order:** newest first within each group.
-- **Seen marks** are per entry and kept in UserDefaults (`inboxSeen`). The badge counts unseen entries plus unseen notices.
+- **Seen marks** are per entry and kept in UserDefaults (`inboxSeen`). They light the peek's dot only; the badge counts every entry plus every notice.
 - **Draw-time capture:** `CardModel.captured` freezes the question when it is first drawn, and an answer is built only from it.
 - **"Other: answer in your own words"** (where the dialog has an Other row) turns the composer into the answer (S4); ↳ does the same with a choice's words. An omp bot's `input`/`editor` request answers the same way.
 - **Blocked with no readable choices** shows "Waiting on you in the terminal" and Focus in herdr.
 - **Acknowledge keys:** Acknowledge writes the entry's own key (§13.6).
-- **Notices** arrive from the event stream and list in the inbox panel, each acknowledged with ×.
+- **Notices** come from lasso's list (`/api/notices`) and the event stream, and list in the inbox panel, each acknowledged with × on every device.
 - **Not yet built:**
   - Answering a multi-question ask in one request; only the first question is answered, and the dialog then shows the next.
   - The card's Other row, since the card shows three choices; ↳ covers it there.
@@ -802,6 +802,7 @@ The keys are `KeyBinding`s in `Theme/Keys.swift`; `CardKeys` (`Card/CardControll
 **Contract:** the `chat_payload` golden already carries an `ask` (`mac/Spec/contract/chat_payload.json`). M8 adds `pending_ui` to the bot chat golden and a `notice` golden, written by `TestDesktopContract`.
 
 **Swift tests:**
+- The shared cases (`mac/Spec/inbox/rules.json`, `InboxRulesTests`), which the phone's tests run too.
 - Membership and order, including the harness filter and a bot's pane listed once.
 - The capture: the answer body equals the draw-time capture after the model has updated underneath it.
 - A changed ask drops the pick.

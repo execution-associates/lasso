@@ -1,6 +1,5 @@
 import { keepPreviousData, useQueries, useQuery } from "@tanstack/react-query"
 import * as React from "react"
-import { paneKey } from "@/lib/agents"
 import {
   api,
   type BotPendingUI,
@@ -14,11 +13,20 @@ import {
 import { lsGet, lsSet } from "@/lib/app-store"
 import { useBots } from "@/lib/bots"
 import { NOTIFICATION_EVENT } from "@/lib/notify"
-import { useUIState } from "@/lib/ui-state"
+import { ackCard, useUIState } from "@/lib/ui-state"
+import {
+  botForPane,
+  inboxEntries,
+  inboxNotices,
+  noticeAckKey,
+} from "@/simple/inbox-rule"
+
+export { botForPane }
 
 // The Inbox: what waits on the human, across lasso's claude and omp agents.
-// The rules are the Mac app's (mac/PLAN.md §13), so the Mac and the phone
-// agree on what is waiting; only the presentation differs.
+// Which entries it holds is inbox-rule.ts, shared with the Mac app and read
+// only from lasso's state, so every device lists the same things; this file
+// adds the presentation: an ask's choices, and this device's seen marks.
 //
 // Order: asks, then blocked with no choices, then finished turns, then
 // notices; newest first inside each.
@@ -33,6 +41,9 @@ export type InboxItem =
       at: number
       // The open question, for an ask.
       ask?: ChatTool
+      // What Acknowledge writes (ui_state.card_dismiss).
+      ackKey: string
+      ackAt: number
     }
   | {
       kind: "bot-ask" | "bot-reply"
@@ -40,13 +51,11 @@ export type InboxItem =
       bot: BotView
       at: number
       pending?: BotPendingUI
+      ackKey: string
+      ackAt: number
     }
   // lasso's own notice, or an agent's deliberate message for the human.
   | { kind: "notice"; key: string; notice: LiveNotification; at: number }
-
-// The harnesses the Inbox speaks for. No other harness enters it, even when
-// herdr reports it blocked: nothing here is designed for one.
-const HARNESSES = new Set(["claude", "omp"])
 
 // The agent's name: herdr's agent label, else its tab's name, else its
 // pane's, else its workspace's, else what it is working on.
@@ -71,14 +80,6 @@ function named(label: string | undefined): string {
 export function simpleWorkspace(p: HostPane): string {
   const w = p.workspace_label ?? ""
   return w && w !== "~" && w !== "Scratch" ? w : ""
-}
-
-export function botForPane(bots: BotView[], p: HostPane): BotView | undefined {
-  return bots.find(
-    (b) =>
-      b.host === p.host &&
-      ((b.pane_id && b.pane_id === p.pane_id) || b.name === p.agent_label)
-  )
 }
 
 // The open question in a chat: the newest tool row's ask, while that call is
@@ -120,15 +121,12 @@ export function lastAgentText(chat: ChatPayload | undefined): string {
   return ""
 }
 
-// --- Baselines and seen marks (this device only) ---------------------------
+// --- Seen marks (this device only) -----------------------------------------
 //
-// A finished turn is waiting when it is newer than this device's baseline for
-// the pane. The first run seeds the baseline with every pane's current turn, so
-// the Inbox starts with what is waiting, not with history. Seen is separate: it
-// only decides the tab's badge, and a seen item stays listed until it is
-// answered, acknowledged, or no longer waiting.
+// Seen only decides the tab's dot ("new since you looked"). It never changes
+// which entries the Inbox holds or how many: a seen item stays listed until
+// it is answered, acknowledged, or no longer waiting.
 
-const BASELINE_KEY = "lasso-m-baseline"
 const SEEN_KEY = "lasso-m-seen"
 
 function readMap(key: string): Record<string, number> | null {
@@ -140,19 +138,8 @@ function readMap(key: string): Record<string, number> | null {
   }
 }
 
-let baseline = readMap(BASELINE_KEY)
 let seenMarks = readMap(SEEN_KEY) ?? {}
 const seenListeners = new Set<() => void>()
-
-function seedBaseline(panes: HostPane[]) {
-  if (baseline) return
-  baseline = {}
-  // A pane herdr reports done has a turn nobody has looked at, so it is
-  // waiting now and gets no baseline; every other pane's history is not.
-  for (const p of panes)
-    if (p.agent_status !== "done") baseline[paneKey(p)] = p.transcript_at ?? 0
-  lsSet(BASELINE_KEY, JSON.stringify(baseline))
-}
 
 export function markSeen(item: InboxItem) {
   if ((seenMarks[item.key] ?? -1) >= item.at) return
@@ -198,52 +185,36 @@ export function noteChatSubmitted() {
   if (inboxCursor.chatFromInbox) inboxCursor.advance = true
 }
 
-// --- Notices (this tab only, as a toast would be) ---------------------------
+// --- Notices (lasso's, the same on every device) ---------------------------
 //
-// One-shot notifications the Inbox keeps: lasso's own notices and an agent's
-// deliberate message (the notify tool). Every one is listed, whatever this
-// device's choices: those decide interruptions, not the Inbox.
-
-const MAX_NOTICES = 50
-const KEPT_KINDS = new Set(["lasso_notice", "agent_message"])
-let notices: (LiveNotification & { key: string })[] = []
-const noticeListeners = new Set<() => void>()
-
-function emitNotices() {
-  for (const l of noticeListeners) l()
-}
-
-if (typeof window !== "undefined")
-  window.addEventListener(NOTIFICATION_EVENT, (e) => {
-    const n = (e as CustomEvent<LiveNotification>).detail
-    if (!KEPT_KINDS.has(n.kind)) return
-    const key = `notice:${n.id}`
-    if (notices.some((x) => x.key === key)) return
-    notices = [{ ...n, key }, ...notices].slice(0, MAX_NOTICES)
-    emitNotices()
-  })
-
-export function dropNotice(key: string) {
-  notices = notices.filter((n) => n.key !== key)
-  emitNotices()
-}
+// lasso keeps its own notices and agents' deliberate messages (the notify
+// tool) for the Inbox (GET /api/notices). Every one is listed, whatever this
+// device's choices: those decide interruptions, not the Inbox. Acknowledge is
+// shared, as a card's is.
 
 function useNotices() {
-  return React.useSyncExternalStore(
-    React.useCallback((cb: () => void) => {
-      noticeListeners.add(cb)
-      return () => noticeListeners.delete(cb)
-    }, []),
-    () => notices
-  )
+  const q = useQuery({
+    queryKey: ["simple", "notices"],
+    queryFn: () => api.notices(),
+    placeholderData: keepPreviousData,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+  })
+  const { refetch } = q
+  // A new one arrives live: read the list again rather than keep a copy.
+  React.useEffect(() => {
+    const on = () => void refetch()
+    window.addEventListener(NOTIFICATION_EVENT, on)
+    return () => window.removeEventListener(NOTIFICATION_EVENT, on)
+  }, [refetch])
+  return q.data?.notices ?? []
+}
+
+export function ackNotice(n: LiveNotification) {
+  ackCard(noticeAckKey(n.id), n.at)
 }
 
 // --- The model ---------------------------------------------------------------
-
-function msOf(iso: string | undefined): number {
-  const t = iso ? Date.parse(iso) : Number.NaN
-  return Number.isNaN(t) ? 0 : t
-}
 
 // The fleet listing every view of the simple app reads. One query, polled like
 // the full UI's agent list.
@@ -286,52 +257,44 @@ export function usePaneChat(p: HostPane | undefined) {
   })
 }
 
+// Finished turns count from lasso's shared baseline (ui_state.inbox_since).
+// A lasso too old to have one gets this page's load time instead, so the
+// Inbox still starts with what is waiting, not with history.
+const loadedAt = Date.now()
+
 export function useInbox() {
   const fleet = useFleet()
   const botsQ = useBots(true)
   const ui = useUIState()
   const noticeList = useNotices()
-  // Acknowledged cards, shared by every client (ui_state.dismissed_cards).
-  const acked = ui.dismissed_cards ?? {}
-
-  const panes = React.useMemo(
-    () => (fleet.data?.panes ?? []).filter((p) => p.has_agent),
-    [fleet.data]
+  // Acknowledged entries, shared by every client (ui_state.dismissed_cards).
+  const acked = React.useMemo(
+    () => ui.dismissed_cards ?? {},
+    [ui.dismissed_cards]
   )
-  const bots = botsQ.data?.bots ?? []
+  const since = ui.inbox_since ?? loadedAt
+  const bots = React.useMemo(() => botsQ.data?.bots ?? [], [botsQ.data])
 
-  // Seed the baseline once the first real listing lands.
-  if (fleet.data && fleet.dataUpdatedAt > 0) seedBaseline(panes)
-
-  // Panes that are candidates: claude/omp, not an omp bot's pane (that one
-  // enters as the bot), blocked or finished past the baseline, not acknowledged.
-  const candidates = React.useMemo(() => {
-    const out: { pane: HostPane; bot?: BotView; blocked: boolean }[] = []
-    for (const p of panes) {
-      if (!HARNESSES.has(p.agent ?? "")) continue
-      const bot = botForPane(bots, p)
-      if (bot && bot.runtime !== "claude") continue
-      const key = paneKey(p)
-      const at = p.transcript_at ?? 0
-      const gone = acked[key]
-      if (gone !== undefined && at <= gone) continue
-      if (p.agent_status === "blocked")
-        out.push({ pane: p, bot, blocked: true })
-      else if (
-        (p.agent_status === "done" || p.agent_status === "idle") &&
-        // Before the first listing seeds it nothing is waiting; after, a pane
-        // with no baseline enters with its first finished turn.
-        baseline &&
-        at > (baseline[key] ?? 0)
-      )
-        out.push({ pane: p, bot, blocked: false })
-    }
-    return out
-  }, [panes, bots, acked])
+  // The shared rule decides membership. Before the first listing nothing is
+  // known, so nothing is waiting.
+  const entries = React.useMemo(
+    () =>
+      fleet.data
+        ? inboxEntries({
+            panes: fleet.data.panes ?? [],
+            bots,
+            dismissed: acked,
+            since,
+          })
+        : [],
+    [fleet.data, bots, acked, since]
+  )
 
   // Only a blocked pane's chat decides its group (an ask, or no choices).
   const blockedChats = useQueries({
-    queries: candidates.filter((c) => c.blocked).map((c) => chatQuery(c.pane)),
+    queries: entries
+      .filter((e) => e.kind === "waiting" && !e.pending)
+      .map((e) => chatQuery(e.pane)),
   })
 
   const items = React.useMemo(() => {
@@ -339,58 +302,79 @@ export function useInbox() {
     const stuck: InboxItem[] = []
     const done: InboxItem[] = []
     let bi = 0
-    for (const c of candidates) {
-      const key = paneKey(c.pane)
-      const at = c.pane.transcript_at ?? 0
-      if (c.blocked) {
-        const chat = blockedChats[bi++]?.data
-        const ask = openAsk(chat)
+    for (const e of entries) {
+      const { ackKey, ackAt, at } = e
+      if (e.pending && e.bot) {
+        asks.push({
+          kind: "bot-ask",
+          key: ackKey,
+          bot: e.bot,
+          at,
+          pending: e.pending,
+          ackKey,
+          ackAt,
+        })
+      } else if (e.kind === "waiting") {
+        const ask = openAsk(blockedChats[bi++]?.data)
         if (ask)
           asks.push({
             kind: "ask",
-            key: `${key}#${askHash(ask.ask)}`,
-            pane: c.pane,
-            bot: c.bot,
+            key: `${e.key}#${askHash(ask.ask)}`,
+            pane: e.pane,
+            bot: e.bot,
             at,
             ask,
+            ackKey,
+            ackAt,
           })
-        else stuck.push({ kind: "blocked", key, pane: c.pane, bot: c.bot, at })
-      } else done.push({ kind: "done", key, pane: c.pane, bot: c.bot, at })
-    }
-    for (const b of bots) {
-      if (b.runtime === "claude") continue
-      const pending = b.pending_ui?.[0]
-      if (b.state === "blocked" && pending) {
-        const key = `bot:${b.name}#${pending.id}`
-        if (acked[key] === undefined)
-          asks.push({
-            kind: "bot-ask",
-            key,
-            bot: b,
-            at: msOf(b.last_at),
-            pending,
+        else
+          stuck.push({
+            kind: "blocked",
+            key: e.key,
+            pane: e.pane,
+            bot: e.bot,
+            at,
+            ackKey,
+            ackAt,
           })
-        continue
+      } else if (e.bot && e.bot.runtime !== "claude") {
+        // An omp bot's reply reads from its own chat; a claude bot's chat is
+        // its pane's, so it shows as the pane.
+        done.push({
+          kind: "bot-reply",
+          key: ackKey,
+          bot: e.bot,
+          at,
+          ackKey,
+          ackAt,
+        })
+      } else {
+        done.push({
+          kind: "done",
+          key: e.key,
+          pane: e.pane,
+          bot: e.bot,
+          at,
+          ackKey,
+          ackAt,
+        })
       }
-      const at = msOf(b.last_at)
-      const key = `bot:${b.name}`
-      if (
-        b.last_kind === "agent" &&
-        at > (botBaseline(b) ?? Number.POSITIVE_INFINITY) &&
-        !(acked[key] !== undefined && at <= acked[key])
-      )
-        done.push({ kind: "bot-reply", key, bot: b, at })
     }
     const newest = (a: InboxItem, b: InboxItem) => b.at - a.at
     return [
       ...asks.sort(newest),
       ...stuck.sort(newest),
-      ...done.sort(newest),
-      ...noticeList.map(
-        (n): InboxItem => ({ kind: "notice", key: n.key, notice: n, at: n.at })
+      ...done,
+      ...inboxNotices(noticeList, acked).map(
+        (n): InboxItem => ({
+          kind: "notice",
+          key: noticeAckKey(n.id),
+          notice: n,
+          at: n.at,
+        })
       ),
     ]
-  }, [candidates, blockedChats, bots, acked, noticeList])
+  }, [entries, blockedChats, acked, noticeList])
 
   return {
     items,
@@ -402,17 +386,4 @@ export function useInbox() {
       void botsQ.refetch()
     },
   }
-}
-
-// A bot's finished turn is waiting once it is newer than this device's
-// baseline for the bot, which the first sighting of the bot sets.
-const BOT_BASELINE_KEY = "lasso-m-bot-baseline"
-let botBaselines = readMap(BOT_BASELINE_KEY) ?? {}
-
-function botBaseline(b: BotView): number | undefined {
-  if (!(b.name in botBaselines)) {
-    botBaselines = { ...botBaselines, [b.name]: msOf(b.last_at) }
-    lsSet(BOT_BASELINE_KEY, JSON.stringify(botBaselines))
-  }
-  return botBaselines[b.name]
 }

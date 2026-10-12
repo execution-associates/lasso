@@ -19,9 +19,9 @@ import { ackCard } from "@/lib/ui-state"
 import { cn } from "@/lib/utils"
 import { BotAskForm, PaneAskForm } from "@/simple/AskForm"
 import {
+  ackNotice,
   botChatQuery,
   chatQuery,
-  dropNotice,
   type InboxItem,
   inboxCursor,
   lastAgentText,
@@ -296,7 +296,7 @@ function ItemCard({
           )}
           <CardFooter>
             <Actions>
-              <ActionButton primary onClick={() => dropNotice(item.key)}>
+              <ActionButton primary onClick={() => ackNotice(item.notice)}>
                 Acknowledge
               </ActionButton>
             </Actions>
@@ -457,7 +457,7 @@ function PaneCard({
   const refresh = () =>
     void queryClient.invalidateQueries({ queryKey: ["simple"] })
 
-  const ack = () => ackCard(paneKey(p), p.transcript_at ?? 0)
+  const ack = () => ackCard(item.ackKey, item.ackAt)
   const kill = async () => {
     try {
       await api.close([p.pane_id], p.host)
@@ -580,8 +580,7 @@ function BotCard({
   }
   const text = lastAgentText(chat) || b.last_text || ""
   const files = sharedFiles(lastTurn(chat))
-  const ack = () =>
-    item.kind === "bot-ask" ? ackCard(item.key, 0) : ackCard(item.key, item.at)
+  const ack = () => ackCard(item.ackKey, item.ackAt)
   const [drafting, setDrafting] = React.useState(false)
 
   return (

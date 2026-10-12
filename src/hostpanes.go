@@ -441,6 +441,9 @@ func serveUIState(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		us, err := getUIState()
+		if err == nil && us.InboxSince == 0 {
+			us, err = seedInboxSince()
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -570,6 +573,9 @@ func serveUIState(w http.ResponseWriter, r *http.Request) {
 		}
 		us.DismissedCards = mergeDismissedCards(stored.DismissedCards, who.CardDismiss)
 		us.DesktopSound = stored.DesktopSound
+		// Server-owned like the sound: set once (seedInboxSince, at boot
+		// and by a GET that finds none), never by a body.
+		us.InboxSince = stored.InboxSince
 
 		// The sidebar layout is the one field group several clients write
 		// unprompted, so it is arbitrated rather than merged (see uilock.go).

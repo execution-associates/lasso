@@ -14,7 +14,7 @@ public struct InboxView: View {
     private var row: Token { Theme.List.row }
 
     public var body: some View {
-        let notices = fleet.notices.reversed()
+        let notices = fleet.inboxNotices.reversed()
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Inbox")

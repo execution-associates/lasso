@@ -46,6 +46,12 @@ public struct LiveNotification: Codable, Sendable, Equatable {
     public var icon: String?
 }
 
+/// GET /api/notices: the notices lasso keeps for the inbox, oldest first
+/// (src/inboxnotices.go noticesPayload).
+public struct NoticesPayload: Codable, Sendable, Equatable {
+    public var notices: [LiveNotification]
+}
+
 /// The kinds the app maps its own arrivals to.
 public enum NotifyKinds {
     public static let agentBlocked = "agent_blocked"
