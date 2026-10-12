@@ -2,9 +2,11 @@ import SwiftUI
 
 // The rail. At rest only a sliver of a pill shows at the screen edge (the
 // peek); hovering it reveals the rail: the inbox (what waits on you), the
-// agents capsule (the fleet), the terminal (lasso's herdr), the globe
-// (lasso's browsers), the plus (a new agent) and the ellipsis (settings),
-// each floating on its own (no backing).
+// agents capsule (the fleet), the bot (lasso's bots, while it has some), the
+// terminal (lasso's herdr), the globe (lasso's browsers), the plus (a new
+// agent) and the gear (settings), each floating on its own (no backing). The
+// icons are the web app's Lucide ones (Theme/Lucide.swift). The gear's control
+// keeps its old name, `ellipsis`, in tokens and anchors.
 // Layout numbers all come from Theme.Rail.
 
 enum RailMetrics {
@@ -96,11 +98,10 @@ struct RailPress: ButtonStyle {
 }
 
 struct RailIcon: View {
-    let symbol: String
+    let icon: Lucide
 
     var body: some View {
-        Image(systemName: symbol)
-            .font(.system(size: Theme.Rail.icon.number("size"), weight: Theme.Rail.icon.weight))
+        LucideIcon(icon, size: Theme.Rail.icon.number("size"))
             .foregroundStyle(Theme.Rail.icon.textColor)
     }
 }
@@ -242,7 +243,7 @@ public struct RailView: View {
         Button { model.activate(.inbox) } label: {
             ZStack {
                 GroupBackground(hovered: model.hovered == .inbox)
-                RailIcon(symbol: "tray")
+                RailIcon(icon: .inbox)
             }
             .frame(width: RailMetrics.outer, height: RailMetrics.outer)
             .contentShape(Circle())
@@ -327,7 +328,7 @@ public struct RailView: View {
         return Button { model.activate(.bots) } label: {
             ZStack {
                 GroupBackground(hovered: model.hovered == .bots)
-                RailIcon(symbol: "bubble.left.and.text.bubble.right")
+                RailIcon(icon: .bot)
             }
             .frame(width: e, height: e)
             .contentShape(Circle())
@@ -353,7 +354,7 @@ public struct RailView: View {
         Button { model.activate(.newAgent) } label: {
             ZStack {
                 GroupBackground(hovered: model.hovered == .newAgent)
-                RailIcon(symbol: "plus")
+                RailIcon(icon: .plus)
             }
             .frame(width: Theme.Rail.ellipsisOuter.pt, height: Theme.Rail.ellipsisOuter.pt)
             .contentShape(Circle())
@@ -371,7 +372,7 @@ public struct RailView: View {
         Button { model.activate(.terminal) } label: {
             ZStack {
                 GroupBackground(hovered: model.hovered == .terminal)
-                RailIcon(symbol: "terminal")
+                RailIcon(icon: .squareTerminal)
             }
             .frame(width: Theme.Rail.ellipsisOuter.pt, height: Theme.Rail.ellipsisOuter.pt)
             .contentShape(Circle())
@@ -391,7 +392,7 @@ public struct RailView: View {
         return Button { model.activate(.browser) } label: {
             ZStack {
                 GroupBackground(hovered: model.hovered == .browser)
-                RailIcon(symbol: "globe")
+                RailIcon(icon: .globe)
             }
             .frame(width: e, height: e)
             .contentShape(Circle())
@@ -414,7 +415,7 @@ public struct RailView: View {
         Button { model.activate(.settings) } label: {
             ZStack {
                 GroupBackground(hovered: model.hovered == .settings)
-                RailIcon(symbol: "ellipsis")
+                RailIcon(icon: .settings)
             }
             .frame(width: Theme.Rail.ellipsisOuter.pt, height: Theme.Rail.ellipsisOuter.pt)
             .contentShape(Circle())

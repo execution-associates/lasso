@@ -33,7 +33,11 @@ public final class ListModel: ObservableObject, HoverColumn {
     @Published public var keyboardLit = false
     /// Each row's frame in the scrolled rows (`ColumnRows.space`), by row id:
     /// what the pointer is over. Not published: the hover reads it as it polls.
-    public var rowFrames: [String: CGRect] = [:]
+    public var rowFrames: [String: CGRect] = [:] {
+        didSet { if rowFrames != oldValue { rowFramesChanged() } }
+    }
+    /// The hover's: a layout landed (`ColumnHover`).
+    public var rowFramesChanged: () -> Void = {}
 
     /// The one highlighted row: the pointer's, or the keyboard's while it
     /// leads. Never both, so two rows are never lit at once.

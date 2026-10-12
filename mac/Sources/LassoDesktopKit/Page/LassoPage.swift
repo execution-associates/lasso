@@ -352,18 +352,15 @@ private final class SocketEvents: NSObject, URLSessionWebSocketDelegate, @unchec
     }
 }
 
-/// A page's web view: ⌘W closes its window (the app's menu has no Window
-/// menu to do it), and WebKit's own menu (Reload, Inspect Element) never
+/// A page's web view. WebKit's own menu (Reload, Inspect Element) never
 /// opens: the page cancels its event, and this empties the menu for a click
-/// the page did not see (one before it loaded).
+/// the page did not see (one before it loaded). A click on the page acts
+/// whether or not its window has the keyboard yet: WebKit takes a first
+/// click only to make the window key, so the Browser window's "+" (or any
+/// of its page's controls) clicked while another app was in front did
+/// nothing. ⌘W is its window's (AgentWindowPanel).
 class LassoPageWebView: WKWebView {
-    override func performKeyEquivalent(with e: NSEvent) -> Bool {
-        if e.modifierFlags.intersection([.command, .shift, .option, .control]) == .command, e.charactersIgnoringModifiers == "w" {
-            window?.performClose(nil)
-            return true
-        }
-        return super.performKeyEquivalent(with: e)
-    }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         menu.removeAllItems()

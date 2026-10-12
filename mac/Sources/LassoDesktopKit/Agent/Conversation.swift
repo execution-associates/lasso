@@ -188,7 +188,7 @@ struct ConversationWindowView<M: Conversation>: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(PanelBackground())
         .clipShape(RoundedRectangle(cornerRadius: w.number("radius"), style: .continuous))
-        .overlay(alignment: .bottomTrailing) { if !chrome.collapsed { grip } }
+        .overlay(alignment: .bottomTrailing) { if !chrome.collapsed { WindowGrip(chrome: chrome) } }
         .parityAnchor(chrome.collapsed ? "\(a).window.collapsed" : "\(a).window")
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(model.title), \(a) window")
@@ -197,33 +197,10 @@ struct ConversationWindowView<M: Conversation>: View {
     private var buttons: some View {
         let a = model.anchor
         return HStack(spacing: Theme.space("xs")) {
-            WindowButton(symbol: "terminal", label: model.herdrLabel, enabled: model.canShowInHerdr) { model.showInHerdr() }
+            WindowButton(glyph: .lucide(.squareTerminal), label: model.herdrLabel, enabled: model.canShowInHerdr) { model.showInHerdr() }
                 .parityAnchor("\(a).herdr")
-            WindowButton(symbol: chrome.collapsed ? "arrow.up.left.and.arrow.down.right" : "minus",
-                         label: chrome.collapsed ? "Expand" : "Minimize") { chrome.onToggle() }
-                .parityAnchor("\(a).minimize")
-            WindowButton(symbol: "xmark", label: "Close") { chrome.onClose() }
-                .parityAnchor("\(a).close")
+            WindowControls(chrome: chrome, anchor: a)
         }
-    }
-
-    /// The corner to resize by; a double-click puts the default size back.
-    private var grip: some View {
-        Image(systemName: "line.diagonal")
-            .font(.system(size: Theme.icon.number("control")))
-            .foregroundStyle(Theme.Text.secondary.color)
-            .frame(width: Theme.Agent.window.number("button"), height: Theme.Agent.window.number("button"))
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                    .onChanged { _ in chrome.onResize(false) }
-                    .onEnded { _ in chrome.onResize(true) })
-            .simultaneousGesture(TapGesture(count: 2).onEnded { chrome.onDefaultSize() })
-            .accessibilityElement()
-            .accessibilityLabel("Resize")
-            .accessibilityHint("Drag to resize; double-click for the default size")
-            .accessibilityAction(named: "Default size") { chrome.onDefaultSize() }
-            .help("Drag to resize; double-click for the default size")
     }
 }
 
@@ -275,10 +252,50 @@ final class AgentWindowChrome: ObservableObject {
     var onDefaultSize: () -> Void = {}
 }
 
+/// A window's minimize (expand, once collapsed) and close, as its header
+/// ends: an agent's or a bot's window, the herdr window and the Browser
+/// window alike (`<anchor>.minimize`, `<anchor>.close`).
+struct WindowControls: View {
+    @ObservedObject var chrome: AgentWindowChrome
+    let anchor: String
+
+    var body: some View {
+        HStack(spacing: Theme.space("xs")) {
+            WindowButton(glyph: .window(chrome.collapsed ? .expand : .minimize),
+                         label: chrome.collapsed ? "Expand" : "Minimize") { chrome.onToggle() }
+                .parityAnchor("\(anchor).minimize")
+            WindowButton(glyph: .window(.close), label: "Close") { chrome.onClose() }
+                .parityAnchor("\(anchor).close")
+        }
+    }
+}
+
+/// The corner a window resizes by; a double-click puts the default size back.
+struct WindowGrip: View {
+    @ObservedObject var chrome: AgentWindowChrome
+
+    var body: some View {
+        WindowControl.resize.image(size: Theme.icon.number("control"), weight: .regular)
+            .foregroundStyle(Theme.Text.secondary.color)
+            .frame(width: Theme.Agent.window.number("button"), height: Theme.Agent.window.number("button"))
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                    .onChanged { _ in chrome.onResize(false) }
+                    .onEnded { _ in chrome.onResize(true) })
+            .simultaneousGesture(TapGesture(count: 2).onEnded { chrome.onDefaultSize() })
+            .accessibilityElement()
+            .accessibilityLabel("Resize")
+            .accessibilityHint("Drag to resize; double-click for the default size")
+            .accessibilityAction(named: "Default size") { chrome.onDefaultSize() }
+            .help("Drag to resize; double-click for the default size")
+    }
+}
+
 /// A plain glyph button in the window's header (no circle, as the
 /// reference). One that cannot act now is drawn dimmed and says why.
 struct WindowButton: View {
-    let symbol: String
+    let glyph: Glyph
     let label: String
     var enabled = true
     let action: () -> Void
@@ -288,8 +305,7 @@ struct WindowButton: View {
         Button {
             if enabled { action() }
         } label: {
-            Image(systemName: symbol)
-                .font(.system(size: w.number("icon"), weight: .medium))
+            glyph.view(size: w.number("icon"), weight: .medium)
                 .foregroundStyle(enabled ? Theme.Text.primary.color : Theme.Text.placeholder.color)
                 .frame(width: w.number("button"), height: w.number("button"))
                 .contentShape(Rectangle())
@@ -301,9 +317,10 @@ struct WindowButton: View {
     }
 }
 
-/// An agent's or a bot's window panel: it floats over every app (full-screen
-/// ones included) and follows the user across Spaces. ⌘W closes it, menu bar
-/// or not.
+/// An agent's or a bot's window panel, and the herdr window's and the
+/// Browser window's (PageWindow): it floats over every app (full-screen ones
+/// included) and follows the user across Spaces. ⌘W closes it, menu bar or
+/// not.
 final class AgentWindowPanel: RailPanel {
     var onCloseKey: () -> Void = {}
 

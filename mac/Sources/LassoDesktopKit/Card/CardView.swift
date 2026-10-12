@@ -23,7 +23,21 @@ public func statusPhrase(_ p: HostPane, now: Date) -> String {
     }
 }
 
-/// An agent's small avatar: a symbol by agent kind, with its state as a
+extension Lucide {
+    /// An agent kind's icon, for its avatar and the New form's Agent chip.
+    /// The web draws none, so these are Lucide's nearest: Claude's asterisk,
+    /// Codex's code brackets, pi for omp (Oh My Pi), else a terminal.
+    static func agent(_ kind: String) -> Lucide {
+        switch kind {
+        case "claude": .asterisk
+        case "codex": .codeXml
+        case "omp", "pi": .pi
+        default: .squareTerminal
+        }
+    }
+}
+
+/// An agent's small avatar: an icon by agent kind, with its state as a
 /// dot on the corner (ref a2 identity line, a3 rows).
 struct AgentAvatar: View {
     let agent: String
@@ -31,15 +45,7 @@ struct AgentAvatar: View {
     var size: CGFloat = Theme.List.row.number("avatar")
 
     var body: some View {
-        let symbol =
-            switch agent {
-            case "claude": "asterisk"
-            case "codex": "chevron.left.forwardslash.chevron.right"
-            case "omp", "pi": "circle.hexagongrid"
-            default: "terminal"
-            }
-        Image(systemName: symbol)
-            .font(.system(size: size * Theme.avatar.number("glyph"), weight: .semibold))
+        LucideIcon(.agent(agent), size: size * Theme.avatar.number("glyph"))
             .foregroundStyle(Theme.Text.primary.color)
             .frame(width: size, height: size)
             .background(RoundedRectangle(cornerRadius: size * Theme.avatar.number("radius")).fill(Theme.Control.round.color("fill")))
@@ -100,11 +106,11 @@ public struct CardView: View {
 
             // The paging column: K above, J below, then the unread bar.
             VStack(spacing: Theme.Layout.card.number("column_gap")) {
-                RoundButton(symbol: "chevron.up", enabled: pages.count > 1 && index > 0, label: "Previous card (K)") {
+                RoundButton(glyph: .lucide(.chevronUp), enabled: pages.count > 1 && index > 0, label: "Previous card (K)") {
                     model.page(-1)
                 }
                 RoundButton(
-                    symbol: "chevron.down", enabled: pages.count > 1 && index < pages.count - 1, label: "Next card (J)"
+                    glyph: .lucide(.chevronDown), enabled: pages.count > 1 && index < pages.count - 1, label: "Next card (J)"
                 ) { model.page(1) }
                 unreadBar(pages)
                     .padding(.top, Theme.Layout.card.number("unread_top"))
@@ -125,11 +131,11 @@ public struct CardView: View {
                 .padding(.leading, Theme.Card.titleX.pt - contentX)
             Spacer(minLength: 8)
             if model.canShowInHerdr {
-                RoundButton(symbol: "terminal", label: "Show \(pane.displayName) in herdr (T)") { model.showInHerdr() }
+                RoundButton(glyph: .lucide(.squareTerminal), label: "Show \(pane.displayName) in herdr (T)") { model.showInHerdr() }
                     .help("Show \(pane.displayName) in herdr")
                     .parityAnchor("card.herdr")
             }
-            RoundButton(symbol: "xmark", label: "Close (esc)") { model.onClose() }
+            RoundButton(glyph: .window(.close), label: "Close (esc)") { model.onClose() }
                 .parityAnchor("card.close")
         }
         .frame(height: Theme.Control.round.number("size"))
@@ -289,8 +295,7 @@ public struct CardView: View {
                                 Spacer(minLength: 8)
                                 if on {
                                     // The selected choice: → answers with it, ↳ edits it.
-                                    Image(systemName: "arrow.right")
-                                        .font(.system(size: Theme.icon.number("step"), weight: .semibold))
+                                    LucideIcon(.arrowRight, size: Theme.icon.number("step"))
                                         .foregroundStyle(Theme.Text.secondary.color)
                                 }
                             }

@@ -23,7 +23,7 @@ extension View {
 
 /// A round icon button (close, paging chevrons).
 struct RoundButton: View {
-    let symbol: String
+    let glyph: Glyph
     var enabled = true
     var size: CGFloat = Theme.Control.round.number("size")
     var fill: Color = Theme.Control.round.color("fill")
@@ -32,8 +32,7 @@ struct RoundButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: size * Theme.icon.number("round_ratio"), weight: .semibold))
+            glyph.view(size: size * Theme.icon.number("round_ratio"), weight: .semibold)
                 .foregroundStyle(enabled ? Theme.Text.primary.color : Theme.Text.secondary.color)
                 .frame(width: size, height: size)
                 .background(Circle().fill(enabled ? fill : Theme.Control.round.color("disabled")))
@@ -92,7 +91,7 @@ struct ComposerRow<Model: ComposerModel>: View {
         let canSend = !model.composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         HStack(spacing: c.number("gap")) {
             RoundButton(
-                symbol: "paperclip", size: h, fill: c.color("fill"), label: "Attach a file (\(Keys.attach.legend))",
+                glyph: .lucide(.paperclip), size: h, fill: c.color("fill"), label: "Attach a file (\(Keys.attach.legend))",
                 action: attach
             )
             ComposerField(model: model)
@@ -104,13 +103,14 @@ struct ComposerRow<Model: ComposerModel>: View {
             if model.showsStop {
                 // The web chat's Stop: a filled square while the agent works.
                 RoundButton(
-                    symbol: "stop.fill", enabled: !model.stopping, size: h, fill: c.color("fill"),
+                    glyph: .lucide(.square, filled: true), enabled: !model.stopping, size: h, fill: c.color("fill"),
                     label: "\(model.stopLabel) (⌘.)", action: model.stop
                 )
                 .parityAnchor("composer.stop")
             } else {
                 RoundButton(
-                    symbol: "arrow.up", enabled: canSend, size: h, fill: c.color("fill"), label: "Send (⏎)",
+                    // The phone's send: an arrow, a little bolder (ReplyBox).
+                    glyph: .lucide(.arrowUp, stroke: 2.5), enabled: canSend, size: h, fill: c.color("fill"), label: "Send (⏎)",
                     action: model.send
                 )
             }

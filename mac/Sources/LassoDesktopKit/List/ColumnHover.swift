@@ -13,6 +13,9 @@ protocol HoverColumn: AnyObject {
     /// The keyboard moved the selection last (J/K, ↑/↓): it, not the
     /// pointer, has the highlight until the pointer moves.
     var keyboardLit: Bool { get set }
+    /// Called when `rowFrames` changes (a layout landed): the hover looks
+    /// again at once.
+    var rowFramesChanged: () -> Void { get set }
 }
 
 /// The scrolled content's coordinate space the rows report their frames in.
@@ -49,10 +52,21 @@ extension View {
 /// (momentum, the elastic bounce, `scrollTo`) before the map is right again.
 /// The timer runs in the common modes, so a scroll or a menu's tracking does
 /// not stop it.
+///
+/// It also looks at once, not at the next tick, whenever what it maps
+/// through changes while the column is open: when the column opens, when a
+/// layout lands new row frames, and when the panel is replaced. A pointer
+/// already resting on a row starts that row's rest then, with no move.
 @MainActor
 final class ColumnHover {
     /// The column's panel (its controller swaps in a new one, `RailPanel.orderIn`).
-    var panel: NSPanel
+    var panel: NSPanel {
+        didSet {
+            guard panel !== oldValue else { return }
+            scroll = nil
+            if running { tick() }
+        }
+    }
     private let column: HoverColumn
     /// The pointer, in screen coordinates (a seam for tests).
     var pointer: () -> NSPoint = { NSEvent.mouseLocation }
@@ -72,29 +86,55 @@ final class ColumnHover {
     var timerEnabled = true
 
     private var timer: Timer?
+    /// Between `start` and `stop`: the column is open.
+    private(set) var running = false
     private var intent = PreviewHover()
     private var lastPointer: NSPoint?
     private weak var scroll: NSScrollView?
+    /// A look asked for by a layout, not yet taken.
+    private var lookPending = false
 
     init(panel: NSPanel, column: HoverColumn) {
         self.panel = panel
         self.column = column
+        column.rowFramesChanged = { [weak self] in self?.framesChanged() }
     }
 
+    /// The column opened: look now, then every tick.
     func start() {
         timer?.invalidate()
-        guard timerEnabled else { return }
-        let t = Timer(timeInterval: 1.0 / 20, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
+        timer = nil
+        running = true
+        if timerEnabled {
+            let t = Timer(timeInterval: 1.0 / 20, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.tick() }
+            }
+            RunLoop.main.add(t, forMode: .common)
+            timer = t
         }
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
+        tick()
+    }
+
+    /// New row frames: look on the next turn of the run loop. Not inside
+    /// SwiftUI's preference callback, which is in the middle of a view
+    /// update that must not publish the highlight.
+    private func framesChanged() {
+        guard running, !lookPending else { return }
+        lookPending = true
+        RunLoop.main.perform(inModes: [.common]) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.lookPending = false
+                if self.running { self.tick() }
+            }
+        }
     }
 
     /// The column closed: its preview goes, and the next open starts fresh.
     func stop() {
         timer?.invalidate()
         timer = nil
+        running = false
         if showing() != nil { onHide() }
         intent = PreviewHover()
         column.hovered = nil
@@ -116,14 +156,13 @@ final class ColumnHover {
 
     /// A point in screen coordinates in the rows' space, nil off the
     /// column's visible rows (outside the panel, or over a row scrolled out
-    /// of sight under its edges).
+    /// of sight under its edges), and nil before SwiftUI has made the
+    /// column's scroll view: the rows are not laid out yet, and the panel's
+    /// top is not where they start (the Bots column's start below its
+    /// header).
     func contentPoint(_ screen: NSPoint) -> CGPoint? {
-        guard panel.frame.contains(screen) else { return nil }
+        guard panel.frame.contains(screen), let s = scrollView(), let doc = s.documentView else { return nil }
         let inWindow = panel.convertPoint(fromScreen: screen)
-        guard let s = scrollView(), let doc = s.documentView else {
-            let h = panel.contentView?.bounds.height ?? panel.frame.height
-            return CGPoint(x: inWindow.x, y: h - inWindow.y)
-        }
         let p = doc.convert(inWindow, from: nil)
         guard s.documentVisibleRect.contains(p) else { return nil }
         return CGPoint(x: p.x, y: doc.isFlipped ? p.y : doc.bounds.height - p.y)

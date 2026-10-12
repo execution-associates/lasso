@@ -199,7 +199,7 @@ struct MediaView: View {
                         .help("\(name): click to open it")
                         .accessibilityLabel("Image \(name)")
                 } else {
-                    chip("photo")
+                    chip(.image)
                 }
             case "video":
                 if let p = load.avPlayer() {
@@ -208,32 +208,32 @@ struct MediaView: View {
                         .clipShape(RoundedRectangle(cornerRadius: m.number("radius"), style: .continuous))
                         .accessibilityLabel("Video \(name)")
                 } else {
-                    chip("film")
+                    chip(.film)
                 }
             case "audio":
                 HStack(spacing: Theme.space("m")) {
                     RoundButton(
-                        symbol: load.playing ? "pause.fill" : "play.fill", enabled: load.url != nil,
+                        glyph: .lucide(load.playing ? .pause : .play), enabled: load.url != nil,
                         label: load.playing ? "Pause \(name)" : "Play \(name)"
                     ) { load.toggle() }
-                    Image(systemName: "waveform").foregroundStyle(Theme.Text.secondary.color)
+                    LucideIcon(.audioLines, size: Theme.Fonts.body.number("size")).foregroundStyle(Theme.Text.secondary.color)
                     Text(name).font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.primary.color).lineLimit(1)
                     Spacer(minLength: 0)
                 }
                 .padding(Theme.space("m"))
                 .background(RoundedRectangle(cornerRadius: m.number("radius"), style: .continuous).fill(Theme.Panel.inner.color("fill")))
             default:
-                chip("doc")
+                chip(.file)
             }
         }
         .onAppear { load.start(file, host: host, version: version, source: source) }
     }
 
     /// A file shown by name: a click opens it in its own app.
-    private func chip(_ symbol: String) -> some View {
+    private func chip(_ icon: Lucide) -> some View {
         Button { open() } label: {
             HStack(spacing: Theme.space("s")) {
-                Image(systemName: symbol)
+                LucideIcon(icon, size: Theme.Fonts.small.number("size"))
                 Text(name).lineLimit(1).truncationMode(.middle)
                 if load.failed != nil { Text("unavailable").foregroundStyle(Theme.Text.secondary.color) }
             }

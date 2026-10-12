@@ -42,7 +42,7 @@ public final class FirstRunModel: ObservableObject {
     /// A kind of place a lasso runs, with an address to start from.
     public struct Example: Identifiable, Equatable, Sendable {
         public var id: String
-        public var symbol: String
+        public var icon: Lucide
         public var title: String
         public var detail: String
         public var address: String
@@ -51,7 +51,7 @@ public final class FirstRunModel: ObservableObject {
     /// One thing worth knowing once connected, with its live shortcut.
     public struct Tip: Identifiable, Equatable, Sendable {
         public var id: String
-        public var symbol: String
+        public var icon: Lucide
         public var title: String
         public var detail: String
         public var keys: [String]
@@ -109,13 +109,13 @@ public final class FirstRunModel: ObservableObject {
 
     public static let examples: [Example] = [
         Example(
-            id: "tailnet", symbol: "point.3.connected.trianglepath.dotted", title: "On your tailnet",
+            id: "tailnet", icon: .network, title: "On your tailnet",
             detail: "No sign-in: the tailnet vouches for this Mac.", address: "titan.your-tailnet.ts.net"),
         Example(
-            id: "access", symbol: "lock.shield", title: "Behind Cloudflare Access",
+            id: "access", icon: .shield, title: "Behind Cloudflare Access",
             detail: "You'll sign in in your browser.", address: "lasso.example.com"),
         Example(
-            id: "local", symbol: "desktopcomputer", title: "On this Mac",
+            id: "local", icon: .laptop, title: "On this Mac",
             detail: "lasso running right here.", address: "127.0.0.1:8090"),
     ]
 
@@ -126,16 +126,16 @@ public final class FirstRunModel: ObservableObject {
         let scratch = shortcut(.newScratch).keys
         return [
             Tip(
-                id: "inbox", symbol: "tray", title: "Your inbox",
-                detail: "Rest the pointer on the tab at your screen's right edge, then on the tray: what waits on you.",
+                id: "inbox", icon: .inbox, title: "Your inbox",
+                detail: "Rest the pointer on the tab at your screen's right edge, then on the inbox: what waits on you.",
                 keys: inbox.map { [$0] } ?? []),
             Tip(
-                id: "new", symbol: "plus", title: "Start an agent",
+                id: "new", icon: .plus, title: "Start an agent",
                 detail: (agent == nil ? "Click + on the rail." : "Click + on the rail, or press the keys from any app.") + (scratch.map { " \($0) starts a scratch one." } ?? ""),
                 keys: agent.map { [$0] } ?? []),
             Tip(
-                id: "settings", symbol: "ellipsis", title: "Settings",
-                detail: "The ellipsis at the rail's foot: shortcuts, sounds and this connection.", keys: []),
+                id: "settings", icon: .settings, title: "Settings",
+                detail: "The gear at the rail's foot: shortcuts, sounds and this connection.", keys: []),
         ]
     }
 

@@ -21,7 +21,7 @@ public struct InboxView: View {
                     .font(Theme.Fonts.title.font)
                     .foregroundStyle(Theme.Text.primary.color)
                 Spacer()
-                RoundButton(symbol: "xmark", label: "Close (esc)") { model.onClose() }
+                RoundButton(glyph: .window(.close), label: "Close (esc)") { model.onClose() }
             }
             .padding(.horizontal, row.number("pad_h"))
             .padding(.top, Theme.Layout.card.number("top"))
@@ -80,7 +80,8 @@ public struct InboxView: View {
             }
             Spacer(minLength: Theme.space("m"))
             Button { model.acknowledge(n) } label: {
-                Image(systemName: "xmark").frame(width: row.number("action_w"), height: row.number("height")).contentShape(Rectangle())
+                LucideIcon(.x, size: Theme.icon.number("control"))
+                    .frame(width: row.number("action_w"), height: row.number("height")).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .foregroundStyle(Theme.Text.secondary.color)

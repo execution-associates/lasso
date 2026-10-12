@@ -32,19 +32,41 @@ func agentStatusLine(_ p: HostPane) -> String {
     return parts.filter { !$0.isEmpty }.joined(separator: " · ")
 }
 
-/// A run of tool calls folded into one line: "⚙ Read · Bash · swift build".
+extension Lucide {
+    /// A tool call's family as the web chat draws it (`FAMILY_ICON`): the
+    /// family lives in the icon, colour stays for state.
+    static func toolFamily(_ family: String?) -> Lucide {
+        switch family {
+        case "shell", "eval": .squareTerminal
+        case "read", "write", "edit": .pencil
+        case "search": .search
+        case "web": .globe
+        case "todo": .listTodo
+        case "task": .users
+        case "image": .image
+        default: .wrench
+        }
+    }
+}
+
+/// A run of tool calls folded into one line, "Read · Bash · swift build",
+/// after the last call's family icon, as the web's tool group shows it.
 struct ToolRunRow: View {
     let tools: [ChatTool]
 
     var body: some View {
         let words = tools.map { t in [t.title ?? t.name ?? "tool", t.subject ?? ""].filter { !$0.isEmpty }.joined(separator: " ") }
-        Text("⚙︎ " + words.joined(separator: " · "))
-            .font(Theme.Fonts.small.font)
-            .foregroundStyle(Theme.Text.secondary.color)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityLabel("Ran \(words.joined(separator: ", "))")
+        HStack(spacing: Theme.space("s")) {
+            LucideIcon(.toolFamily(tools.last?.family), size: Theme.Fonts.small.number("size"))
+            Text(words.joined(separator: " · "))
+        }
+        .font(Theme.Fonts.small.font)
+        .foregroundStyle(Theme.Text.secondary.color)
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Ran \(words.joined(separator: ", "))")
     }
 }
 
@@ -400,11 +422,11 @@ struct AgentFooter: View {
 
     var body: some View {
         HStack(spacing: Theme.space("l")) {
-            Label((pane.cwd as NSString).lastPathComponent, systemImage: "folder")
+            Label((pane.cwd as NSString).lastPathComponent, lucide: .folder, size: Theme.Fonts.small.number("size"))
                 .lineLimit(1)
             if let m = modelName(model) {
                 Rectangle().fill(Theme.Panel.divider.color).frame(width: Theme.space("hair"), height: Theme.space("2xl"))
-                Label(m, systemImage: "cpu").lineLimit(1)
+                Label(m, lucide: .cpu, size: Theme.Fonts.small.number("size")).lineLimit(1)
             }
             Spacer(minLength: 0)
             if let card, !card.isBot { AgentKill(model: card) }

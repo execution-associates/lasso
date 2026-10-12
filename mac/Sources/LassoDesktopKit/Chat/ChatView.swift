@@ -130,8 +130,7 @@ public struct ChatView: View {
                             Text(label).foregroundStyle(Theme.Text.primary.color).lineLimit(1)
                             Spacer(minLength: 8)
                             if on {
-                                Image(systemName: "arrow.right")
-                                    .font(.system(size: Theme.icon.number("step"), weight: .semibold))
+                                LucideIcon(.arrowRight, size: Theme.icon.number("step"))
                                     .foregroundStyle(Theme.Text.secondary.color)
                             }
                         }

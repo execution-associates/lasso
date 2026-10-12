@@ -384,7 +384,7 @@ struct BotFooter: View {
                 Group {
                     conversations
                     Button { model.running ? model.stopBot() : model.startBot() } label: {
-                        Label(model.running ? "Stop bot" : "Start bot", systemImage: model.running ? "stop.fill" : "play.fill")
+                        Label(model.running ? "Stop bot" : "Start bot", lucide: model.running ? .square : .play, size: Theme.Fonts.small.number("size"))
                     }
                     .buttonStyle(.plain)
                     .disabled(model.busy)
@@ -395,12 +395,12 @@ struct BotFooter: View {
                 .fixedSize()
             } else {
                 let dir = b.dir_path.map { ($0 as NSString).lastPathComponent } ?? ""
-                if !dir.isEmpty { Label(dir, systemImage: "folder").lineLimit(1) }
+                if !dir.isEmpty { Label(dir, lucide: .folder, size: Theme.Fonts.small.number("size")).lineLimit(1) }
                 if let m = modelName(b.modelName) {
                     if !dir.isEmpty {
                         Rectangle().fill(Theme.Panel.divider.color).frame(width: Theme.space("hair"), height: Theme.space("2xl"))
                     }
-                    Label(m, systemImage: "cpu").lineLimit(1).truncationMode(.middle)
+                    Label(m, lucide: .cpu, size: Theme.Fonts.small.number("size")).lineLimit(1).truncationMode(.middle)
                 }
                 Spacer(minLength: 0)
             }
@@ -421,14 +421,14 @@ struct BotFooter: View {
                 Button("Default") { model.setModel("") }
                 ForEach(model.models.filter { $0 != current }, id: \.self) { m in Button(m) { model.setModel(m) } }
             } label: {
-                Label(shown, systemImage: "cpu").lineLimit(1).truncationMode(.middle)
+                Label(shown, lucide: .cpu, size: Theme.Fonts.small.number("size")).lineLimit(1).truncationMode(.middle)
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .accessibilityLabel("Model: \(current.isEmpty ? "default" : current). Switch it")
             .parityAnchor("bot.model")
         } else {
-            Label(shown, systemImage: "cpu").lineLimit(1).truncationMode(.middle)
+            Label(shown, lucide: .cpu, size: Theme.Fonts.small.number("size")).lineLimit(1).truncationMode(.middle)
         }
     }
 
@@ -457,7 +457,7 @@ struct BotFooter: View {
             Button("Settings ↗") { model.web("/settings") }
             Button("Manage bots ↗") { model.openWeb("/bots/manage") }
         } label: {
-            Image(systemName: "ellipsis")
+            LucideIcon.image(.ellipsis, size: Theme.Fonts.small.number("size"))
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)

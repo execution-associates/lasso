@@ -6,7 +6,8 @@ import WebKit
 // lasso's herdr in a window of its own (PLAN 22): the rail's terminal button
 // opens it, and an agent's header button (or T) focuses that agent's pane in
 // it. It is lasso's web terminal (TerminalBridge), one window for the app,
-// showing one host's herdr at a time.
+// showing one host's herdr at a time, in an agent window's panel (PageWindow):
+// over every app and on every Space, and never full screen.
 
 /// What the herdr window asks of lasso.
 @MainActor
@@ -104,6 +105,34 @@ public final class HerdrTerminalModel: ObservableObject {
     public var title: String { "herdr on \(hostLabel.isEmpty ? host : hostLabel)" }
 }
 
+/// The window's header: what it shows, and one line on what the last focus did.
+struct HerdrTerminalTitle: View {
+    @ObservedObject var model: HerdrTerminalModel
+
+    var body: some View {
+        HStack(spacing: Theme.space("m")) {
+            LucideIcon(.squareTerminal, size: Theme.Rail.icon.number("size") - 3)
+                .foregroundStyle(Theme.Text.secondary.color)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(model.title)
+                    .font(Theme.Fonts.label.font)
+                    .foregroundStyle(Theme.Text.primary.color)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let n = model.notice, !n.isEmpty {
+                    Text(n)
+                        .font(Theme.Fonts.small.font)
+                        .foregroundStyle(Theme.Text.secondary.color)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .parityAnchor("terminal.title")
+    }
+}
+
 /// Over the page while it is not up: opening, or why it could not.
 struct HerdrTerminalStatus: View {
     @ObservedObject var model: HerdrTerminalModel
@@ -131,7 +160,7 @@ struct HerdrTerminalStatus: View {
     }
 }
 
-/// The terminal's web view: a lasso page's (⌘W, no WebKit menu), and ⌘= ⌘-
+/// The terminal's web view: a lasso page's (no WebKit menu), and ⌘= ⌘-
 /// ⌘0 size its text. The window takes these before the page sees them, so
 /// neither xterm nor the shell gets them; they work with no menu bar, and the
 /// View menu's items reach them through the responder chain while this
@@ -171,7 +200,7 @@ public final class HerdrTerminalController: NSObject {
     private var fontSize = TerminalZoom.stored()
     /// The page loaded last: a reload starts it again at today's size.
     private var page: (slug: String, query: String)?
-    private var window: NSWindow?
+    private var window: PageWindow?
     private var web: TerminalWebView?
     private var bridge: TerminalBridge?
     private var status: NSHostingView<HerdrTerminalStatus>?
@@ -193,7 +222,12 @@ public final class HerdrTerminalController: NSObject {
         }
     }
 
-    public var isOpen: Bool { window?.isVisible == true }
+    public var isOpen: Bool { window?.isOpen == true }
+
+    /// The window's panel, made if it is not yet, and its page (tests).
+    var hostWindow: NSWindow { (window ?? makeWindow()).panel }
+    var pageView: TerminalWebView? { web }
+    var pageWindow: PageWindow? { window }
 
     /// The rail's button: the window as it is, else lasso's own herdr.
     public func open() {
@@ -231,7 +265,7 @@ public final class HerdrTerminalController: NSObject {
 
     /// Close the window: its herdr client goes with its socket.
     public func close() {
-        window?.performClose(nil)
+        window?.close()
     }
 
     private var isFailed: Bool {
@@ -241,28 +275,17 @@ public final class HerdrTerminalController: NSObject {
 
     // MARK: the window
 
+    /// On the Space the user is on, over whatever is in front, with the
+    /// keyboard in the terminal: without activating the app, as an agent's
+    /// window opens. A collapsed window opens out again.
     private func present() {
         let w = window ?? makeWindow()
-        NSApp.activate()
-        w.makeKeyAndOrderFront(nil)
-        if let web { w.makeFirstResponder(web) }
+        if w.collapsed { w.toggle() }
+        w.show(takeKey: true)
     }
 
-    private func makeWindow() -> NSWindow {
+    private func makeWindow() -> PageWindow {
         let t = Theme.Terminal.window
-        let w = NSWindow(
-            contentRect: NSRect(origin: .zero, size: t.size2("size")), styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered, defer: false)
-        w.isReleasedWhenClosed = false
-        w.minSize = t.size2("min")
-        w.tabbingMode = .disallowed
-        w.appearance = NSAppearance(named: .darkAqua)
-        w.backgroundColor = Theme.Panel.surface.nsColor
-        w.collectionBehavior = [.fullScreenPrimary]
-        w.center()
-        // Where it was left, kept by AppKit under this name.
-        w.setFrameAutosaveName(Self.frameName)
-        w.delegate = self
 
         let bridge = TerminalBridge(client: client)
         bridge.onAct = { [weak self] in self?.humanActed() }
@@ -294,20 +317,26 @@ public final class HerdrTerminalController: NSObject {
         let container = NSView(frame: web.frame)
         container.addSubview(web)
         container.addSubview(status)
-        w.contentView = container
+        let header = t.number("header")
+        let w = PageWindow(name: Self.frameName, size: t.size2("size"), min: t.size2("min"), headerHeight: header, page: container) {
+            [model] chrome in
+            PageWindowHeader(chrome: chrome, anchor: "terminal", height: header) { HerdrTerminalTitle(model: model) }
+                .parityAnchor("terminal.header")
+        }
+        w.focus = web
+        w.onClosed = { [weak self] in self?.teardown() }
+        // The window taking the keyboard is the human acting.
+        w.onBecameKey = { [weak self] in self?.humanActed() }
 
-        model.$phase.combineLatest(model.$hostLabel, model.$notice)
+        model.$phase.combineLatest(model.$hostLabel)
             .receive(on: RunLoop.main)
-            .sink { [weak self, weak w] phase, _, notice in
-                guard let self, let w else { return }
-                w.title = self.model.title
-                w.subtitle = notice ?? ""
+            .sink { [weak self] phase, _ in
+                guard let self else { return }
+                // What VoiceOver and the window list call it.
+                self.window?.panel.title = self.model.title
                 self.status?.isHidden = phase == .live
             }
             .store(in: &subs)
-        NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: w, queue: .main) {
-            [weak self] _ in MainActor.assumeIsolated { self?.humanActed() }
-        }
 
         window = w
         self.web = web
@@ -437,10 +466,6 @@ public final class HerdrTerminalController: NSObject {
         claim.owner = ""
         Trace.event("herdr window closed")
     }
-}
-
-extension HerdrTerminalController: NSWindowDelegate {
-    public func windowWillClose(_ notification: Notification) { teardown() }
 }
 
 extension HerdrTerminalController: WKNavigationDelegate {

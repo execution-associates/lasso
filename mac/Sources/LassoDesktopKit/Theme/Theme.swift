@@ -363,6 +363,12 @@ public enum Theme {
         "icon", ["round_ratio": 0.42, "control": 14, "step": 11, "pin": 10, "menubar": 16, "menubar_text": 13],
         .measured("ref a2: control glyphs about 28 px; the rest proposed"))
 
+    /// Lucide's drawing grid (Theme/Lucide.swift): a glyph spans `live` of
+    /// the `grid` units its box is, and strokes are `stroke` units wide.
+    public static let lucide = Token(
+        "icon.lucide", ["grid": 24, "live": 20, "stroke": 2],
+        .measured("lucide 1.17.0, the web's lucide-react: 24-unit grid, a 2-unit margin, stroke 2"))
+
     public static let focusRing = Token(
             "focus.ring", ["width": 2, "color": "#FEBE74", "outset": 2], .measured("EXA: isb web/src/index.css :root.ea --ring (peach)"), proposed: true)
 
@@ -418,8 +424,8 @@ public enum Theme {
     /// lasso's herdr in a window of its own (PLAN 22).
     public enum Terminal {
         public static let window = Token(
-            "terminal.window", ["size": [1040, 680], "min": [560, 360]],
-            .inferred("ttyd's 14 pt terminal face: about 120 columns by 38 rows, room for herdr's sidebar beside a pane"),
+            "terminal.window", ["size": [1040, 680], "min": [560, 360], "header": 40],
+            .inferred("ttyd's 14 pt terminal face: about 120 columns by 38 rows, room for herdr's sidebar beside a pane; its header one row as the Browser window's bar (browser.bar)"),
             proposed: true)
         /// The window's text size (⌘= ⌘- ⌘0), in xterm's px (PLAN 22).
         public static let zoom = Token(
@@ -474,7 +480,7 @@ public enum Theme {
         Fonts.display, Fonts.title, Fonts.body, Fonts.chat, Fonts.name, Fonts.label, Fonts.header, Fonts.small, Fonts.terminal,
         List.size, List.row, Chat.bubble, focusRing,
         spaceScale, Layout.card, Layout.chat,
-        avatar, icon,
+        avatar, icon, lucide,
         Motion.railExpand, Motion.railCollapse, Motion.cardOpen, Motion.cardClose, Motion.toastIn, Motion.cardPaging,
         Live.pollAllPanes, Live.pollBots, Live.pollChat, Live.focusGrace, Live.stopWait, Live.sseWatchdog, Live.backoff, Live.arrivalSound,
         Live.termClaim, Terminal.window, Terminal.zoom, Browser.window, Browser.bar, Browser.banner,

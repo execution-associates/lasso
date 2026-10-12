@@ -101,7 +101,7 @@ public final class AppPresence: NSObject {
 
     // MARK: the menu bar a Dock app gets (and the key equivalents text fields use)
 
-    private func mainMenu() -> NSMenu {
+    func mainMenu() -> NSMenu {
         let main = NSMenu()
         let app = NSMenu(title: "Lasso")
         app.addItem(action("Settings…", #selector(doOpenSettings), key: ","))

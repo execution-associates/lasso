@@ -4,12 +4,13 @@ import Testing
 
 @testable import LassoDesktopKit
 
-// The rail's pop-outs show on the Space the user is on, another app's full
-// screen included, after a Lasso window has been full screen (PLAN 16,
-// "Spaces"). macOS pins every Lasso window that is off screen when Lasso's
-// own full-screen Space goes (the herdr window leaving full screen, or
-// closing in it) to one ordinary Space, `.canJoinAllSpaces` or not, and
+// The rail's pop-outs and the app's windows show on the Space the user is
+// on, another app's full screen included (PLAN 16, "Spaces"). macOS pins
+// every Lasso window that is off screen when a full-screen Space of the
+// app's own goes to one ordinary Space, `.canJoinAllSpaces` or not, and
 // setting the behaviour again does not undo it. Such a panel is replaced.
+// No Lasso window goes full screen (the herdr and Browser windows are agent
+// windows' panels), so the tests stand one in.
 
 @MainActor private func coordinator() -> AppCoordinator {
     let fleet = FleetModel()
@@ -19,6 +20,23 @@ import Testing
     fleet.apply(panes: AllPanes(panes: [p]))
     fleet.apply(bots: BotsPayload(bots: []))
     return AppCoordinator(fleet: fleet, sync: nil, fixture: nil)
+}
+
+/// The herdr window and the Browser window on a lasso that answers nothing
+/// (their pages never load: these tests are about their windows).
+@MainActor private func pageWindows() -> (HerdrTerminalController, BrowserWindowController) {
+    let client = LassoClient(baseURL: URL(string: "http://127.0.0.1:9")!, protocolClasses: [RightClickStub.self])
+    return (
+        HerdrTerminalController(source: SpacesTermSource(), client: client, fleet: FleetModel()),
+        BrowserWindowController(source: FixtureBrowserSource(nil), client: client)
+    )
+}
+
+@MainActor private final class SpacesTermSource: HerdrTerminalSource {
+    func attach(_ host: String) async throws -> String { "local" }
+    func documentQuery(_ slug: String) async throws -> String { "" }
+    func focus(_ pane: HostPane) async throws -> Bool { false }
+    func claim(_ host: String, client: String) async throws -> String { client }
 }
 
 /// A page an agent opened for the human: the browser banner's offer.
@@ -227,6 +245,100 @@ private let pageOffer = BrowserOpen(profile: "default", tab_id: "T1", url: "http
         tab_id: "w1:t9", tab_label: "spaces", cwd: "/", agent: "claude", agent_status: "idle", has_agent: true, focused: false)
     let w = AgentWindowController(model: app.cardModel(p), near: app.rail.panel.frame, media: nil)
     check(w.panel, "an agent's window", level: .floating)
+    let (term, browser) = pageWindows()
+    check(term.hostWindow, "the herdr window", level: .floating)
+    check(browser.hostWindow, "the Browser window", level: .floating)
+}
+
+/// The herdr window and the Browser window are agent windows' panels: the
+/// same class, style, level and Spaces behaviour, the keyboard without the
+/// app's activation, and no full screen (a panel on every Space cannot have
+/// one): asked to go full screen, they stay as they are.
+@MainActor @Test func theHerdrAndBrowserWindowsAreAgentWindows() async {
+    let app = coordinator()
+    let p = HostPane(
+        host: "local", host_label: "titan", pane_id: "w1:p9", workspace_id: "w1", workspace_label: "Agents",
+        tab_id: "w1:t9", tab_label: "spaces", cwd: "/", agent: "claude", agent_status: "idle", has_agent: true, focused: false)
+    let agent = AgentWindowController(model: app.cardModel(p), near: app.rail.panel.frame, media: nil).panel
+    let (term, browser) = pageWindows()
+    defer {
+        term.close()
+        browser.close()
+    }
+    for (c, name) in [(term as AnyObject, "the herdr window"), (browser as AnyObject, "the Browser window")] {
+        let w: NSWindow
+        if let t = c as? HerdrTerminalController {
+            t.open()
+            w = t.hostWindow
+        } else {
+            let b = c as! BrowserWindowController
+            b.open()
+            w = b.hostWindow
+        }
+        #expect(w is AgentWindowPanel, "\(name)")
+        #expect(w.styleMask == agent.styleMask, "\(name)")
+        #expect(w.collectionBehavior == agent.collectionBehavior, "\(name)")
+        #expect(w.level == agent.level && w.hasShadow == agent.hasShadow, "\(name)")
+        #expect(w.hidesOnDeactivate == agent.hidesOnDeactivate, "\(name)")
+        #expect(w.canBecomeKey && !w.canBecomeMain, "\(name)")
+        #expect(!w.styleMask.contains(.titled) && !w.styleMask.contains(.resizable), "\(name)")
+        #expect(w.collectionBehavior.isDisjoint(with: [.fullScreenPrimary, .fullScreenAllowsTiling, .moveToActiveSpace]), "\(name)")
+        #expect(w.isVisible && w.isKeyWindow, "\(name) opens with the keyboard")
+        w.toggleFullScreen(nil)
+    }
+    await wait(1.5)
+    #expect(!term.hostWindow.styleMask.contains(.fullScreen) && !browser.hostWindow.styleMask.contains(.fullScreen))
+    #expect(term.hostWindow.isOnActiveSpace && browser.hostWindow.isOnActiveSpace)
+}
+
+/// The user's report: the herdr and Browser windows opened in front of a
+/// maximized browser, but did not come along to another desktop. Opened,
+/// then another app going full screen (a Space of its own): both are still
+/// shown, on the Space the user is now on, and a click there gives the
+/// window the keyboard with that app in front. Opened there, they open
+/// there, with the keyboard. Needs a window server that does full screen
+/// (minime's Aqua session); where full screen cannot be reached it checks
+/// nothing.
+@MainActor @Test func theHerdrAndBrowserWindowsFollowTheUserAcrossSpaces() async throws {
+    let policy = NSApp.activationPolicy()
+    NSApp.setActivationPolicy(.accessory)
+    defer { NSApp.setActivationPolicy(policy) }
+    let (term, browser) = pageWindows()
+    term.open()
+    browser.open()
+    defer {
+        term.close()
+        browser.close()
+    }
+    guard let other = FullScreenApp() else { return }
+    guard await other.fullScreen(within: 10) else {
+        await other.quit()
+        return
+    }
+    await wait(5) { NSWorkspace.shared.frontmostApplication?.processIdentifier == other.process.processIdentifier }
+    await wait(1.5)
+    for (c, name) in [(term.hostWindow, "the herdr window"), (browser.hostWindow, "the Browser window")] {
+        #expect(c.isVisible && c.isOnActiveSpace, "\(name) came along")
+    }
+
+    // A click in the terminal, that app in front.
+    let w = term.hostWindow
+    let web = try #require(term.pageView)
+    let at = web.convert(NSPoint(x: web.bounds.midX, y: web.bounds.midY), to: nil)
+    for t in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+        let e = NSEvent.mouseEvent(
+            with: t, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: w.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+        w.sendEvent(try #require(e))
+    }
+    #expect(w.isKeyWindow && w.firstResponder === web, "the click gives the herdr window the keyboard")
+
+    // Opened on that Space.
+    browser.close()
+    browser.open()
+    #expect(browser.hostWindow.isOnActiveSpace && browser.hostWindow.isKeyWindow, "the Browser window opens there")
+    #expect(browser.hostWindow.firstResponder === browser.pageView)
+    await other.quit()
 }
 
 /// A panel macOS has pinned to another Space is replaced when it is shown:
@@ -234,7 +346,7 @@ private let pageOffer = BrowserOpen(profile: "default", tab_id: "T1", url: "http
 /// goes, and the controller holds the new one from then on (its keyboard
 /// notices and the column's hover included). One on the active Space is
 /// shown as it is.
-@MainActor @Test func aPanelPinnedToAnotherSpaceIsReplacedWhenShown() async {
+@MainActor @Test func aPanelPinnedToAnotherSpaceIsReplacedWhenShown() async throws {
     let app = coordinator()
     var pinned: Set<ObjectIdentifier> = []
     let seam = RailPanel.onActiveSpace
@@ -260,7 +372,10 @@ private let pageOffer = BrowserOpen(profile: "default", tab_id: "T1", url: "http
     app.hoverOpen(.agents)
     expectReplaced(list, by: app.list.panel, content: listContent, "the agents column")
     #expect(app.list.hover.panel === app.list.panel)
-    #expect(app.list.hover.contentPoint(NSPoint(x: app.list.panel.frame.midX, y: app.list.panel.frame.midY)) != nil)
+    // Once laid out: a first open lays the column out on the next turn.
+    let middle = NSPoint(x: app.list.panel.frame.midX, y: app.list.panel.frame.midY)
+    await settle { app.list.hover.contentPoint(middle) != nil }
+    #expect(app.list.hover.contentPoint(middle) != nil)
     app.closeRailPanels()
     await settle { !app.list.panel.isVisible }
 
@@ -313,4 +428,23 @@ private let pageOffer = BrowserOpen(profile: "default", tab_id: "T1", url: "http
     #expect(w.panel.level == .floating && w.panel.isKeyWindow)
     w.panel.onCloseKey()
     #expect(closed == 1 && !w.panel.isVisible)
+
+    // The herdr window and the Browser window: their page and header move
+    // over, the keyboard is the page's, and ⌘W still closes them.
+    let (term, browser) = pageWindows()
+    for (name, panel, open, page, isOpen) in [
+        ("the herdr window", { term.hostWindow }, { term.open() }, { term.pageView as NSView? }, { term.isOpen }),
+        ("the Browser window", { browser.hostWindow }, { browser.open() }, { browser.pageView as NSView? }, { browser.isOpen }),
+    ] as [(String, () -> NSWindow, () -> Void, () -> NSView?, () -> Bool)] {
+        let old = try #require(panel() as? RailPanel)
+        let content = old.contentView
+        pinned.insert(ObjectIdentifier(old))
+        open()
+        let new = try #require(panel() as? AgentWindowPanel)
+        expectReplaced(old, by: new, content: content, keys: false, name)
+        #expect(new.level == .floating && new.isKeyWindow, "\(name)")
+        #expect(new.firstResponder === page() && page() != nil, "\(name): the page has the keyboard")
+        new.onCloseKey()
+        #expect(!isOpen() && !new.isVisible, "\(name): ⌘W")
+    }
 }
