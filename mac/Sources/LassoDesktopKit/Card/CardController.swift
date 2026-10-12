@@ -31,7 +31,7 @@ final class CardHolder: ObservableObject {
 }
 
 /// The card's panel: beside the rail, keyboard-driven, through the A.3
-/// keycap vocabulary.
+/// key vocabulary.
 @MainActor
 public final class CardController {
     let panel: RailPanel
@@ -252,6 +252,11 @@ public enum CardKeys {
     /// has no inbox entry to resolve and closes by its header).
     public static let windowSet: [KeyBinding] = [
         Keys.kill, Keys.attach, Keys.send, Keys.reply, Keys.rename, Keys.editStep, Keys.takeStep, Keys.herdr,
+    ]
+
+    /// A bot's chat: no agent to kill, rename or page to.
+    public static let chatSet: [KeyBinding] = [
+        Keys.esc, Keys.attach, Keys.send, Keys.reply, Keys.editStep, Keys.takeStep,
     ]
 
     /// A hover preview's, once a click made it the user's: no Kill, and esc closes it.

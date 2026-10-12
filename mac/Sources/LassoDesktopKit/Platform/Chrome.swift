@@ -2,146 +2,6 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// Keycaps are hidden (the references show none) and appear while the
-/// reveal modifier (Theme.revealKeys, ⌘) is held, over the control they
-/// drive. The parity harness turns them on to check legend against binding.
-@MainActor
-public final class KeyHints: ObservableObject {
-    public static let shared = KeyHints()
-    @Published public var visible = false {
-        didSet { if visible != oldValue { visible ? startWatch() : stopWatch() } }
-    }
-    private var monitor: Any?
-    /// Whether ⌘ is down: the class property is the hardware's state, read
-    /// without focus and without Accessibility. A test or the parity
-    /// harness's ⌘-held pass replaces it.
-    var commandDown: () -> Bool = { NSEvent.modifierFlags.contains(.command) }
-    private var watch: Timer?
-    /// The ⌘ watch is running (only while keycaps show).
-    var watching: Bool { watch != nil }
-
-    /// While keycaps show, ⌘ is read again every `live.poll.reveal_keys`,
-    /// and they go once it is up. The release event cannot be relied on:
-    /// the inbox and agent windows are non-activating panels, so Lasso has
-    /// the keyboard without being the active app, and ⌘ let go while another
-    /// app or a screenshot overlay has the keys sends it no flagsChanged and
-    /// no activation change. Nothing runs while they are hidden.
-    private func startWatch() {
-        guard watch == nil else { return }
-        watch = Timer.scheduledTimer(withTimeInterval: Theme.Live.revealKeys.seconds, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.check() }
-        }
-    }
-
-    private func stopWatch() {
-        watch?.invalidate()
-        watch = nil
-    }
-
-    /// One reading of the watch: hide the keycaps once ⌘ is up.
-    func check() { if visible, !commandDown() { visible = false } }
-
-    public func start() {
-        guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] e in
-            MainActor.assumeIsolated { self?.visible = e.modifierFlags.contains(.command) }
-            return e
-        }
-        // A local monitor sees no key while another app is active, so ⌘ let
-        // go there (a ⌘⇧ screenshot, ⌘-Tab away) would leave every keycap on.
-        // Read the keys afresh whenever the app is left or entered.
-        for name in [NSApplication.didResignActiveNotification, NSApplication.didBecomeActiveNotification] {
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.visible = NSApp.isActive && NSEvent.modifierFlags.contains(.command) }
-            }
-        }
-    }
-}
-
-/// The keys a surface shows without ⌘ held: a card with the keyboard shows
-/// the keys that work right now (PLAN 13.7a), so every button and move says
-/// its key. nil shows them only while ⌘ is held.
-struct ShownKeysKey: EnvironmentKey {
-    static let defaultValue: Set<String>? = nil
-}
-
-extension EnvironmentValues {
-    var shownKeys: Set<String>? {
-        get { self[ShownKeysKey.self] }
-        set { self[ShownKeysKey.self] = newValue }
-    }
-}
-
-/// The control under the pointer, by its key: a keycap shows only there, so
-/// the card stays quiet (Stephan: hints on hover, not all at once). One value
-/// for the whole app, since the pointer is over one thing.
-@MainActor
-final class HoveredKey: ObservableObject {
-    static let shared = HoveredKey()
-    @Published var id: String?
-}
-
-struct KeyHint: ViewModifier {
-    let binding: KeyBinding
-    var alignment: Alignment = .bottomTrailing
-    /// The key does nothing right now (its control is disabled): no keycap.
-    var active = true
-    @ObservedObject var hints = KeyHints.shared
-    @ObservedObject var hovered = HoveredKey.shared
-    @Environment(\.shownKeys) private var shown
-
-    func body(content: Content) -> some View {
-        content
-            .onHover { inside in
-                if inside { hovered.id = binding.id } else if hovered.id == binding.id { hovered.id = nil }
-            }
-            .overlay(alignment: alignment) {
-            if active, hints.visible || (shown?.contains(binding.id) == true && hovered.id == binding.id) {
-                Keycap(binding).offset(x: Theme.space("s"), y: Theme.space("s"))
-            }
-        }
-    }
-}
-
-/// A keycap set in a row (not over a control), for keys that act on the
-/// row: shown while the pointer is on that row (`hovering`), or with ⌘ held.
-struct InlineKey: View {
-    let binding: KeyBinding
-    var hovering = false
-    @ObservedObject var hints = KeyHints.shared
-    @Environment(\.shownKeys) private var shown
-
-    var body: some View {
-        if hints.visible || (hovering && shown?.contains(binding.id) == true) { Keycap(binding) }
-    }
-}
-
-extension View {
-    func keyHint(_ b: KeyBinding, _ alignment: Alignment = .bottomTrailing, active: Bool = true) -> some View {
-        modifier(KeyHint(binding: b, alignment: alignment, active: active))
-    }
-}
-
-/// A keycap: drawn from a KeyBinding, never from a string, so its legend is
-/// the key the handler matches.
-public struct Keycap: View {
-    let binding: KeyBinding
-
-    public init(_ binding: KeyBinding) { self.binding = binding }
-
-    public var body: some View {
-        let min = Theme.Card.keycapMinSize.size
-        Text(binding.legend)
-            .font(Theme.Card.keycapFont.font)
-            .foregroundStyle(Theme.Text.primary.color)
-            .padding(.horizontal, Theme.Card.keycapPadH.pt)
-            .frame(minWidth: min.width, minHeight: min.height)
-            .background(RoundedRectangle(cornerRadius: Theme.Card.keycapRadius.pt).fill(Theme.Card.keycapFill.color))
-            .parityAnchor("keycap[\(binding.id)]")
-            .accessibilityHidden(true)
-    }
-}
-
 /// The panel every surface beside the rail sits on.
 struct PanelBackground: View {
     var body: some View {
@@ -235,13 +95,11 @@ struct ComposerRow<Model: ComposerModel>: View {
                 symbol: "paperclip", size: h, fill: c.color("fill"), label: "Attach a file (\(Keys.attach.legend))",
                 action: attach
             )
-            .keyHint(Keys.attach)
             ComposerField(model: model)
                 .padding(.leading, c.number("field_pad_l"))
                 .padding(.trailing, c.number("field_pad_r"))
                 .frame(height: h)
                 .background(Capsule().fill(c.color("fill")))
-                .keyHint(Keys.reply, .bottomLeading)
                 .parityAnchor("composer.field")
             if model.showsStop {
                 // The web chat's Stop: a filled square while the agent works.
@@ -249,14 +107,12 @@ struct ComposerRow<Model: ComposerModel>: View {
                     symbol: "stop.fill", enabled: !model.stopping, size: h, fill: c.color("fill"),
                     label: "\(model.stopLabel) (⌘.)", action: model.stop
                 )
-                .keyHint(Keys.stop)
                 .parityAnchor("composer.stop")
             } else {
                 RoundButton(
                     symbol: "arrow.up", enabled: canSend, size: h, fill: c.color("fill"), label: "Send (⏎)",
                     action: model.send
                 )
-                .keyHint(Keys.send)
             }
         }
         .parityAnchor("composer")
@@ -406,7 +262,6 @@ struct AgentTitle: View {
                 .contentShape(Rectangle())
                 .onHover { TitleCursor.hover($0 && model.canRename) }
                 .onDisappear { TitleCursor.hover(false) }
-                .keyHint(Keys.rename, .bottomTrailing, active: model.canRename)
                 .onTapGesture {
                     TitleCursor.hover(false)
                     model.startRename()

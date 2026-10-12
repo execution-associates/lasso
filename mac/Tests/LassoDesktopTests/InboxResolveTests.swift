@@ -78,7 +78,7 @@ private let settle: UInt64 = 100_000_000
     #expect(inbox.panes.map(\.pane_id) == ["w1:p2"])
 }
 
-/// A draft holds Acknowledge back: no E, no keycap, and the button greyed.
+/// A draft holds Acknowledge back: no A, and the button greyed.
 @MainActor @Test func acknowledgeWaitsForTheDraft() async throws {
     let fleet = FleetModel()
     let p = pane("w1:p1", "blocked", 30)

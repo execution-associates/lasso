@@ -1,11 +1,11 @@
 import AppKit
 
-/// The keycap vocabulary (brief A.3). A keycap on screen is drawn from one of
-/// these values, never from a string, and the card's key handler matches
-/// events against the same values: a legend and its binding cannot disagree.
+/// The key vocabulary (brief A.3). The keys work but are not drawn: every
+/// handler matches events against these values, and labels name the key
+/// through `legend`, so a label and its binding cannot disagree.
 public struct KeyBinding: Hashable, Sendable, Identifiable {
     public let id: String
-    /// What the keycap shows.
+    /// The key as a label names it ("A", "⌘.").
     public let legend: String
     /// What the key does, for accessibility labels.
     public let action: String
@@ -19,6 +19,15 @@ public struct KeyBinding: Hashable, Sendable, Identifiable {
         guard mods == (command ? [.command] : []) else { return false }
         if let k = keyCode { return e.keyCode == k }
         return e.charactersIgnoringModifiers?.lowercased() == character
+    }
+
+    /// A key-down this binding matches: the parity harness's routing check
+    /// and the tests press keys with it.
+    func event() -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: command ? .command : [], timestamp: 0, windowNumber: 0,
+            context: nil, characters: character ?? "", charactersIgnoringModifiers: character ?? "", isARepeat: false,
+            keyCode: keyCode ?? 0)
     }
 }
 

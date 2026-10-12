@@ -21,7 +21,6 @@ public struct SettingsView: View {
                     .foregroundStyle(Theme.Text.primary.color)
                 Spacer()
                 RoundButton(symbol: "xmark", label: "Close settings (esc)") { model.close() }
-                    .keyHint(Keys.esc)
             }
             .padding(.horizontal, pad)
             .padding(.top, Theme.Layout.card.number("top"))

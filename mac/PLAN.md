@@ -72,7 +72,6 @@ Proposed additions are tagged `proposed`.
   - tools capsule: 3 glyphs, no spacing
 - **Card (A.2)**
   - 500×500 pt, radius 14 pt, surface `#110F0D`, footer `#0F0F0C`
-  - keycap `#333130`, legend 10 pt semibold
   - text `#F1EEED` / `#949290`, accent `#3877F4`, danger `#EB6E62` on `#23211F`
   - row hover 6 % white, selection 12 % white (both **unmeasured**)
   - row radius 8 pt, padding 6 pt vertical × 8 pt horizontal
@@ -100,7 +99,6 @@ Proposed additions are tagged `proposed`.
   - header 36 pt
   - footer 44 pt
   - composer field 32 pt, fill white 6 %, radius 8
-  - keycap minimum 18×18 pt, radius 4, padding 4 pt horizontal
   - tool row 24 pt with radius 6, fill white 4 %
   - machine chip: radius 4, fill `#333130`, 11 pt
 - **Unread bar**: 4 pt gap between segments; read segments are white 12 %.
@@ -127,7 +125,7 @@ Proposed additions are tagged `proposed`.
    - The overshoot does check out: e^(−ζπ/√(1−ζ²)) × 330 = 0.00152 × 330 = **0.50 pt**.
 3. **The state red conflicts.** A.1 needs-you is `#AB362F`, A.2 danger is `#EB6E62`, and A.5 says one hue per state. The plan uses `#AB362F` for the blocked/failed *state* everywhere, and `#EB6E62` only for *destructive actions* (Kill).
 4. **`failed` does not exist in the fleet payload.** `agent_status` is working, blocked, done, idle or unknown (`src/hostpanes.go:263`). `failed` is used only for a bot `error`. `unknown` maps to idle grey.
-5. **`↳` / `→` keycaps are ambiguous.** The proposal: `→` takes the highlighted step (sends it), `↳` (bound to Tab) puts it into the composer to edit, `1`–`9` highlight a step. **Open question Q1.**
+5. **`↳` / `→` keys are ambiguous.** The proposal: `→` takes the highlighted step (sends it), `↳` (bound to Tab) puts it into the composer to edit, `1`–`9` highlight a step. **Open question Q1.**
 6. **The tolerances are coarse in places.**
    - ±1 px overshoot equals the whole spec value (0.5 pt = 1 px), so it passes anything up to 2 px.
    - ±10 ms on a 70 ms ease is finer than one 60 Hz frame (16.7 ms), so it can't be screenshot-measured. §5.4 measures it another way.
@@ -298,7 +296,7 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 - **Static**: every `Theme` token is compared with `tokens.json`: value, provenance and `proposed`, both ways (a token missing from either side fails).
 - **Fixture**: the state's `expect` (badge count, rail slot order) against the models.
 - **Accessibility**: the harness walks its own process through the accessibility client API (`AXUIElementCreateApplication(getpid())`), as VoiceOver would. SwiftUI builds its tree only for a client, so `NSView.accessibilityChildren` shows nothing; reading one's own process needs no Accessibility permission. Every `AXButton` must have a description, and the walk must find at least one.
-- **Keycaps** (from M4): each rendered keycap is a `KeyBinding` value from a single registry, not a string; the check asserts it is registered in the active key handler for that state.
+- **Keys** (from M4): keys work but are not drawn. Each key is a `KeyBinding` value from a single registry; the check presses every key the state has live and asserts the surface's router (`CardKeys.route` among its set) sends it to that key's action.
 
 ### 5.4 Motion
 
@@ -318,7 +316,7 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 | Animation duration (app vs reference spring; SwiftUI vs closed form) | ±10 ms |
 | Spring overshoot | ±1 px |
 | Drawn frames end at rest | ±0.5 pt |
-| Accessibility labels, keycap/binding agreement | exact |
+| Accessibility labels, key routing | exact |
 
 `parity-check.sh` prints a table of `state | check | token | spec | measured | Δ | result` and exits non-zero on any failure. States not built yet report `pending`, which is not a failure; each milestone names the states it must turn green.
 
@@ -539,10 +537,8 @@ The user supplied reference screenshots of the intended look (kept out of git). 
 - **The unread bar** is a 6×18 accent pill for the open card and 6 pt grey dots for the others.
 - **The list** has group headers, then rows of dot, avatar, name, microphone and ×.
 - **The chat** puts your messages in `#1D1C1E` bubbles, with a "Talking to …" line over the composer.
-- **Keycaps are hidden**, since the references show none, and appear over their controls while ⌘ is held. Parity renders each state a second time with ⌘ held (`<state>-keys.png`) and checks every legend against its live binding.
-  - A local `flagsChanged` monitor shows them at once. Hiding them does not wait for the release: the inbox and agent windows are non-activating panels, so Lasso often has the keys without being the active app, and a ⌘ let go while another app or a screenshot overlay has the keyboard sends it no event.
-  - So while they show, a timer reads `NSEvent.modifierFlags` (the hardware state, which needs no focus or Accessibility) every `live.poll.reveal_keys` (0.2 s) and hides them once ⌘ is up. No timer runs while they are hidden. The activation observers stay as well.
-- **Parity covers all seven states: 211 checks pass.** New checks include colour patches read along a gradient, `x`/`right_inset` measures, the peek's visible width, and the ⌘-held keycap pass.
+- **Keys are not drawn.** No keycap appears on any surface, hovered, clicked or with ⌘ held. Labels name the key ("Acknowledge (A)"), and parity checks every live key is routed.
+- **Parity covers all seven states: 211 checks pass.** New checks include colour patches read along a gradient, `x`/`right_inset` measures and the peek's visible width.
 - **The app traces state changes to its log** (`dev.sh logs`): events only, never typed or spoken text. The hover reveal was verified live on minime by moving the pointer onto the peek from inside the Aqua session.
 
 ## 11. Execution Associates palette (2026-10-11)
@@ -739,7 +735,7 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 |---|---|
 | `j` / `k` | Next / previous item, in Inbox order (wrapping). The card lands on it, the unread bar shows where you are, and it is marked seen. |
 | `x` | Kill, behind its confirm: a first `x` arms it ("Press X again"), a second kills, and any other key disarms. A bot has none. Until lasso answers (`/api/agent/close` can take seconds), the button reads "Killing…" with a spinner and is off, the conversation and the choices dim (`card.killing`) under "Killing <agent>…", and every key but `j`, `k` and `esc` waits (`CardModel.killingKey`, so paging away shows the other card as it is). A failure clears the wait and says why in the same place. Parity state `card-killing`. |
-| `a` | Acknowledge (S1): writes the entry's own key, and nothing to the agent. It returns when the item has something new. Off while the reply composer holds a draft: the button is greyed with the hint "Send or clear your reply first", `a` does nothing and shows no keycap, and a focused composer types it. |
+| `a` | Acknowledge (S1): writes the entry's own key, and nothing to the agent. It returns when the item has something new. Off while the reply composer holds a draft: the button is greyed with the hint "Send or clear your reply first", `a` does nothing, and a focused composer types it. |
 | `r` | Rename the agent in place, as a click on its name does (§17): ⏎ or a click away keeps the name, esc keeps the old one. A bot has none. |
 | `l` | Put the cursor in the reply composer, draft or not. Every key is then text until esc leaves the field. |
 | `1`–`9`, `→`, `↳` | Pick a choice, answer with it, or edit it into your own words. |
@@ -766,13 +762,7 @@ The keys are `KeyBinding`s in `Theme/Keys.swift`; `CardKeys` (`Card/CardControll
     - Paging and esc are harmless.
     - Acknowledge acts at once (the user chose no confirm for it): it never touches the agent, and the item comes back when it has something new. Kill needs a second press.
     - Typing meant for another app is cut off at its first key outside the set. The worst a stray word does is page the card or acknowledge one item.
-- **A key shows on hover.** While the card has the keyboard, a control's keycap appears when the pointer is on that control. The user found every key at once too noisy. One app-wide value says which control is hovered (`HoveredKey`). The keycaps:
-  - `K`/`J` beside the paging chevrons, and `esc` on close
-  - `R` on the agent's name, `L` on the message box, `U` on the paperclip, and `⏎` on send or `⌘.` on Stop
-  - `X` on Kill and `A` on Acknowledge
-  - the choice numbers, plus `↳` and `→` on the selected choice
-
-  A lent keyboard shows only the five keys that work then; a full one shows any live key (`CardModel.shownKeys`). Holding ⌘ shows every key at once.
+- **Keys work but are not drawn.** The table above is the reference; no keycap shows on any control, hovered or with ⌘ held. Each button's accessibility label names its key.
 - **A focused text field wins.** A key typed into the composer stays text, `j` included, even as the first character. Text focus is read from the window's first responder, not only from the field's own "did begin editing" (which fires only after the first character).
 
 ### 13.8a As built (M8)
@@ -797,7 +787,7 @@ The keys are `KeyBinding`s in `Theme/Keys.swift`; `CardKeys` (`Card/CardControll
 - **inbox-open**: the card the Inbox opens on, its newest item (a bot's question), with the unread bar over the rest. Its fixture grows to cover: a claude single-select ask with a `recommended` option and a folded `preview`, an omp multi-select ask, a blocked pane with no ask, a finished turn, an omp bot's `select`, and a notice.
 - **inbox-ask-picked**: a preview unfolded under its pick.
 - **inbox-empty**: the empty-state panel.
-- Each state gets geometry, colour and accessibility labels, and a ⌘-held keycap pass checking every legend against its live binding.
+- Each state gets geometry, colour and accessibility labels, and a check that every live key is routed to its action.
 
 **Contract:** the `chat_payload` golden already carries an `ask` (`mac/Spec/contract/chat_payload.json`). M8 adds `pending_ui` to the bot chat golden and a `notice` golden, written by `TestDesktopContract`.
 
@@ -833,7 +823,7 @@ The first launch shows the **first-run panel** (`Onboarding/`), never Settings. 
 - **Checking:** before showing a field it asks, quietly, the configured lasso through the live client (credentials and all), then lasso's own port on this Mac (`127.0.0.1:8090`) anonymously. One that answers is used and the panel goes straight to step 3; on a later launch it then does not show at all.
 - **Step 1, Connect:** the app's icon over a soft glow, "Connect this Mac to your lasso", one address field with the keyboard, and Connect (⏎). Under it, three kinds of place a lasso runs, each with an example address a click puts in the field: on your tailnet (no sign-in), behind Cloudflare Access (you sign in in your browser), on this Mac. A failure says why under the field and keeps the address.
 - **Step 2, only when asked:** a browser sign-in shows "Finish signing in in the window that opened" with Cancel, which closes the sign-in window. A UI_AUTH lasso shows a user and password form (⏎ in the user field moves to the password), checked before it is kept (§18).
-- **Step 3, Connected:** "Connected to <machine>" (the local pane's `host_label`, else `/api/hosts`' hostname), its release and address, then three tips: the inbox, the + (with the scratch shortcut) and the ellipsis. Each shortcut shows as a keycap read from `ShortcutSlot` as set now, and an Off shortcut shows none. **Open Settings** and **Done** (⏎) end the first run for good (UserDefaults `onboarded`).
+- **Step 3, Connected:** "Connected to <machine>" (the local pane's `host_label`, else `/api/hosts`' hostname), its release and address, then three tips: the inbox, the + (with the scratch shortcut) and the ellipsis. Each shortcut is named in plain text, read from `ShortcutSlot` as set now; an Off shortcut is not named. **Open Settings** and **Done** (⏎) end the first run for good (UserDefaults `onboarded`).
 - **esc** puts the panel away. Before step 3 that leaves `onboarded` unset; at step 3 it is Done.
 - **While no lasso answers** (`FleetModel.offline`: the fleet read failed before any answer from this lasso, or twice in a row after one), the inbox's badge is a grey "!" and the peek's dot is grey. A click or a rest on the inbox, and the inbox shortcut, open the first-run panel instead of an empty inbox.
 - **Parity states:** `first-run` (step 1), `first-run-connected` (step 3, the default shortcuts) and `rail-offline`.

@@ -22,7 +22,6 @@ public struct InboxView: View {
                     .foregroundStyle(Theme.Text.primary.color)
                 Spacer()
                 RoundButton(symbol: "xmark", label: "Close (esc)") { model.onClose() }
-                    .keyHint(Keys.esc)
             }
             .padding(.horizontal, row.number("pad_h"))
             .padding(.top, Theme.Layout.card.number("top"))

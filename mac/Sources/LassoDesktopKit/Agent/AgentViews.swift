@@ -353,7 +353,6 @@ struct StepList: View {
                         .accessibilityAddTraits(on ? .isSelected : [])
                         if on {
                             PillButton(title: "Answer", primary: true, label: "Answer: \(step.label)") { model.takeStep() }
-                                .keyHint(Keys.takeStep)
                                 .parityAnchor("agent.steps.answer")
                         }
                     }
@@ -453,7 +452,6 @@ struct AgentKill: View {
             textColor: Theme.dangerText.color, enabled: !model.killing, busy: model.killing,
             label: model.killing ? "Killing \(name)" : model.killArmed ? "Confirm: kill \(name)" : "Kill \(name)"
         ) { model.kill() }
-        .keyHint(Keys.kill, active: !model.killing)
         .parityAnchor("agent.kill")
     }
 }

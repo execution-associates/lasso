@@ -97,7 +97,6 @@ public final class AppCoordinator {
         p.apply()
         presence = p
         settingsModel.onPresence = { [weak self] in self?.presence?.apply() }
-        KeyHints.shared.start()
         hotKey = HotKey(token: Theme.summonKey) { [weak self] in self?.rail.summon() }
         for slot in ShortcutSlot.allCases {
             let sc = InboxShortcut { [weak self] in self?.shortcutPressed(slot) }
@@ -572,25 +571,18 @@ public final class AppCoordinator {
     }
 
     private func chatKey(_ e: NSEvent, _ m: ChatModel) -> Bool {
-        if Keys.stop.matches(e), m.isWorking {
+        let editing = m.composerFocused || chat?.panel.panel.editingText == true
+        switch CardKeys.route(e, editing: editing, among: CardKeys.chatSet) {
+        case .stop?:
+            guard m.isWorking else { return false }
             m.stop()
-            return true
-        }
-        if m.composerFocused || chat?.panel.panel.editingText == true { return false }
-        if Keys.esc.matches(e) {
-            chat?.panel.close()
-            return true
-        }
-        if let n = Keys.digit(e) {
-            m.highlight(n)
-            return true
-        }
-        switch true {
-        case Keys.attach.matches(e): m.attachFile()
-        case Keys.send.matches(e): if m.composer.isEmpty { m.focusComposer() } else { m.send() }
-        case Keys.reply.matches(e): m.focusComposer()
-        case Keys.editStep.matches(e): m.editStep()
-        case Keys.takeStep.matches(e): m.takeStep()
+        case .close?: chat?.panel.close()
+        case .digit(let n)?: m.highlight(n)
+        case .attach?: m.attachFile()
+        case .send?: if m.composer.isEmpty { m.focusComposer() } else { m.send() }
+        case .reply?: m.focusComposer()
+        case .editStep?: m.editStep()
+        case .takeStep?: m.takeStep()
         default: return false
         }
         return true

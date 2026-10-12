@@ -45,7 +45,7 @@ private var u: NSEvent { key("u", 32) }
     #expect(actions.calls == ["acknowledge"])
 }
 
-/// A draft holds A back: no keycap, no acknowledgement, and a focused
+/// A draft holds A back: no live binding, no acknowledgement, and a focused
 /// composer types it.
 @MainActor @Test func aWaitsForTheDraft() async throws {
     let actions = FixtureCardActions(chats: [:], canAcknowledge: true)
@@ -186,4 +186,18 @@ private var u: NSEvent { key("u", 32) }
     // The next X starts over.
     m.kill()
     #expect(m.killArmed && m.killFailed == nil)
+}
+
+/// Keys work but are not drawn: every key of every surface, pressed, is
+/// routed to its own action, and the bot chat answers its set.
+@Test func everySurfacesKeysAreRouted() {
+    for set in [CardKeys.cardSet, CardKeys.windowSet, CardKeys.previewSet, CardKeys.chatSet, CardKeys.hoverSet] {
+        for b in set {
+            let want = CardKeys.bound.first { $0.binding == b }?.action
+            #expect(want != nil && CardKeys.route(b.event()!, editing: false, among: set) == want, "\(b.id)")
+        }
+    }
+    #expect(CardKeys.route(Keys.stop.event()!, editing: true, among: CardKeys.chatSet) == .stop)
+    #expect(CardKeys.route(Keys.reply.event()!, editing: true, among: CardKeys.chatSet) == nil)
+    #expect(CardKeys.route(Keys.kill.event()!, editing: false, among: CardKeys.chatSet) == .unbound)
 }

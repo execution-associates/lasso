@@ -13,7 +13,7 @@ public protocol BotChatActions: AnyObject {
     func attach(_ file: URL, to bot: BotView) async throws -> String
 }
 
-/// The chat with a lasso bot: the same composer and keycaps as a card.
+/// The chat with a lasso bot: the same composer and keys as a card.
 @MainActor
 public final class ChatModel: ComposerModel {
     @Published public private(set) var bot: BotView

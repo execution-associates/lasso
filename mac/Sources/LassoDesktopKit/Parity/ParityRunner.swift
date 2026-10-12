@@ -140,7 +140,8 @@ public final class ParityRunner {
         let cap: Capture
         var card: CardModel?
         var bindings: Set<KeyBinding>?
-        var recapture: (@MainActor () async throws -> Capture)?
+        /// The keys the surface's handler routes among.
+        var surface: [KeyBinding] = []
         if let step = fixture.ui.first_run {
             // The first-run panel at a step, with nothing on the network and
             // the default shortcuts (the Mac running this has its own).
@@ -163,7 +164,6 @@ public final class ParityRunner {
                 try await Capturer.capture(FirstRunView(model: m), size: Theme.Onboarding.layout.size2("size"))
             }
             cap = try await make()
-            recapture = make
         } else if fixture.ui.settings == true {
             let hosts = fixture.server.hosts
             let usable = hosts.hosts.filter { $0.reachable && $0.running && $0.compatible }.count + 1
@@ -176,9 +176,9 @@ public final class ParityRunner {
             m.lassoName = { fixture.server.all_panes.panes.first { $0.host == "local" }?.host_label }
             if let t = fixture.ui.settings_tab.flatMap(SettingsTab.init(rawValue:)) { m.tab = t }
             bindings = [Keys.esc]
+            surface = [Keys.esc]
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(SettingsView(model: m), size: Theme.Card.size.size) }
             cap = try await make()
-            recapture = make
         } else if fixture.ui.inbox == true {
             // The inbox opens on its newest message; only an empty one is a panel.
             let m = InboxModel(fleet: fleet, now: { fixture.now })
@@ -189,14 +189,14 @@ public final class ParityRunner {
                 // shows every key that works.
                 c.keyMode = .full
                 card = c
+                surface = CardKeys.cardSet
                 let make: @MainActor () async throws -> Capture = { try await Capturer.capture(CardView(model: c), size: Theme.Card.size.size) }
                 cap = try await make()
-                recapture = make
             } else {
                 bindings = [Keys.esc]
+                surface = [Keys.esc]
                 let make: @MainActor () async throws -> Capture = { try await Capturer.capture(InboxView(model: m), size: Theme.List.size.size) }
                 cap = try await make()
-                recapture = make
             }
         } else if fixture.ui.chat == true, let name = fixture.ui.bot,
                   let bot = fixture.server.bots.bots.first(where: { $0.name == name })
@@ -204,16 +204,15 @@ public final class ParityRunner {
             let m = ChatModel(bot: bot, actions: FixtureBotChatActions(payload: fixture.chats["bot:\(name)"]))
             m.show(chat: fixture.chats["bot:\(name)"])
             bindings = m.activeBindings
+            surface = CardKeys.chatSet
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(ChatView(model: m), size: Theme.Card.size.size) }
             cap = try await make()
-            recapture = make
         } else if fixture.ui.list == true {
             let l = ListModel(fleet: fleet, actions: FixtureFleetActions(), now: { fixture.now })
             l.selected = fixture.ui.selected
             l.hovered = fixture.ui.hovered
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(ListView(model: l), size: Theme.List.size.size) }
             cap = try await make()
-            recapture = make
         } else if fixture.ui.new_agent == true {
             let m = NewAgentModel(kind: .git, source: FixtureNewAgentSource())
             await m.load()
@@ -223,35 +222,33 @@ public final class ParityRunner {
                 try await Capturer.capture(NewAgentView(model: m), size: Theme.NewAgent.layout.size2("size"))
             }
             cap = try await make()
-            recapture = make
         } else if let key = fixture.ui.preview {
             let c = try cardModel(fixture, fleet: fleet, key: key)
             card = c
+            surface = CardKeys.previewSet
             let make: @MainActor () async throws -> Capture = {
                 try await Capturer.capture(
                     AgentPreviewView(model: c).environment(\.mediaSource, self.media), size: Theme.Agent.preview.size2("size"))
             }
             cap = try await make()
-            recapture = make
         } else if let key = fixture.ui.window {
             let c = try cardModel(fixture, fleet: fleet, key: key)
             let chrome = AgentWindowChrome()
             chrome.collapsed = fixture.ui.collapsed == true
-            // Collapsed, the header shows no keycaps to check.
-            if !chrome.collapsed { card = c }
+            card = c
+            surface = CardKeys.windowSet
             let size = chrome.collapsed ? Theme.Agent.collapsed.size2("size") : Theme.Agent.window.size2("size")
             let make: @MainActor () async throws -> Capture = {
                 try await Capturer.capture(AgentWindowView(model: c, chrome: chrome).environment(\.mediaSource, self.media), size: size)
             }
             cap = try await make()
-            recapture = make
         } else if let key = fixture.ui.card {
             let c = try cardModel(fixture, fleet: fleet, key: key)
             if fixture.ui.killing == true { c.killingKey = c.pane.key }
             card = c
+            surface = CardKeys.cardSet
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(CardView(model: c), size: Theme.Card.size.size) }
             cap = try await make()
-            recapture = make
         } else {
             // A rail control under the pointer (rail-hover-*).
             let hoverable: [String: RailModel.Item] = [
@@ -260,7 +257,6 @@ public final class ParityRunner {
             model.hovered = fixture.ui.hovered.flatMap { hoverable[$0] }
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(RailView(model: model), size: self.railSize()) }
             cap = try await make()
-            recapture = make
         }
 
         if let png = cap.image.representation(using: .png, properties: [:]) {
@@ -275,21 +271,7 @@ public final class ParityRunner {
         geometryChecks(state, cap)
         accessibilityChecks(state, cap)
         if let card { bindings = card.activeBindings }
-        if let bindings, let again = recapture {
-            // Keycaps show only while ⌘ is held: render again holding it
-            // (the ⌘ watch reads it as held, so it keeps them on).
-            let read = KeyHints.shared.commandDown
-            KeyHints.shared.commandDown = { true }
-            KeyHints.shared.visible = true
-            let held = try await again()
-            KeyHints.shared.visible = false
-            KeyHints.shared.commandDown = read
-            if let png = held.image.representation(using: .png, properties: [:]) {
-                try png.write(to: out.appendingPathComponent("\(state)-keys.png"))
-            }
-            keycapChecks(state, held, bindings)
-            held.window.orderOut(nil)
-        }
+        if let bindings { keyChecks(state, bindings, surface) }
         cap.window.orderOut(nil)
     }
 
@@ -308,15 +290,19 @@ public final class ParityRunner {
         return c
     }
 
-    /// Every keycap on screen is a binding the card's key handler has live
-    /// in this state, so its legend is a key that works.
-    private func keycapChecks(_ state: String, _ cap: Capture, _ bindings: Set<KeyBinding>) {
-        let shown = Set(cap.frames.keys.filter { $0.hasPrefix("keycap[") }.map { String($0.dropFirst(7).dropLast()) })
-        let live = Set(bindings.map(\.id))
-        let stray = shown.subtracting(live)
+    /// Keys work but are not drawn: every key the surface has live in this
+    /// state is routed by its handler to that key's action, so the registry
+    /// and the router cannot drift apart.
+    private func keyChecks(_ state: String, _ bindings: Set<KeyBinding>, _ set: [KeyBinding]) {
+        let live = set.filter { bindings.contains($0) }
+        let lost = live.filter { b in
+            guard let e = b.event(), let want = CardKeys.bound.first(where: { $0.binding == b })?.action else { return true }
+            return CardKeys.route(e, editing: false, among: set) != want
+        }
         add(
-            state, "keycaps bound", "keys", "every shown keycap bound", shown.sorted().joined(separator: " "),
-            stray.isEmpty ? "" : "unbound: " + stray.sorted().joined(separator: " "), !shown.isEmpty && stray.isEmpty ? .pass : .fail)
+            state, "keys routed", "keys", "every live key routed", live.map(\.id).sorted().joined(separator: " "),
+            lost.isEmpty ? "" : "unrouted: " + lost.map(\.id).sorted().joined(separator: " "),
+            !live.isEmpty && lost.isEmpty ? .pass : .fail)
     }
 
     private func fixtureChecks(_ state: String, _ fx: Fixture, fleet: FleetModel, model: RailModel) {

@@ -93,19 +93,10 @@ public final class CardModel: ComposerModel {
     @Published public private(set) var killFailure: (key: String, reason: String)?
     public var killFailed: String? { killFailure?.key == pane.key ? killFailure?.reason : nil }
     /// Whether the card has the keyboard, and how (PLAN 13.7a): it decides
-    /// which keys the card shows and answers.
+    /// which keys the card answers.
     @Published public var keyMode: KeyMode = .none
 
     public enum KeyMode: Sendable { case none, lent, full }
-
-    /// The keys the card shows as keycaps on its controls right now.
-    public var shownKeys: Set<String>? {
-        switch keyMode {
-        case .none: nil
-        case .lent: Set(CardKeys.hoverSet.map(\.id))
-        case .full: Set(activeBindings.map(\.id))
-        }
-    }
     @Published public var highlighted: Int?
     /// The open question as it was when drawn (PLAN 13.4): an answer is
     /// built from this, never from the chat re-read at send time, so one
@@ -233,9 +224,8 @@ public final class CardModel: ComposerModel {
         }
     }
 
-    /// The bindings live in this card's current state: what the keycaps on
-    /// screen may show (the parity harness checks every rendered keycap is
-    /// in here).
+    /// The bindings live in this card's current state (the parity harness
+    /// checks each is routed by the surface's key handler).
     public var activeBindings: Set<KeyBinding> {
         var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.send, Keys.reply, Keys.next, Keys.previous]
         if !isBot, !killing { b.insert(Keys.kill) }

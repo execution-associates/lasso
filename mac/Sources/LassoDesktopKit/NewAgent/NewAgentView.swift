@@ -493,7 +493,7 @@ struct Switch: View {
     }
 }
 
-/// Create: the primary button, its shortcut set inside it.
+/// Create: the primary button (⌘⏎, said in its label).
 struct CreateButton: View {
     let enabled: Bool
     let busy: Bool
@@ -508,11 +508,6 @@ struct CreateButton: View {
                     ProgressView().controlSize(.small).tint(ink)
                 }
                 Text(busy ? "Creating…" : "Create agent").font(Theme.Fonts.label.font)
-                Text("⌘⏎")
-                    .font(Theme.Card.keycapFont.font)
-                    .padding(.horizontal, Theme.space("xs"))
-                    .padding(.vertical, Theme.space("2xs"))
-                    .background(RoundedRectangle(cornerRadius: Theme.Card.keycapRadius.pt).fill(ink.opacity(n.number("tint"))))
             }
             .foregroundStyle(ink)
             .padding(.horizontal, Theme.space("xl"))

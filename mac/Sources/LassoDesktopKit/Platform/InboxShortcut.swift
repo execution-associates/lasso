@@ -79,7 +79,7 @@ public enum InboxShortcutChoice: Equatable, Sendable {
         }
     }
 
-    /// The keys alone, as a keycap shows them ("⌥Space", "⌥⌥"); nil when off.
+    /// The keys alone, as a label names them ("⌥Space", "⌥⌥"); nil when off.
     public var keys: String? {
         switch self {
         case .off: nil
