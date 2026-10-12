@@ -259,8 +259,26 @@ struct InlineField: NSViewRepresentable {
     }
 }
 
-/// An agent's name, as a window or card shows it: right-click for Rename…,
-/// which turns it into a field (⏎ keeps, esc cancels, empty clears the label).
+/// The text cursor over a renamable title: pushed once, popped once, however
+/// the hover ends (a click swaps the title for a field under the pointer).
+@MainActor
+enum TitleCursor {
+    private static var pushed = false
+
+    static func hover(_ inside: Bool) {
+        if inside, !pushed {
+            NSCursor.iBeam.push()
+            pushed = true
+        } else if !inside, pushed {
+            NSCursor.pop()
+            pushed = false
+        }
+    }
+}
+
+/// An agent's name, as a window or card shows it. A click (or right-click,
+/// Rename…) turns it into a field: ⏎ keeps, esc cancels, empty clears the
+/// label. The pointer is a text cursor over a name that can be renamed.
 struct AgentTitle: View {
     @ObservedObject var model: CardModel
     var font: Token = Theme.Fonts.title
@@ -281,6 +299,13 @@ struct AgentTitle: View {
                 .font(font.font)
                 .foregroundStyle(Theme.Text.primary.color)
                 .lineLimit(1)
+                .contentShape(Rectangle())
+                .onHover { TitleCursor.hover($0 && model.canRename) }
+                .onDisappear { TitleCursor.hover(false) }
+                .onTapGesture {
+                    TitleCursor.hover(false)
+                    model.startRename()
+                }
                 .contextMenu {
                     if model.canRename { Button("Rename…") { model.startRename() } }
                 }
