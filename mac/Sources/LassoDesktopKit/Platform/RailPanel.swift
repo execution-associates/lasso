@@ -167,6 +167,7 @@ public final class RailController {
     public let model: RailModel
     private(set) var panel: RailPanel
     private var screenObserver: NSObjectProtocol?
+    private var keyObserver: NSObjectProtocol?
     private var hoverTimer: Timer?
     private var inSince: Date?
     private var outSince: Date?
@@ -204,6 +205,16 @@ public final class RailController {
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.place() }
+        }
+        // The keyboard went elsewhere: its focus ring goes with it.
+        keyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification, object: nil, queue: .main
+        ) { [weak self] n in
+            let window = n.object.map { ObjectIdentifier($0 as AnyObject) }
+            MainActor.assumeIsolated {
+                guard let self, window == ObjectIdentifier(self.panel) else { return }
+                self.model.focusVisible = false
+            }
         }
     }
 
@@ -318,6 +329,8 @@ public final class RailController {
             model.hovered = item
             hoverSince = item == nil ? nil : Date()
             hoverOpened = false
+            // The pointer took over from the keyboard.
+            if item != nil { model.focusVisible = false }
         }
         guard let item, !hoverOpened, let since = hoverSince,
               Date().timeIntervalSince(since) * 1000 >= Theme.Rail.hover.number("item_open_ms")
