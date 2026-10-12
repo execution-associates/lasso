@@ -389,12 +389,15 @@ public struct SettingsView: View {
                 row("herdr") { value(h) }
             }
             if let h = model.usableHosts() {
-                row("Machines it drives", last: !model.signedIn) { value("\(h.usable) of \(h.total)") }
+                row("Machines it drives") { value("\(h.usable) of \(h.total)") }
             }
             if model.signedIn {
-                row("Signed in on this Mac", last: true) {
+                row("Signed in on this Mac") {
                     PillButton(title: "Sign out", label: "Sign out of this lasso") { model.signOut() }
                 }
+            }
+            row("In the web app", detail: "Agents, themes, plugins and everything else lasso has.", last: true) {
+                PillButton(title: "Advanced Settings", label: "Open lasso's settings in the browser") { model.openAdvancedSettings() }
             }
         }
         group("LassoDesktop", footnote: AppUpdates.checkNow == nil ? "A development build: it does not update itself." : nil) {

@@ -100,6 +100,20 @@ public final class SettingsModel: ObservableObject {
         onPresence()
     }
 
+    /// lasso's own Settings, in the browser: the web app reads ?open=settings
+    /// once on load and opens its sidebar on Settings › General.
+    public nonisolated static func advancedSettingsURL(_ base: String) -> URL? {
+        guard var c = URLComponents(string: base), c.host != nil else { return nil }
+        c.path = "/"
+        c.queryItems = [URLQueryItem(name: "open", value: "settings")]
+        c.fragment = nil
+        return c.url
+    }
+
+    public func openAdvancedSettings() {
+        if let u = Self.advancedSettingsURL(baseURL()) { NSWorkspace.shared.open(u) }
+    }
+
     /// Quit. The launch agent restarts the app only after a crash, so a quit
     /// lasts until the next login.
     public func quit() { NSApp.terminate(nil) }
