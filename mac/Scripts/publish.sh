@@ -8,11 +8,12 @@
 # The version defaults to lasso's (src/version.go). --no-upload stops after
 # copying the DMG and appcast to mac/dist/release/. No runner on the Mac
 # listens to GitHub: lasso's repo is public, and a fork's workflow must never
-# reach a logged-in Mac. LASSO_MAC picks the Mac (default minime).
+# reach a logged-in Mac. LASSO_MAC picks the Mac (default minime), and
+# LASSO_MAC_DIR the folder there (default src/lasso-desktop/mac, as dev.sh).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 MAC="${LASSO_MAC:-minime}"
-REMOTE="src/lasso-desktop/mac"
+REMOTE="${LASSO_MAC_DIR:-src/lasso-desktop/mac}"
 REPO="execution-associates/lasso"
 
 UPLOAD=1

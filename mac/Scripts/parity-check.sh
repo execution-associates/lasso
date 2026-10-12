@@ -7,12 +7,14 @@
 #   Scripts/parity-check.sh [all|state,state,...]
 #
 # The harness is the shipped binary in --parity mode, started by a one-shot
-# LaunchAgent so it has the Aqua session's window server.
+# LaunchAgent so it has the Aqua session's window server. The agent's label
+# carries a digest of this folder, so a run from another folder (dev.sh's
+# LASSO_MAC_DIR) never boots this one's out.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 STATES="${1:-all}"
-LABEL=com.orangecountyai.Lasso.parity
+LABEL="com.orangecountyai.Lasso.parity.$(printf '%s' "$PWD" | shasum | cut -c1-8)"
 DOMAIN="gui/$(id -u)"
 OUT="$PWD/dist/parity"
 PLIST="$PWD/dist/parity-agent.plist"
