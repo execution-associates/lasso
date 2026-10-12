@@ -215,6 +215,8 @@ export interface HostPane {
   transcript_at?: number
   // herdr's custom agent label (agent.list's name), when one was set.
   agent_label?: string
+  // Set only on a past agent's row (/api/agent-history), whose pane is gone.
+  closed?: boolean
 }
 
 export interface PanesPayload {
@@ -521,6 +523,10 @@ export interface UIState {
   // Read-only here: write it through the card_dismiss ops. Optional because
   // an older server never sends it.
   dismissed_cards?: Record<string, number>
+  // Where the Inbox's finished turns start counting (unix ms), the same on
+  // every device. Server-owned: set once by lasso, never written by a client.
+  // Optional because an older server never sends it.
+  inbox_since?: number
   // How much character the palette chrome carries (lib/character.ts). Never
   // send "": the server answers 400, as it does for browser_mode.
   texture: Texture
@@ -2277,6 +2283,9 @@ export const api = {
 
   // Persisted UI preferences (sidebar layout, Files tab, and usage footer).
   uiState: () => getJSON<UIState>("/api/ui-state"),
+  // The notices lasso keeps for the Inbox (lasso's own and agents' messages),
+  // oldest first; the same list on every device.
+  notices: () => getJSON<{ notices: LiveNotification[] }>("/api/notices"),
   // Patch semantics: send only the changed fields; the server merges into the
   // stored state (so stale tabs can't clobber fields they didn't touch) and
   // returns the merged whole.

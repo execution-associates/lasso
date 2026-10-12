@@ -11,13 +11,23 @@ public final class FleetModel: ObservableObject {
     @Published public private(set) var hostErrors: [String: String] = [:]
     /// The inbox's seen marks on this Mac, by entry (InboxMemory).
     @Published public var seen: [String: String] = [:]
-    /// lasso's notices since launch, newest last (at most 50).
+    /// lasso's notices, newest last (at most 50): the list lasso keeps
+    /// (/api/notices), and any heard live since it was read. What the inbox
+    /// lists is `inboxNotices`, the ones nobody has acknowledged.
     @Published public var notices: [InboxNotice] = []
     /// lasso's notification kinds and this Mac's choices; nil when lasso has
     /// none (an older lasso), and then every arrival sounds.
     @Published public var notify: NotifyPayload?
-    /// Finished turns count from here (unix ms); 0 counts them all.
-    public var inboxSince: Int64 = 0
+    /// Finished turns count from here (unix ms): lasso's shared
+    /// ui_state.inbox_since, so every device lists the same turns. A lasso
+    /// too old to have one gets `fallbackSince` instead: the app's launch
+    /// (InboxMemory.load), 0 (count them all) in a fixture.
+    public var inboxSince: Int64 { uiState.inbox_since ?? fallbackSince }
+    public var fallbackSince: Int64 = 0
+    /// Writes an acknowledgement to lasso (ui_state.card_dismiss, key and
+    /// value), shared by every device; FleetSync sets it. Without it (a
+    /// fixture) an acknowledgement stays on this Mac.
+    public var writeAcknowledgement: (@MainActor (String, Int64) async -> Void)?
     /// No lasso answers this Mac (FleetSync): the rail says so, and the
     /// inbox opens the first-run panel instead.
     @Published public var offline = false
@@ -38,8 +48,9 @@ public final class FleetModel: ObservableObject {
         // A killed pane is remembered until the fleet stops listing it.
         let listed = Set(panes.panes.map(\.key))
         if !killed.isSubset(of: listed) { killed.formIntersection(listed) }
-        if acknowledged.keys.contains(where: { !listed.contains($0) && !$0.hasPrefix("bot:") }) {
-            acknowledged = acknowledged.filter { listed.contains($0.key) || $0.key.hasPrefix("bot:") }
+        let kept: (String) -> Bool = { listed.contains($0) || $0.hasPrefix("bot:") || $0.hasPrefix("notice:") }
+        if acknowledged.keys.contains(where: { !kept($0) }) {
+            acknowledged = acknowledged.filter { kept($0.key) }
         }
     }
 
@@ -48,6 +59,9 @@ public final class FleetModel: ObservableObject {
 
     /// This inbox entry was acknowledged: it leaves the inbox now.
     public func markAcknowledged(_ entry: InboxEntry) { acknowledged[entry.ackKey] = entry.mark }
+
+    /// This notice was acknowledged: it leaves the inbox now.
+    public func markAcknowledged(_ n: InboxNotice) { acknowledged[InboxNotice.ackKey(n.id)] = "notice" }
 
     public func apply(bots: BotsPayload) { self.bots = bots.bots }
 
@@ -66,6 +80,7 @@ public final class FleetModel: ObservableObject {
         hostErrors = [:]
         killed = []
         acknowledged = [:]
+        notices = []
     }
 
     /// Agents only (a pane without one is not a fleet member, as in the web
@@ -80,6 +95,13 @@ public final class FleetModel: ObservableObject {
         let tb = b.transcript_at ?? .min
         if ta != tb { return ta > tb }
         return a.key < b.key
+    }
+
+    /// The notices lasso keeps (/api/notices), which replace what this Mac
+    /// had: lasso's list is the one every device shows.
+    public func apply(notices payload: NoticesPayload) {
+        let list = payload.notices.suffix(50).map(InboxNotice.init(live:))
+        if list != notices { notices = Array(list) }
     }
 
     /// A notice from lasso's event stream: kept once by id, the last 50.

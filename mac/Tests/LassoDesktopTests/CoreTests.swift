@@ -55,7 +55,7 @@ private let specDir = packageDir.appendingPathComponent("Spec")
     let fleet = FleetModel()
     fleet.apply(panes: fx.server.all_panes)
     fleet.apply(bots: fx.server.bots)
-    fleet.inboxSince = Int64((fx.now.timeIntervalSince1970 - 3600) * 1000)
+    fleet.fallbackSince = Int64((fx.now.timeIntervalSince1970 - 3600) * 1000)
     #expect(fleet.attentionCount == fx.expect?.badge)
     #expect(fleet.railSlots(maxSlots: Theme.Rail.maxSlots.int).map(\.id) == fx.expect?.rail_slots)
 }

@@ -54,7 +54,7 @@ private let settle: UInt64 = 100_000_000
     let fleet = FleetModel()
     let all = [pane("w1:p1", "blocked", 30), pane("w1:p2", "done", 20)]
     fleet.apply(panes: AllPanes(panes: all))
-    fleet.inboxSince = 0
+    fleet.fallbackSince = 0
     let inbox = InboxModel(fleet: fleet)
     let actions = FixtureCardActions(chats: [:], canAcknowledge: true)
     let m = CardModel(pane: all[0], fleet: fleet, actions: actions)

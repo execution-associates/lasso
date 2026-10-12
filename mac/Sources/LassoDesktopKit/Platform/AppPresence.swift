@@ -79,7 +79,7 @@ public final class AppPresence: NSObject {
     }
 
     private func refreshCount() {
-        let n = fleet.inbox.count + fleet.notices.count
+        let n = fleet.badgeCount
         // The count in the menu bar's own size, medium, with steady-width
         // digits: it sits beside the monogram as a pair, not a caption.
         let text = n > 0 ? " \(n > 99 ? "99+" : String(n))" : ""

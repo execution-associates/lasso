@@ -33,6 +33,8 @@ func TestDesktopContract(t *testing.T) {
 		// The SSE "notice" frame's data, and /api/version.
 		"notice":  filled(&notice{}),
 		"version": filled(&versionInfo{}),
+		// GET /api/notices: the Inbox's notices, shared by every client.
+		"notices": filled(&noticesPayload{}),
 		// POST /api/chat/answer's body: what the app sends, so a renamed key
 		// fails here as surely as one the app reads.
 		"chat_answer_request": filled(&chatAnswerRequest{}),

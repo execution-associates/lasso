@@ -1,0 +1,1013 @@
+{
+  "about": "The Inbox's membership rule, one set of cases for both clients: the Mac app's FleetModel.inbox (mac/Tests/LassoDesktopTests/InboxRulesTests.swift) and the phone's inboxEntries (src/web/src/simple/inbox-rule.test.js, which reads the copy beside it, kept equal to this file by TestInboxRulesCopyInSync). Each case is what lasso serves (all-panes, bots, ui_state, notices) and the entries and notices both must list, in order; badge is the Mac's count and the phone's.",
+  "cases": [
+    {
+      "name": "titan, 2026-10-12",
+      "note": "titan's lasso when the Mac showed 2 and the phone 7. The old Mac rule counted finished turns from its own first launch (inboxSince) and a bot's turn as its reply; the old phone counted from per-pane baselines it seeded itself, skipping none of the panes herdr called done (bots' panes included, jessica, stub, fitty from hours or a day before), and keyed a claude bot by its pane, so the Mac's bot:olivia acknowledgement did not hide olivia there. With lasso's one baseline (here the Mac's) both list the same two.",
+      "panes": [
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w0Y:p1",
+          "workspace_id": "w0Y",
+          "workspace_label": "Agents",
+          "tab_id": "w0Y:t1",
+          "tab_label": "homie",
+          "cwd": "/",
+          "agent": "omp",
+          "agent_status": "idle",
+          "has_agent": true,
+          "focused": false,
+          "agent_label": "homie"
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w0W:p1",
+          "workspace_id": "w0W",
+          "workspace_label": "Agents",
+          "tab_id": "w0W:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "working",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1791778255664,
+          "agent_label": "lasso-desktop"
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "wYX:p1",
+          "workspace_id": "wYX",
+          "workspace_label": "Agents",
+          "tab_id": "wYX:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "idle",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1791402293385
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "wYW:p1",
+          "workspace_id": "wYW",
+          "workspace_label": "Agents",
+          "tab_id": "wYW:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "done",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1791774912831
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "wVT:p1H",
+          "workspace_id": "wVT",
+          "workspace_label": "Agents",
+          "tab_id": "wVT:t1",
+          "tab_label": "Organize GitHub stars into lists",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "idle",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1791776483468
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "wVT:p1G",
+          "workspace_id": "wVT",
+          "workspace_label": "Agents",
+          "tab_id": "wVT:t1",
+          "tab_label": "Terminal session control study",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "idle",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1791611962387,
+          "agent_label": "rah-target"
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "wVT:p1F",
+          "workspace_id": "wVT",
+          "workspace_label": "Agents",
+          "tab_id": "wVT:t1",
+          "tab_label": "Terminal session control study",
+          "cwd": "/",
+          "agent": "omp",
+          "agent_status": "idle",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1791612020262
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "wVT:p19",
+          "workspace_id": "wVT",
+          "workspace_label": "Agents",
+          "tab_id": "wVT:t1",
+          "tab_label": "macOS app UI study",
+          "cwd": "/",
+          "agent": "omp",
+          "agent_status": "idle",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1791752732413
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "wVT:pW",
+          "workspace_id": "wVT",
+          "workspace_label": "Agents",
+          "tab_id": "wVT:t1",
+          "tab_label": "Deploy celld and Gleam service on isb",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "idle",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1791402294139
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "wVT:pQ",
+          "workspace_id": "wVT",
+          "workspace_label": "Agents",
+          "tab_id": "wVT:t1",
+          "tab_label": "VisiQuate: Pepe shell design + Kinetic",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "idle",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1791402297715
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "wVT:p9",
+          "workspace_id": "wVT",
+          "workspace_label": "Agents",
+          "tab_id": "wVT:t1",
+          "tab_label": "Migrate OCAI projects to Execution Associates",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "idle",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1791402293240
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "wQR:p37",
+          "workspace_id": "wQR",
+          "workspace_label": "Agents",
+          "tab_id": "wQR:t1",
+          "tab_label": "jessica",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "done",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1791769162794,
+          "agent_label": "jessica"
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "wQR:p36",
+          "workspace_id": "wQR",
+          "workspace_label": "Agents",
+          "tab_id": "wQR:t1",
+          "tab_label": "olivia",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "done",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1791775992080,
+          "agent_label": "olivia"
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "wQR:p35",
+          "workspace_id": "wQR",
+          "workspace_label": "Agents",
+          "tab_id": "wQR:t1",
+          "tab_label": "fitty",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "done",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1791728204765,
+          "agent_label": "fitty"
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "wQR:p34",
+          "workspace_id": "wQR",
+          "workspace_label": "Agents",
+          "tab_id": "wQR:t1",
+          "tab_label": "clem",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "done",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1791775888160,
+          "agent_label": "clem"
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "wQR:p33",
+          "workspace_id": "wQR",
+          "workspace_label": "Agents",
+          "tab_id": "wQR:t1",
+          "tab_label": "stub",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "done",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1791768074505,
+          "agent_label": "stub"
+        },
+        {
+          "host": "exa",
+          "host_label": "exa",
+          "pane_id": "wH:p1",
+          "workspace_id": "wH",
+          "workspace_label": "Agents",
+          "tab_id": "wH:t1",
+          "tab_label": "exa",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "idle",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1791696018000,
+          "agent_label": "exa"
+        },
+        {
+          "host": "norm",
+          "host_label": "norm",
+          "pane_id": "w1:p2",
+          "workspace_id": "w1",
+          "workspace_label": "Agents",
+          "tab_id": "w1:t1",
+          "tab_label": "norm",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "idle",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1791775845000,
+          "agent_label": "norm"
+        }
+      ],
+      "bots": [
+        {
+          "id": 1,
+          "host": "local",
+          "name": "jessica",
+          "runtime": "claude",
+          "stopped": false,
+          "state": "idle",
+          "pane_id": "wQR:p37",
+          "last_kind": "agent",
+          "last_at": "2026-10-12T01:36:18.910Z"
+        },
+        {
+          "id": 2,
+          "host": "local",
+          "name": "stub",
+          "runtime": "claude",
+          "stopped": false,
+          "state": "idle",
+          "pane_id": "wQR:p33",
+          "last_kind": "agent",
+          "last_at": "2026-10-12T01:18:12.299Z"
+        },
+        {
+          "id": 3,
+          "host": "local",
+          "name": "clem",
+          "runtime": "claude",
+          "stopped": false,
+          "state": "idle",
+          "pane_id": "wQR:p34",
+          "last_kind": "agent",
+          "last_at": "2026-10-11T14:15:50.901Z"
+        },
+        {
+          "id": 4,
+          "host": "local",
+          "name": "fitty",
+          "runtime": "claude",
+          "stopped": false,
+          "state": "idle",
+          "pane_id": "wQR:p35",
+          "last_kind": "agent",
+          "last_at": "2026-10-11T14:16:44.475Z"
+        },
+        {
+          "id": 5,
+          "host": "local",
+          "name": "olivia",
+          "runtime": "claude",
+          "stopped": false,
+          "state": "idle",
+          "pane_id": "wQR:p36",
+          "last_kind": "agent",
+          "last_at": "2026-10-12T03:00:42.259Z"
+        },
+        {
+          "id": 6,
+          "host": "local",
+          "name": "norm",
+          "runtime": "claude",
+          "stopped": true,
+          "state": "stopped"
+        },
+        {
+          "id": 7,
+          "host": "local",
+          "name": "homie",
+          "runtime": "omp",
+          "stopped": false,
+          "state": "idle",
+          "pane_id": "w0Y:p1",
+          "last_kind": "agent",
+          "last_at": "2026-10-11T09:32:12.298Z"
+        }
+      ],
+      "ui_state": {
+        "dismissed_cards": {
+          "bot:olivia": 1791774042259,
+          "local\u0000w0W:p1": 1791776575894,
+          "local\u0000wQR:p34": 1791772288159,
+          "local\u0000wVT:p1P": 1791754579030,
+          "local\u0000wVT:p1S": 1791772535428,
+          "local\u0000wVT:p1T": 1791772852793,
+          "local\u0000wVT:p1W": 1791771638518,
+          "local\u0000wYZ:p1": 1791773445756,
+          "norm\u0000w1:p2": 1791775845000
+        },
+        "inbox_since": 1791771334520
+      },
+      "notices": [],
+      "want": {
+        "entries": [
+          {
+            "kind": "finished",
+            "pane": "local\u0000wVT:p1H",
+            "ack_key": "local\u0000wVT:p1H",
+            "ack_at": 1791776483468
+          },
+          {
+            "kind": "finished",
+            "pane": "local\u0000wYW:p1",
+            "ack_key": "local\u0000wYW:p1",
+            "ack_at": 1791774912831
+          }
+        ],
+        "notices": [],
+        "badge": 2
+      }
+    },
+    {
+      "name": "panes",
+      "note": "claude and omp only; blocked waits whatever the baseline; a turn counts after inbox_since, not at it; a status herdr does not name reads as idle; a closed record and a pane without an agent never count; an acknowledgement hides an entry until its transcript passes the value.",
+      "panes": [
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w1:p1",
+          "workspace_id": "w1",
+          "workspace_label": "Agents",
+          "tab_id": "w1:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "done",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1100
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w1:p2",
+          "workspace_id": "w1",
+          "workspace_label": "Agents",
+          "tab_id": "w1:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "omp",
+          "agent_status": "blocked",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 50
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w1:p3",
+          "workspace_id": "w1",
+          "workspace_label": "Agents",
+          "tab_id": "w1:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "codex",
+          "agent_status": "blocked",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 2000
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w1:p4",
+          "workspace_id": "w1",
+          "workspace_label": "Agents",
+          "tab_id": "w1:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "working",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 3000
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w1:p5",
+          "workspace_id": "w1",
+          "workspace_label": "Agents",
+          "tab_id": "w1:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "idle",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1000
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w1:p6",
+          "workspace_id": "w1",
+          "workspace_label": "Agents",
+          "tab_id": "w1:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "Claude",
+          "agent_status": "unknown",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1200
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w1:p7",
+          "workspace_id": "w1",
+          "workspace_label": "Agents",
+          "tab_id": "w1:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "done",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1500,
+          "closed": true
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w1:p8",
+          "workspace_id": "w1",
+          "workspace_label": "Agents",
+          "tab_id": "w1:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "done",
+          "has_agent": false,
+          "focused": false,
+          "transcript_at": 1600
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w1:p9",
+          "workspace_id": "w1",
+          "workspace_label": "Agents",
+          "tab_id": "w1:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "done",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1700
+        },
+        {
+          "host": "minime",
+          "host_label": "minime",
+          "pane_id": "w1:p9",
+          "workspace_id": "w1",
+          "workspace_label": "Agents",
+          "tab_id": "w1:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "blocked",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 900
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w2:p1",
+          "workspace_id": "w2",
+          "workspace_label": "Agents",
+          "tab_id": "w2:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "blocked",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 800
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w2:p2",
+          "workspace_id": "w2",
+          "workspace_label": "Agents",
+          "tab_id": "w2:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "done",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1300
+        }
+      ],
+      "bots": [],
+      "ui_state": {
+        "dismissed_cards": {
+          "local\u0000w1:p9": 1700,
+          "local\u0000w2:p1": 700,
+          "local\u0000w2:p2": 1400
+        },
+        "inbox_since": 1000
+      },
+      "notices": [],
+      "want": {
+        "entries": [
+          {
+            "kind": "waiting",
+            "pane": "minime\u0000w1:p9",
+            "ack_key": "minime\u0000w1:p9",
+            "ack_at": 900
+          },
+          {
+            "kind": "waiting",
+            "pane": "local\u0000w2:p1",
+            "ack_key": "local\u0000w2:p1",
+            "ack_at": 800
+          },
+          {
+            "kind": "waiting",
+            "pane": "local\u0000w1:p2",
+            "ack_key": "local\u0000w1:p2",
+            "ack_at": 50
+          },
+          {
+            "kind": "finished",
+            "pane": "local\u0000w1:p6",
+            "ack_key": "local\u0000w1:p6",
+            "ack_at": 1200
+          },
+          {
+            "kind": "finished",
+            "pane": "local\u0000w1:p1",
+            "ack_key": "local\u0000w1:p1",
+            "ack_at": 1100
+          }
+        ],
+        "notices": [],
+        "badge": 5
+      }
+    },
+    {
+      "name": "bots",
+      "note": "A bot enters on its pane (found by pane id or by its name as the herdr label) and its finished turn is its last reply, keyed bot:<name> up to last_at, for a claude bot as for an omp one. An omp bot's question waits as bot:<name>#<id> whatever its pane says. A blocked claude bot waits as its pane. A bot whose pane is not listed has no entry.",
+      "panes": [
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w5:p1",
+          "workspace_id": "w5",
+          "workspace_label": "Agents",
+          "tab_id": "w5:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "done",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 9000,
+          "agent_label": "stub"
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w5:p2",
+          "workspace_id": "w5",
+          "workspace_label": "Agents",
+          "tab_id": "w5:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "done",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 9000,
+          "agent_label": "olivia"
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w5:p3",
+          "workspace_id": "w5",
+          "workspace_label": "Agents",
+          "tab_id": "w5:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "blocked",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 7000,
+          "agent_label": "clem"
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w5:p4",
+          "workspace_id": "w5",
+          "workspace_label": "Agents",
+          "tab_id": "w5:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "omp",
+          "agent_status": "idle",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 6000,
+          "agent_label": "homie"
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w5:p5",
+          "workspace_id": "w5",
+          "workspace_label": "Agents",
+          "tab_id": "w5:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "omp",
+          "agent_status": "working",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 6000,
+          "agent_label": "ask"
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w5:p6",
+          "workspace_id": "w5",
+          "workspace_label": "Agents",
+          "tab_id": "w5:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "omp",
+          "agent_status": "idle",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 6000,
+          "agent_label": "asked"
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w5:p7",
+          "workspace_id": "w5",
+          "workspace_label": "Agents",
+          "tab_id": "w5:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "done",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 9000,
+          "agent_label": "quiet"
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w5:p8",
+          "workspace_id": "w5",
+          "workspace_label": "Agents",
+          "tab_id": "w5:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "omp",
+          "agent_status": "blocked",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 6500,
+          "agent_label": "stuck"
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w5:p9",
+          "workspace_id": "w5",
+          "workspace_label": "Agents",
+          "tab_id": "w5:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "idle",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 9000,
+          "agent_label": "old"
+        }
+      ],
+      "bots": [
+        {
+          "id": 1,
+          "host": "local",
+          "name": "stub",
+          "runtime": "claude",
+          "stopped": false,
+          "state": "idle",
+          "pane_id": "w5:p1",
+          "last_kind": "agent",
+          "last_at": "1970-01-01T00:00:05.000Z"
+        },
+        {
+          "id": 2,
+          "host": "local",
+          "name": "olivia",
+          "runtime": "claude",
+          "stopped": false,
+          "state": "idle",
+          "last_kind": "agent",
+          "last_at": "1970-01-01T00:00:04.000Z"
+        },
+        {
+          "id": 3,
+          "host": "local",
+          "name": "clem",
+          "runtime": "claude",
+          "stopped": false,
+          "state": "blocked",
+          "pane_id": "w5:p3",
+          "last_kind": "agent",
+          "last_at": "1970-01-01T00:00:06.000Z"
+        },
+        {
+          "id": 4,
+          "host": "local",
+          "name": "homie",
+          "runtime": "omp",
+          "stopped": false,
+          "state": "idle",
+          "pane_id": "w5:p4",
+          "last_kind": "agent",
+          "last_at": "1970-01-01T00:00:03.500Z"
+        },
+        {
+          "id": 5,
+          "host": "local",
+          "name": "ask",
+          "runtime": "omp",
+          "stopped": false,
+          "state": "working",
+          "pane_id": "w5:p5",
+          "last_kind": "agent",
+          "last_at": "1970-01-01T00:00:03.000Z",
+          "pending_ui": [
+            {
+              "id": "q1",
+              "method": "select",
+              "title": "Pick",
+              "options": ["a", "b"]
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "host": "local",
+          "name": "asked",
+          "runtime": "omp",
+          "stopped": false,
+          "state": "blocked",
+          "pane_id": "w5:p6",
+          "last_kind": "agent",
+          "last_at": "1970-01-01T00:00:03.000Z",
+          "pending_ui": [
+            {
+              "id": "q2",
+              "method": "confirm",
+              "title": "Sure?"
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "host": "local",
+          "name": "quiet",
+          "runtime": "claude",
+          "stopped": false,
+          "state": "idle",
+          "pane_id": "w5:p7",
+          "last_kind": "user",
+          "last_at": "1970-01-01T00:00:08.000Z"
+        },
+        {
+          "id": 8,
+          "host": "local",
+          "name": "stuck",
+          "runtime": "omp",
+          "stopped": false,
+          "state": "blocked",
+          "pane_id": "w5:p8",
+          "last_kind": "agent",
+          "last_at": "1970-01-01T00:00:01.000Z"
+        },
+        {
+          "id": 9,
+          "host": "local",
+          "name": "old",
+          "runtime": "claude",
+          "stopped": false,
+          "state": "idle",
+          "pane_id": "w5:p9",
+          "last_kind": "agent",
+          "last_at": "1970-01-01T00:00:01.500Z"
+        },
+        {
+          "id": 10,
+          "host": "local",
+          "name": "gone",
+          "runtime": "omp",
+          "stopped": true,
+          "state": "stopped",
+          "last_kind": "agent",
+          "last_at": "1970-01-01T00:00:09.000Z"
+        }
+      ],
+      "ui_state": {
+        "dismissed_cards": {
+          "bot:olivia": 4000,
+          "bot:asked#q2": 0,
+          "local\u0000w5:p1": 9000
+        },
+        "inbox_since": 2000
+      },
+      "notices": [],
+      "want": {
+        "entries": [
+          {
+            "kind": "waiting",
+            "pane": "local\u0000w5:p3",
+            "ack_key": "local\u0000w5:p3",
+            "ack_at": 7000
+          },
+          {
+            "kind": "waiting",
+            "pane": "local\u0000w5:p8",
+            "ack_key": "local\u0000w5:p8",
+            "ack_at": 6500
+          },
+          {
+            "kind": "waiting",
+            "pane": "local\u0000w5:p5",
+            "ack_key": "bot:ask#q1",
+            "ack_at": 0
+          },
+          {
+            "kind": "finished",
+            "pane": "local\u0000w5:p1",
+            "ack_key": "bot:stub",
+            "ack_at": 5000
+          },
+          {
+            "kind": "finished",
+            "pane": "local\u0000w5:p4",
+            "ack_key": "bot:homie",
+            "ack_at": 3500
+          }
+        ],
+        "notices": [],
+        "badge": 5
+      }
+    },
+    {
+      "name": "notices",
+      "note": "lasso's kept notices (/api/notices) list newest first, each hidden once notice:<id> is acknowledged.",
+      "panes": [
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w1:p1",
+          "workspace_id": "w1",
+          "workspace_label": "Agents",
+          "tab_id": "w1:t1",
+          "tab_label": "1",
+          "cwd": "/",
+          "agent": "claude",
+          "agent_status": "blocked",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 10
+        }
+      ],
+      "bots": [],
+      "ui_state": {
+        "dismissed_cards": {
+          "notice:b0-2": 20
+        },
+        "inbox_since": 0
+      },
+      "notices": [
+        {
+          "id": "b0-1",
+          "at": 10,
+          "kind": "lasso_notice",
+          "level": "error",
+          "title": "Theme refused"
+        },
+        {
+          "id": "b0-2",
+          "at": 20,
+          "kind": "agent_message",
+          "title": "Migration green"
+        },
+        {
+          "id": "b0-3",
+          "at": 30,
+          "kind": "agent_message",
+          "title": "Need a decision"
+        }
+      ],
+      "want": {
+        "entries": [
+          {
+            "kind": "waiting",
+            "pane": "local\u0000w1:p1",
+            "ack_key": "local\u0000w1:p1",
+            "ack_at": 10
+          }
+        ],
+        "notices": ["b0-3", "b0-1"],
+        "badge": 3
+      }
+    }
+  ]
+}

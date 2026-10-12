@@ -253,7 +253,7 @@ public struct RailView: View {
         .help(fleet.offline ? "No lasso answers: connect to one" : "Inbox: what waits on you")
     }
 
-    private var inboxCount: Int { fleet.inbox.count + fleet.notices.count }
+    private var inboxCount: Int { fleet.badgeCount }
 
     /// How many messages the inbox holds: red while one waits on the human,
     /// green when only finished turns and notices are left; none when empty.
