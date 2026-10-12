@@ -29,6 +29,7 @@ public final class AppCoordinator {
     private let media: MediaSource?
     private var shortcuts: [ShortcutSlot: InboxShortcut] = [:]
     private var newAgent: NewAgentController?
+    private var presence: AppPresence?
     private var commandO: Any?
     /// What was in the inbox last time it changed, to hear what is new.
     private var inboxSeen: Set<String>?
@@ -81,6 +82,13 @@ public final class AppCoordinator {
 
     public func start() {
         rail.show()
+        let p = AppPresence(fleet: fleet)
+        p.openInbox = { [weak self] in self?.openInbox() }
+        p.newAgent = { [weak self] in self?.openNewAgent(.git) }
+        p.openSettings = { [weak self] in self?.openSettings() }
+        p.apply()
+        presence = p
+        settingsModel.onPresence = { [weak self] in self?.presence?.apply() }
         KeyHints.shared.start()
         hotKey = HotKey(token: Theme.summonKey) { [weak self] in self?.rail.summon() }
         for slot in ShortcutSlot.allCases {

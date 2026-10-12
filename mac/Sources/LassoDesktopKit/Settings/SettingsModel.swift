@@ -83,6 +83,27 @@ public final class SettingsModel: ObservableObject {
     @Published public var tab: SettingsTab = .notifications
     /// The address field is open (Change…, or a failed connect).
     @Published public var changingLasso = false
+    /// The Dock and menu-bar icons (AppPresence), and applying a change.
+    @Published public private(set) var inDock = AppPresence.inDock
+    @Published public private(set) var inMenuBar = AppPresence.inMenuBar
+    public var onPresence: () -> Void = {}
+
+    public func setDock(_ on: Bool) {
+        AppPresence.set(dock: on)
+        inDock = on
+        onPresence()
+    }
+
+    public func setMenuBar(_ on: Bool) {
+        AppPresence.set(menuBar: on)
+        inMenuBar = on
+        onPresence()
+    }
+
+    /// Quit. The launch agent restarts the app only after a crash, so a quit
+    /// lasts until the next login.
+    public func quit() { NSApp.terminate(nil) }
+
     /// The machine lasso runs on, for the connection row.
     public var lassoName: () -> String? = { nil }
 

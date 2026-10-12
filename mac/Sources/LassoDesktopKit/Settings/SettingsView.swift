@@ -200,6 +200,15 @@ public struct SettingsView: View {
                 }
             }
             if AppUpdates.checkNow == nil { line("A development build: it does not update itself.", secondary: true) }
+            Switch(on: model.inDock, label: "Show in the Dock") { model.setDock(!model.inDock) }
+                .padding(.top, Theme.space("s"))
+            Switch(on: model.inMenuBar, label: "Show in the menu bar, with the inbox's count") { model.setMenuBar(!model.inMenuBar) }
+            HStack {
+                line("The rail stays on the screen edge either way. Quitting lasts until the next login.", secondary: true)
+                Spacer()
+                PillButton(title: "Quit LassoDesktop", textColor: Theme.dangerText.color, label: "Quit LassoDesktop") { model.quit() }
+            }
+            .padding(.top, Theme.space("s"))
         }
     }
 
