@@ -149,8 +149,6 @@ public final class LiveCardActions: CardActions {
         let _: Focused = try await client.post("/api/focus", query: ["host": pane.host], json: Focus(pane_id: pane.pane_id))
     }
 
-    struct Pasted: Decodable { var path: String }
-
     /// Upload a file to the agent's machine (lasso's paste-file route, as the
     /// web client's drop does) and hand back the path to put in the message.
     public func attach(_ file: URL, to pane: HostPane) async throws -> String {
@@ -158,10 +156,20 @@ public final class LiveCardActions: CardActions {
     }
 
     func upload(_ file: URL, host: String) async throws -> String {
-        var req = client.request("/api/paste-file", query: ["host": host, "name": file.lastPathComponent], method: "POST")
+        try await client.pasteFile(file, host: host)
+    }
+}
+
+extension LassoClient {
+    struct Pasted: Decodable { var path: String }
+
+    /// Upload a file to `host`'s machine (lasso's paste-file route) and
+    /// answer the path it was written to there.
+    func pasteFile(_ file: URL, host: String) async throws -> String {
+        var req = request("/api/paste-file", query: ["host": host, "name": file.lastPathComponent], method: "POST")
         let type = UTType(filenameExtension: file.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
         req.setValue(type, forHTTPHeaderField: "Content-Type")
-        let r: Pasted = try await client.upload(req, fromFile: file)
+        let r: Pasted = try await upload(req, fromFile: file)
         return r.path
     }
 }

@@ -133,16 +133,25 @@ public final class ChatModel: ComposerModel {
         }
     }
 
-    public func attachFile() {
-        let files = FilePicker.choose()
+    public func attachFile() { attach(FilePicker.choose(), at: nil) }
+
+    /// Upload files (the paperclip's, or pasted or dropped on the message box)
+    /// to the agent's machine and put their paths in the message at `caret`
+    /// (UTF-16), or at its end.
+    public func attach(_ files: [URL], at caret: Int?) {
         guard !files.isEmpty else { return }
+        guard !busy else {
+            files.forEach(Attachments.discardIfScratch)
+            notice = "Wait a moment: \(files.count == 1 ? files[0].lastPathComponent : "these files") can go once this finishes"
+            return
+        }
+        notice = Attachments.progress(files)
         run("Attach") { [self] in
-            for f in files {
-                let path = try await actions.attach(f, to: bot)
-                composer = composer.isEmpty ? path : composer + "\n" + path
+            let n = try await Attachments.upload(files, at: caret, into: \.composer, of: self) {
+                try await actions.attach($0, to: bot)
             }
-            focusComposer()
-            return files.count == 1 ? "Attached \(files[0].lastPathComponent)" : "Attached \(files.count) files"
+            if caret == nil { focusComposer() }
+            return n
         }
     }
 

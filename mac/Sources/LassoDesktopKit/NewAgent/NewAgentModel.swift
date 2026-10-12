@@ -74,6 +74,9 @@ public protocol NewAgentSource: AnyObject {
     func repos(host: String) async throws -> [RepoEntry]
     func branches(repo: String, host: String) async throws -> RepoBranches
     func create(_ req: CreateAgent) async throws -> CreatedAgent
+    /// Upload a file pasted or dropped on the prompt to `host`'s machine;
+    /// the path it landed at there.
+    func upload(_ file: URL, host: String) async throws -> String
 }
 
 @MainActor
@@ -106,6 +109,10 @@ public final class LiveNewAgentSource: NewAgentSource {
     public func create(_ req: CreateAgent) async throws -> CreatedAgent {
         try await client.post("/api/create-agent", json: req)
     }
+
+    public func upload(_ file: URL, host: String) async throws -> String {
+        try await client.pasteFile(file, host: host)
+    }
 }
 
 /// The New Agent form's state.
@@ -124,7 +131,8 @@ public final class NewAgentModel: ObservableObject {
     @Published public var model = ""
     @Published public var effort = ""
     @Published public var planMode = false
-    @Published public var prompt = ""
+    /// Typing in the prompt clears the last paste's notice.
+    @Published public var prompt = "" { didSet { if !attaching, prompt != oldValue { notice = nil } } }
     @Published public private(set) var hostChoices: [Choice] = []
     public var hosts: [String] { hostChoices.map(\.value) }
     /// The machine's name, never "local".
@@ -134,6 +142,10 @@ public final class NewAgentModel: ObservableObject {
     @Published public private(set) var branches: [String] = []
     @Published public private(set) var busy = false
     @Published public private(set) var error: String?
+    /// A file pasted or dropped on the prompt is uploading.
+    @Published public private(set) var attaching = false
+    /// How the last paste or drop went (attached, refused).
+    @Published public private(set) var notice: String?
 
     /// Which chip's picker is open, its filter text, and the row the arrow
     /// keys are on (an index into `matches`).
@@ -169,7 +181,7 @@ public final class NewAgentModel: ObservableObject {
     }
 
     public var canCreate: Bool {
-        !busy && !title.isEmpty && !agent.isEmpty && (kind == .scratch || !repo.isEmpty)
+        !busy && !attaching && !title.isEmpty && !agent.isEmpty && (kind == .scratch || !repo.isEmpty)
     }
 
     public func load() async {
@@ -339,6 +351,38 @@ public final class NewAgentModel: ObservableObject {
     }
 }
 
+extension NewAgentModel: AttachingModel {
+    /// Files and images pasted or dropped on the prompt: uploaded to the
+    /// chosen machine (lasso's paste-file route, the composer's), their paths
+    /// put in the prompt at `caret`. The agent does not exist yet, so they
+    /// go where it will run; pick the machine first.
+    public func attach(_ files: [URL], at caret: Int?) {
+        guard !files.isEmpty else { return }
+        guard !attaching else {
+            files.forEach(Attachments.discardIfScratch)
+            notice = "Wait a moment: one upload at a time"
+            return
+        }
+        attaching = true
+        error = nil
+        notice = Attachments.progress(files)
+        let host = host
+        Task {
+            defer { attaching = false }
+            do {
+                notice = try await Attachments.upload(files, at: caret, into: \.prompt, of: self) {
+                    try await self.source.upload($0, host: host)
+                }
+            } catch {
+                notice = nil
+                self.error = "Attach failed: \(error)"
+            }
+        }
+    }
+
+    public func say(_ s: String?) { notice = s }
+}
+
 /// The fixtures' source: fixed answers, and a create that is recorded only.
 @MainActor
 public final class FixtureNewAgentSource: NewAgentSource {
@@ -368,6 +412,13 @@ public final class FixtureNewAgentSource: NewAgentSource {
 
     public func branches(repo: String, host: String) async throws -> RepoBranches {
         RepoBranches(branches: ["main", "lasso-desktop-mac"], default: "main")
+    }
+
+    public private(set) var uploads: [String] = []
+
+    public func upload(_ file: URL, host: String) async throws -> String {
+        uploads.append("\(host):\(file.lastPathComponent)")
+        return "/fixture/\(host)/" + file.lastPathComponent
     }
 
     public func create(_ req: CreateAgent) async throws -> CreatedAgent {

@@ -151,7 +151,7 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 | Card send (`⏎`) | POST `/api/chat/send?host=` | `{pane_id, text}` | `{outcome: confirmed\|refused\|uncertain, detail}`. Can take about 8 s; never auto-retry `uncertain` | `src/chatview.go:2091` |
 | Answer a question | POST `/api/chat/answer?host=` | `{pane_id, expect, labels, answers:[{selected,multi,options}]}` | `{outcome: sent\|refused}` | `src/chatview.go:2323` |
 | Stop | POST `/api/chat/stop?host=` | `{pane_id}` | `{outcome}` | `src/chatview.go:2128` |
-| Screenshot attach (`S`) | POST `/api/paste-file?host=&name=` | raw PNG body, `Content-Type: image/png` | `{path}`, which the client puts into the message text | `src/main.go:1956` |
+| Attach a file (paperclip, paste, drop) | POST `/api/paste-file?host=&name=` | the raw file, `Content-Type` its MIME type; at most 1 GiB, never empty | `{path}`, which the client puts into the message text | `src/main.go` `servePasteFile` |
 | Bots list | GET `/api/bots` | – | `{bots:[botView]}`: `botRecord` + `state, waiting_for, last_text, last_kind, last_at, live_model, error, …` | `src/botsapi.go:47`, `src/botruntime.go:215` |
 | Create assistant bot | POST `/api/bots` | `{name, runtime:"omp", start:true, instructions}` (host defaults to local; omp must be local) | `{bot, note?, error?}`; **a 200 can still carry `error`**; 409 on a duplicate | `src/botsapi.go:152`, rules `src/bots.go:178` |
 | Bot detail | GET `/api/bots/<name>` | – | `{bot, dir_path, …}` | `src/botsapi.go:233` |
@@ -992,6 +992,13 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
 - **Choices need a confirm.** A click (or 1–9) only selects a choice; the selected one shows **Answer**, and that button (or →) sends it. An answer cannot be taken back, and the preview appears under a moving pointer.
 - **No header menu:** the window's header is minimize and close. X X kills from the keyboard.
 - The composer's paperclip (A) attaches any files: each goes through `/api/paste-file` to the agent's machine and its path into the message.
+- **Paste and drop attach too** (`Platform/Attachments.swift`), in every composer (inbox card, agent window and preview, bot chat) and the New Agent prompt.
+  - The composer's NSTextField uses its own field editor (`ComposerCell` → `AttachingTextView`), so ⌘V and Edit › Paste reach it. A drop works on the field and on its editor alike.
+  - `Attachments.plan` decides from the pasteboard: **file URLs first**, then image data (PNG before TIFF, any other image read as TIFF), then text. Screenshot tools like BetterShot and Finder's Copy put the file next to its path or name as text and an icon as an image, and the file is what goes. Image data beats text only when the text is a lone URL or path (a browser's Copy Image); words with a rendering (Word, Excel) paste as text.
+  - Raw image data is written to `$TMPDIR/LassoPaste/<uuid>/pasted-<time>.png`, uploaded, then deleted.
+  - Each uploaded path is inserted at the caret (the drop point, or the end for the paperclip), set off by spaces. Uploads go one by one, so a failure keeps the paths that already landed. The notice names the file and the reason.
+  - Refused before any upload: folders, empty files (lasso refuses an empty body), and anything over lasso's `maxUpload` (1 GiB, `src/main.go`).
+  - The New Agent prompt has no agent yet, so its files go to the chosen host through the same route, and Create waits for them.
 - One window per agent; a second click brings it forward. Where each agent's window was is kept in UserDefaults `agentWindowFrames`.
 - Keys while it has the keyboard: 1–9, →, ↳, ⏎, A (attach), and X X to kill. A focused composer keeps every key as text (§13.7a).
 
