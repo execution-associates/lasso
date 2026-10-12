@@ -51,6 +51,9 @@ func TestMain(m *testing.M) {
 	botOmpLaunch = noBotLauncher{}
 	botLegacyUnitActive = func(string) bool { return false }
 	botLegacyUnitStop = func(string) error { return nil }
+	// One machine name wherever the suite runs: MCP output names lasso's own
+	// host by it (mcphost.go).
+	osHostname = func() (string, error) { return testHostname + ".example.com", nil }
 	code := m.Run()
 	os.RemoveAll(home)
 	os.Exit(code)

@@ -118,7 +118,13 @@ Prefer agent_prompt, agent_wait, and agent_read for agent conversations. pane_se
 Close, remove, unlink, uninstall, release, and server-stop methods are destructive. Only call them when the user explicitly intends that state change.
 events_subscribe and harness-internal lifecycle reporting are intentionally omitted from this client-facing tool surface.
 
-Hosts: most tools take an optional host argument — "local" (the box lasso runs on) or an ssh alias; machine_list shows the ones your credential may address. machine is accepted as an alias of host. Omit both for your own host. Each host is an independent herdr server, so workspace, tab, pane and agent IDs are scoped to it: two hosts can both have w1:p1 or an agent named reviewer. Discover IDs on the host you intend to drive, never reuse another host's there. A failed remote call never falls back to another host, and a connection error does not prove a mutation was not applied — inspect state before retrying. Tools that act on the attached herdr client (window title, popup, announcements, live handoff) take no host and run on lasso's own box.`
+Hosts: most tools take an optional host argument — %s or an ssh alias; machine_list shows the ones your credential may address. machine is accepted as an alias of host. Omit both for your own host. Each host is an independent herdr server, so workspace, tab, pane and agent IDs are scoped to it: two hosts can both have w1:p1 or an agent named reviewer. Discover IDs on the host you intend to drive, never reuse another host's there. A failed remote call never falls back to another host, and a connection error does not prove a mutation was not applied — inspect state before retrying. Tools that act on the attached herdr client (window title, popup, announcements, live handoff) take no host and run on lasso's own box.`
+
+// herdrMCPInstructionsText fills in lasso's host by the name MCP clients use
+// for it (mcphost.go), so it is built when the server is.
+func herdrMCPInstructionsText() string {
+	return fmt.Sprintf(herdrMCPInstructions, mcpLocalDesc())
+}
 
 // ---------------------------------------------------------------------------
 // schema -> tool definitions
@@ -407,7 +413,7 @@ func herdrMatchesAny(method string, patterns []string) bool {
 const (
 	herdrHostArg     = "host"
 	herdrMachineArg  = "machine"
-	herdrHostArgDesc = `Host to run this on: "local" (the box lasso runs on) or an ssh alias, as machine_list (or /mcp's list_hosts) shows them. Omit it for your own host. Workspace, tab, pane and agent IDs are scoped to one host, so an id discovered on one never addresses a pane on another; list on the host you intend to drive.`
+	herdrHostArgDesc = `Host to run this on: %s or an ssh alias, as machine_list (or /mcp's list_hosts) shows them. Omit it for your own host. Workspace, tab, pane and agent IDs are scoped to one host, so an id discovered on one never addresses a pane on another; list on the host you intend to drive.`
 	herdrMachineDesc = `Alias of host, for callers written against the standalone herdr-mcp bridge. A host name, not a herdr saved-machine profile id.`
 )
 
@@ -435,7 +441,7 @@ func newHerdrMCPServer() *herdrMCPServer {
 			Name:    "lasso-herdr",
 			Title:   "Herdr socket API (via lasso)",
 			Version: lassoSemver,
-		}, &mcp.ServerOptions{Instructions: herdrMCPInstructions}),
+		}, &mcp.ServerOptions{Instructions: herdrMCPInstructionsText()}),
 		loadSchema: loadHerdrSchemaBytes,
 		tools:      map[string]bool{},
 	}
@@ -599,7 +605,7 @@ func herdrWithHostArguments(input map[string]any) map[string]any {
 	for k, v := range props {
 		merged[k] = v
 	}
-	merged[herdrHostArg] = map[string]any{"type": "string", "description": herdrHostArgDesc}
+	merged[herdrHostArg] = map[string]any{"type": "string", "description": fmt.Sprintf(herdrHostArgDesc, mcpLocalDesc())}
 	merged[herdrMachineArg] = map[string]any{"type": "string", "description": herdrMachineDesc}
 	c["properties"] = merged
 	return c
@@ -639,7 +645,7 @@ func (h *herdrMCPServer) call(ctx context.Context, req *mcp.CallToolRequest, met
 	cs := callerFrom(req)
 	if herdrClientLocalMethods[method] {
 		if selector != "" && !isLocalHost(selector) {
-			return herdrErrorResult(method, selector, fmt.Errorf("%s acts on the herdr client attached to lasso's own session and cannot be routed to host %q", herdrToolName(method), selector), notes...)
+			return herdrErrorResult(method, selector, fmt.Errorf("%s acts on the herdr client attached to lasso's own session and cannot be routed to host %q", herdrToolName(method), mcpHostName(selector)), notes...)
 		}
 		host = "local"
 	} else {
@@ -691,8 +697,9 @@ func (h *herdrMCPServer) call(ctx context.Context, req *mcp.CallToolRequest, met
 }
 
 // herdrTakeHost removes host/machine from the arguments (herdr's socket rejects
-// params it does not know) and returns the host they named. Both at once is
-// fine when they agree.
+// params it does not know) and returns the host they named, read through
+// mcpHostArg so lasso's hostname means "local". Both at once is fine when they
+// agree.
 func herdrTakeHost(args map[string]any) (string, error) {
 	pick := func(name string) (string, error) {
 		v, ok := args[name]
@@ -704,7 +711,7 @@ func herdrTakeHost(args map[string]any) (string, error) {
 		if !ok {
 			return "", fmt.Errorf("%q must be a string naming a host", name)
 		}
-		return strings.TrimSpace(s), nil
+		return mcpHostArg(strings.TrimSpace(s)), nil
 	}
 	host, err := pick(herdrHostArg)
 	if err != nil {
@@ -749,7 +756,7 @@ func herdrMCPTimeout(method string, args map[string]any) time.Duration {
 func herdrErrorResult(method, host string, err error, notes ...string) *mcp.CallToolResult {
 	body := map[string]any{"method": method, "error": err.Error()}
 	if host != "" {
-		body["host"] = host
+		body["host"] = mcpHostName(host)
 	}
 	payload, _ := json.Marshal(body)
 	content := []mcp.Content{&mcp.TextContent{Text: string(payload)}}
@@ -783,7 +790,7 @@ func (h *herdrMCPServer) registerMachineList() {
 	h.srv.AddTool(&mcp.Tool{
 		Name:        herdrMachineListTool,
 		Title:       "Machine List",
-		Description: `List the hosts this endpoint can drive for you — the box lasso runs on ("local") plus its reachable ssh aliases, narrowed to your credential's scope; the same answer as /mcp's list_hosts. Pass a returned host as the "host" (or "machine") argument on any other tool. An entry in state "probing" or "timeout" is not down; call again shortly. Inputs: none.`,
+		Description: `List the hosts this endpoint can drive for you — ` + mcpLocalDesc() + ` plus its reachable ssh aliases, narrowed to your credential's scope; the same answer as /mcp's list_hosts. Pass a returned host as the "host" (or "machine") argument on any other tool. An entry in state "probing" or "timeout" is not down; call again shortly. Inputs: none.`,
 		InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld},
 	}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {

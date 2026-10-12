@@ -11,8 +11,9 @@ import (
 )
 
 // MCP tool surface. Each tool is a thin wrapper over lasso's existing herdr
-// machinery, resolved against an optional `host` (default "local") via
-// resolveBackend. Three groups:
+// machinery, resolved against an optional `host` (default: the caller's own)
+// via resolveBackend. Hosts cross this boundary by name, lasso's own as its
+// hostname (mcphost.go). Three groups:
 //   - discovery:   list_hosts, list_repos, list_branches
 //   - spawning:    create_agent (loop it for the bulk "one per repo" case)
 //   - orchestration: list_agents, get_agent, close_agent
@@ -37,50 +38,50 @@ import (
 func registerMCPTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_hosts",
-		Description: "List the hosts lasso can drive (the local box plus reachable, protocol-compatible SSH hosts). These are the ONLY hosts whose agents you can see or manage: an agent reaches agents on its own box and on hosts with an alias in lasso's ssh config, and nothing else — and if your credential is scoped to a single host, that host is the only row you get — a host that is absent here is refused by the other tools rather than answered from lasso's records. Use the returned alias as the `host` argument of the other tools; omit `host` to target the local box. Answers immediately from lasso's background host probe, so it may be a PARTIAL picture: an entry with state \"probing\" has not finished being probed and one with state \"timeout\" did not answer in time — neither means the host is down, so call again in a second or two (or with refresh:true) instead of reporting those hosts as unavailable. Top-level `probing:true` says at least one entry is still filling in.",
+		Description: "List the hosts lasso can drive (" + mcpLocalDesc() + " plus reachable, protocol-compatible SSH hosts). These are the ONLY hosts whose agents you can see or manage: an agent reaches agents on its own box and on hosts with an alias in lasso's ssh config, and nothing else — and if your credential is scoped to a single host, that host is the only row you get — a host that is absent here is refused by the other tools rather than answered from lasso's records. Use the returned `host` as the `host` argument of the other tools; omit `host` to target your own host. Answers immediately from lasso's background host probe, so it may be a PARTIAL picture: an entry with state \"probing\" has not finished being probed and one with state \"timeout\" did not answer in time — neither means the host is down, so call again in a second or two (or with refresh:true) instead of reporting those hosts as unavailable. Top-level `probing:true` says at least one entry is still filling in.",
 	}, listHostsTool)
 
-	mcp.AddTool(s, &mcp.Tool{
+	addHostTool(s, &mcp.Tool{
 		Name:        "list_repos",
 		Description: "List the git repositories under the host's configured repo roots. Use a returned `path` as `repo` when creating a git agent. You may also pass any absolute repo path to create_agent directly — this only enumerates the configured roots.",
 	}, listReposTool)
 
-	mcp.AddTool(s, &mcp.Tool{
+	addHostTool(s, &mcp.Tool{
 		Name:        "list_branches",
 		Description: "List a repository's local and remote branches plus its default branch, so you can choose a base_branch for a new git agent.",
 	}, listBranchesTool)
 
-	mcp.AddTool(s, &mcp.Tool{
+	addHostTool(s, &mcp.Tool{
 		Name:        "create_agent",
 		Description: "Spawn a coding agent (claude, codex, opencode, omp, or pi) in its own herdr workspace. type=git creates a fresh git worktree off base_branch (default the repo's HEAD) under a new branch; type=scratch creates an empty workspace. The optional prompt becomes the agent's initial task; `model` picks the CLI's model and `effort` its thinking/reasoning level (omit either for the CLI's default), and `extra_args` appends verbatim CLI flags; `advisor` turns on omp's per-turn advisor runtime. Set plan_mode to have it plan before acting — it then blocks for approval when it is ready to execute (see the field description). Returns immediately with the agent's id, workspace, and root pane; the agent boots asynchronously. By default it does NOT switch the herdr view to the new pane (so it won't yank a watching user away); pass focus:true to land on it. To bring many repos up to date, call this once per repo.",
 	}, createAgentTool)
 
-	mcp.AddTool(s, &mcp.Tool{
+	addHostTool(s, &mcp.Tool{
 		Name:        "list_agents",
-		Description: "List the agents on a host, each with its live status (working/idle/blocked/unknown) and its sidebar_name — the display name shown in the herdr pane switcher, which is the handle a human is most likely to use to reference it. Covers BOTH the agents lasso created (lasso_created:true, addressable by id) AND foreign herdr sessions lasso did not create — long-lived bots like \"Clem (OCAI)\" running in their own panes (lasso_created:false, no lasso id; address them by sidebar_name or root_pane). Pass a sidebar_name or root_pane to get_agent to inspect either kind. `host` must be one list_hosts shows you: the local box or an ssh-config alias, and within your credential's scope. Any other host is refused, so agents on machines this lasso cannot connect to — or in another trust zone — are not listable. Omitting `host` lists YOUR OWN host, not lasso's. Only agents herdr still has a pane for are listed: a lasso agent whose pane or workspace was closed is reconciled away on this call, so every id you get back is one you can actually inspect and close. `agents` is an empty array when the host genuinely has none; a `herdr_error` alongside it means the listing is PARTIAL — herdr could not be enumerated, so live statuses, sidebar names, and every foreign session are missing, nothing was reconciled (an unreachable herdr is not evidence that an agent died, so records are kept), and the host may well have agents this call cannot see.",
+		Description: "List the agents on a host, each with its live status (working/idle/blocked/unknown) and its sidebar_name — the display name shown in the herdr pane switcher, which is the handle a human is most likely to use to reference it. Covers BOTH the agents lasso created (lasso_created:true, addressable by id) AND foreign herdr sessions lasso did not create — long-lived bots like \"Clem (OCAI)\" running in their own panes (lasso_created:false, no lasso id; address them by sidebar_name or root_pane). Pass a sidebar_name or root_pane to get_agent to inspect either kind. `host` must be one list_hosts shows you: " + mcpLocalDesc() + " or an ssh-config alias, and within your credential's scope. Any other host is refused, so agents on machines this lasso cannot connect to — or in another trust zone — are not listable. Omitting `host` lists YOUR OWN host, not lasso's. Only agents herdr still has a pane for are listed: a lasso agent whose pane or workspace was closed is reconciled away on this call, so every id you get back is one you can actually inspect and close. `agents` is an empty array when the host genuinely has none; a `herdr_error` alongside it means the listing is PARTIAL — herdr could not be enumerated, so live statuses, sidebar names, and every foreign session are missing, nothing was reconciled (an unreachable herdr is not evidence that an agent died, so records are kept), and the host may well have agents this call cannot see.",
 	}, listAgentsTool)
 
-	mcp.AddTool(s, &mcp.Tool{
+	addHostTool(s, &mcp.Tool{
 		Name:        "whoami",
-		Description: "Identify the calling agent's OWN lasso agent record, so it can then act on itself — most commonly to call close_agent with the returned id once its work is done. Pass the value of your $HERDR_PANE_ID environment variable as pane_id (e.g. \"p_82\"); lasso maps that herdr pane to the agent it created there. The lasso MCP server runs in lasso's own process, NOT your shell, so it cannot read your environment — you MUST supply $HERDR_PANE_ID yourself. With no `host`: if your credential names the host you run on, that host alone is searched (so a pane id that exists on several hosts still resolves); otherwise every host lasso can address is searched — the local box plus hosts with an alias in its ssh config (pane ids are only unique per host, and your pane is not necessarily on the box the MCP server runs on): a unique match resolves; a cross-host collision returns found:false naming the candidate hosts, so call again with the host you run on. On success returns found:true and the same fields as a list_agents entry (id, type, title, repo, branch, work_dir, root_pane, workspace_id, status, host, ...) under `agent` — pass BOTH the returned id and host to close_agent. If it can't resolve (no pane_id given, or the pane isn't one lasso manages) it returns found:false with a human-readable `detail` instead of erroring.",
+		Description: "Identify the calling agent's OWN lasso agent record, so it can then act on itself — most commonly to call close_agent with the returned id once its work is done. Pass the value of your $HERDR_PANE_ID environment variable as pane_id (e.g. \"p_82\"); lasso maps that herdr pane to the agent it created there. The lasso MCP server runs in lasso's own process, NOT your shell, so it cannot read your environment — you MUST supply $HERDR_PANE_ID yourself. With no `host`: if your credential names the host you run on, that host alone is searched (so a pane id that exists on several hosts still resolves); otherwise every host lasso can address is searched — " + mcpLocalDesc() + " plus hosts with an alias in its ssh config (pane ids are only unique per host, and your pane is not necessarily on the box the MCP server runs on): a unique match resolves; a cross-host collision returns found:false naming the candidate hosts, so call again with the host you run on. On success returns found:true and the same fields as a list_agents entry (id, type, title, repo, branch, work_dir, root_pane, workspace_id, status, host, ...) under `agent` — pass BOTH the returned id and host to close_agent. If it can't resolve (no pane_id given, or the pane isn't one lasso manages) it returns found:false with a human-readable `detail` instead of erroring.",
 	}, whoamiTool)
 
-	mcp.AddTool(s, &mcp.Tool{
+	addHostTool(s, &mcp.Tool{
 		Name:        "get_agent",
 		Description: "Get one agent's details and its live status (working/idle/blocked/unknown, or failed for a boot that never came up). It does not read the agent's terminal; read_agent does. Target it by lasso agent id, by its sidebar/display name, or by herdr pane id (via agent_id or to) — so a foreign herdr session lasso did not create can be inspected too.",
 	}, getAgentTool)
 
-	mcp.AddTool(s, &mcp.Tool{
+	addHostTool(s, &mcp.Tool{
 		Name:        "close_agent",
-		Description: "Stop an agent: first kill the agent process (claude/codex/opencode/omp/pi) in its pane, then — unless close_pane is false — close the associated herdr pane. For a git agent, set remove_worktree=true to also delete its git worktree (this discards any uncommitted work, so it defaults to false, and implies closing the pane). Target it by `agent_id`, or by `pane_id` — pass your own $HERDR_PANE_ID to close YOURSELF without resolving your id via whoami first. Pass the `host` whoami/list_agents returned alongside the id; with no host every host you may address is searched (the local box and hosts with an alias in lasso's ssh config, narrowed to your credential's scope — anywhere else is out of reach), and an id that exists on several hosts is refused rather than guessed, so the wrong host's agent is never killed.",
+		Description: "Stop an agent: first kill the agent process (claude/codex/opencode/omp/pi) in its pane, then — unless close_pane is false — close the associated herdr pane. For a git agent, set remove_worktree=true to also delete its git worktree (this discards any uncommitted work, so it defaults to false, and implies closing the pane). Target it by `agent_id`, or by `pane_id` — pass your own $HERDR_PANE_ID to close YOURSELF without resolving your id via whoami first. Pass the `host` whoami/list_agents returned alongside the id; with no host every host you may address is searched (" + mcpLocalDesc() + " and hosts with an alias in lasso's ssh config, narrowed to your credential's scope — anywhere else is out of reach), and an id that exists on several hosts is refused rather than guessed, so the wrong host's agent is never killed.",
 	}, closeAgentTool)
 
-	mcp.AddTool(s, &mcp.Tool{
+	addHostTool(s, &mcp.Tool{
 		Name:        "notify",
 		Description: "Push a notification to the HUMAN who runs this lasso — their phone, if they have lasso on its home screen. Use it when you genuinely need them: a decision only they can make, a question that blocks you, or a long job finishing while they are away. It reaches a locked device, so it is not free: an agent that pings on every step trains them to ignore it. Pass your own $HERDR_PANE_ID as pane_id and the notification is titled with your agent's name and opens on your host, so they know who is asking without reading the body; the server cannot read your environment, so you must supply it. Nothing is collapsed or rate-limited — you asked once and it is delivered once. Check `sent` in the reply: false means no device is registered (`detail` says so) and the human did NOT get it, so do not report that you notified them. `lasso notify \"<message>\"` in a shell is the same call.",
 	}, notifyTool)
 
-	mcp.AddTool(s, &mcp.Tool{
+	addHostTool(s, &mcp.Tool{
 		Name:        "open_file",
 		Description: openFileDescription,
 	}, openFileTool)
@@ -180,6 +181,14 @@ func agentInfoFromPane(host string, gp hostPane) agentInfo {
 	}
 }
 
+// named is the agent as an MCP result shows it: its host by name, lasso's own
+// as the hostname. Applied where a tool hands it back, never earlier — callers
+// in between (notify, senderLabel) read Host as lasso's key.
+func (a agentInfo) named() agentInfo {
+	a.Host = mcpHostName(a.Host)
+	return a
+}
+
 // sidebarName is the human-facing name a herdr pane shows in the sidebar / pane
 // switcher: the workspace label, falling back to the pane's own label then the
 // tab label when a workspace is unnamed, and last to the terminal title — which
@@ -277,7 +286,7 @@ func resolveTarget(host, needle string, recs []AgentRecord, panes []hostPane) (r
 			r := recs[i]
 			r.Host = host
 			matches = append(matches, resolvedTarget{Host: host, PaneID: r.RootPane, Record: &r})
-			cands = append(cands, fmt.Sprintf("lasso agent %s@%s (title %q)", r.ID, host, r.Title))
+			cands = append(cands, fmt.Sprintf("lasso agent %s@%s (title %q)", r.ID, mcpHostName(host), r.Title))
 		}
 	}
 	for i := range panes {
@@ -289,16 +298,16 @@ func resolveTarget(host, needle string, recs []AgentRecord, panes []hostPane) (r
 		}
 		if strings.EqualFold(sidebarName(panes[i]), needle) {
 			matches = append(matches, resolvedTarget{Host: host, PaneID: panes[i].PaneID, Pane: &panes[i]})
-			cands = append(cands, fmt.Sprintf("herdr session %q (pane %s@%s)", sidebarName(panes[i]), panes[i].PaneID, host))
+			cands = append(cands, fmt.Sprintf("herdr session %q (pane %s@%s)", sidebarName(panes[i]), panes[i].PaneID, mcpHostName(host)))
 		}
 	}
 	switch len(matches) {
 	case 1:
 		return matches[0], nil
 	case 0:
-		return resolvedTarget{}, fmt.Errorf("no agent, pane, or session named %q on host %q — call list_agents to see the addressable names and pane ids", needle, host)
+		return resolvedTarget{}, fmt.Errorf("no agent, pane, or session named %q on host %q — call list_agents to see the addressable names and pane ids", needle, mcpHostName(host))
 	default:
-		return resolvedTarget{}, fmt.Errorf("%q is ambiguous on host %q — it matches %d: %s; re-target by lasso agent id or herdr pane id", needle, host, len(matches), strings.Join(cands, "; "))
+		return resolvedTarget{}, fmt.Errorf("%q is ambiguous on host %q — it matches %d: %s; re-target by lasso agent id or herdr pane id", needle, mcpHostName(host), len(matches), strings.Join(cands, "; "))
 	}
 }
 
@@ -509,7 +518,7 @@ type listHostsIn struct {
 }
 
 type hostEntry struct {
-	Host       string `json:"host"`       // value to pass as `host` ("local" or an alias)
+	Host       string `json:"host"`       // value to pass as `host` (lasso's hostname or an alias)
 	Label      string `json:"label"`      // display name
 	Reachable  bool   `json:"reachable"`  // ssh reachable + probed (always true for local)
 	Running    bool   `json:"running"`    // herdr server up on the host
@@ -541,7 +550,7 @@ func listHostsTool(ctx context.Context, req *mcp.CallToolRequest, in listHostsIn
 	cs := callerFrom(req)
 	hosts, probing := discoverHostsState(ctx, in.Refresh)
 	out := listHostsOut{
-		Active:  defaultHostName(),
+		Active:  mcpHostName(defaultHostName()),
 		Probing: probing,
 		Hosts:   []hostEntry{},
 	}
@@ -551,7 +560,7 @@ func listHostsTool(ctx context.Context, req *mcp.CallToolRequest, in listHostsIn
 	// business either.
 	if cs.allows("local") {
 		out.Hosts = append(out.Hosts, hostEntry{
-			Host: "local", Label: localHostname(), Reachable: true,
+			Host: mcpHostName("local"), Label: localHostname(), Reachable: true,
 			Running: true, Compatible: true, Version: ver,
 		})
 	}
@@ -716,7 +725,7 @@ func createAgentTool(_ context.Context, req *mcp.CallToolRequest, in createAgent
 	if err != nil {
 		return nil, agentInfo{}, err
 	}
-	return nil, agentInfoFrom(b.Name(), rec, ""), nil
+	return nil, agentInfoFrom(b.Name(), rec, "").named(), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -777,9 +786,9 @@ func listAgentsTool(_ context.Context, req *mcp.CallToolRequest, in listAgentsIn
 	for _, gp := range panes {
 		byPane[gp.PaneID] = gp
 	}
-	out := listAgentsOut{Host: host, Agents: []agentInfo{}}
+	out := listAgentsOut{Host: mcpHostName(host), Agents: []agentInfo{}}
 	if err != nil {
-		out.HerdrError = fmt.Sprintf("could not enumerate herdr on host %q: %v — live status, sidebar names, and any herdr sessions lasso did not create are missing from this listing", host, err)
+		out.HerdrError = fmt.Sprintf("could not enumerate herdr on host %q: %v — live status, sidebar names, and any herdr sessions lasso did not create are missing from this listing", out.Host, err)
 	}
 	lassoPanes := map[string]bool{}
 	for _, rec := range recs {
@@ -790,7 +799,7 @@ func listAgentsTool(_ context.Context, req *mcp.CallToolRequest, in listAgentsIn
 		if err == nil { // with herdr unreachable there is no live status to gate
 			status = liveAgentStatus(b, host, rec, status)
 		}
-		ai := agentInfoFrom(host, rec, status)
+		ai := agentInfoFrom(out.Host, rec, status)
 		ai.SidebarName = sidebarName(gp)
 		out.Agents = append(out.Agents, ai)
 		if rec.RootPane != "" {
@@ -804,7 +813,7 @@ func listAgentsTool(_ context.Context, req *mcp.CallToolRequest, in listAgentsIn
 		if lassoPanes[gp.PaneID] || !gp.HasAgent {
 			continue
 		}
-		out.Agents = append(out.Agents, agentInfoFromPane(host, gp))
+		out.Agents = append(out.Agents, agentInfoFromPane(out.Host, gp))
 	}
 	return nil, out, nil
 }
@@ -826,6 +835,10 @@ type whoamiOut struct {
 
 func whoamiTool(ctx context.Context, req *mcp.CallToolRequest, in whoamiIn) (*mcp.CallToolResult, whoamiOut, error) {
 	out, err := resolveCallerAgent(ctx, callerFrom(req), in.Host, in.PaneID)
+	if out.Agent != nil {
+		named := out.Agent.named()
+		out.Agent = &named
+	}
 	return nil, out, err
 }
 
@@ -889,7 +902,7 @@ func resolveWhoami(b Backend, host string, recs []AgentRecord, paneID string) wh
 			return whoamiOut{Found: true, Agent: &ai}
 		}
 	}
-	return whoamiOut{Detail: fmt.Sprintf("pane %q does not map to any lasso agent on host %q — you may be in a herdr pane lasso did not create, or on a different host than the one you queried.", paneID, host)}
+	return whoamiOut{Detail: fmt.Sprintf("pane %q does not map to any lasso agent on host %q — you may be in a herdr pane lasso did not create, or on a different host than the one you queried.", paneID, mcpHostName(host))}
 }
 
 // resolveWhoamiAcrossHosts handles whoami with no host argument, mirroring
@@ -937,7 +950,7 @@ func resolveWhoamiAcrossHosts(ctx context.Context, cs mcpCaller, paneID string) 
 		}
 		return whoamiOut{Detail: fmt.Sprintf("pane %q does not map to any lasso agent on any host this lasso can address (the local box and the hosts with an alias in its ssh config) — you may be in a herdr pane lasso did not create, or the lasso that owns it is unreachable.", paneID)}
 	default:
-		return whoamiOut{Detail: fmt.Sprintf("pane id %q matches agents on hosts %s — pane ids are only unique per host, so lasso won't guess which one is you. Call whoami again with `host` set to the host your pane runs on (compare your machine's hostname against the labels in list_hosts).", paneID, hostsOf(matches))}
+		return whoamiOut{Detail: fmt.Sprintf("pane id %q matches agents on hosts %s — pane ids are only unique per host, so lasso won't guess which one is you. Call whoami again with `host` set to the host your pane runs on (compare your machine's hostname against the hosts in list_hosts).", paneID, hostsOf(matches))}
 	}
 }
 
@@ -980,7 +993,7 @@ func notifyTool(ctx context.Context, req *mcp.CallToolRequest, in notifyIn) (*mc
 		return nil, notifyOut{}, fmt.Errorf("message is required")
 	}
 	cs := callerFrom(req)
-	title, host, detail := strings.TrimSpace(in.Title), strings.TrimSpace(in.Host), ""
+	title, host, detail := strings.TrimSpace(in.Title), mcpHostArg(strings.TrimSpace(in.Host)), ""
 	if strings.TrimSpace(in.PaneID) != "" {
 		who, err := resolveCallerAgent(ctx, cs, in.Host, in.PaneID)
 		switch {
@@ -1062,7 +1075,7 @@ func getAgentTool(_ context.Context, req *mcp.CallToolRequest, in getAgentIn) (*
 		}
 		status = liveAgentStatus(b, t.Host, *t.Record, status)
 	}
-	return nil, getAgentOut{Agent: t.info(b.Name(), status)}, nil
+	return nil, getAgentOut{Agent: t.info(b.Name(), status).named()}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1137,7 +1150,7 @@ func closeAgentRecord(b Backend, rec AgentRecord, closePane, removeWorktree bool
 	// the teardown at an unrelated pane on the wrong machine. Refuse outright —
 	// closing the wrong agent is worse than failing.
 	if rec.Host != "" && rec.Host != b.Name() {
-		return closeAgentOut{}, fmt.Errorf("agent %q lives on host %q but the close targets backend %q — refusing to close a pane on the wrong host", rec.ID, rec.Host, b.Name())
+		return closeAgentOut{}, fmt.Errorf("agent %q lives on host %q but the close targets backend %q — refusing to close a pane on the wrong host", rec.ID, mcpHostName(rec.Host), mcpHostName(b.Name()))
 	}
 
 	// 1. Always kill the agent process first, so it dies even if the pane is kept.

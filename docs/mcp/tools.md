@@ -11,12 +11,13 @@ A parameter is **required** unless marked optional. Optional parameters that are
 
 ## How `host` and scope work
 
-Most tools take an optional `host`: `local` (the box lasso runs on) or an SSH-config alias exactly as [`list_hosts`](#list_hosts) shows it.
+Most tools take an optional `host`: lasso's own host or an SSH-config alias, exactly as [`list_hosts`](#list_hosts) shows it.
 
-- **Omitting `host` targets your own host.** For a caller with a [per-host credential](./agent-scope.md), that is the host the credential was issued for. For any other caller (no `MCP_OAUTH`, the `UI_AUTH` basic credentials, or the main `MCP_OAUTH` client) it is `local`. `whoami`, `close_agent` and `notify` handle an omitted host differently, as described under each.
-- **A host must be addressable.** lasso can address the local box and the hosts with a concrete alias in the SSH config it reads. Anything else is refused up front, rather than answered from stale records.
+- **lasso's own host is called by its hostname.** On a box named `titan`, `list_hosts` lists it as `titan`, and every result, error and description that names it says `titan`, because to an MCP client "local" would mean the client's own machine. A `host` (or `machine`) argument takes the hostname in any case, and `local` too, as an alias. If an alias in lasso's SSH config also answers to the hostname (in any case), the alias keeps that name: lasso's host is then called `local` throughout, the one name that cannot be mistaken for it.
+- **Omitting `host` targets your own host.** For a caller with a [per-host credential](./agent-scope.md), that is the host the credential was issued for. For any other caller (no `MCP_OAUTH`, the `UI_AUTH` basic credentials, or the main `MCP_OAUTH` client) it is lasso's own host. `whoami`, `close_agent` and `notify` handle an omitted host differently, as described under each.
+- **A host must be addressable.** lasso can address its own host and the hosts with a concrete alias in the SSH config it reads. Anything else is refused up front, rather than answered from stale records.
 - **A host must be within your reach.** A self-scoped credential reaches its own host plus whatever its [host groups](./agent-scope.md#groups-reach-between-hosts) add. A fleet-scoped credential, or an unidentified caller, reaches every addressable host. A refusal names the credential's host and reach and how to widen it.
-- **Browser tools and plugin tools need `local` in your reach**, because the browsers and plugins run on lasso's own machine. A credential scoped to some other host gets a tool error.
+- **Browser tools and plugin tools need lasso's own host in your reach**, because the browsers and plugins run on lasso's own machine. A credential scoped to some other host gets a tool error.
 
 Scope only applies when `MCP_OAUTH` is set. With it unset, every caller is unidentified and reaches every addressable host.
 
@@ -26,18 +27,18 @@ Several tools take a `pane_id`: your own herdr pane id, the value of `$HERDR_PAN
 
 ### `list_hosts`
 
-Lists the hosts lasso can drive: the local box plus reachable, protocol-compatible SSH hosts, filtered to the ones your credential may address. Use a returned `host` as the `host` argument of the other tools.
+Lists the hosts lasso can drive: lasso's own host plus reachable, protocol-compatible SSH hosts, filtered to the ones your credential may address. Use a returned `host` as the `host` argument of the other tools.
 
 | parameter | type | | description |
 | --- | --- | --- | --- |
 | `refresh` | boolean | optional | Re-probe every configured SSH host instead of answering from the background probe's cache. Slower. Use it when a host you just brought up is missing. |
 
-Returns `active` (the host lasso booted on, which answers for a caller that names none), `hosts`, and `probing`. Each entry in `hosts` has:
+Returns `active` (the host lasso booted on, which answers for a caller that names none, named the same way), `hosts`, and `probing`. Each entry in `hosts` has:
 
 | field | meaning |
 | --- | --- |
-| `host` | the value to pass as `host` (`local` or an alias) |
-| `label` | display name (the local hostname for `local`) |
+| `host` | the value to pass as `host` (lasso's hostname, or an alias) |
+| `label` | display name (the same as `host`) |
 | `reachable`, `running`, `compatible` | SSH reachable, herdr server up, herdr protocol matches the herdr on lasso's machine |
 | `version` | the host's herdr version, when known |
 | `state` | empty when the probe finished; `probing` while the first probe is still in flight; `timeout` when it ran out of time. Neither means the host is down. |
@@ -284,7 +285,7 @@ A `browser` argument takes a browser's id (e.g. `work`) or its display name; omi
 
 chrome-devtools-mcp's tools, served on `/mcp` with a `browser_` prefix: `browser_new_page`, `browser_navigate_page`, `browser_click`, `browser_fill`, `browser_take_snapshot`, `browser_take_screenshot`, `browser_list_pages`, `browser_close_page` and the rest. Each takes chrome-devtools-mcp's own parameters plus an optional `browser`, and returns chrome-devtools-mcp's own result (screenshots as images). A `pageId` belongs to the browser it came from, so pass the same `browser` on every call about that page.
 
-They are present when chrome-devtools-mcp is installed on lasso's machine; [`shared_browser`](#shared_browser) says why when they are not. Besides `local` reach, a call needs what `/cdp` needs: no foreign `Origin`, and under `UI_AUTH` alone the `UI_AUTH` basic credentials on the connection. A call that falls short is a tool error. See [Browser tools](./browser.md) for the details.
+They are present when chrome-devtools-mcp is installed on lasso's machine; [`shared_browser`](#shared_browser) says why when they are not. Besides reach to lasso's own host, a call needs what `/cdp` needs: no foreign `Origin`, and under `UI_AUTH` alone the `UI_AUTH` basic credentials on the connection. A call that falls short is a tool error. See [Browser tools](./browser.md) for the details.
 
 ### `shared_browser`
 
@@ -466,7 +467,7 @@ Each takes `name`. `start_bot` and `restart_bot` resume the bot's last conversat
 
 ## Settings
 
-These tools read and change what lasso's Settings tab shows. Each write runs through the same handler the Settings tab calls, so the validation is the same and every open lasso tab updates live. Both require a caller whose reach includes `local`, because the settings live in lasso's own database; `agents` and `repos` also need the `host` they name.
+These tools read and change what lasso's Settings tab shows. Each write runs through the same handler the Settings tab calls, so the validation is the same and every open lasso tab updates live. Both require a caller whose reach includes lasso's own host, because the settings live in lasso's own database; `agents` and `repos` also need the `host` they name.
 
 **Plugins are read-only here.** Enabling a plugin approves its permissions, trusting one runs it outside its sandbox, and installing or updating one changes what an approval covers. Those need a human in the Settings tab, so no MCP tool does them.
 
@@ -475,7 +476,7 @@ These tools read and change what lasso's Settings tab shows. Each write runs thr
 | parameter | type | | description |
 | --- | --- | --- | --- |
 | `section` | string | optional | One of `ui`, `agents`, `repos`, `theme`, `notifications`, `browser`, `transcribe`, `plugins`. Omit for all of them. |
-| `host` | string | optional | Whose creator settings `agents` and `repos` show. Defaults to `local`. |
+| `host` | string | optional | Whose creator settings `agents` and `repos` show. Defaults to lasso's own host. |
 
 Returns one key per section:
 
@@ -492,6 +493,8 @@ Returns one key per section:
 
 A section that fails (an unreachable host, say) is listed under `errors` and the others are still returned.
 
+The sections are lasso's stored settings as the Settings tab reads them, so a host stored inside one (`ui.creator_default_host`, `theme_sync_off`, an `agent_pins` key) is lasso's internal key: `local` for lasso's own host. Write those values back in the same form. The `host` arguments take either name.
+
 ### `update_settings`
 
 Pass only what changes; an omitted field is left alone. Returns the affected sections as they now read.
@@ -502,7 +505,7 @@ Pass only what changes; an omitted field is left alone. Returns the affected sec
 | `auto_title` | boolean | optional | Name new agents from their prompt. |
 | `agent_defaults` | object | optional | `host`'s creator defaults: any of `repos_root`, `branch_prefix`, `default_agent`, `default_terminal_workspace`, `scratch_setup`. `""` clears one. |
 | `repo` | object | optional | `{path, copy_files?, setup?}`: one repository's per-repo settings on `host`. |
-| `host` | string | optional | Whose creator settings `agent_defaults` and `repo` write. Defaults to `local`. |
+| `host` | string | optional | Whose creator settings `agent_defaults` and `repo` write. Defaults to lasso's own host. |
 | `theme` | string | optional | Switch herdr's theme fleet-wide. Refused while an appearance palette is set; change `ui.palette_light` / `palette_dark` / `appearance_mode` instead. |
 | `sync_agent_themes` | boolean | optional | Mirror the theme into agent CLIs' own theme files. |
 | `theme_sync` | object | optional | `{host, enabled}`: stop or resume theme writes to one host. |

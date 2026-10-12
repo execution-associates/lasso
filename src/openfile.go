@@ -102,14 +102,14 @@ func openFileTool(ctx context.Context, req *mcp.CallToolRequest, in openFileIn) 
 	// ~/notes.md is not the lasso box's ~/notes.md.
 	p = filepath.Clean(expandTildeOn(be, p))
 	if !filepath.IsAbs(p) {
-		return nil, openFileOut{}, fmt.Errorf("could not expand %q on host %q", in.Path, host)
+		return nil, openFileOut{}, fmt.Errorf("could not expand %q on host %q", in.Path, mcpHostName(host))
 	}
 	info, err := be.Stat(p)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, openFileOut{}, fmt.Errorf("%s does not exist on host %q — write the file before asking lasso to open it", p, host)
+			return nil, openFileOut{}, fmt.Errorf("%s does not exist on host %q — write the file before asking lasso to open it", p, mcpHostName(host))
 		}
-		return nil, openFileOut{}, fmt.Errorf("stat %s on host %q: %w", p, host, err)
+		return nil, openFileOut{}, fmt.Errorf("stat %s on host %q: %w", p, mcpHostName(host), err)
 	}
 
 	from, detail := "an agent", ""
@@ -133,7 +133,7 @@ func openFileTool(ctx context.Context, req *mcp.CallToolRequest, in openFileIn) 
 	if !ev.Dir {
 		ev.Line = in.Line
 	}
-	out := openFileOut{Path: p, Host: ev.Host, Dir: ev.Dir}
+	out := openFileOut{Path: p, Host: mcpHostName(ev.Host), Dir: ev.Dir}
 	out.Delivered = openFileBroadcast(ev)
 	if out.Delivered == 0 {
 		// The honesty rule notify's `sent` follows: an agent must be able to tell

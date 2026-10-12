@@ -114,7 +114,7 @@ func TestResolveTargetNameAmbiguous(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
 		t.Fatalf("clem ambiguity: err = %v, want an ambiguous-match error", err)
 	}
-	if !strings.Contains(err.Error(), "a1@local") || !strings.Contains(err.Error(), "w5-1") {
+	if !strings.Contains(err.Error(), "a1@"+testHostname) || !strings.Contains(err.Error(), "w5-1") {
 		t.Fatalf("ambiguity error should list both candidates: %v", err)
 	}
 }

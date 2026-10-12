@@ -33,7 +33,7 @@ One tool is not a herdr method: **`machine_list`** lists the hosts you may pass 
 
 ## Hosts
 
-Every tool takes an optional `host`: `local` (the box lasso runs on) or an ssh alias from lasso's ssh config, exactly as `list_hosts` shows them. Omit it for **your own host**, which is the host your credential names, or `local` when the caller is unidentified. Calls go through lasso's own connection to that host's herdr, the same one the web UI and `/mcp` use.
+Every tool takes an optional `host`: lasso's own host or an ssh alias from lasso's ssh config, exactly as `list_hosts` shows them. lasso's own host is called by its hostname (`titan` on a box named titan), in `machine_list`, in errors and in the instructions; the hostname is accepted in any case, and `local` is accepted as an alias of it. The [`/mcp` tools reference](./tools.md#how-host-and-scope-work) has the rule for an ssh alias that answers to the same name. Omit `host` for **your own host**, which is the host your credential names, or lasso's own host when the caller is unidentified. Calls go through lasso's own connection to that host's herdr, the same one the web UI and `/mcp` use.
 
 `machine` is accepted as an alias of `host`, so a herdr-mcp caller's `{"machine": "minime"}` still routes. It names a lasso host, not a herdr saved-machine profile id; on a fleet where the ssh alias and the herdr machine label match, they are the same thing.
 
@@ -45,7 +45,7 @@ Every tool takes an optional `host`: `local` (the box lasso runs on) or an ssh a
 
 `/herdr-mcp` is gated exactly like `/mcp`: open by default, exempt from `UI_AUTH`, and with `MCP_OAUTH` set it needs a lasso bearer token or the `UI_AUTH` basic credentials. Every call then checks the target host against the caller's credential, the same rule as `/mcp`'s tools: a `self`-scoped credential reaches its own host plus whatever its [host groups](./agent-scope.md) add, and is refused anywhere else. A host-scoped credential that works on `/mcp` works here unchanged.
 
-The attached-client methods run on `local`, so they need a caller whose reach includes lasso's own machine.
+The attached-client methods run on lasso's own host, so they need a caller whose reach includes it.
 
 ## Keeping up with herdr
 
