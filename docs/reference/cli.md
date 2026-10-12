@@ -34,7 +34,7 @@ lasso serve -h    # every server flag
 | `lasso mcp-client <cmd>` | | Manage per-host MCP credentials. |
 | `lasso mcp-group <cmd>` | | Manage host groups. |
 | `lasso plugin <cmd>` | `plugins` | Manage plugins. |
-| `lasso channel --bot <name>` | | A bot's jobs channel. Claude runs it from the bot's `mcp.json`; you don't. |
+| `lasso channel --bot <name> [--spool <dir>]` | | A bot's jobs channel. Claude runs it from the bot's `mcp.json`; you don't. |
 
 ## Running the server
 
@@ -208,7 +208,7 @@ It reads the copy built into the binary, so it needs no running lasso and always
 
 ### `lasso channel`
 
-The stdio MCP server that delivers a bot's [jobs](../web-ui/bots.md#jobs) into its session as a Claude Code channel. lasso writes it into every local bot's `.lasso/mcp.json` with `LASSO_URL` and `LASSO_CHANNEL_TOKEN` in its environment, and claude starts it. Run by hand without both variables, it prints its usage and exits 2.
+The stdio MCP server that delivers a bot's [jobs](../web-ui/bots.md#jobs) into its session as a Claude Code channel. lasso writes it into every bot's `.lasso/mcp.json`, and claude starts it. For a bot on lasso's own machine it runs with `LASSO_URL` and `LASSO_CHANNEL_TOKEN` in its environment and long-polls lasso. For a bot on another host it is that host's lasso with `--spool <folder>/.lasso/channel`: it delivers the events lasso writes into `inbox/` over SSH, moves each to `done/`, and rewrites the `seen` heartbeat, and never connects to lasso. Run by hand with neither the variables nor `--spool`, it prints its usage and exits 2.
 
 ## Credentials and groups
 

@@ -295,6 +295,7 @@ func runServer() {
 	// (see agentreap.go — the aggregation used to be driven by a browser).
 	go startAgentReaper(ctx)
 	go startBotLoop(ctx)
+	go startBotSpoolLoop(ctx)
 	// Anonymous usage analytics (telemetry.go): a sender nothing waits on, inert
 	// while analytics is off.
 	go startTelemetry(ctx)

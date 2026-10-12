@@ -475,17 +475,15 @@ func botTick() {
 	}
 }
 
-// botChannelSynced: the runner rewrites each local bot's launch task and
-// mcp.json once when it takes the loop, so a bot saved before lasso had a
-// channel, or one whose mcp.json names a lasso binary an update replaced,
-// gets the current one on its next start without a save.
+// botChannelSynced: the runner rewrites each bot's launch task and mcp.json
+// once when it takes the loop, so a bot saved before lasso had a channel (on
+// its host), or one whose mcp.json names a lasso binary an update replaced,
+// gets the current one on its next start without a save. A host that does not
+// answer then is skipped until the bot is next saved.
 var botChannelSynced atomic.Bool
 
 func botSyncChannelFiles(list []*botRecord) {
 	for _, r := range list {
-		if r.Host != "local" {
-			continue
-		}
 		b, err := botBackend(r.Host)
 		if err != nil {
 			continue

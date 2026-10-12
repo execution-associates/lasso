@@ -3,7 +3,9 @@ package main
 // omp bots, lasso's side (docs/design/bots.md, "omp bots"). The bot is omp's
 // own TUI in a herdr pane (`mise run bot`), with lasso's bridge loaded
 // (ompbridge/lasso-bridge.ts), which serves <lassoDir>/bots/<name>.sock from
-// inside omp in omp's RPC protocol. Either lasso sharing lasso.db may connect,
+// inside omp in omp's RPC protocol (on another host, that host's
+// ~/.lasso/bots/<name>.sock, reached over ssh: botompremote.go). Either lasso
+// sharing lasso.db may connect,
 // watch and send. Only the bot loop's runner (bots.runner.lock) delivers job
 // events and relaunches.
 
@@ -238,7 +240,7 @@ func (ob *ompBot) ensure() bool {
 		return false
 	}
 	ob.lastDial = time.Now()
-	conn, err := net.DialTimeout("unix", botSocketPath(ob.name), time.Second)
+	conn, br, err := botOmpDial(ob.name)
 	if err != nil {
 		return false
 	}
@@ -247,12 +249,11 @@ func (ob *ompBot) ensure() bool {
 	ob.gen++
 	gen := ob.gen
 	ob.mu.Unlock()
-	go ob.read(conn, gen)
+	go ob.read(conn, br, gen)
 	return true
 }
 
-func (ob *ompBot) read(conn net.Conn, gen int) {
-	r := bufio.NewReaderSize(conn, 256*1024)
+func (ob *ompBot) read(conn net.Conn, r *bufio.Reader, gen int) {
 	for {
 		line, err := r.ReadBytes('\n')
 		if len(line) > 0 {
@@ -776,6 +777,7 @@ func botOmpStop(b Backend, r *botRecord) error {
 	delete(bots.starting, r.Name)
 	bots.mu.Unlock()
 	botOmpEnd(b, r, ompBotFor(r.Name))
+	botOmpDropForward(r.Name)
 	return nil
 }
 
@@ -862,7 +864,7 @@ func ompFirstLine(s string) string {
 // connected) it is the newest file, which is the one -c continues.
 func botOmpSessionFile(b Backend, r *botRecord) string {
 	dir := botOmpSessionDir(expandTildeOn(b, r.Dir))
-	entries, err := os.ReadDir(dir)
+	entries, err := b.ReadDir(dir)
 	if err != nil {
 		return ""
 	}
@@ -873,14 +875,14 @@ func botOmpSessionFile(b Backend, r *botRecord) string {
 	}
 	var all []cand
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+		if e.Dir || !strings.HasSuffix(e.Name, ".jsonl") {
 			continue
 		}
-		if sid != "" && strings.HasSuffix(e.Name(), "_"+sid+".jsonl") {
-			return filepath.Join(dir, e.Name())
+		if sid != "" && strings.HasSuffix(e.Name, "_"+sid+".jsonl") {
+			return filepath.Join(dir, e.Name)
 		}
-		if info, err := e.Info(); err == nil {
-			all = append(all, cand{e.Name(), info.ModTime()})
+		if info, err := b.Stat(filepath.Join(dir, e.Name)); err == nil {
+			all = append(all, cand{e.Name, info.ModTime()})
 		}
 	}
 	if len(all) == 0 {
@@ -1143,6 +1145,11 @@ func botOmpUpgrade(b Backend, r *botRecord) {
 		if err := b.WriteFile(botRestartMarker(dir), nil, 0o644); err != nil {
 			log.Printf("bots:     %s: upgrade: %v", r.Name, err)
 		}
+		return
+	}
+	// The bot host (below 4) was a systemd unit on lasso's machine; no bot on
+	// another host ever ran under one.
+	if b.Name() != "local" {
 		return
 	}
 	log.Printf("bots:     %s: runs under an older lasso's bot host (lasso %s); moving it into its own herdr pane", r.Name, s.hostVersion)
