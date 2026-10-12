@@ -32,11 +32,10 @@ public struct LassoChoice: Identifiable, Equatable, Sendable, Codable {
 
 /// Settings' tabs.
 public enum SettingsTab: String, CaseIterable, Sendable {
-    case general, notifications, shortcuts, info
+    case notifications, shortcuts, info
 
     public var title: String {
         switch self {
-        case .general: "General"
         case .notifications: "Notifications"
         case .shortcuts: "Shortcuts"
         case .info: "Info"
@@ -81,7 +80,7 @@ public final class SettingsModel: ObservableObject {
     /// The window the sign-in sheet hangs from.
     public var signInAnchor: () -> NSWindow? = { nil }
 
-    @Published public var tab: SettingsTab = .general
+    @Published public var tab: SettingsTab = .notifications
     /// The address field is open (Change…, or a failed connect).
     @Published public var changingLasso = false
     /// The machine lasso runs on, for the connection row.
@@ -127,6 +126,9 @@ public final class SettingsModel: ObservableObject {
             }
         }
     }
+
+    /// Show the lasso connection (Info), as a sign-out does.
+    public func showConnection() { tab = .info }
 
     /// The lasso in use stopped taking its token: sign in to it again.
     public func signInAgain() {

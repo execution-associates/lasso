@@ -31,7 +31,6 @@ public struct SettingsView: View {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: Theme.space("4xl")) {
                     switch model.tab {
-                    case .general: section("lasso") { lassoSection }
                     case .notifications:
                         section("Sound") { soundSection }
                         section("Notify me about") { notifySection }
@@ -187,6 +186,11 @@ public struct SettingsView: View {
 
     /// The app's version and updates, and the lasso it talks to.
     @ViewBuilder private var infoSection: some View {
+        section("lasso") {
+            lassoSection
+            if let v = model.version(), let h = v.herdr_version { line("herdr \(h)", secondary: true) }
+            if let h = model.usableHosts() { line("Drives \(h.usable) of \(h.total) machines", secondary: true) }
+        }
         section("LassoDesktop") {
             HStack {
                 line("Version \(AppUpdates.version)")
@@ -196,13 +200,6 @@ public struct SettingsView: View {
                 }
             }
             if AppUpdates.checkNow == nil { line("A development build: it does not update itself.", secondary: true) }
-        }
-        section("lasso") {
-            let c = LassoChoice(url: model.baseURL(), version: model.version(), name: model.lassoName())
-            line(c.title)
-            line(c.detail, secondary: true)
-            if let v = model.version(), let h = v.herdr_version { line("herdr \(h)", secondary: true) }
-            if let h = model.usableHosts() { line("Drives \(h.usable) of \(h.total) machines", secondary: true) }
         }
     }
 

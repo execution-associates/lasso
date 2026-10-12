@@ -154,7 +154,10 @@ public final class AppCoordinator {
         settingsModel.onSignOut = { [weak self] in self?.client?.signOut() }
         settingsModel.lassoName = { [weak self] in self?.fleet.panes.first { $0.host == "local" }?.host_label }
         settingsModel.signInAnchor = { [weak self] in self?.settings.panel }
-        AuthState.shared.onExpired = { [weak self] in self?.openSettings(takeKey: false) }
+        AuthState.shared.onExpired = { [weak self] in
+            self?.settingsModel.showConnection()
+            self?.openSettings(takeKey: false)
+        }
         settingsModel.onShortcut = { [weak self] slot, c in self?.shortcuts[slot]?.apply(c) }
         list.model.onNew = { [weak self] in self?.openNewAgent(.git) }
         settingsModel.notify = { [weak fleet] in fleet?.notify }
