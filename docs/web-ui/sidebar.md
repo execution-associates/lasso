@@ -141,7 +141,7 @@ Settings has two panes, **General** and **Themes**. Each pane is a list of colla
 
 **Agents**
 
-- **New agents: Auto-title new agents from their prompt.** After an agent is created, lasso asks the first local agent CLI that answers (claude, codex, opencode, omp, pi) to summarise its prompt into a short name. It runs on lasso's machine whichever host the agent is on, and renames only the herdr workspace: the branch and working directory keep their original names. On by default.
+- **New agents: Auto-title new agents from their prompt.** After an agent is created, lasso asks the first local agent CLI that answers (claude, codex, opencode, omp, pi) to summarise its prompt into a short title for the herdr workspace and a one- or two-word name for the agent's herdr label and a scratch agent's tab. It runs on lasso's machine whichever host the agent is on: the branch and working directory keep their original names. On by default.
 - **New agent/terminal host**: the host the New dialog opens on. **Auto (use last used)** picks the host you last created on.
 - **Configuring host**: which host's creator settings the fields below edit. Each host keeps them in its own `~/.lasso/lasso.db`; for a remote host lasso edits that file over SSH with the host's `sqlite3`, so lasso itself does not need to be installed there.
 - **New Agent defaults**, **New terminal defaults** and **Per-repository setup**: see [The New dialog](./new-agent.md#settings-that-shape-the-dialog).

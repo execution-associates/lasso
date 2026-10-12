@@ -23,9 +23,12 @@ import (
 // entry the same opening words, and anything long is simply clipped mid-word.
 //
 // So after a create (from the UI or the MCP create_agent tool) lasso asks a
-// local agent CLI to distill the whole prompt into a few words and renames the
-// workspace + record to that. Gated by the auto_title_agents setting (default
-// on); the Settings tab exposes it as "Auto-title new agents".
+// local agent CLI to distill the whole prompt into two names: a 3-6 word title
+// for the workspace and the record, and a one- or two-word name for the places
+// that are narrower still: a scratch agent's tab and herdr's custom agent label
+// (agent.rename, https://herdr.dev/docs/agents/#custom-agent-labels). Gated by
+// the auto_title_agents setting (default on); the Settings tab exposes it as
+// "Auto-title new agents".
 //
 // Three things are deliberate here:
 //
@@ -97,18 +100,19 @@ func serveAutoTitle(w http.ResponseWriter, r *http.Request) {
 // the rename itself
 // ---------------------------------------------------------------------------
 
-// autoTitleAgent generates a title for rec from its prompt and applies it to
-// the agent's herdr workspace (what the agents sidebar shows) and to the
-// persisted record (the name list_agents / get_agent surface). Runs in
-// its own goroutine off createAgent, alongside the boot: nothing downstream
-// waits on the title, and the CLI takes seconds.
+// autoTitleAgent generates names for rec from its prompt and applies them: the
+// title to the agent's herdr workspace (what the agents sidebar shows) and to
+// the persisted record (the name list_agents / get_agent surface), the short
+// name to a scratch agent's tab and to herdr's agent label. Runs in its own
+// goroutine off createAgent, alongside the boot: nothing downstream waits on
+// the names, and the CLI takes seconds.
 //
 // Every failure past "the feature is off" is user-visible — a toast, not just a
 // log line — because the whole feature is a rename the user is watching the
 // sidebar for. b is the agent's own host backend (the rename travels there);
 // the titler CLI runs locally regardless.
 func autoTitleAgent(b Backend, host string, rec AgentRecord) {
-	title, err := generateAgentTitle(rec.Description)
+	names, err := generateAgentTitle(rec.Description)
 	if err != nil {
 		log.Printf("agent %s on %s: auto-title failed: %v", rec.ID, host, err)
 		notifyUI(notice{
@@ -118,50 +122,149 @@ func autoTitleAgent(b Backend, host string, rec AgentRecord) {
 		})
 		return
 	}
-	if title == rec.Title {
+	if names.Title != rec.Title {
+		if err := renameAgentHome(b, rec, names); err != nil {
+			log.Printf("agent %s on %s: auto-title rename failed: %v", rec.ID, host, err)
+			notifyUI(notice{
+				Level:  "error",
+				Title:  fmt.Sprintf("Couldn't rename %q to %q", rec.Title, names.Title),
+				Detail: err.Error(),
+			})
+			return
+		}
+		// Only the workspace (or a scratch agent's own tab, above). A worktree
+		// agent's herdr TAB is deliberately left alone: it's the user's own
+		// organization of the terminal, shared with whatever else they put in it,
+		// and retitling it is a rename they never asked for in a place that isn't
+		// the agent's.
+		if err := updateAgentTitle(rec.ID, host, names.Title); err != nil {
+			log.Printf("agent %s on %s: auto-title record update failed: %v", rec.ID, host, err)
+		}
+		// The cross-host pane listing is served from a short-lived cache; drop it
+		// so the next poll shows the new name instead of the old one.
+		invalidatePanesCache()
+		log.Printf("agent %s on %s: auto-titled %q -> %q (%s)", rec.ID, host, rec.Title, names.Title, names.Name)
+	}
+	if rec.RootPane == "" {
 		return
 	}
-	if err := renameAgentHome(b, rec, title); err != nil {
-		log.Printf("agent %s on %s: auto-title rename failed: %v", rec.ID, host, err)
+	label, err := labelAgent(b, host, rec.RootPane, names.Name, labelWait)
+	switch {
+	case errors.Is(err, errAgentNeverAppeared):
+		// The boot never brought an agent up in the pane; bootAgent already
+		// records that as a failed agent, so a second toast would only repeat it.
+		log.Printf("agent %s on %s: no herdr label: %v", rec.ID, host, err)
+	case err != nil:
+		log.Printf("agent %s on %s: herdr label failed: %v", rec.ID, host, err)
 		notifyUI(notice{
 			Level:  "error",
-			Title:  fmt.Sprintf("Couldn't rename %q to %q", rec.Title, title),
+			Title:  fmt.Sprintf("Couldn't label %q in herdr", names.Title),
 			Detail: err.Error(),
 		})
-		return
+	case label != "":
+		invalidatePaneList(host)
+		invalidatePanesCache()
+		log.Printf("agent %s on %s: herdr label %q", rec.ID, host, label)
 	}
-	// Only the workspace (or a scratch agent's own tab, above). A worktree
-	// agent's herdr TAB is deliberately left alone: it's the user's own
-	// organization of the terminal, shared with whatever else they put in it,
-	// and retitling it puts a generated sentence across the top of the screen —
-	// a rename they never asked for in a place that isn't the agent's.
-	if err := updateAgentTitle(rec.ID, host, title); err != nil {
-		log.Printf("agent %s on %s: auto-title record update failed: %v", rec.ID, host, err)
-	}
-	// The cross-host pane listing is served from a short-lived cache; drop it so
-	// the next poll shows the new name instead of the old one.
-	invalidatePanesCache()
-	log.Printf("agent %s on %s: auto-titled %q -> %q", rec.ID, host, rec.Title, title)
 }
 
 // renameAgentHome renames whatever names the agent in the sidebar: its own
-// workspace, or — for a scratch agent living as a tab in the shared Scratch
-// workspace — that tab, since renaming the workspace would rename every other
-// scratch agent's home with it.
-func renameAgentHome(b Backend, rec AgentRecord, title string) error {
+// workspace, with the title, or — for a scratch agent living as a tab in the
+// shared Scratch workspace — that tab, with the short name, since renaming the
+// workspace would rename every other scratch agent's home with it and a tab
+// strip has room for a word or two, not a sentence.
+func renameAgentHome(b Backend, rec AgentRecord, names agentTitles) error {
 	if rec.Type == "scratch" && workspaceLabelRaw(b, rec.WorkspaceID) == scratchWorkspaceLabel {
 		p, ok := paneGet(b, rec.RootPane)
 		if !ok || p.TabID == "" {
 			return fmt.Errorf("pane %s: tab not found", rec.RootPane)
 		}
-		_, err := b.HerdrCall("tab.rename", map[string]any{"tab_id": p.TabID, "label": title})
+		_, err := b.HerdrCall("tab.rename", map[string]any{"tab_id": p.TabID, "label": names.Name})
 		return err
 	}
 	_, err := b.HerdrCall("workspace.rename", map[string]any{
 		"workspace_id": rec.WorkspaceID,
-		"label":        title,
+		"label":        names.Title,
 	})
 	return err
+}
+
+// errAgentNeverAppeared is labelAgent giving up because herdr never saw an
+// agent in the pane.
+var errAgentNeverAppeared = errors.New("herdr never detected an agent in the pane")
+
+// labelWait bounds how long autoTitleAgent waits for herdr to detect the agent,
+// and labelPoll is how often labelAgent asks. The titler usually answers before
+// the boot has launched the CLI (a worktree's setup script alone can take
+// minutes), and herdr refuses to label a pane it has not yet seen an agent in.
+// Vars so tests can shrink them.
+var (
+	labelWait = 5 * time.Minute
+	labelPoll = 2 * time.Second
+)
+
+// labelMaxSuffix bounds the -2, -3, … suffixes tried when the name is taken.
+const labelMaxSuffix = 9
+
+// labelAgent gives the agent in paneID herdr's custom agent label for name
+// (agentName's spelling: "SSO redirect" is "sso-redirect"), and returns the
+// label it set, "" when it set none. herdr names are unique among live agents,
+// so a taken name gets the first free suffix; a bot's name counts as taken even
+// while the bot is stopped, because lasso finds a bot by that name and the bot
+// could not claim it back. A label already on the pane (a human's rename, or a
+// harness that names itself) is left alone. wait bounds how long it waits for
+// herdr to detect an agent in the pane at all.
+func labelAgent(b Backend, host, paneID, name string, wait time.Duration) (string, error) {
+	base := agentName(name)
+	if base == "" {
+		return "", nil
+	}
+	deadline := time.Now().Add(wait)
+	n := 1
+	for {
+		if current := agentLabelOf(b, paneID); current != "" {
+			return "", nil
+		}
+		label := labelCandidate(base, n)
+		if botNamed(host, label) != "" {
+			if n++; n > labelMaxSuffix {
+				return "", fmt.Errorf("%s and %d variants are all taken", base, labelMaxSuffix-1)
+			}
+			continue
+		}
+		_, err := b.HerdrCall("agent.rename", map[string]any{"target": paneID, "name": label})
+		switch {
+		case err == nil:
+			return label, nil
+		case strings.Contains(err.Error(), "agent_name_taken"):
+			if n++; n > labelMaxSuffix {
+				return "", fmt.Errorf("%s and %d variants are all taken", base, labelMaxSuffix-1)
+			}
+		case strings.Contains(err.Error(), "agent_not_found"):
+			if _, ok := paneGet(b, paneID); !ok {
+				return "", errAgentNeverAppeared // the pane itself is gone
+			}
+			if time.Now().After(deadline) {
+				return "", errAgentNeverAppeared
+			}
+			time.Sleep(labelPoll)
+		default:
+			return "", err
+		}
+	}
+}
+
+// labelCandidate is the nth label tried for base: base itself, then base-2,
+// base-3, … with base cut so the result stays within herdr's 32 characters.
+func labelCandidate(base string, n int) string {
+	if n <= 1 {
+		return base
+	}
+	suffix := "-" + strconv.Itoa(n)
+	if len(base)+len(suffix) > 32 {
+		base = strings.TrimRight(base[:32-len(suffix)], "_-")
+	}
+	return base + suffix
 }
 
 // ---------------------------------------------------------------------------
@@ -207,17 +310,29 @@ var titlerRunner = runTitler
 // toast's whole job is telling the user WHICH part of the chain is missing
 // (a CLI that isn't installed reads very differently from one that isn't
 // logged in).
-func generateAgentTitle(prompt string) (string, error) {
+func generateAgentTitle(prompt string) (agentTitles, error) {
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
-		return "", errors.New("no prompt to summarize")
+		return agentTitles{}, errors.New("no prompt to summarize")
 	}
-	return generateTitle(titleInstruction(prompt))
+	return askTitlers(titleInstruction(prompt), func(out string) (agentTitles, bool) {
+		t := parseAgentTitles(out)
+		return t, t.Title != ""
+	})
 }
 
 // generateTitle asks each titler in turn for a title answering instruction,
 // returning the first usable one.
 func generateTitle(instruction string) (string, error) {
+	return askTitlers(instruction, func(out string) (string, bool) {
+		t := cleanTitle(out)
+		return t, t != ""
+	})
+}
+
+// askTitlers asks each titler in turn, returning the first answer parse
+// accepts.
+func askTitlers[T any](instruction string, parse func(string) (T, bool)) (T, error) {
 	var fails []string
 	for _, t := range titlers {
 		out, err := titlerRunner(t, instruction)
@@ -225,12 +340,13 @@ func generateTitle(instruction string) (string, error) {
 			fails = append(fails, t.id+": "+err.Error())
 			continue
 		}
-		if title := cleanTitle(out); title != "" {
-			return title, nil
+		if v, ok := parse(out); ok {
+			return v, nil
 		}
 		fails = append(fails, t.id+": answered with no usable title")
 	}
-	return "", errors.New(strings.Join(fails, "; "))
+	var zero T
+	return zero, errors.New(strings.Join(fails, "; "))
 }
 
 // titlePromptLimit caps how much of the prompt rides into the instruction. A
@@ -245,13 +361,18 @@ func titleInstruction(prompt string) string {
 	if len(prompt) > titlePromptLimit {
 		prompt = strings.ToValidUTF8(prompt[:titlePromptLimit], "")
 	}
-	return `Name the coding task below, for display in a sidebar list of running agents.
+	return `Name the coding task below, for display in a list of running agents.
+
+Reply with exactly two lines, in this form:
+name: <one or two words>
+title: <three to six words>
 
 Rules:
-- 3 to 6 words, at most ` + strconv.Itoa(autoTitleMaxLen) + ` characters.
-- Say what the task IS, specifically enough to tell it apart from similar work.
+- name is a handle of one or two words, at most ` + strconv.Itoa(agentShortNameMaxLen) + ` characters, for a narrow tab.
+- title is 3 to 6 words, at most ` + strconv.Itoa(autoTitleMaxLen) + ` characters.
+- Both say what the task IS, specifically enough to tell it apart from similar work.
 - No trailing punctuation, no quotes, no markdown.
-- Reply with the title alone — no preamble, no explanation, no alternatives.
+- Reply with the two lines alone — no preamble, no explanation, no alternatives.
 - Do NOT attempt the task, read any files, or use any tools.
 
 Task:
@@ -356,6 +477,74 @@ func titlerBin(name string) (string, bool) {
 // feature exists to fix.
 const autoTitleMaxLen = 60
 
+// agentShortNameMaxLen caps the one- or two-word name: a scratch agent's tab
+// label and the source of its herdr agent label (32 characters at most).
+const agentShortNameMaxLen = 24
+
+// agentTitles is what the titler names an agent: Title for the workspace and the
+// record, Name (one or two words) for the tab and herdr's agent label.
+type agentTitles struct {
+	Name  string
+	Title string
+}
+
+// parseAgentTitles reads the titler's "name: …" and "title: …" lines. A model
+// that ignored the format but still answered with a title has answered: the
+// title is then its first plain line, and the name falls back to the title's
+// first two words that carry meaning.
+func parseAgentTitles(raw string) agentTitles {
+	var t agentTitles
+	var plain []string
+	for _, ln := range strings.Split(raw, "\n") {
+		// Only the leading bullet or markup: the value's own quotes and backticks
+		// are trimmed from both its ends by cleanTitle, after the label is cut.
+		line := strings.TrimLeft(strings.TrimSpace(ln), "-•*_# ")
+		pre, rest, ok := strings.Cut(line, ":")
+		switch label := strings.ToLower(strings.TrimSpace(trimTitleDecoration(pre))); {
+		case ok && label == "name" && t.Name == "":
+			t.Name = shortName(rest)
+		case ok && label == "title" && t.Title == "":
+			t.Title = cleanTitle(rest)
+		default:
+			plain = append(plain, ln)
+		}
+	}
+	if t.Title == "" {
+		t.Title = cleanTitle(strings.Join(plain, "\n"))
+	}
+	if t.Name == "" {
+		t.Name = shortName(withoutFillerWords(t.Title))
+	}
+	return t
+}
+
+// shortName cleans s like a title and keeps its first two words, within
+// agentShortNameMaxLen.
+func shortName(s string) string {
+	words := strings.Fields(cleanTitle(s))
+	if len(words) > 2 {
+		words = words[:2]
+	}
+	return truncateTitleTo(strings.TrimRight(strings.Join(words, " "), ".!,;:"), agentShortNameMaxLen)
+}
+
+// fillerWords are dropped before a title's first two words become a fallback
+// name, so "Fix the SSO loop" is "Fix SSO" rather than "Fix the".
+var fillerWords = map[string]bool{
+	"a": true, "an": true, "the": true, "and": true, "or": true, "of": true,
+	"to": true, "for": true, "in": true, "on": true, "with": true, "from": true,
+}
+
+func withoutFillerWords(s string) string {
+	var kept []string
+	for _, w := range strings.Fields(s) {
+		if !fillerWords[strings.ToLower(w)] {
+			kept = append(kept, w)
+		}
+	}
+	return strings.Join(kept, " ")
+}
+
 // cleanTitle turns a titler's raw stdout into a title, or "" if there's nothing
 // usable in it. The instruction asks for a bare title and the CLIs generally
 // comply, but "comply" is not a guarantee: a model that prefixes a lead-in,
@@ -390,7 +579,7 @@ func titleLine(raw string) string {
 // trimTitleDecoration strips the quoting and markdown a model may wrap its
 // answer in.
 func trimTitleDecoration(s string) string {
-	return strings.TrimSpace(strings.Trim(strings.TrimSpace(s), "`*_#\"'“”‘’"))
+	return strings.Trim(s, " \t`*_#\"'“”‘’")
 }
 
 // truncateTitle caps a title at autoTitleMaxLen, cutting back to the last space

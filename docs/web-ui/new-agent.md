@@ -77,7 +77,7 @@ The dialog remembers, per host and in this browser, what you last selected: Git 
 
 Git worktrees are created under `~/.lasso/worktrees/<repository>/` on the agent's host. If a create is interrupted (lasso restarting during an update, a dropped connection), the dialog retries automatically, and a resubmitted create for the same branch resumes the interrupted attempt rather than making a second worktree.
 
-With **Auto-title new agents** on (the default), lasso then asks a local agent CLI to summarise the whole prompt into a short name and renames the herdr workspace to it. The branch and directory keep the names derived from the prompt's first line. See [Settings](./sidebar.md#general).
+With **Auto-title new agents** on (the default), lasso then asks a local agent CLI to summarise the whole prompt into a short title, which renames the herdr workspace, and a one- or two-word name, which becomes the agent's herdr label (and a scratch agent's tab). The branch and directory keep the names derived from the prompt's first line. See [Settings](./sidebar.md#general).
 
 Agents can also be created by other agents through the `create_agent` MCP tool, which takes the same choices. See [MCP tools](../mcp/tools.md) and [Agents](../concepts/agents.md).
 
@@ -91,7 +91,7 @@ The Terminal tab opens a plain shell, optionally running a command, as a new her
 | **Working directory (optional)** | the workspace's default | An absolute path or `~/…` on the selected host. |
 | **Workspace** | the host's **Default workspace** (initially **Scratch**) | The herdr workspace to add the tab to. Each workspace shows its tab count. **+ New workspace…** creates one. |
 | **Workspace name (optional)** | `Scratch` | Shown only for a new workspace. |
-| **Tab name (optional)** | named from the command | Blank names the tab after the command: a short command as typed, a longer one by AI. A bare shell gets the next number. |
+| **Tab name (optional)** | named from the command | Blank names the tab after the command: a short command as typed, a longer one by AI, which also gives an agent the command starts its herdr label (the name's first two words). A bare shell gets the next number. |
 
 **Create terminal** opens the tab, focuses it, and moves this browser tab to the selected host if needed. If the command or the tab name could not be applied, the terminal is still created and a notice says what went wrong.
 

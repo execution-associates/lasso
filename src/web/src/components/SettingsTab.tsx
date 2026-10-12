@@ -2179,9 +2179,10 @@ function AutoTitleToggle({ active }: { active: boolean }) {
       <p className="text-[11px] text-muted-foreground">
         Names each new agent by asking the first local CLI that answers (claude,
         codex, opencode, omp, pi) to summarize its prompt — so the sidebar shows
-        a title instead of the prompt's clipped first line. Runs on this
-        machine, whichever host the agent was created on, and only renames the
-        workspace: the branch and working directory keep their original names.
+        a title instead of the prompt's clipped first line, and gives the agent
+        a one- or two-word herdr label. Runs on this machine, whichever host the
+        agent was created on: the branch and working directory keep their
+        original names.
       </p>
     </div>
   )

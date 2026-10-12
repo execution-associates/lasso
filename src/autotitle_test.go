@@ -83,8 +83,8 @@ func TestGenerateAgentTitleFallsThroughToTheNextCLI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateAgentTitle: %v", err)
 	}
-	if got != "Fix the login redirect" {
-		t.Errorf("title = %q, want the third CLI's answer", got)
+	if got.Title != "Fix the login redirect" {
+		t.Errorf("title = %q, want the third CLI's answer", got.Title)
 	}
 	if want := []string{"claude", "codex", "opencode"}; strings.Join(tried, ",") != strings.Join(want, ",") {
 		t.Errorf("tried %v, want %v (in order)", tried, want)
@@ -119,7 +119,7 @@ func TestTitleInstructionCarriesThePromptAndItsGuardRails(t *testing.T) {
 	if !strings.Contains(in, "wire up the settings toggle") {
 		t.Error("instruction does not carry the prompt")
 	}
-	for _, want := range []string{"Do NOT attempt the task", "title alone"} {
+	for _, want := range []string{"Do NOT attempt the task", "two lines alone", "name:", "title:"} {
 		if !strings.Contains(in, want) {
 			t.Errorf("instruction is missing its %q guard rail:\n%s", want, in)
 		}
@@ -130,57 +130,126 @@ func TestTitleInstructionCarriesThePromptAndItsGuardRails(t *testing.T) {
 	}
 }
 
-// autoTitleAgent's job is a rename that reaches BOTH places an agent's name
-// lives: the herdr workspace (what the agents sidebar shows) and the lasso
-// record (the name list_agents/get_agent hand out). Renaming one and not
-// the other is how an agent ends up unreachable by the name on screen.
-//
-// The herdr TAB is not one of those places — it's the user's own organization
-// of the terminal, and retitling it puts a generated sentence across the top of
-// their screen.
+// The titler answers "name: …" and "title: …", but it is a coding agent in
+// prose habits: bullets, bold labels and a lead-in are still an answer, and one
+// that ignored the format and gave a bare title has still named the task.
+func TestParseAgentTitles(t *testing.T) {
+	cases := []struct {
+		name, raw, wantName, wantTitle string
+	}{
+		{"format", "name: SSO loop\ntitle: Fix the SSO login loop\n", "SSO loop", "Fix the SSO login loop"},
+		{"title first", "title: Fix the SSO login loop\nname: SSO loop", "SSO loop", "Fix the SSO login loop"},
+		{"markdown", "**Name:** `SSO loop`\n**Title:** \"Fix the SSO login loop\"", "SSO loop", "Fix the SSO login loop"},
+		{"bullets and lead-in", "Here you go:\n- name: SSO loop.\n- title: Fix the SSO login loop.", "SSO loop", "Fix the SSO login loop"},
+		{"name too long", "name: Fix the SSO login loop\ntitle: Fix the SSO login loop", "Fix the", "Fix the SSO login loop"},
+		{"bare title", "Fix the SSO login loop\n", "Fix SSO", "Fix the SSO login loop"},
+		{"empty", "\n", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := parseAgentTitles(c.raw)
+			if got.Name != c.wantName || got.Title != c.wantTitle {
+				t.Errorf("parseAgentTitles(%q) = %+v, want name %q title %q", c.raw, got, c.wantName, c.wantTitle)
+			}
+		})
+	}
+}
+
+// renameFake is a herdr that records renames and holds agent labels the way
+// agent.rename does: unique among live agents, and only for a pane herdr has
+// seen an agent in.
 type renameFake struct {
 	*memBackend
-	renamed map[string]string
-	calls   []string
+	wsLabel  string
+	renamed  map[string]string // workspace or tab id -> label
+	labels   map[string]string // pane id -> agent label
+	taken    map[string]bool
+	notFound int // agent.rename answers agent_not_found this many times first
+	calls    []string
+}
+
+func newRenameFake() *renameFake {
+	return &renameFake{
+		memBackend: newMemBackend(),
+		renamed:    map[string]string{},
+		labels:     map[string]string{"p1": ""},
+		taken:      map[string]bool{},
+	}
 }
 
 func (b *renameFake) HerdrCall(method string, params any) (json.RawMessage, error) {
 	b.calls = append(b.calls, method)
 	p, _ := params.(map[string]any)
-	if method == "workspace.rename" {
+	switch method {
+	case "workspace.get":
+		return json.Marshal(map[string]any{"workspace": map[string]any{"label": b.wsLabel}})
+	case "pane.get":
+		return json.RawMessage(`{"pane":{"pane_id":"p1","tab_id":"t1"}}`), nil
+	case "workspace.rename":
 		b.renamed[p["workspace_id"].(string)] = p["label"].(string)
+	case "tab.rename":
+		b.renamed[p["tab_id"].(string)] = p["label"].(string)
+	case "agent.list":
+		var agents []map[string]any
+		for pane, name := range b.labels {
+			agents = append(agents, map[string]any{"pane_id": pane, "name": name})
+		}
+		return json.Marshal(map[string]any{"agents": agents})
+	case "agent.rename":
+		if b.notFound > 0 {
+			b.notFound--
+			return nil, errors.New("agent_not_found: agent target p1 not found")
+		}
+		name := p["name"].(string)
+		if b.taken[name] {
+			return nil, errors.New("agent_name_taken: agent name " + name + " is already used")
+		}
+		b.labels[p["target"].(string)] = name
 	}
-	return json.RawMessage(`{"panes":[{"pane_id":"p1","tab_id":"t1"}]}`), nil
+	return json.RawMessage(`{}`), nil
 }
 
-func TestAutoTitleAgentRenamesWorkspaceAndRecordButNotTheTab(t *testing.T) {
+func openTitleTestDB(t *testing.T, answer string) {
+	t.Helper()
 	t.Setenv("LASSO_DIR", t.TempDir())
 	if err := openDB(); err != nil {
 		t.Fatalf("openDB: %v", err)
 	}
 	t.Cleanup(closeTestDB)
-	titlerRunner = func(titler, string) (string, error) { return "Fix the SSO loop\n", nil }
+	titlerRunner = func(titler, string) (string, error) { return answer, nil }
 	t.Cleanup(func() { titlerRunner = runTitler })
+}
 
+// autoTitleAgent's job is a rename that reaches every place an agent's name
+// lives: the herdr workspace (what the agents sidebar shows), the lasso record
+// (the name list_agents/get_agent hand out) and herdr's agent label. Renaming
+// one and not the others is how an agent ends up unreachable by the name on
+// screen.
+//
+// A worktree agent's herdr TAB is not one of those places — it's the user's own
+// organization of the terminal.
+func TestAutoTitleAgentRenamesWorkspaceRecordAndLabelButNotTheTab(t *testing.T) {
+	openTitleTestDB(t, "name: SSO loop\ntitle: Fix the SSO loop\n")
 	rec := AgentRecord{
 		ID: "a1", Host: "local", Title: "the login page redirects in a loop after SSO and",
-		Type: "scratch", Agent: "claude", Description: "the login page redirects in a loop after SSO and nobody can sign in",
+		Type: "worktree", Agent: "claude", Description: "the login page redirects in a loop after SSO and nobody can sign in",
 		WorkspaceID: "ws1", RootPane: "p1",
 	}
 	if err := appendAgent("local", rec); err != nil {
 		t.Fatalf("appendAgent: %v", err)
 	}
 
-	b := &renameFake{memBackend: newMemBackend(), renamed: map[string]string{}}
+	b := newRenameFake()
 	autoTitleAgent(b, "local", rec)
 
 	if got := b.renamed["ws1"]; got != "Fix the SSO loop" {
 		t.Errorf("workspace label = %q, want the generated title", got)
 	}
-	for _, m := range b.calls {
-		if m == "tab.rename" {
-			t.Error("auto-titling renamed the herdr tab — the tab is the user's, not the agent's")
-		}
+	if _, ok := b.renamed["t1"]; ok {
+		t.Error("auto-titling renamed a worktree agent's herdr tab — the tab is the user's, not the agent's")
+	}
+	if got := b.labels["p1"]; got != "sso-loop" {
+		t.Errorf("herdr agent label = %q, want the short name as an agent name", got)
 	}
 	got, err := findAgentRecord("local", "a1")
 	if err != nil {
@@ -188,6 +257,92 @@ func TestAutoTitleAgentRenamesWorkspaceAndRecordButNotTheTab(t *testing.T) {
 	}
 	if got.Title != "Fix the SSO loop" {
 		t.Errorf("record title = %q, want the generated title — list_agents would hand out a name the sidebar no longer shows", got.Title)
+	}
+}
+
+// A scratch agent's home is a tab in the shared Scratch workspace, and a tab
+// strip has room for a word or two: the tab gets the short name, the record
+// keeps the title.
+func TestAutoTitleScratchAgentNamesItsTabShort(t *testing.T) {
+	openTitleTestDB(t, "name: SSO loop\ntitle: Fix the SSO loop\n")
+	rec := AgentRecord{
+		ID: "a1", Host: "local", Title: "the login page redirects", Type: "scratch", Agent: "claude",
+		Description: "the login page redirects in a loop after SSO", WorkspaceID: "ws1", RootPane: "p1",
+	}
+	if err := appendAgent("local", rec); err != nil {
+		t.Fatalf("appendAgent: %v", err)
+	}
+	b := newRenameFake()
+	b.wsLabel = scratchWorkspaceLabel
+	autoTitleAgent(b, "local", rec)
+
+	if got := b.renamed["t1"]; got != "SSO loop" {
+		t.Errorf("scratch tab = %q, want the short name", got)
+	}
+	if _, ok := b.renamed["ws1"]; ok {
+		t.Error("renamed the shared Scratch workspace")
+	}
+	if got, _ := findAgentRecord("local", "a1"); got.Title != "Fix the SSO loop" {
+		t.Errorf("record title = %q, want the long title", got.Title)
+	}
+}
+
+// herdr refuses a label until it has detected the agent, which is usually
+// after the titler has answered (the boot is still launching the CLI), and
+// refuses a name another live agent holds.
+func TestLabelAgentWaitsForTheAgentAndSkipsTakenNames(t *testing.T) {
+	openTitleTestDB(t, "")
+	labelPoll = time.Millisecond
+	t.Cleanup(func() { labelPoll = 2 * time.Second })
+
+	b := newRenameFake()
+	b.notFound = 3
+	b.taken["sso-loop"] = true
+	got, err := labelAgent(b, "local", "p1", "SSO loop", labelWait)
+	if err != nil {
+		t.Fatalf("labelAgent: %v", err)
+	}
+	if got != "sso-loop-2" || b.labels["p1"] != "sso-loop-2" {
+		t.Errorf("label = %q (herdr has %q), want sso-loop-2", got, b.labels["p1"])
+	}
+}
+
+// A label already on the pane is someone's choice (a human's rename, a harness
+// naming itself), not a default to improve on.
+func TestLabelAgentKeepsAnExistingLabel(t *testing.T) {
+	openTitleTestDB(t, "")
+	b := newRenameFake()
+	b.labels["p1"] = "mine"
+	got, err := labelAgent(b, "local", "p1", "SSO loop", labelWait)
+	if err != nil || got != "" {
+		t.Fatalf("labelAgent = %q, %v; want no label set", got, err)
+	}
+	if b.labels["p1"] != "mine" {
+		t.Errorf("label = %q, want the existing one kept", b.labels["p1"])
+	}
+}
+
+// Giving up is bounded: a boot that never brings an agent up must not pin the
+// goroutine forever.
+func TestLabelAgentGivesUpWhenNoAgentAppears(t *testing.T) {
+	openTitleTestDB(t, "")
+	labelPoll = time.Millisecond
+	t.Cleanup(func() { labelPoll = 2 * time.Second })
+
+	b := newRenameFake()
+	b.notFound = 1 << 30
+	if _, err := labelAgent(b, "local", "p1", "SSO loop", 20*time.Millisecond); !errors.Is(err, errAgentNeverAppeared) {
+		t.Errorf("err = %v, want errAgentNeverAppeared", err)
+	}
+}
+
+func TestLabelCandidateStaysWithinHerdrsLimit(t *testing.T) {
+	base := strings.Repeat("a", 32)
+	if got := labelCandidate(base, 1); got != base {
+		t.Errorf("first candidate = %q, want the base", got)
+	}
+	if got := labelCandidate(base, 2); len(got) > 32 || !strings.HasSuffix(got, "-2") {
+		t.Errorf("candidate = %q, want <= 32 chars ending -2", got)
 	}
 }
 

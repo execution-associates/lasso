@@ -60,7 +60,7 @@ func withTerminalBackend(t *testing.T) *terminalCreateBackend {
 	setDefaultBackend(b)
 	t.Cleanup(func() { setDefaultBackend(prev) })
 	b.titled = make(chan [2]string, 1)
-	terminalTitler = func(_ Backend, tabID, command string) { b.titled <- [2]string{tabID, command} }
+	terminalTitler = func(_ Backend, tabID, _, command string) { b.titled <- [2]string{tabID, command} }
 	t.Cleanup(func() { terminalTitler = autoTitleTerminal })
 	return b
 }
