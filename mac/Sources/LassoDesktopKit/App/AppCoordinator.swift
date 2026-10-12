@@ -240,6 +240,10 @@ public final class AppCoordinator {
                 self.preview.close()
             }
         }
+        list.previewShowing = { [weak self] in
+            guard let self, self.preview.isOpen else { return nil }
+            return self.preview.pane?.key
+        }
         list.previewHolds = { [weak self] in
             guard let self, self.preview.isOpen else { return false }
             return self.preview.engaged || self.preview.panel.frame.contains(NSEvent.mouseLocation)

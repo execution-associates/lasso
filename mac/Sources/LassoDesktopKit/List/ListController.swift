@@ -27,10 +27,12 @@ public final class ListController {
     var onPreview: (HostPane?, NSRect, NSRect) -> Void = { _, _, _ in }
     /// The preview is under the pointer, or a click made it the user's.
     var previewHolds: () -> Bool = { false }
+    /// The agent the preview shows now, nil when it is put away: read on
+    /// every poll, since esc, a click on the row (its window opens) or a
+    /// click elsewhere close it without the list knowing.
+    var previewShowing: () -> String? = { nil }
     private var hoverTimer: Timer?
-    private var restingOn: (key: String, since: Date)?
-    private var previewing: String?
-    private var awaySince: Date?
+    private var hover = PreviewHover()
 
     public init(model: ListModel) {
         self.model = model
@@ -61,9 +63,8 @@ public final class ListController {
     public func close() {
         hoverTimer?.invalidate()
         hoverTimer = nil
-        if previewing != nil { onPreview(nil, .zero, .zero) }
-        previewing = nil
-        restingOn = nil
+        if previewShowing() != nil { onPreview(nil, .zero, .zero) }
+        hover = PreviewHover()
         model.hovered = nil
         withAnimationToken(Theme.Motion.cardClose) { presence.shown = false }
         model.confirmEnd = nil
@@ -91,32 +92,18 @@ public final class ListController {
     /// pointer has left the row and the preview for panel_close_ms, it goes.
     private func pollHover() {
         let h = Theme.Rail.hover
-        let now = Date()
-        guard let row = rowUnderPointer() else {
-            if model.hovered != nil { model.hovered = nil }
-            restingOn = nil
-            guard previewing != nil else { return }
-            if previewHolds() {
-                awaySince = nil
-                return
-            }
-            if awaySince == nil { awaySince = now }
-            if now.timeIntervalSince(awaySince!) * 1000 >= h.number("panel_close_ms") {
-                previewing = nil
-                awaySince = nil
-                onPreview(nil, .zero, .zero)
-            }
-            return
+        let row = rowUnderPointer()
+        if model.hovered != row?.key { model.hovered = row?.key }
+        let action = hover.tick(
+            row: row?.key, showing: previewShowing(), holds: previewHolds(), now: Date(),
+            openAfter: h.number("item_open_ms") / 1000, closeAfter: h.number("panel_close_ms") / 1000)
+        switch action {
+        case .none: break
+        case .hide: onPreview(nil, .zero, .zero)
+        case .show(let key):
+            guard let row, let pane = model.fleet.agents.first(where: { $0.key == key }) else { return }
+            onPreview(pane, panel.frame, row.rect)
         }
-        awaySince = nil
-        if model.hovered != row.key { model.hovered = row.key }
-        if restingOn?.key != row.key { restingOn = (row.key, now) }
-        guard previewing != row.key, let since = restingOn?.since,
-              now.timeIntervalSince(since) * 1000 >= h.number("item_open_ms"),
-              let pane = model.fleet.agents.first(where: { $0.key == row.key })
-        else { return }
-        previewing = row.key
-        onPreview(pane, panel.frame, row.rect)
     }
 
     private func place() { panel.setFrameOrigin(originBesideRail(railFrame(), size: Theme.List.size.size)) }
@@ -147,6 +134,58 @@ public final class ListController {
         default: return false
         }
         return true
+    }
+}
+
+/// When the agents list's hover preview opens, moves and goes, from the row
+/// under the pointer and what the preview shows now (PLAN 16). Every row the
+/// pointer rests on for `openAfter` previews, moving to another row swaps
+/// it after the same rest, and the rest is timed per row key, so a fleet
+/// poll redrawing the rows does not restart it.
+struct PreviewHover {
+    enum Action: Equatable {
+        case none
+        case show(String)
+        case hide
+    }
+
+    private(set) var resting: (key: String, since: Date)?
+    private var away: Date?
+    /// The row the list last previewed.
+    private var asked: String?
+    /// A row whose preview something else put away (esc, a click) while the
+    /// pointer stayed on it: not again until the pointer leaves that row.
+    private(set) var spent: String?
+
+    mutating func tick(
+        row: String?, showing: String?, holds: Bool, now: Date, openAfter: Double, closeAfter: Double
+    ) -> Action {
+        if let a = asked, showing != a {
+            // Put away (or replaced) from elsewhere.
+            if showing == nil, row == a { spent = a }
+            asked = showing
+        }
+        guard let row else {
+            resting = nil
+            spent = nil
+            guard showing != nil, !holds else {
+                away = nil
+                return .none
+            }
+            if away == nil { away = now }
+            guard now.timeIntervalSince(away!) >= closeAfter else { return .none }
+            away = nil
+            asked = nil
+            return .hide
+        }
+        away = nil
+        if spent != row { spent = nil }
+        if resting?.key != row { resting = (row, now) }
+        guard showing != row, spent != row, let since = resting?.since, now.timeIntervalSince(since) >= openAfter else {
+            return .none
+        }
+        asked = row
+        return .show(row)
     }
 }
 

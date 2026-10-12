@@ -994,6 +994,8 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
   - the composer
   - the folder and the model
 - It appears `rail.hover.item_open_ms` after the pointer rests on the row. It goes `panel_close_ms` after the pointer has left both the row and the preview, unless a click made it the user's. It is ordered front without the keyboard.
+  - **Every row, every time** (`PreviewHover`, ticked by the list's 20 Hz poll). The rest is timed per row key, so a fleet poll redrawing the rows does not restart it, and moving to another row swaps the preview after the same rest. The row under the pointer is read through the rows' reported frames, which follow the column's scroll.
+  - **What the preview shows is read each tick**, not remembered. Esc, a click on the row (its window opens) and a click elsewhere put the preview away without the list knowing. A preview put away while the pointer stays on its row does not pop back. It opens again once the pointer has left that row.
 - Rows report their frames through a preference key, and the list's controller polls the pointer at 20 Hz, for the same reason the rail does.
 
 **Clicking a row opens the agent's own window** (`agent.window`: 488 × 632 pt, 60 pt header, 18 pt corners). Bots open one too, since a bot's pane chats through the bot's routes.
