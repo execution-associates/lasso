@@ -155,6 +155,8 @@ public struct BotView: Codable, Sendable, Equatable, Identifiable {
     public var name: String
     public var runtime: String
     public var stopped: Bool
+    /// The bot announces its turns (bots.go Notify); absent reads as on.
+    public var notify: Bool?
     public var model: String?
     public var state: String
     /// A claude bot's herdr pane, while it runs (its chat is that pane's).

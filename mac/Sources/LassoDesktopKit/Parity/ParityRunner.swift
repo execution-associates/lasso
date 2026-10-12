@@ -11,7 +11,7 @@ public final class ParityRunner {
     /// States whose surfaces exist. The rest report as pending until their
     /// milestone lands (PLAN 6).
     public static let implemented: Set<String> = [
-        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings",
+        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "settings-shortcuts", "new-agent", "new-agent-menu", "agent-window-markdown",
     ]
 
     let spec: Spec
@@ -145,8 +145,9 @@ public final class ParityRunner {
             let m = SettingsModel(
                 permissions: FixedPermissions(fixture.permissions), baseURL: { "http://127.0.0.1:18090" },
                 version: { fixture.server.version }, usableHosts: { (usable, hosts.hosts.count + 1) })
-            if let l = fixture.lassos { m.show(lassos: l) }
             m.notify = { fixture.notify }
+            m.lassoName = { fixture.server.all_panes.panes.first { $0.host == "local" }?.host_label }
+            if let t = fixture.ui.settings_tab.flatMap(SettingsTab.init(rawValue:)) { m.tab = t }
             bindings = [Keys.esc]
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(SettingsView(model: m), size: Theme.Card.size.size) }
             cap = try await make()
@@ -186,6 +187,16 @@ public final class ParityRunner {
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(ListView(model: l), size: Theme.List.size.size) }
             cap = try await make()
             recapture = make
+        } else if fixture.ui.new_agent == true {
+            let m = NewAgentModel(kind: .git, source: FixtureNewAgentSource())
+            await m.load()
+            m.prompt = "Fix the flaky upload test\nIt fails about one run in ten on titan."
+            m.openChip = fixture.ui.new_agent_menu
+            let make: @MainActor () async throws -> Capture = {
+                try await Capturer.capture(NewAgentView(model: m), size: Theme.NewAgent.layout.size2("size"))
+            }
+            cap = try await make()
+            recapture = make
         } else if let key = fixture.ui.preview {
             let c = try cardModel(fixture, fleet: fleet, key: key)
             card = c
@@ -215,7 +226,7 @@ public final class ParityRunner {
             recapture = make
         } else {
             // A rail control under the pointer (rail-hover-*).
-            let hoverable: [String: RailModel.Item] = ["inbox": .inbox, "agents": .agents, "settings": .settings]
+            let hoverable: [String: RailModel.Item] = ["inbox": .inbox, "agents": .agents, "new": .newAgent, "settings": .settings]
             model.hovered = fixture.ui.hovered.flatMap { hoverable[$0] }
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(RailView(model: model), size: self.railSize()) }
             cap = try await make()

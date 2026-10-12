@@ -67,15 +67,15 @@ private func golden<T: Decodable>(_ name: String, _ type: T.Type) throws -> T {
     #expect(c.probe(URL(string: "http://127.0.0.1:18192")!).request("/api/version").value(forHTTPHeaderField: "Authorization") == "Basic dTpw")
 }
 
-/// A dev lasso says so, and where it bound behind the tunnel.
-@Test func lassoChoicesNameDevLassos() throws {
+/// The lasso is named by its machine, with its release number (never a
+/// build's "(dev)" tag) and where this Mac reaches it.
+@Test func lassoChoiceNamesTheMachine() throws {
     let v = try JSONDecoder().decode(
         VersionInfo.self,
-        from: Data(#"{"lasso_protocol":1,"lasso_version":"6.4.0-dev","compatible":true,"dev":true,"listen":"127.0.0.1:8191"}"#.utf8))
-    let c = LassoChoice(url: "http://127.0.0.1:18191", version: v)
-    #expect(c.title == "Dev lasso 6.4.0-dev")
-    #expect(c.detail == "127.0.0.1:18191 → 127.0.0.1:8191")
-    #expect(LassoChoice(url: "http://127.0.0.1:18090", version: nil).title == "Not answering")
+        from: Data(#"{"lasso_protocol":1,"lasso_version":"6.4.0 (dev)","compatible":true,"dev":true,"listen":"127.0.0.1:8090"}"#.utf8))
+    let c = LassoChoice(url: "http://127.0.0.1:18090", version: v, name: "titan")
+    #expect(c.title == "titan" && c.detail == "lasso 6.4.0 · 127.0.0.1:18090")
+    #expect(LassoChoice(url: "https://lasso.example.com", version: nil).detail == "Not answering · lasso.example.com")
 }
 
 /// Agents are named by their herdr label, else their tab, never the

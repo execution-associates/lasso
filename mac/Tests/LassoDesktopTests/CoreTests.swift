@@ -86,7 +86,7 @@ private let specDir = packageDir.appendingPathComponent("Spec")
 /// belongs in Theme.swift with its provenance.
 @Test func viewsTakeTheirLayoutFromTheme() throws {
     let src = packageDir.appendingPathComponent("Sources/LassoDesktopKit")
-    let views = ["Rail", "Card", "List", "Inbox", "Chat", "Settings", "Platform", "Agent"]
+    let views = ["Rail", "Card", "List", "Inbox", "Chat", "Settings", "Platform", "Agent", "NewAgent"]
     let literal = try Regex(
         #"\.padding\((\.[a-zA-Z]+, )?[1-9][0-9]*(\.[0-9]+)?\)|spacing: [1-9]|(width|height|size): [1-9][0-9]*(\.[0-9]+)?[,)]|\* 0\.[0-9]|offset\(x: [1-9]"#)
     for dir in views {
@@ -114,7 +114,7 @@ private let specDir = packageDir.appendingPathComponent("Spec")
     model.setExpanded(true, animated: false)
     let cap = try await Capturer.capture(RailView(model: model), size: CGSize(
         width: RailMetrics.panelWidth, height: RailMetrics.expandedHeight(Theme.Rail.maxSlots.int) + 2 * RailMetrics.margin))
-    let anchors: [RailModel.Item: String] = [.inbox: "rail.inbox", .agents: "rail.agents.capsule", .settings: "rail.ellipsis"]
+    let anchors: [RailModel.Item: String] = [.inbox: "rail.inbox", .agents: "rail.agents.capsule", .newAgent: "rail.new", .settings: "rail.ellipsis"]
     for (item, frame) in RailMetrics.itemFrames(model.slots.count) {
         let drawn = try #require(cap.frames[anchors[item]!])
         #expect(abs(drawn.minY - frame.minY) <= 1 && abs(drawn.height - frame.height) <= 1, "\(item): \(drawn) vs \(frame)")
@@ -164,6 +164,27 @@ private let specDir = packageDir.appendingPathComponent("Spec")
     fleet.apply(panes: AllPanes(panes: [pane("w1:p1", "claude", "done", 11), pane("w1:p2", "omp", "blocked", 5)]))
     #expect(fleet.inbox.map(\.pane.pane_id) == ["w1:p2", "w1:p1"])
     #expect(fleet.unseen.map(\.pane.pane_id) == ["w1:p1"])
+}
+
+/// A bot's turn is announced once (lasso's notifDelivers): as its reply, or
+/// as a finished turn on a Mac that takes no replies, and not at all when the
+/// bot's notify is off. Its question is agent_blocked.
+@MainActor @Test func botArrivalsFollowTheDeliveryRule() throws {
+    func bot(_ notify: Bool) throws -> BotsPayload {
+        try JSONDecoder().decode(BotsPayload.self, from: Data("""
+            {"bots":[{"id":1,"host":"local","name":"stub","runtime":"claude","stopped":false,"notify":\(notify),
+            "state":"idle","pane_id":"w1:p9","last_kind":"agent","last_at":"2026-10-11T12:00:00Z"}]}
+            """.utf8))
+    }
+    let fleet = FleetModel()
+    fleet.apply(panes: AllPanes(panes: [HostPane(
+        host: "local", host_label: "titan", pane_id: "w1:p9", workspace_id: "w1", workspace_label: "Bots",
+        tab_id: "w1:t1", tab_label: "stub", cwd: "/", agent: "claude", agent_status: "done", has_agent: true, focused: false)]))
+    fleet.apply(bots: try bot(true))
+    let inbox = InboxModel(fleet: fleet)
+    #expect(Array(inbox.arrivals.values) == [[NotifyKinds.botMessage, NotifyKinds.agentFinished]])
+    fleet.apply(bots: try bot(false))
+    #expect(Array(inbox.arrivals.values) == [[]])
 }
 
 /// An answer is built from the question as drawn (PLAN 13.4): a new question
@@ -226,4 +247,115 @@ private func key(_ c: String, _ code: UInt16) -> NSEvent {
     #expect(CardKeys.route(j, editing: false, pointerKeyed: true) == .next)
     #expect(CardKeys.route(key("a", 0), editing: false, pointerKeyed: true) == .handBack)
     #expect(CardKeys.route(key("q", 12), editing: false, pointerKeyed: true) == .handBack)
+}
+
+/// The New Agent form (the web app's ⌘O/⌘⇧O): it loads the host's defaults,
+/// names the agent by the prompt's first line, sends a Git or Scratch body,
+/// and opens the created agent's window on the pane lasso named.
+@MainActor @Test func newAgentFormCreatesAndOpensTheWindow() async throws {
+    let source = FixtureNewAgentSource()
+    let m = NewAgentModel(kind: .git, source: source)
+    await m.load()
+    try await Task.sleep(nanoseconds: 100_000_000)
+    #expect(m.agent == "claude" && m.repo == "/home/stephan/projects/exa/lasso" && m.baseBranch == "main")
+    #expect(!m.canCreate)
+    m.prompt = "  Fix the flaky upload test\nIt fails one run in ten."
+    #expect(m.title == "Fix the flaky upload test" && m.canCreate)
+    #expect(m.request.type == "git" && m.request.repo == "/home/stephan/projects/exa/lasso" && m.request.base_branch == "main")
+    var opened: HostPane?
+    m.onCreated = { opened = $0 }
+    m.create()
+    try await Task.sleep(nanoseconds: 100_000_000)
+    #expect(opened?.pane_id == "w9:p1" && opened?.host == "local")
+    #expect(source.created.count == 1)
+
+    let s = NewAgentModel(kind: .scratch, source: source)
+    s.prompt = "Explore"
+    s.agent = "omp"
+    #expect(s.request.type == "scratch" && s.request.repo == nil)
+}
+
+/// A chip's menu opens on the current choice, filters, and ↑/↓/⏎ pick.
+@MainActor @Test func chipMenuKeys() async throws {
+    let m = NewAgentModel(kind: .git, source: FixtureNewAgentSource())
+    await m.load()
+    try await Task.sleep(nanoseconds: 100_000_000)
+    // lasso's own machine goes by its name, never "local".
+    #expect(m.host == "local" && m.hostName == "titan" && m.choices("host").map(\.title) == ["titan", "minime"])
+    m.openChip = "branch"
+    #expect(m.matches.map(\.value) == ["main", "lasso-desktop-mac"] && m.cursor == 0)
+    m.moveCursor(1)
+    m.moveCursor(1)
+    #expect(m.cursor == 1)
+    m.chooseCursor()
+    #expect(m.baseBranch == "lasso-desktop-mac" && m.openChip == nil)
+    m.openChip = "repo"
+    m.chipFilter = "isb"
+    #expect(m.matches.map(\.title) == ["isb"])
+    m.chooseCursor()
+    #expect(m.repo == "/home/stephan/projects/exa/isb")
+    m.openChip = "effort"
+    m.moveCursor(2)
+    m.chooseCursor()
+    #expect(m.effort == "medium")
+    // The model filters, and takes a name no suggestion has.
+    m.openChip = "model"
+    m.chipFilter = "son"
+    #expect(m.matches.map(\.value) == ["son", "sonnet"])
+    m.moveCursor(1)
+    m.chooseCursor()
+    #expect(m.model == "sonnet")
+    m.openChip = "model"
+    m.chipFilter = "opus-4-7"
+    m.chooseCursor()
+    #expect(m.model == "opus-4-7" && m.choices("model").map(\.value).contains("opus-4-7"))
+    m.openChip = "agent"
+    m.choose("agent", "omp")
+    #expect(m.agent == "omp" && m.effort == "")
+}
+
+/// System-wide shortcuts are at most three keys (the user's rule), leave
+/// terminals ⌃O, and none is ⌘O, which every app's File › Open already is.
+@Test func shortcutDefaultsLeaveTerminalsTheirKeys() {
+    let expected: [ShortcutSlot: NSEvent.ModifierFlags] = [
+        .inbox: .option, .newAgent: [.option, .shift], .newScratch: [.control, .shift],
+    ]
+    for slot in ShortcutSlot.allCases {
+        guard case .combo(let k, let m, _) = slot.fallback else { Issue.record("\(slot) has no combination"); continue }
+        let mods = NSEvent.ModifierFlags(rawValue: m).intersection([.command, .option, .control, .shift])
+        #expect(mods == expected[slot], "\(slot)")
+        #expect(!(k == 31 && mods == .command))
+    }
+}
+
+/// Rename in place: the field starts with the current name, ⏎ sends it
+/// (herdr's agent label), esc and an unchanged name send nothing.
+@MainActor @Test func renameInPlace() async throws {
+    var pane = HostPane(
+        host: "local", host_label: "titan", pane_id: "w1:p1", workspace_id: "w1", workspace_label: "Agents",
+        tab_id: "w1:t1", tab_label: "lasso", cwd: "/", agent: "claude", agent_status: "idle", has_agent: true, focused: false)
+    pane.agent_label = "old"
+    let fleet = FleetModel()
+    fleet.apply(panes: AllPanes(panes: [pane]))
+    let actions = FixtureFleetActions()
+    let m = ListModel(fleet: fleet, actions: actions)
+    m.startRename(pane)
+    #expect(m.renaming == pane.key && m.renameDraft == "old")
+    m.cancelRename()
+    m.startRename(pane)
+    m.commitRename()
+    m.startRename(pane)
+    m.renameDraft = "  HN digest "
+    m.commitRename()
+    try await Task.sleep(nanoseconds: 50_000_000)
+    #expect(actions.calls == ["rename:hn-digest"] && m.renaming == nil)
+}
+
+/// Typed names become herdr agent names, the same as lasso's agentName.
+@Test func agentNamesFromTyping() {
+    let cases = [
+        "Check Hacker News front page": "check-hacker-news-front-page", "  HN digest! ": "hn-digest", "2nd try": "nd-try",
+        "already-fine_1": "already-fine_1", "???": "", "a very long name that keeps going and going": "a-very-long-name-that-keeps-goin",
+    ]
+    for (typed, want) in cases { #expect(AgentName.from(typed) == want, "\(typed)") }
 }

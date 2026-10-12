@@ -36,6 +36,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// The Dock icon clicked (when the app is in the Dock): open the inbox.
+    public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        coordinator?.openInbox()
+        return false
+    }
+
     private func runParity(_ states: String) {
         let out = URL(fileURLWithPath: ((value(after: "--out") ?? "dist/parity") as NSString).expandingTildeInPath)
         let dir = specDir

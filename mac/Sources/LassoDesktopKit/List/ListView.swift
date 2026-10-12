@@ -18,6 +18,13 @@ public struct ListView: View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
+                    HStack {
+                        Spacer()
+                        PillButton(title: "New agent", primary: true, label: "New agent (⌘O)") { model.onNew() }
+                            .parityAnchor("list.new")
+                    }
+                    .padding(.horizontal, row.number("pad_h"))
+                    .padding(.top, Theme.space("xs"))
                     if !model.pinned.isEmpty {
                         header("Pinned", anchor: "list.header.pinned")
                         ForEach(model.pinned) { rowView($0, pinnedSection: true) }
@@ -94,12 +101,22 @@ public struct ListView: View {
                                 .parityAnchor(pinnedSection ? "list.dot.pinned[\(key)]" : "list.dot[\(key)]")
                                 .frame(width: row.number("dot_col") - row.number("pad_h"), alignment: .leading)
                             AgentAvatar(agent: p.agent, state: p.state)
-                            Text(p.displayName)
-                                .font(Theme.Fonts.name.font)
-                                .foregroundStyle(Theme.Text.primary.color)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .padding(.leading, row.number("name_x") - row.number("dot_col") - row.number("avatar"))
+                            Group {
+                                if model.renaming == key {
+                                    InlineField(
+                                        text: $model.renameDraft, placeholder: p.displayName, label: "New name for \(p.displayName)",
+                                        onSubmit: { model.commitRename() }, onCancel: { model.cancelRename() })
+                                        .padding(.horizontal, Theme.space("s"))
+                                        .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).strokeBorder(Theme.accent.color, lineWidth: 1))
+                                } else {
+                                    Text(p.displayName)
+                                        .font(Theme.Fonts.name.font)
+                                        .foregroundStyle(Theme.Text.primary.color)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                }
+                            }
+                            .padding(.leading, row.number("name_x") - row.number("dot_col") - row.number("avatar"))
                             if pinned && !pinnedSection {
                                 Image(systemName: "pin.fill")
                                     .font(.system(size: Theme.icon.number("pin")))
@@ -111,6 +128,8 @@ public struct ListView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    // While renaming, a click in the field must not open the agent.
+                    .disabled(model.renaming == key)
                     .accessibilityLabel(
                         "\(p.displayName), \(p.state.label), \(p.agent) in \(p.group) on \(p.host_label)\(pinned ? ", pinned" : "")"
                             + (fleet.bot(for: p) != nil ? ", a bot" : ""))
@@ -136,12 +155,15 @@ public struct ListView: View {
                     })
                 .contextMenu {
                     Button(pinned ? "Unpin" : "Pin") { model.togglePin(p) }
+                    // A bot is found by its herdr name: it is renamed in its settings.
+                    if fleet.bot(for: p) == nil { Button("Rename…") { model.startRename(p) } }
                     Button("Focus in herdr") { model.focus(p) }
                     Divider()
                     Button("End agent…") { model.askEnd(p) }
                 }
                 .accessibilityAction(named: pinned ? "Unpin" : "Pin") { model.togglePin(p) }
                 .accessibilityAction(named: "Focus in herdr") { model.focus(p) }
+                .accessibilityAction(named: "Rename") { model.startRename(p) }
             }
         }
         .id(pinnedSection ? "pinned:\(key)" : key)

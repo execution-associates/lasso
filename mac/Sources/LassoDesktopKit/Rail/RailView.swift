@@ -2,7 +2,8 @@ import SwiftUI
 
 // The rail. At rest only a sliver of a pill shows at the screen edge (the
 // peek); hovering it reveals the rail: the inbox (what waits on you), the
-// agents capsule (the fleet) and the ellipsis (settings), each floating on
+// agents capsule (the fleet), the plus (a new agent) and the ellipsis
+// (settings), each floating on
 // its own (no backing).
 // Layout numbers all come from Theme.Rail.
 
@@ -32,7 +33,7 @@ enum RailMetrics {
     /// Height of everything below the inbox: the travel of expand/collapse.
     static func revealHeight(_ slots: Int) -> CGFloat {
         let agents = slots > 0 ? gap + agentsHeight(slots) : 0
-        return agents + gap + Theme.Rail.ellipsisOuter.pt
+        return agents + 2 * (gap + Theme.Rail.ellipsisOuter.pt)
     }
 
     static func expandedHeight(_ slots: Int) -> CGFloat { outer + revealHeight(slots) }
@@ -47,6 +48,8 @@ enum RailMetrics {
             y += agentsHeight(slots) + gap
         }
         let e = Theme.Rail.ellipsisOuter.pt
+        out.append((.newAgent, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
+        y += e + gap
         out.append((.settings, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
         return out
     }
@@ -166,6 +169,7 @@ public struct RailView: View {
                 inbox
                 VStack(spacing: RailMetrics.gap) {
                     if !slots.isEmpty { agents(slots) }
+                    plus
                     ellipsis
                 }
                 .padding(.top, RailMetrics.gap)
@@ -233,21 +237,32 @@ public struct RailView: View {
         .overlay(alignment: .topLeading) { badge }
         .modifier(FocusRing(on: focused(.inbox)))
         .accessibilityLabel("Inbox")
-        .accessibilityValue(fleet.attentionCount > 0 ? "\(fleet.attentionCount) waiting on you" : "nothing waiting")
+        .accessibilityValue(inboxCount > 0 ? "\(inboxCount) in the inbox" : "nothing in the inbox")
         .help("Inbox: what waits on you")
     }
 
+    private var inboxCount: Int { fleet.inbox.count + fleet.notices.count }
+
+    /// How many messages the inbox holds: red while one waits on the human,
+    /// green when only finished turns and notices are left; none when empty.
     @ViewBuilder private var badge: some View {
-        if let state = fleet.attention {
-            let size = Theme.Rail.badgeSize.pt
+        let count = inboxCount
+        if count > 0 {
+            let b = Theme.Rail.badgeSize
             let ring = Theme.Rail.badgeRing
             let c = Theme.Rail.badgeCenter.size
-            Circle()
-                .fill(StateStyle.color(state))
-                .frame(width: size, height: size)
+            let state: AgentState = fleet.inbox.contains { $0.kind == .waiting } ? .blocked : .done
+            // The ring's ink, not white: white reads at 1.5:1 on the green and
+            // 2.5:1 on the red; the ink at 11:1 and 7:1.
+            Text(count > 99 ? "99+" : "\(count)")
+                .font(.system(size: b.number("font"), weight: .bold).monospacedDigit())
+                .foregroundStyle(ring.color("color"))
+                .padding(.horizontal, b.number("pad_h"))
+                .frame(minWidth: b.number("height"), minHeight: b.number("height"), maxHeight: b.number("height"))
+                .background(Capsule().fill(StateStyle.color(state)))
                 .parityAnchor("rail.badge")
                 .padding(ring.number("width"))
-                .background(Circle().fill(ring.color("color")))
+                .background(Capsule().fill(ring.color("color")))
                 // position, not offset: offset would leave the anchor's
                 // reported frame behind.
                 .position(x: c.width, y: c.height)
@@ -278,6 +293,22 @@ public struct RailView: View {
         .accessibilityLabel("Agents")
         .accessibilityValue("\(fleet.agents.count) running")
         .help("Agents")
+    }
+
+    private var plus: some View {
+        Button { model.activate(.newAgent) } label: {
+            ZStack {
+                GroupBackground(hovered: model.hovered == .newAgent)
+                RailIcon(symbol: "plus")
+            }
+            .frame(width: Theme.Rail.ellipsisOuter.pt, height: Theme.Rail.ellipsisOuter.pt)
+            .contentShape(Circle())
+        }
+        .buttonStyle(RailPress())
+        .parityAnchor("rail.new")
+        .modifier(FocusRing(on: focused(.newAgent)))
+        .accessibilityLabel("New agent")
+        .help("New agent")
     }
 
     private var ellipsis: some View {

@@ -129,11 +129,7 @@ public struct CardView: View {
 
     private func header(_ pane: HostPane) -> some View {
         HStack(spacing: Theme.space("m")) {
-            Text(pane.displayName)
-                .font(Theme.Fonts.title.font)
-                .foregroundStyle(Theme.Text.primary.color)
-                .lineLimit(1)
-                .parityAnchor("card.title")
+            AgentTitle(model: model, anchor: "card.title")
                 .padding(.leading, Theme.Card.titleX.pt - contentX)
             Spacer(minLength: 8)
             RoundButton(symbol: "xmark", label: "Close (esc)") { model.onClose() }
@@ -151,7 +147,8 @@ public struct CardView: View {
                 .font(Theme.Fonts.body.font)
                 .foregroundStyle(Theme.Text.secondary.color)
                 .lineLimit(1)
-            if pane.host != "local" {
+            // Always named: "local" is lasso's machine, rarely this Mac.
+            if !pane.host_label.isEmpty {
                 Text(pane.host_label)
                     .font(Theme.Fonts.small.font)
                     .foregroundStyle(Theme.Text.primary.color)
@@ -206,13 +203,15 @@ public struct CardView: View {
                             ChatRow(item: item).id(item.id)
                         }
                         if let p = model.pending { PendingRow(pending: p) }
-                        if chat.items.isEmpty {
+                        if let says = model.phase.says {
+                            WaitingRow(text: says)
+                        } else if chat.items.isEmpty {
                             placeholder(chat.unavailable.map { "No conversation (\($0.reason))" } ?? "No messages yet")
                         }
                     } else if let err = model.loadError {
                         placeholder("Could not read the conversation: \(err)")
                     } else {
-                        placeholder("Loading…")
+                        WaitingRow(text: "Loading the conversation")
                     }
                 }
                 .padding(inner.number("pad"))
@@ -339,11 +338,15 @@ struct ChatRow: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         default:
-            Text(item.text ?? "")
-                .font(font)
-                .foregroundStyle(item.thinking == true ? Theme.Text.secondary.color : Theme.Text.primary.color)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if item.thinking == true {
+                Text(item.text ?? "")
+                    .font(font)
+                    .foregroundStyle(Theme.Text.secondary.color)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                MarkdownView(text: item.text ?? "", font: font).frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 }

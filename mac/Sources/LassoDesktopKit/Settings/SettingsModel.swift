@@ -3,49 +3,67 @@ import AppKit
 import Combine
 import Foundation
 
-/// A lasso Settings can switch to, and what it said when asked.
+/// The lasso this Mac uses, and what it said when asked.
 public struct LassoChoice: Identifiable, Equatable, Sendable, Codable {
     public var url: String
     public var version: VersionInfo?
+    /// The machine lasso runs on ("titan"), when known.
+    public var name: String?
     public var id: String { url }
 
-    public init(url: String, version: VersionInfo?) {
+    public init(url: String, version: VersionInfo?, name: String? = nil) {
         self.url = url
         self.version = version
+        self.name = name
     }
 
-    public var title: String {
-        guard let v = version else { return "Not answering" }
-        return (v.dev == true ? "Dev lasso " : "lasso ") + v.lasso_version
-    }
+    /// The machine it runs on, else plain "lasso".
+    public var title: String { name ?? "lasso" }
 
-    /// Where it is: this Mac's address, and a dev lasso's own bound one.
+    /// Its version (the release number, never a build's "(dev)" tag) and
+    /// where this Mac reaches it; "Not answering" when it did not.
     public var detail: String {
-        let here = URL(string: url).map { "\($0.host ?? ""):\($0.port.map(String.init) ?? "")" } ?? url
-        guard let listen = version?.listen, !listen.isEmpty else { return here }
-        return "\(here) → \(listen)"
+        let here = URL(string: url).map { u in u.host.map { h in u.port.map { "\(h):\($0)" } ?? h } ?? url } ?? url
+        guard let v = version else { return "Not answering · \(here)" }
+        let release = v.lasso_version.range(of: #"^\d+\.\d+\.\d+"#, options: .regularExpression).map { String(v.lasso_version[$0]) }
+        return "lasso \(release ?? v.lasso_version) · \(here)"
     }
 }
 
-/// Settings (the rail's ellipsis, and the first launch): which lasso, and
-/// the permissions the app asks for.
+/// Settings' tabs.
+public enum SettingsTab: String, CaseIterable, Sendable {
+    case notifications, shortcuts, info
+
+    public var title: String {
+        switch self {
+        case .notifications: "Notifications"
+        case .shortcuts: "Shortcuts"
+        case .info: "Info"
+        }
+    }
+}
+
+/// Settings (the rail's ellipsis, and the first launch): the lasso this Mac
+/// uses (one; a dev lasso is `dev.sh use`, not a choice here), and the
+/// permissions the app asks for.
 @MainActor
 public final class SettingsModel: ObservableObject {
     /// Bumped to re-read the permission states after a request.
     @Published public private(set) var tick = 0
-    /// Every lasso that answered, plus the one in use whether or not it did.
-    @Published public private(set) var lassos: [LassoChoice] = []
 
-    /// The inbox shortcut, and whether the next key press records one.
-    @Published public private(set) var shortcut = InboxShortcutChoice.stored
-    @Published public private(set) var recording = false
+    /// Each shortcut, and which one the next key press records.
+    @Published public private(set) var shortcuts: [ShortcutSlot: InboxShortcutChoice] =
+        Dictionary(uniqueKeysWithValues: ShortcutSlot.allCases.map { ($0, InboxShortcutChoice.stored($0)) })
+    @Published public private(set) var recordingSlot: ShortcutSlot?
+    public var shortcut: InboxShortcutChoice { shortcuts[.inbox] ?? ShortcutSlot.inbox.fallback }
+    public var recording: Bool { recordingSlot == .inbox }
     /// The arrival sound's id, or InboxSound.none.
     @Published public private(set) var sound = InboxSound.current
 
     public let permissions: Permissions
     public var baseURL: () -> String
-    /// The shortcut changed: watch for the new one.
-    public var onShortcut: (InboxShortcutChoice) -> Void = { _ in }
+    /// A shortcut changed: watch for the new one.
+    public var onShortcut: (ShortcutSlot, InboxShortcutChoice) -> Void = { _, _ in }
     public var version: () -> VersionInfo?
     public var usableHosts: () -> (usable: Int, total: Int)?
     public var onClose: () -> Void = {}
@@ -55,8 +73,121 @@ public final class SettingsModel: ObservableObject {
     public var chooseNotify: ((String, Bool) async throws -> Void)?
     /// Switch the app to another lasso.
     public var onUse: (URL) -> Void = { _ in }
-    /// Asks a lasso for /api/version; nil when the app runs from a fixture.
-    public var probe: (@Sendable (URL) async -> VersionInfo?)?
+    /// A sign-in finished for this lasso: use it, with its tokens.
+    public var onSignedIn: (URL, OAuthGrant) -> Void = { _, _ in }
+    /// Forget the lasso in use's tokens.
+    public var onSignOut: () -> Void = {}
+    /// The window the sign-in sheet hangs from.
+    public var signInAnchor: () -> NSWindow? = { nil }
+
+    @Published public var tab: SettingsTab = .notifications
+    /// The address field is open (Change…, or a failed connect).
+    @Published public var changingLasso = false
+    /// The Dock and menu-bar icons (AppPresence), and applying a change.
+    @Published public private(set) var inDock = AppPresence.inDock
+    @Published public private(set) var inMenuBar = AppPresence.inMenuBar
+    public var onPresence: () -> Void = {}
+
+    public func setDock(_ on: Bool) {
+        AppPresence.set(dock: on)
+        inDock = on
+        onPresence()
+    }
+
+    public func setMenuBar(_ on: Bool) {
+        AppPresence.set(menuBar: on)
+        inMenuBar = on
+        onPresence()
+    }
+
+    /// Quit. The launch agent restarts the app only after a crash, so a quit
+    /// lasts until the next login.
+    public func quit() { NSApp.terminate(nil) }
+
+    /// The machine lasso runs on, for the connection row.
+    public var lassoName: () -> String? = { nil }
+
+    /// The URL field: any lasso by its address (a tailnet name, a
+    /// Cloudflare hostname, a loopback port).
+    @Published public var urlDraft = ""
+    /// What the last Connect or sign-in found, in a sentence.
+    @Published public private(set) var connectNote: String?
+    @Published public private(set) var connecting = false
+
+    /// The lasso in use holds sign-in tokens on this Mac.
+    public var signedIn: Bool { _ = tick; return URL(string: baseURL()).flatMap(TokenStore.read) != nil }
+
+    /// Connect to the lasso in the URL field: ask it what it needs, then use
+    /// it, signing in first when it asks for that.
+    public func connect() {
+        var text = urlDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !connecting else { return }
+        if !text.contains("://") { text = (text.hasPrefix("127.") || text.hasPrefix("localhost") ? "http://" : "https://") + text }
+        guard let url = URL(string: text), url.host != nil else {
+            connectNote = "That is not an address."
+            return
+        }
+        connecting = true
+        connectNote = nil
+        Task {
+            defer { connecting = false }
+            switch await LassoAuth.probe(url) {
+            case .open:
+                onUse(url)
+                connectNote = "Connected. This lasso needs no sign-in from here."
+                urlDraft = ""
+                changingLasso = false
+                tick += 1
+            case .signIn(let metadata):
+                await signIn(url, metadata)
+            case .password:
+                connectNote = "This lasso asks for its UI_AUTH password (Keychain item ui-auth)."
+            case .unreachable(let why):
+                connectNote = "No answer from \(url.host ?? text): \(why)"
+            }
+        }
+    }
+
+    /// Show the lasso connection (Info), as a sign-out does.
+    public func showConnection() { tab = .info }
+
+    /// The lasso in use stopped taking its token: sign in to it again.
+    public func signInAgain() {
+        guard !connecting, let url = AuthState.shared.expired ?? URL(string: baseURL()) else { return }
+        connecting = true
+        Task {
+            defer { connecting = false }
+            guard case .signIn(let metadata) = await LassoAuth.probe(url) else {
+                connectNote = "This lasso no longer asks for a sign-in."
+                AuthState.shared.signedIn()
+                return
+            }
+            await signIn(url, metadata)
+        }
+    }
+
+    private func signIn(_ url: URL, _ metadata: URL) async {
+        connectNote = "Finish signing in in the window that opened."
+        do {
+            let g = try await OAuthSignIn(base: url, metadata: metadata, anchor: signInAnchor()).run()
+            TokenStore.write(g, for: url)
+            onSignedIn(url, g)
+            AuthState.shared.signedIn()
+            connectNote = "Signed in."
+            urlDraft = ""
+            changingLasso = false
+        } catch {
+            connectNote = String(describing: error)
+        }
+        tick += 1
+    }
+
+    public func signOut() {
+        onSignOut()
+        connectNote = "Signed out. This Mac holds no token for this lasso."
+        tick += 1
+    }
+
 
     static let seenKey = "onboarded"
     /// Settings open by themselves on the first launch only.
@@ -72,60 +203,30 @@ public final class SettingsModel: ObservableObject {
         self.usableHosts = usableHosts
     }
 
-    public func refresh() {
-        tick += 1
-        Task { await scan() }
-    }
-
-    /// The fixtures' list, in place of a scan.
-    public func show(lassos: [LassoChoice]) { self.lassos = lassos }
-
-    /// Ask every candidate lasso (LassoClient.candidates) at once.
-    public func scan() async {
-        guard let probe else { return }
-        let current = baseURL()
-        var urls = LassoClient.candidates
-        if let u = URL(string: current), !urls.contains(u) { urls.insert(u, at: 0) }
-        let found = await withTaskGroup(of: (Int, LassoChoice).self) { group in
-            for (i, u) in urls.enumerated() {
-                group.addTask { (i, LassoChoice(url: u.absoluteString, version: await probe(u))) }
-            }
-            var out: [(Int, LassoChoice)] = []
-            for await r in group { out.append(r) }
-            return out.sorted { $0.0 < $1.0 }.map(\.1)
-        }
-        lassos = found.filter { $0.version != nil || $0.url == current }
-    }
-
-    public func use(_ choice: LassoChoice) {
-        guard let url = URL(string: choice.url), choice.url != baseURL() else { return }
-        onUse(url)
-        tick += 1
-        Task { await scan() }
-    }
+    public func refresh() { tick += 1 }
 
     /// Set only when the user has just picked a shortcut that needs
     /// Accessibility and it is not granted: Settings says so then, and only then.
     @Published public private(set) var needsAccessibility = false
 
-    public func choose(_ c: InboxShortcutChoice) {
-        recording = false
-        shortcut = c
-        InboxShortcutChoice.stored = c
-        onShortcut(c)
+    public func choose(_ c: InboxShortcutChoice, for slot: ShortcutSlot = .inbox) {
+        recordingSlot = nil
+        shortcuts[slot] = c
+        InboxShortcutChoice.store(c, slot)
+        onShortcut(slot, c)
         needsAccessibility = c.needsAccessibility && permissions.accessibility != .granted
     }
 
-    public func startRecording() { recording = true }
+    public func startRecording(_ slot: ShortcutSlot = .inbox) { recordingSlot = slot }
 
     /// The settings panel's key handler, while recording: the next
-    /// combination becomes the shortcut, esc gives up. True when it took the key.
+    /// combination becomes that shortcut, esc gives up. True when it took the key.
     public func record(_ e: NSEvent) -> Bool {
-        guard recording else { return false }
+        guard let slot = recordingSlot else { return false }
         if Keys.esc.matches(e) {
-            recording = false
+            recordingSlot = nil
         } else if let c = InboxShortcutChoice.combo(from: e) {
-            choose(c)
+            choose(c, for: slot)
         }
         return true
     }

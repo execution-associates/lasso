@@ -38,8 +38,17 @@ public enum InboxShortcutChoice: Equatable, Sendable {
         keyCode: 49, modifiers: NSEvent.ModifierFlags.option.rawValue, display: "⌥Space")
 
     public static var stored: InboxShortcutChoice {
-        get { UserDefaults.standard.string(forKey: key).flatMap(InboxShortcutChoice.init(stored:)) ?? fallback }
-        set { UserDefaults.standard.set(newValue.stored, forKey: key) }
+        get { stored(.inbox) }
+        set { store(newValue, .inbox) }
+    }
+
+    /// A slot's shortcut, else its default.
+    public static func stored(_ slot: ShortcutSlot) -> InboxShortcutChoice {
+        UserDefaults.standard.string(forKey: slot.key).flatMap(InboxShortcutChoice.init(stored:)) ?? slot.fallback
+    }
+
+    public static func store(_ c: InboxShortcutChoice, _ slot: ShortcutSlot) {
+        UserDefaults.standard.set(c.stored, forKey: slot.key)
     }
 
     init?(stored s: String) {
@@ -100,7 +109,41 @@ public enum InboxShortcutChoice: Equatable, Sendable {
     }
 }
 
-/// Watches for the inbox shortcut and calls `action`.
+/// What a system-wide shortcut does. Each is the user's to change (Settings ›
+/// Shortcuts) and works from any app, so none may be a combination every app
+/// already uses (⌘O is File › Open nearly everywhere; ⌘O itself works only
+/// while a LassoDesktop window has the keyboard).
+public enum ShortcutSlot: String, CaseIterable, Sendable {
+    case inbox, newAgent, newScratch
+
+    var key: String { self == .inbox ? InboxShortcutChoice.key : "\(rawValue)Shortcut" }
+
+    public var title: String {
+        switch self {
+        case .inbox: "Open the inbox"
+        case .newAgent: "New agent in a repository"
+        case .newScratch: "New scratch agent"
+        }
+    }
+
+    public var fallback: InboxShortcutChoice {
+        let o: UInt16 = 31  // kVK_ANSI_O
+        switch self {
+        case .inbox: return InboxShortcutChoice.fallback
+        // Shift and one modifier: ⌃O alone is a terminal's (Claude Code's
+        // transcript, nano's save, vim's jump back), and ⌥O types "ø".
+        case .newAgent:
+            return .combo(keyCode: o, modifiers: NSEvent.ModifierFlags([.option, .shift]).rawValue, display: "⌥⇧O")
+        case .newScratch:
+            return .combo(keyCode: o, modifiers: NSEvent.ModifierFlags([.control, .shift]).rawValue, display: "⌃⇧O")
+        }
+    }
+
+    /// Only the inbox offers a double tap of a modifier.
+    public var allowsDoubleTap: Bool { self == .inbox }
+}
+
+/// Watches for one shortcut and calls `action`.
 @MainActor
 public final class InboxShortcut {
     private let action: () -> Void

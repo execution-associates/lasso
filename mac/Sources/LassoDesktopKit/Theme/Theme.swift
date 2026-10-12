@@ -125,7 +125,10 @@ public enum Theme {
         public static let edgeInset = Token("rail.edge_inset", 8, .measured("ref a2: 17 px from the screen edge"))
         public static let panelMargin = Token(
             "rail.panel.margin", 10, .inferred("room for the badge and the focus ring"), proposed: true)
-        public static let badgeSize = Token("rail.badge.size", 10, .measured("ref a2: 20 px dot"))
+        public static let badgeSize = Token(
+            "rail.badge.size", ["height": 16, "pad_h": 4, "font": 10],
+            .inferred("a count, not a dot (the user asked for the number of messages): plan 2.2's 16 pt badge with a 10 pt semibold count"),
+            proposed: true)
         public static let badgeRing = Token(
             "rail.badge.ring", ["width": 2, "color": "#12071F"], .measured("ref a2 ring; EXA ink-deep"))
         public static let badgeCenter = Token(
@@ -170,6 +173,18 @@ public enum Theme {
         public static let footer = Token(
             "settings.footer", ["logo_height": 18, "pad_v": 14],
             .inferred("isb sizes the lockup by height (h-7, 28 px, in its header); a footer takes it smaller"),
+            proposed: true)
+    }
+
+    /// The New Agent composer.
+    public enum NewAgent {
+        public static let layout = Token(
+            "new_agent.layout",
+            ["size": [560, 412], "pad": 20, "gap": 16, "radius": 14, "prompt_h": 168, "prompt_inset": 14,
+             "chip_h": 28, "chevron": 8, "switch_h": 24, "switch_w": 30, "switch_track": 18, "button_h": 32,
+             "hover": 0.35, "lit": 0.55, "tint": 0.1, "disabled": 0.4,
+             "menu_gap": 6, "menu_radius": 12, "menu_shadow": 18, "menu_shadow_y": 8, "menu_shadow_a": 0.45, "menu_min": 160],
+            .inferred("a composer: the prompt is the page, settings are chips beneath it, one primary action"),
             proposed: true)
     }
 
@@ -283,6 +298,9 @@ public enum Theme {
         public static let collapsed = Token(
             "agent.window.collapsed", ["size": [416, 60]],
             .measured("user screenshot of the minimized window: the header alone, 832x120 px"))
+        /// The New Agent form's filterable picker (repositories, branches).
+        public static let picker = Token(
+            "agent.picker", ["size": [300, 340]], .inferred("a filter field and about a dozen rows"), proposed: true)
         public static let media = Token(
             "agent.media", ["image_max_h": 320, "video_h": 240, "radius": 12],
             .inferred("an image or video the width of the conversation, never taller than about half the window"),
@@ -294,7 +312,7 @@ public enum Theme {
 
     public enum Chat {
         public static let bubble = Token(
-            "chat.bubble", ["fill": "#2D1D3C", "radius": 18, "pad_h": 19, "pad_v": 9], .measured("ref a5 shape; EXA --secondary"))
+            "chat.bubble", ["fill": "#2D1D3C", "radius": 18, "pad_h": 19, "pad_v": 9, "table_cell": 220, "dot": 6, "dot_lag": 0.9, "pending": 0.55], .measured("ref a5 shape; EXA --secondary"))
     }
 
 
@@ -386,7 +404,7 @@ public enum Theme {
         Rail.maxSlots, Rail.overflowFont, Rail.icon, Rail.ellipsisOuter, Rail.edge, Rail.edgeInset,
         Rail.panelMargin, Rail.badgeSize, Rail.badgeRing, Rail.badgeCenter, Rail.peek, Rail.peekFill, Rail.drag, Rail.hover, Rail.hoverFill, Rail.pressed,
         State.done, State.working, State.blocked, State.idle,
-        Settings.footer, Agent.window, Agent.collapsed, Agent.preview, Agent.media,
+        Settings.footer, Agent.window, Agent.collapsed, Agent.preview, Agent.media, Agent.picker, NewAgent.layout,
         Panel.surface, Panel.border, Panel.radius, Panel.inset, Panel.inner, Panel.divider, Panel.shadow,
         Control.round, Control.composer, Control.pill, Control.pillPrimary,
         Card.size, Card.titleX, Card.contentX, Card.unreadSegment, Card.unreadDot, Card.unreadGap, Card.keycapFill,

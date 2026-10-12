@@ -1,5 +1,6 @@
 import AppKit
 import LassoDesktopKit
+import Sparkle
 
 let args = CommandLine.arguments
 
@@ -21,4 +22,13 @@ let app = NSApplication.shared
 let delegate = AppDelegate(arguments: args)
 app.delegate = delegate
 app.setActivationPolicy(.accessory)
+// Updates (Sparkle), only in a release build: a dev build names no feed.
+let updater: SPUStandardUpdaterController? =
+    AppUpdates.configured ? SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil) : nil
+if let updater {
+    AppUpdates.checkNow = {
+        NSApp.activate(ignoringOtherApps: true)
+        updater.checkForUpdates(nil)
+    }
+}
 app.run()

@@ -7,7 +7,8 @@
     "card": null,
     "list": false,
     "chat": false,
-    "settings": true
+    "settings": true,
+    "settings_tab": "info"
   },
   "permissions": {
     "accessibility": "not_determined"

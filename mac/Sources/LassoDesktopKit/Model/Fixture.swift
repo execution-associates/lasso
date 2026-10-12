@@ -17,10 +17,16 @@ public struct Fixture: Decodable, Sendable {
         /// The bot the chat state talks to.
         public var bot: String?
         public var settings: Bool?
+        /// Which Settings tab is open (SettingsTab's raw value).
+        public var settings_tab: String?
         /// An agent's hover preview, or its own window (collapsed or not), by pane key.
         public var preview: String?
         public var window: String?
         public var collapsed: Bool?
+        /// The New Agent form (⌥⇧O, or ⌘O in a LassoDesktop window).
+        public var new_agent: Bool?
+        /// The form's open chip menu.
+        public var new_agent_menu: String?
         public var inbox: Bool?
     }
 
@@ -46,7 +52,6 @@ public struct Fixture: Decodable, Sendable {
     /// Chat payloads by pane key (host NUL pane_id), for the card and chat states.
     public var chats: [String: ChatPayload]
     /// What Settings' lasso picker found (the settings state).
-    public var lassos: [LassoChoice]?
     /// lasso's notification kinds and this Mac's choices (the settings state).
     public var notify: NotifyPayload?
 
@@ -59,7 +64,6 @@ public struct Fixture: Decodable, Sendable {
         var server: Server?
         var expect: Expect?
         var chats: [String: ChatPayload]?
-        var lassos: [LassoChoice]?
         var notify: NotifyPayload?
     }
 
@@ -79,7 +83,6 @@ public struct Fixture: Decodable, Sendable {
         var fx = Fixture(
             state: raw.state, now: now, ui: ui, permissions: raw.permissions ?? base?.permissions ?? [:],
             server: server, expect: raw.expect ?? base?.expect, chats: (base?.chats ?? [:]).merging(raw.chats ?? [:]) { $1 })
-        fx.lassos = raw.lassos ?? base?.lassos
         fx.notify = raw.notify ?? base?.notify
         return fx
     }

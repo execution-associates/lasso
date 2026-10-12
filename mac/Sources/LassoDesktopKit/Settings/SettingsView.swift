@@ -5,6 +5,7 @@ import SwiftUI
 /// permissions.
 public struct SettingsView: View {
     @ObservedObject var model: SettingsModel
+    @ObservedObject var auth = AuthState.shared
 
     public init(model: SettingsModel) { self.model = model }
 
@@ -23,21 +24,61 @@ public struct SettingsView: View {
             }
             .padding(.horizontal, pad)
             .padding(.top, Theme.Layout.card.number("top"))
+            tabs
+                .padding(.horizontal, pad)
+                .padding(.top, Theme.space("l"))
 
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: Theme.space("4xl")) {
-                    section("lasso") { lassoSection }
-                    section("Permissions") { permissionsSection }
-                    section("Inbox") { inboxSection }
+                    switch model.tab {
+                    case .notifications:
+                        section("Sound") { soundSection }
+                        section("Notify me about") { notifySection }
+                    case .shortcuts:
+                        section("Open the inbox") { inboxShortcutSection }
+                        section("New agents") { newAgentSection }
+                        section("Permissions") { permissionsSection }
+                    case .info: infoSection
+                    }
                 }
                 .padding(.horizontal, pad)
                 .padding(.vertical, Theme.space("2xl"))
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             footer
         }
         .panelChrome(Theme.Card.size.size, anchor: "settings")
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Settings")
+    }
+
+    /// The tabs, as a segmented row: the chosen one lifted.
+    private var tabs: some View {
+        HStack(spacing: Theme.space("2xs")) {
+            ForEach(SettingsTab.allCases, id: \.self) { t in
+                let on = t == model.tab
+                Button { model.tab = t } label: {
+                    Text(t.title)
+                        .font(Theme.Fonts.small.font.weight(on ? .semibold : .regular))
+                        .foregroundStyle(on ? Theme.Text.primary.color : Theme.Text.secondary.color)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: Theme.NewAgent.layout.number("switch_h"))
+                        .background {
+                            if on {
+                                Capsule().fill(Theme.Control.round.color("fill"))
+                                    .overlay(Capsule().strokeBorder(Theme.Panel.divider.color, lineWidth: 1))
+                            }
+                        }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(t.title)
+                .accessibilityAddTraits(on ? .isSelected : [])
+                .parityAnchor("settings.tab[\(t.rawValue)]")
+            }
+        }
+        .padding(Theme.space("2xs"))
+        .background(Capsule().fill(Theme.Panel.inner.color("fill")))
     }
 
     /// Who makes it: the Execution Associates lockup, linking to the site.
@@ -99,14 +140,80 @@ public struct SettingsView: View {
 
     @ViewBuilder private var lassoSection: some View {
         let current = model.baseURL()
-        let list = model.lassos.isEmpty ? [LassoChoice(url: current, version: model.version())] : model.lassos
-        ForEach(list) { c in lassoRow(c, inUse: c.url == current) }
-        if let h = model.usableHosts() { line("\(h.usable) of \(h.total) machines usable", secondary: true) }
-        if model.version() == nil { line("Not answering yet. Is the tunnel up?", secondary: true) }
+        if auth.expired != nil {
+            HStack(spacing: Theme.space("m")) {
+                Text("lasso signed this Mac out.").font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
+                Spacer()
+                PillButton(title: "Sign in again", primary: true, label: "Sign in to lasso again") { model.signInAgain() }
+            }
+            .parityAnchor("settings.signin_again")
+        }
+        HStack(alignment: .top) {
+            lassoRow(LassoChoice(url: current, version: model.version(), name: model.lassoName()))
+            if !model.changingLasso {
+                PillButton(title: "Change…", label: "Connect this Mac to another lasso") { model.changingLasso = true }
+            }
+        }
+        if model.changingLasso {
+            HStack(spacing: Theme.space("m")) {
+            TextField("Address, e.g. lasso.example.com", text: $model.urlDraft)
+                .textFieldStyle(.plain)
+                .font(Theme.Fonts.body.font)
+                .foregroundStyle(Theme.Text.primary.color)
+                .padding(.horizontal, Theme.space("l"))
+                .frame(height: Theme.NewAgent.layout.number("chip_h"))
+                .background(Capsule().fill(Theme.Panel.inner.color("fill")))
+                .onSubmit { model.connect() }
+                .accessibilityLabel("lasso address")
+            PillButton(title: model.connecting ? "Connecting…" : "Connect", label: "Connect to the lasso at this address") {
+                model.connect()
+            }
+            PillButton(title: "Cancel", label: "Keep this lasso") {
+                model.changingLasso = false
+                model.urlDraft = ""
+            }
+            }
+        }
+        if model.signedIn {
+            HStack {
+                line("Signed in on this Mac.", secondary: true)
+                Spacer()
+                PillButton(title: "Sign out", label: "Sign out of this lasso") { model.signOut() }
+            }
+        }
+        if let note = model.connectNote { line(note, secondary: true) }
     }
 
-    /// One lasso: what it is, where, and Use for the ones not in use.
-    private func lassoRow(_ c: LassoChoice, inUse: Bool) -> some View {
+    /// The app's version and updates, and the lasso it talks to.
+    @ViewBuilder private var infoSection: some View {
+        section("lasso") {
+            lassoSection
+            if let v = model.version(), let h = v.herdr_version { line("herdr \(h)", secondary: true) }
+            if let h = model.usableHosts() { line("Drives \(h.usable) of \(h.total) machines", secondary: true) }
+        }
+        section("LassoDesktop") {
+            HStack {
+                line("Version \(AppUpdates.version)")
+                Spacer()
+                if let check = AppUpdates.checkNow {
+                    PillButton(title: "Check for updates", label: "Check for a newer LassoDesktop") { check() }
+                }
+            }
+            if AppUpdates.checkNow == nil { line("A development build: it does not update itself.", secondary: true) }
+            Switch(on: model.inDock, label: "Show in the Dock") { model.setDock(!model.inDock) }
+                .padding(.top, Theme.space("s"))
+            Switch(on: model.inMenuBar, label: "Show in the menu bar, with the inbox's count") { model.setMenuBar(!model.inMenuBar) }
+            HStack {
+                line("The rail stays on the screen edge either way. Quitting lasts until the next login.", secondary: true)
+                Spacer()
+                PillButton(title: "Quit LassoDesktop", textColor: Theme.dangerText.color, label: "Quit LassoDesktop") { model.quit() }
+            }
+            .padding(.top, Theme.space("s"))
+        }
+    }
+
+    /// The lasso: what it is and where.
+    private func lassoRow(_ c: LassoChoice) -> some View {
         HStack(alignment: .top, spacing: Theme.space("m")) {
             Circle()
                 .fill(c.version == nil ? Theme.State.blocked.color : Theme.State.done.color)
@@ -116,23 +223,19 @@ public struct SettingsView: View {
             VStack(alignment: .leading, spacing: Theme.space("hair")) {
                 HStack(spacing: Theme.space("s")) {
                     Text(c.title).font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
-                    if inUse { Text("In use").font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color) }
                 }
                 Text(c.detail).font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color)
             }
             Spacer()
-            if !inUse, c.version != nil {
-                PillButton(title: "Use", label: "Use \(c.title) at \(c.detail)") { model.use(c) }
-            }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(c.title), \(c.detail)\(inUse ? ", in use" : "")")
+        .accessibilityLabel("\(c.title), \(c.detail)")
     }
 
-    @ViewBuilder private var inboxSection: some View {
+    /// The shortcut that opens the inbox.
+    @ViewBuilder private var inboxShortcutSection: some View {
         let sc = model.shortcut
         VStack(alignment: .leading, spacing: Theme.space("s")) {
-            Text("Shortcut").font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
             HStack(spacing: Theme.space("s")) {
                 let fallback = InboxShortcutChoice.fallback
                 choice(fallback.label, on: sc == fallback, label: "\(fallback.label) opens the inbox") { model.choose(fallback) }
@@ -160,9 +263,12 @@ public struct SettingsView: View {
             } else if model.recording {
                 line("Press the combination, with ⌘, ⌥ or ⌃. esc cancels.", secondary: true)
             }
+        }
+    }
 
-            Text("Sound").font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
-                .padding(.top, Theme.space("s"))
+    /// What an arrival sounds like, and which kinds may interrupt this Mac.
+    @ViewBuilder private var soundSection: some View {
+        VStack(alignment: .leading, spacing: Theme.space("s")) {
             HStack(spacing: Theme.space("s")) {
                 ForEach(InboxSound.all.map { ($0.id, $0.name) } + [(InboxSound.none, "None")], id: \.0) { id, name in
                     choice(name, on: model.sound == id, label: id == InboxSound.none ? "No sound" : "Play \(name) when something arrives") {
@@ -186,13 +292,38 @@ public struct SettingsView: View {
             }
             if let n = model.soundNotice { line(n, secondary: true) }
             line("Plays when something new lands in the inbox. Picking one plays it. Your own sound is kept on lasso, so every Mac using it gets it.", secondary: true)
-            if let n = model.notify() {
-                Text("Notify me about").font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
-                    .padding(.top, Theme.space("s"))
-                ForEach(n.kinds) { k in notifyRow(k, on: n.wants(k.id)) }
-                line("On this Mac, a kind that is off makes no sound. The inbox still lists everything waiting.", secondary: true)
-            }
         }
+    }
+
+    @ViewBuilder private var notifySection: some View {
+        if let n = model.notify() {
+            ForEach(n.kinds) { k in notifyRow(k, on: n.wants(k.id)) }
+            line("On this Mac, a kind that is off makes no sound. The inbox still lists everything waiting.", secondary: true)
+        } else {
+            line("This lasso has no notification kinds yet: every arrival sounds.", secondary: true)
+        }
+    }
+
+    /// ⌥⇧O and ⌃⇧O by default, each the user's to record anew or turn off.
+    @ViewBuilder private var newAgentSection: some View {
+        ForEach([ShortcutSlot.newAgent, .newScratch], id: \.self) { slot in
+            let sc = model.shortcuts[slot] ?? slot.fallback
+            HStack(spacing: Theme.space("m")) {
+                Text(slot.title).font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
+                Spacer()
+                choice(model.recordingSlot == slot ? "Press keys…" : (sc == .off ? "Record…" : sc.label), on: model.recordingSlot == slot,
+                       label: "\(slot.title): \(sc == .off ? "no shortcut" : sc.label). Record another") {
+                    model.startRecording(slot)
+                }
+                choice("Off", on: sc == .off, label: "\(slot.title): no shortcut") { model.choose(.off, for: slot) }
+            }
+            .parityAnchor("settings.shortcut[\(slot.rawValue)]")
+        }
+        line(
+            model.recordingSlot.map { $0 != .inbox } == true
+                ? "Press the combination, with ⌘, ⌥ or ⌃. esc cancels."
+                : "These work from any app. While a LassoDesktop window has the keyboard, ⌘O and ⇧⌘O do the same.",
+            secondary: true)
     }
 
     private func notifyRow(_ k: NotifyKind, on: Bool) -> some View {

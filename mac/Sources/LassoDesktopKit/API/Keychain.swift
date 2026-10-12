@@ -17,11 +17,14 @@ public enum Keychain {
         case openai
     }
 
-    public static func read(_ account: Account) -> String? {
+    public static func read(_ account: Account) -> String? { read(account: account.rawValue) }
+
+    /// An account by name: a lasso's tokens live under "oauth:<origin>".
+    public static func read(account: String) -> String? {
         let q: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account.rawValue,
+            kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
@@ -35,11 +38,14 @@ public enum Keychain {
     public static func isSet(_ account: Account) -> Bool { read(account)?.isEmpty == false }
 
     @discardableResult
-    public static func write(_ account: Account, _ value: String) -> Bool {
+    public static func write(_ account: Account, _ value: String) -> Bool { write(account: account.rawValue, value) }
+
+    @discardableResult
+    public static func write(account: String, _ value: String) -> Bool {
         let base: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account.rawValue,
+            kSecAttrAccount as String: account,
         ]
         let data = Data(value.utf8)
         if SecItemUpdate(base as CFDictionary, [kSecValueData as String: data] as CFDictionary) == errSecSuccess {
@@ -50,11 +56,13 @@ public enum Keychain {
         return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
     }
 
-    public static func delete(_ account: Account) {
+    public static func delete(_ account: Account) { delete(account: account.rawValue) }
+
+    public static func delete(account: String) {
         let q: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account.rawValue,
+            kSecAttrAccount as String: account,
         ]
         SecItemDelete(q as CFDictionary)
     }

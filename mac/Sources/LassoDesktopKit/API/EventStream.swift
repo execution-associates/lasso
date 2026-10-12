@@ -109,13 +109,19 @@ public final class EventStream: @unchecked Sendable {
         client: LassoClient, clientID: String, watchdog: Double, onEvent: @escaping @Sendable (SSEEvent) -> Void,
         onLive: @escaping @Sendable () -> Void
     ) async throws {
+        // The stream carries the token like any request; a refusal refreshes
+        // it for the reconnect.
+        await client.auth?.freshen()
         let req = client.streamRequest("/api/events", query: ["host": "local", "client": clientID])
         let last = LastSeen()
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
                 let (bytes, resp) = try await URLSession.shared.bytes(for: req)
                 let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-                guard code == 200 else { throw LassoError.http(code, "event stream") }
+                guard code == 200 else {
+                    if code == 401 { _ = await client.auth?.refreshAfterRefusal() }
+                    throw LassoError.http(code, "event stream")
+                }
                 onLive()
                 var parser = SSEParser()
                 var line: [UInt8] = []

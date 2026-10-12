@@ -199,15 +199,25 @@ public final class InboxModel: ObservableObject {
     public func acknowledge(_ n: InboxNotice) { fleet.notices.removeAll { $0.id == n.id } }
 
     /// What arrived, for the arrival sound: an entry with a new mark, or a
-    /// notice, each with the kind it is (which this Mac may not want to hear).
-    public var arrivals: [String: String] {
-        var out: [String: String] = [:]
+    /// notice, each with the kinds that announce it (this Mac may want none).
+    /// A bot's turn is one announcement, as lasso's notifDelivers has it: the
+    /// reply (bot_message) or, for a Mac that does not take replies, the
+    /// finished turn; a bot with notify off announces no turn at all. A
+    /// bot's question is agent_blocked like any agent's.
+    public var arrivals: [String: [String]] {
+        var out: [String: [String]] = [:]
         for e in entries {
-            let kind =
-                e.kind == .waiting ? NotifyKinds.agentBlocked : (e.bot != nil ? NotifyKinds.botMessage : NotifyKinds.agentFinished)
-            out["\(e.id)@\(e.mark)"] = kind
+            let kinds: [String]
+            switch (e.kind, e.bot) {
+            case (.waiting, _): kinds = [NotifyKinds.agentBlocked]
+            case (.finished, nil): kinds = [NotifyKinds.agentFinished]
+            case (.finished, let name?):
+                let notify = fleet.bots.first { $0.name == name && $0.host == e.pane.host }?.notify ?? true
+                kinds = notify ? [NotifyKinds.botMessage, NotifyKinds.agentFinished] : []
+            }
+            out["\(e.id)@\(e.mark)"] = kinds
         }
-        for n in fleet.notices { out["notice:\(n.id)"] = n.kind }
+        for n in fleet.notices { out["notice:\(n.id)"] = [n.kind] }
         return out
     }
 }

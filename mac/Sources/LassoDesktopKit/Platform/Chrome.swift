@@ -197,3 +197,159 @@ struct ComposerRow<Model: ComposerModel>: View {
         .parityAnchor("composer")
     }
 }
+
+/// A one-line text field that takes the cursor as it appears, with its text
+/// selected (a rename in place). ⏎ submits and esc cancels, unless the
+/// panel's own key handler takes them first. A click anywhere outside it, or
+/// its window losing the keyboard, submits too (as Finder's rename does).
+struct InlineField: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+    let label: String
+    var font: NSFont = Theme.Fonts.name.nsFont
+    var onSubmit: () -> Void = {}
+    var onCancel: () -> Void = {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text, submit: onSubmit, cancel: onCancel) }
+
+    static func dismantleNSView(_ f: NSTextField, coordinator: Coordinator) { coordinator.stopWatching() }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let f = NSTextField(string: text)
+        f.isBordered = false
+        f.isBezeled = false
+        f.drawsBackground = false
+        f.focusRingType = .none
+        f.font = font
+        f.textColor = Theme.Text.primary.nsColor
+        f.placeholderAttributedString = NSAttributedString(
+            string: placeholder, attributes: [.foregroundColor: Theme.Text.placeholder.nsColor, .font: font])
+        f.delegate = context.coordinator
+        f.setAccessibilityLabel(label)
+        DispatchQueue.main.async {
+            f.window?.makeKeyAndOrderFront(nil)
+            f.window?.makeFirstResponder(f)
+            f.currentEditor()?.selectAll(nil)
+            context.coordinator.watch(f)
+        }
+        return f
+    }
+
+    func updateNSView(_ f: NSTextField, context: Context) {
+        if f.stringValue != text { f.stringValue = text }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var text: Binding<String>
+        let submit: () -> Void
+        let cancel: () -> Void
+        init(text: Binding<String>, submit: @escaping () -> Void, cancel: @escaping () -> Void) {
+            self.text = text
+            self.submit = submit
+            self.cancel = cancel
+        }
+        func controlTextDidChange(_ n: Notification) {
+            if let f = n.object as? NSTextField { text.wrappedValue = f.stringValue }
+        }
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            switch selector {
+            case #selector(NSResponder.insertNewline(_:)): submit()
+            case #selector(NSResponder.cancelOperation(_:)): cancel()
+            default: return false
+            }
+            return true
+        }
+
+        private var monitor: Any?
+        private var resign: NSObjectProtocol?
+
+        /// End the edit on a click outside the field, in its window or any
+        /// other of the app's, and when its window loses the keyboard (a click
+        /// in another app). Submitting twice is harmless: the models guard it.
+        func watch(_ f: NSTextField) {
+            stopWatching()
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self, weak f] e in
+                if let f, e.window !== f.window || !f.bounds.contains(f.convert(e.locationInWindow, from: nil)) {
+                    self?.end(f)
+                }
+                return e
+            }
+            if let w = f.window {
+                resign = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: w, queue: .main) {
+                    [weak self, weak f] _ in
+                    MainActor.assumeIsolated { if let f { self?.end(f) } }
+                }
+            }
+        }
+
+        private func end(_ f: NSTextField) {
+            stopWatching()
+            f.window?.makeFirstResponder(nil)
+            submit()
+        }
+
+        func stopWatching() {
+            if let m = monitor { NSEvent.removeMonitor(m) }
+            if let r = resign { NotificationCenter.default.removeObserver(r) }
+            monitor = nil
+            resign = nil
+        }
+    }
+}
+
+/// The pointing hand over a renamable title: pushed once, popped once, however
+/// the hover ends (a click swaps the title for a field under the pointer).
+@MainActor
+enum TitleCursor {
+    private static var pushed = false
+
+    static func hover(_ inside: Bool) {
+        if inside, !pushed {
+            NSCursor.pointingHand.push()
+            pushed = true
+        } else if !inside, pushed {
+            NSCursor.pop()
+            pushed = false
+        }
+    }
+}
+
+/// An agent's name, as a window or card shows it. A click (or right-click,
+/// Rename…) turns it into a field: ⏎ keeps, esc cancels, empty clears the
+/// label. The pointer is a pointing hand over a name that can be renamed.
+struct AgentTitle: View {
+    @ObservedObject var model: CardModel
+    var font: Token = Theme.Fonts.title
+    var anchor = "agent.title"
+
+    var body: some View {
+        let p = model.current
+        if model.renaming {
+            InlineField(
+                text: $model.renameDraft, placeholder: p.displayName, label: "New name for \(p.displayName)", font: font.nsFont,
+                onSubmit: { model.commitRename() }, onCancel: { model.cancelRename() }
+            )
+            .padding(.horizontal, Theme.space("s"))
+            .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).strokeBorder(Theme.accent.color, lineWidth: 1))
+            .parityAnchor(anchor)
+        } else {
+            Text(p.displayName)
+                .font(font.font)
+                .foregroundStyle(Theme.Text.primary.color)
+                .lineLimit(1)
+                .contentShape(Rectangle())
+                .onHover { TitleCursor.hover($0 && model.canRename) }
+                .onDisappear { TitleCursor.hover(false) }
+                .onTapGesture {
+                    TitleCursor.hover(false)
+                    model.startRename()
+                }
+                .contextMenu {
+                    if model.canRename { Button("Rename…") { model.startRename() } }
+                }
+                .accessibilityAction(named: "Rename") { model.startRename() }
+                .parityAnchor(anchor)
+        }
+    }
+}

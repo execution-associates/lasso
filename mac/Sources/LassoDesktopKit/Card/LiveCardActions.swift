@@ -17,6 +17,18 @@ public final class LiveCardActions: CardActions {
 
     public var canAcknowledge: Bool { fleet.uiState.dismissed_cards != nil }
 
+    struct Rename: Encodable {
+        var pane_id: String
+        var name: String
+    }
+    struct Renamed: Decodable { var ok: Bool? }
+
+    /// POST /api/agent/rename, then the new name everywhere at once.
+    public func rename(_ pane: HostPane, to name: String) async throws {
+        let _: Renamed = try await client.post("/api/agent/rename", query: ["host": pane.host], json: Rename(pane_id: pane.pane_id, name: name))
+        fleet.relabel(pane.key, name.isEmpty ? nil : name)
+    }
+
     /// The omp bot running in this pane: its chat, messages and questions go
     /// through the bot's own routes, which see its pending requests.
     private func ompBot(_ pane: HostPane) -> BotView? {
@@ -170,6 +182,8 @@ public final class FixtureCardActions: CardActions {
     public func chat(_ pane: HostPane) async throws -> ChatPayload {
         chats[pane.key] ?? ChatPayload(pane_id: pane.pane_id, agent: pane.agent, host: pane.host, items: [])
     }
+
+    public func rename(_ pane: HostPane, to name: String) async throws { calls.append("rename:\(name)") }
 
     public func send(_ pane: HostPane, text: String) async throws -> Outcome {
         calls.append("send")

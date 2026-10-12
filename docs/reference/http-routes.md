@@ -63,6 +63,7 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 | --- | --- |
 | `/api/create-agent`, `/api/agent-upload` | Create an agent; stage its attachments. |
 | `/api/agent/close`, `/api/agent/reopen`, `/api/agent-history` | Close an agent (what `lasso closeme` calls); reopen a closed agent's directory; past agents for the pane switcher. |
+| `/api/agent/rename` | Set or clear an agent's custom label (herdr's `agent.rename`), `{pane_id, name}` with `?host=`; an empty name clears it. A bot's pane is refused (409): lasso finds a bot by that name. |
 | `/api/create-terminal`, `/api/workspaces` | Open a plain terminal; list workspaces to put it in. |
 | `/api/agent-config`, `/api/repo-config`, `/api/repos`, `/api/repo-branches`, `/api/auto-title` | New dialog settings, repos and branches. |
 | `/api/chat`, `/api/chat/send`, `/api/chat/answer` | The chat view: read an agent's transcript, send it a message, answer its question dialog. `/api/chat`'s `host` is the pane's machine; the log may be served from another host lasso drives, named by `served_by`. An empty answer carries `unavailable: {reason, checked, unanswered}`. |

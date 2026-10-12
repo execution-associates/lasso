@@ -21,12 +21,13 @@ the LassoDesktop brief (plan mode, 2026-10-11). The spec the harness asserts aga
 
 | Brief says | Plan does | Why |
 |---|---|---|
-| Optional bearer token for a remote lasso | UI_AUTH basic in the Keychain, plus optional Cloudflare Access service-token headers (`CF-Access-Client-Id`, `CF-Access-Client-Secret`) | `withAuth` reads only `r.BasicAuth()` (`src/main.go:3285-3299`). Making `/api/*` accept MCP bearers would hand a host-scoped MCP credential the whole UI API, which has no `requireHost` checks. |
+| Optional bearer token for a remote lasso | Whatever the lasso's network proves (§18): nothing on loopback or the tailnet, a bearer token from the network's OAuth server behind Cloudflare Access or with `MCP_OAUTH`, UI_AUTH basic for an older install, and an Access service token for an unattended Mac. All come from the Keychain. | A host-scoped MCP credential must not reach the whole UI API, which has no `requireHost` checks. So the token is the device's own sign-in, never a copied MCP token (the lasso-auth design). |
 | Ad-hoc `codesign` | Sign with a self-signed identity in a dedicated keychain on minime. Ad-hoc is only the fallback for a fresh Mac and prints a warning. | TCC keys grants on the designated requirement. An ad-hoc cdhash changes every build. |
 | `dist/LassoDesktop.app`, `dist/parity/` | `mac/dist/…` | The repo-root `dist/` is the release workflow's output (`dist/lasso-*`). |
 | Mac's `127.0.0.1:8090` | The app defaults to `http://127.0.0.1:8090` as the brief says. On minime, the dev script points it at our own tunnel on `127.0.0.1:18090`. | `jessica-triage`'s mux holds 8090 on minime, and binding over it would fail `ExitOnForwardFailure`. |
 | Frameworks: SwiftUI, AppKit, Foundation, AVFoundation, CoreGraphics only | The rule is **no third-party code**. Other Apple frameworks are allowed: Combine (`@Published`), Security (Keychain, required by constraint 4), ScreenCaptureKit (`S` attach), ApplicationServices (`AXIsProcessTrusted`), Carbon (`RegisterEventHotKey`, optional summon key). CoreML and Accelerate come later, for on-device ASR. | Constraints 3 and 4 can't be met with the brief's list. |
 | One executable target | One executable `LassoDesktop` plus a library `LassoDesktopKit` and a test target | The harness is `LassoDesktop --parity`, the same shipped binary, so parity measures the real code. |
+| No third-party code | Sparkle, for updates, is the one exception (the user asked for it). Only the executable target links it; the kit, its tests and the parity harness do not. | Updates need a signed feed and an installer, and Sparkle is the standard one. Recap already ships it the same way. |
 
 ## 1. Scope
 
@@ -698,11 +699,11 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 **What counts as seeing an item:**
 - An item is seen when the card lands on it: opened from the rail, or paged to with `J`/`K`.
 
-**The badge means "new since you looked":**
-- It shows when at least one item that is not acknowledged is unseen.
-- Its colour is the most urgent such item's state.
-- The peek's dot follows the same rule.
-- Seen items stay listed until they are answered, acknowledged, or no longer qualify. Seeing an item only takes it out of the badge.
+**The badge counts the inbox:**
+- It shows the number of messages the inbox holds: entries plus notices, "99+" past 99. It is hidden when the inbox is empty.
+- It is red while one of them waits on the human, and green when only finished turns and notices are left.
+- **The peek's dot means "new since you looked":** it shows when at least one item that is not acknowledged is unseen, in the colour of the most urgent such item.
+- Seen items stay listed until they are answered, acknowledged, or no longer qualify. Seeing an item only takes it out of the peek's dot.
 
 **Empty state:** "Nothing waiting on you." with a second line: "Questions, finished turns and notices from your claude and omp agents land here." An empty Inbox is the normal state, not an error, so it has no illustration and no call to action.
 
@@ -795,9 +796,10 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 
 ## 14. Connecting to a dev lasso
 
-The app can talk to any lasso this Mac reaches, and switches between them in place.
-
-- **Settings lists every lasso that answers** `/api/version`: the candidates are `lassoCandidates` in UserDefaults (on minime, the tunnel's 18090 and 18190–18199), else production's 8090 and the 8190–8199 a `mise run dev` lasso binds. Each row says production or dev (`/api/version`'s `dev`), its version, and for a dev lasso the address it bound. **Use** switches.
+A Mac uses one lasso. Settings has three tabs:
+- **Notifications:** the arrival sound and Notify me about.
+- **Shortcuts:** opening the inbox, the new-agent shortcuts, and Accessibility, which only the double-tap shortcut needs.
+- **Info:** first the lasso, named by the machine it runs on ("titan"), with its release number (never a build's `(dev)` tag), the address this Mac reaches it at, sign-in, herdr's version and how many machines it drives. **Change…** opens the address field for moving to another lasso (§18); it stays closed otherwise. A sign-out opens Settings here. Then the app: its version and Check for updates, **Show in the Dock** (the app turns regular, with a menu bar of Settings… ⌘, and Quit ⌘Q; clicking the Dock icon opens the inbox), **Show in the menu bar** (a lasso icon with the inbox's count, and Open Inbox, New Agent…, Settings…, Quit), both off by default and applied at once (`AppPresence`, UserDefaults `showInDock`/`showInMenuBar`), and **Quit LassoDesktop**, which lasts until the next login: the launch agent restarts the app only after a crash.
 - **Switching is in place.** Every live action shares one `LassoClient`. `FleetSync.retarget` repoints it, empties the fleet, restarts the event stream and refills from the new lasso, and the choice is remembered. Open panels close, since they belonged to the old lasso.
 - **From titan:** `mac/Scripts/dev.sh use dev` finds the `mise run dev` backend (this worktree's, else the first on 8190–8199), checks it answers through the tunnel and relaunches the app on it. `use prod` goes back, and `use PORT` picks one.
 - **The tunnel** (`lasso-desktop-tunnel.service`) forwards minime's 18190–18199 to titan's 8190–8199, so a dev lasso that bumped past 8190 is still reachable.
@@ -857,22 +859,109 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
   - Settings › Inbox lists **Notify me about** from the server's catalog (`GET /api/notify?device=`), and each On/Off is written per kind (`POST /api/notify/device`).
   - The arrival sound plays only for a kind this Mac wants. Each arrival maps to a kind:
     - a waiting entry is `agent_blocked`
-    - a finished turn is `agent_finished` (off by default), or `bot_message` for a bot
+    - a finished turn is `agent_finished` (off by default)
+    - a bot's turn is announced once, under lasso's `notifDelivers` rule: as `bot_message` when the Mac takes replies, else as `agent_finished`. When the bot's own `notify` is off, its turn makes no sound. A bot's question is `agent_blocked`.
     - a notice is `lasso_notice` or `agent_message`
   - A choice never hides anything from the inbox.
   - lasso's notices and agents' pings arrive as the `notification` event when the server has kinds, and as the older `notice` event otherwise; the app takes one or the other, never both.
-  - Against a lasso without kinds (titan's production lasso until that branch is built into it), the list is absent and every arrival sounds.
+  - Against a lasso without kinds, the list is absent and every arrival sounds.
 
-## 18. Later: signing in to a deployed lasso through Cloudflare Access
+**An agent's prose is rendered as Markdown** (`Agent/Markdown.swift`), in the window, the hover preview and the inbox card. That covers headings, bullet and numbered lists (nested), fenced code in the terminal face, pipe tables (right-aligned where the delimiter row says so; short cells keep their width, long ones wrap; sideways scrolling only when the table cannot fit), quotes and rules. Inline Markdown (bold, inline code in the terminal face, links) is AttributedString's. Your own messages stay plain.
 
-The user's lasso is `https://lasso.orangecountyai.com`, behind Cloudflare Zero Trust (Access). The app should connect to it by URL and authenticate the way a browser does, rather than needing a tunnel. Not built yet.
-- **Settings › lasso gains a URL field.** For an `https` lasso, the app first probes `/api/version` without credentials. A redirect to `<team>.cloudflareaccess.com` means Access sits in front.
-- **Sign-in through the browser, the way `cloudflared access login` does it.** The app opens the Access login for that hostname in an `ASWebAuthenticationSession`, so the user's identity provider, MFA and device posture all apply as they do for the web app. It keeps the resulting `CF_Authorization` application token in the Keychain, then sends it on every request as the `cf-access-token` header (the event stream included), never in plain storage.
-- **Refresh:** a 401 or 403, or a redirect to the Access login, marks the token expired. The app keeps the user's state, asks once to sign in again, and resumes the event stream afterwards.
-- **lasso's own `UI_AUTH`** still applies behind Access when it is set: basic credentials from the Keychain, as today. A service token (`CF-Access-Client-Id`/`Secret`, which the client already sends when stored) stays the non-interactive alternative for a shared Mac.
-- **Open questions:**
-  - Whether this team's Access application allows the CLI/native login flow, or needs `cloudflared`'s transfer endpoint.
-  - Whether to support several saved deployments at once, alongside the tunnel and dev entries of §14.
+**Waits are visible.** The conversation's foot shows three pulsing dots and what it waits on (`CardModel.phase`):
+- **Loading the conversation** before the first answer.
+- **Starting <harness>** while a new agent has no transcript yet.
+- **<harness> is working** while it is on its turn. This is never shown while it waits on you.
+
+A message you send shows at once, faded, under **Sending…**, until it appears in the transcript.
+
+**Renaming an agent:** click the agent's name in the inbox card or either agent window (the hover preview and the window), where the pointer becomes a pointing hand, or right-click it there or on a row of the agents list and choose **Rename…**. A click on a list row still opens the agent. The name becomes a field: it holds the agent's label, or is empty with the shown name as its placeholder when there is none, so a click away with nothing typed changes nothing. herdr's agent names are identifiers (a lowercase letter first, then lowercase letters, digits, `-` and `_`, at most 32), so what is typed becomes one: "Check HN page" is `check-hn-page` (`AgentName`, the same rule as lasso's `agentName`). ⏎ or a click anywhere else (or another app taking the keyboard) keeps the new name, as Finder does; esc keeps the old one; an empty name clears the label so the tab's name shows again. It is herdr's custom agent label, set through lasso's `POST /api/agent/rename`. A bot has no Rename, because lasso finds a bot by that name; bots are renamed in their own settings.
+
+## 20. Launching agents (the web app's ⌘O and ⌘⇧O)
+
+The Mac launches agents the way lasso's web New dialog does (`src/web/src/components/NewDialog.tsx`), over the same routes:
+- `GET /api/agent-config?host=` returns the harnesses, the default or last agent and the last repository.
+- `GET /api/repos?host=` lists the repositories, and `GET /api/repo-branches?path=&host=` their branches.
+- `POST /api/create-agent` creates the agent. It answers as soon as the record, workspace and root pane exist, and the agent boots afterwards. So the new agent's **own window** (§19) opens right away on that pane, and its conversation fills in as it starts.
+
+**The form:**
+- In a repository (a Git agent: repository plus base branch, picked with a filter, since titan has 183 repositories and 502 branches in lasso), or Scratch.
+- The prompt: its first line names the agent.
+- Agent, model and thinking effort.
+- The machine, when lasso drives more than one. Every machine shows by its name: lasso's own machine is "local" on the wire, but by its hostname on screen, because it is rarely the Mac the app runs on. Cards and agent windows always name the machine for the same reason.
+- Plan first, where the harness has it.
+- ⌘⏎ creates and esc cancels. A failed create says why and keeps the form.
+- Dragging the header moves the form. It opens where it was last left (UserDefaults `newAgentOrigin`), or centred high on the screen when that spot is off every screen.
+
+**Shortcuts** are configurable in Settings › New agents, like the inbox's:
+- **⌥⇧O** for an agent in a repository and **⌃⇧O** for a scratch agent, from any app. The user's rule is at most three keys, never four.
+- Shift keeps ⌃O for terminals (Claude Code's transcript view, nano's save, vim's jump back, the shell) and ⌥O for typing "ø". ⌥⇧O no longer types "Ø" while it is set.
+- **⌘O and ⌘⇧O** do the same while a LassoDesktop window has the keyboard, as in the web app. They are never system-wide, because ⌘O is every app's File › Open.
+- The rail has a **+** button above the ellipsis, and the agents list a **New agent** button. The **+** opens the form on a click only: hovering lights it but does not open it, because the form takes the keyboard.
+- Each chip opens its menu inside the form, toward the side with room (a system popover from a floating panel can land half off screen). Long lists (repositories, branches, a big fleet) and the model have a filter that takes the typing, like the web app's combobox; ↑/↓ move and ⏎ picks. The model's suggestions are a hint, as in the web's EditableCombobox: a typed name no suggestion has is offered first as Use “<name>”.
+
+All three system-wide shortcuts (inbox, new agent, new scratch agent) are `ShortcutSlot`s, each stored on its own and recorded the same way.
+
+## 18. Signing in to a lasso
+
+The app uses one lasso at a time and reaches it by address (`API/Auth.swift`, `API/LassoClient.swift`, Settings › lasso). This is step 8 of the lasso-auth design. The server's side is on branch `lasso-auth`.
+
+**Settings › lasso has an address field and Connect.** A bare hostname means `https://`, and `127.*`/`localhost` mean `http://`. Connect asks `GET /api/version` with no credential, sending `X-Requested-With: XMLHttpRequest`, which is Cloudflare's way of getting a clean 401 rather than a login redirect.
+- **200:** nothing to send. The address is loopback, or a tailnet listener that knows the device by Tailscale whois. The app switches to it.
+- **401 with `WWW-Authenticate: Bearer … resource_metadata="<url>"`:** RFC 9728 discovery, then a sign-in.
+  - Read that document. Take `authorization_servers[0]`, then its RFC 8414 metadata.
+  - Behind Cloudflare Access this is Access's Managed OAuth: titan answers `knowsuchagency.cloudflareaccess.com`, with registration, S256 and public clients. On a lasso with `MCP_OAUTH` and no edge, it is lasso's own server.
+- **401 with `Basic`:** an older UI_AUTH install. The password comes from the Keychain item `ui-auth`.
+
+**The sign-in:**
+1. Dynamic client registration (RFC 7591) as a public native client, with a loopback redirect `http://127.0.0.1:<port>/callback`. The port is the system's choice, and the listener binds 127.0.0.1 only.
+2. Authorization code with PKCE S256 in an `ASWebAuthenticationSession`. It is not ephemeral, so the browser's own sign-in session is reused. The RFC 8707 `resource` is the lasso's origin, never the probed path. Access's metadata names the probed path (`/api/version`) as the resource.
+3. The browser lands on the loopback listener, which answers "Signed in to lasso" and closes the window.
+4. The token exchange.
+
+The access token, refresh token, client id and token endpoint are kept as one Keychain item, `oauth:<origin>`, under the app's service.
+
+**Every request carries the token**, the event stream included:
+- `Authorization: Bearer`. When an Access service token is stored (an unattended Mac), the service token takes the edge, and lasso's token rides in `X-Lasso-Token`.
+- A token within a minute of expiry is refreshed first.
+- A 401 refreshes once and retries. A refresh that fails marks the lasso expired (`AuthState`). Settings opens with **Sign in again**, and everything on screen stays as it was. Sign in again runs the same flow against the same lasso.
+- **Sign out** forgets that lasso's tokens.
+
+**Still to settle:**
+- Whether Access accepts a loopback redirect from DCR without an allowlist entry (`allow_any_on_loopback`). If it does not, a custom-scheme redirect is the fallback.
+- Whether a non-Access bearer passes through Access.
+
+Both are step 2 of the auth plan: `~/.lasso/worktrees/lasso/lasso-auth-notes/step2-access.md`.
+
+## 21. Releases and updates (Sparkle)
+
+LassoDesktop ships with every lasso release, at lasso's version, as assets on lasso's GitHub release. The app's feed is `https://github.com/execution-associates/lasso/releases/latest/download/appcast.xml`, so it always names the newest release.
+
+**Build** (`Scripts/build-app.sh`):
+- Bundles `Sparkle.framework` from SwiftPM's artifacts. The rpath is set in `Package.swift`.
+- Signs Sparkle's pieces innermost first, then the app.
+- **A dev build** uses the self-signed identity. It has no feed or key in its Info.plist, so it never updates itself, and Settings shows no Check for updates.
+- **A release build** gets `LASSO_DESKTOP_VERSION`, a Developer ID `SIGN_IDENTITY`, `SPARKLE_FEED` and `SPARKLE_ED_KEY`.
+
+**Release:** `mac/Scripts/publish.sh [version]` runs on titan once lasso's release `v<version>` exists. It runs over ssh on minime, because the repo is public and a fork's workflow must never reach a logged-in Mac. It:
+1. Syncs `mac/` to minime.
+2. Runs `Scripts/release.sh <version>` there over ssh, Recap's pattern:
+   - Import the Developer ID .p12 from fnox into a throwaway keychain.
+   - Build with hardened runtime and timestamps.
+   - Notarize and staple the app with an App Store Connect API key.
+   - Make a DMG (the app and an Applications link), then sign, notarize and staple it.
+   - Run Sparkle's `sign_update` (it ships in SwiftPM's Sparkle artifact) and write a one-item `appcast.xml`.
+3. Copies the DMG and appcast back to `mac/dist/release/`.
+4. Attaches them to the release with `gh`. `--no-upload` stops before this step.
+
+**Credentials:**
+- The certificate and notary key are Recap's, the same Developer ID `JF4UNR89NW`, read from minime's fnox: `RECAP_SIGN_P12_B64`, `RECAP_SIGN_P12_PASSWORD`, `RECAP_ASC_*`.
+- The EdDSA update key is LassoDesktop's own:
+  - Private half: 1Password `titan/global` field `LASSO_DESKTOP_SPARKLE_PRIVATE_KEY`, and minime's global fnox under the same name.
+  - Public half: committed as `Scripts/sparkle-public-key.txt`.
+- fnox on minime decrypts with the Mac's ssh key (`FNOX_AGE_KEY_FILE`). In fnox 1.26, `fnox set -d` with a piped value stores only the description, so set the value without `-d`.
+
+The first Developer ID build replaces the self-signed identity. macOS then asks once more for the app's permissions, because TCC keys them on the signing identity.
 
 ## 19. Agent windows and hover previews (the user's screenshots, 2026-10-11)
 
