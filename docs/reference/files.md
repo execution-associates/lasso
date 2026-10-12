@@ -42,7 +42,8 @@ One SQLite file holds everything lasso remembers. It is local to the machine las
 | `agents` | One record per agent lasso created: host, title, repo, branch, harness, options, working directory, herdr workspace and pane, boot status. A closed agent is marked closed, not deleted. |
 | `oauth_clients`, `oauth_codes`, `oauth_tokens` | MCP OAuth clients (including per-host `lasso mcp-client` credentials), authorization codes and tokens, all stored as SHA-256 hashes. Used only with `MCP_OAUTH`. |
 | `mcp_groups`, `mcp_group_members`, `mcp_group_grants` | Host groups and grants from `lasso mcp-group`. |
-| `push_subscriptions` | Devices registered for Web Push, with the outcome of the last push to each. |
+| `push_subscriptions` | Web Push subscriptions, each with the notification device it belongs to and the outcome of the last push to it. |
+| `notify_devices` | Notification devices (a browser, or a Mac running the Mac app): id, label, and the kinds it chose, only the ones changed from the defaults. |
 | `bot_message_meta` | The `meta` a client sent with a message to an omp bot, keyed by a hash of the text, the newest 500 per bot. |
 
 Notable `settings` keys:

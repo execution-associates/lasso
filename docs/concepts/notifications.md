@@ -1,10 +1,10 @@
 ---
 title: Notifications
-description: When lasso pushes a notification, how agents send one on purpose, and how Web Push delivery is reported honestly.
+description: What lasso notifies you about, how each device chooses what may interrupt it, how agents send one on purpose, and how delivery is reported honestly.
 order: 24
 ---
 
-An agent blocked on a tool approval stops until a human answers, and nothing in a browser tab can tell you unless you're already looking at it. lasso closes that gap with **Web Push**: notifications that reach a registered device with no lasso tab open, including a locked phone. To set a device up, follow [On your phone](../getting-started/phone.md); this page explains what gets sent and when.
+An agent blocked on a tool approval stops until a human answers, and nothing in a browser tab can tell you unless you're already looking at it. lasso closes that gap with one notification pipeline that reaches you wherever you are: **Web Push** to a registered device with no lasso tab open, including a locked phone, and a live toast (or, in the [Mac app](../getting-started/desktop.md), a sound) in every lasso window that is open. To set a device up, follow [On your phone](../getting-started/phone.md); this page explains what gets sent and when.
 
 ## What triggers a notification
 
@@ -43,15 +43,42 @@ A [bot](../web-ui/bots.md) with **Notify me when it answers** on (the default) s
 - **No replay on restart.** The first time lasso sees each bot after it starts, it only notes the bot's latest message, so a restart doesn't announce every bot's last answer again.
 - **Not for what you're reading.** No notification is shown while that bot's conversation is focused and on screen. iPhone and iPad are the exception and always show one, because iOS withdraws permission from a site whose pushes show nothing.
 
+### An agent finishes a turn
+
+Off by default. A device that turns on **An agent finished a turn** hears from any agent that stops working with its turn done, titled like a blocked agent's.
+
+A bot is a herdr agent too, so its pane finishing is the same turn as the bot's reply. **A bot's turn is announced once**: a device that takes **A bot replied** hears the reply and not the finished turn; a device that takes only finished turns still hears that the bot finished. A bot whose **Notify me when it answers** is off says nothing about its turns, but is still announced when it waits on you.
+
+### lasso's own notices
+
+lasso's own news, such as a theme a host would not take or a sync that finished, shows as a toast in open lasso windows. Only errors are also pushed to your devices: a result is a toast's job, not a buzz.
+
 ### The test button
 
-Settings → General → Notifications → **Send a test notification** sends one through exactly the same path, to every registered device.
+Settings → General → Notifications → **Send a test notification** sends one through exactly the same path, to every registered device, whatever each device has chosen.
+
+## Choosing what interrupts each device
+
+Every device chooses which kinds of notification may interrupt it, in Settings (the full UI's **This device is told about**, the [simple app](../getting-started/phone.md#the-simple-app)'s and the Mac app's **Notify me about**):
+
+| Kind | Default |
+| --- | --- |
+| An agent is waiting on you | on |
+| An agent finished a turn | off |
+| An agent pinged you | on |
+| A bot replied | on |
+| lasso's own notices | on |
+
+- **A device** is one browser (a phone's home-screen app, a laptop's browser) or one Mac running the Mac app. The choice is stored on lasso against that device, so it holds for both its pushes and its open windows.
+- **Only what you changed is stored.** A kind you never touched follows the default above, and so does a kind a later release adds.
+- **A choice governs interruptions, never a list.** It decides whether a device is pushed, shown a toast or played a sound. The simple app's and the Mac app's Inbox list everything that is waiting either way, because turning a kind off must never hide something that needs you.
+- A phone that turned on push before devices had choices gets the defaults until it registers again, which it does the next time its Settings opens.
 
 ## Delivery is reported honestly
 
 A notification that reached nobody is not "sent". Both the `notify` tool and `lasso notify` tell the caller whether any device took it:
 
-- The tool's reply carries `sent`. `sent: false` means **no device received it**, and `detail` says why (usually that nothing is registered yet).
+- The tool's reply carries `sent`. `sent: false` means **no device received it**, and `detail` says why (usually that nothing is registered yet). An open lasso window or Mac app that took it counts as received.
 - `lasso notify` exits **non-zero** when nothing was delivered, printing the reason on stderr, so a script can tell "delivered" from "nobody was listening".
 
 An agent should check that answer before telling you it pinged you.
@@ -64,11 +91,12 @@ A bot's notification opens **that bot's conversation** instead. Either way, an o
 
 ## Devices
 
-Each device registers itself from Settings → General → Notifications, or with the bell in the Bots list's header, and **every registered device gets every notification**. The installed [Bots app](../web-ui/bots.md#the-bots-app) is a device of its own and turns notifications on with its bell. The Settings list shows each device with the outcome of its last push. Unticking the box on a device removes it.
+Each device registers for push from Settings → General → Notifications, the simple app's Settings, or the bell in the Bots list's header, and gets every notification of the kinds it takes. The installed [Bots app](../web-ui/bots.md#the-bots-app) is a device of its own and turns notifications on with its bell. The Settings list shows each device with the outcome of its last push. Unticking the box on a device removes it.
 
 - A push service answering that a subscription **is gone** (HTTP 404 or 410) removes that device automatically.
 - Any other failure (a rejected credential, the push service being down) is recorded on the device and shown in Settings as `last push failed: <reason>`, and the device keeps being tried. A transient outage never deletes a healthy device.
 - A push that a device doesn't collect within 30 minutes is dropped by the push service.
+- An open lasso window shows nothing while its tab is hidden: there, the phone's push is the interruption.
 
 A subscription belongs to the **origin** it was made on, so the same phone using two lasso URLs is two devices and gets everything twice.
 

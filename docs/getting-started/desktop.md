@@ -1,0 +1,56 @@
+---
+title: The Mac app
+description: LassoDesktop, the native macOS client for lasso: install it from the release DMG, connect it to your lasso by address, and keep it updated.
+order: 13
+nav_title: Mac app
+---
+
+LassoDesktop is a native macOS app for a running lasso. It lives on the edge of your screen instead of in a browser tab: a rail you reveal with the pointer, an **Inbox** of what is waiting on you across every machine, a window per agent, and your bots' conversations. It talks to lasso over the same HTTP API as the web UI, so everything it shows is on the lasso you point it at; the app keeps no agents of its own.
+
+![LassoDesktop: the edge rail, the Inbox and an agent window](../assets/readme/desktop.webp)
+
+## Requirements
+
+- A Mac with Apple silicon, on macOS 14 or later.
+- A lasso the Mac can reach: on the same Mac, on your tailnet, or behind Cloudflare Access. See [Deployment](../deployment/index.md).
+
+## Install
+
+Every lasso release on [GitHub](https://github.com/execution-associates/lasso/releases/latest) carries the app as `LassoDesktop-<version>.dmg`, at lasso's own version. Open the DMG and drag **LassoDesktop** onto **Applications**. The app is signed with a Developer ID and notarized by Apple, so it opens without a Gatekeeper warning.
+
+On first launch Settings opens by itself. The lasso connection is the first section of its **Info** tab.
+
+## Connect it to your lasso
+
+Settings › Info names the lasso the app uses by its machine. **Change…** opens the address field: type the address and press **Connect**.
+
+- A bare hostname (`titan.example.ts.net`, `lasso.example.com`) means `https://`. `127.0.0.1` and `localhost` mean `http://`, for a lasso on the same Mac.
+- The app asks lasso what proof it needs, and signs in the way that lasso's network expects:
+  - **On the same Mac, or on your tailnet** (`-tailnet`): nothing to sign in to. The tailnet already says who the Mac belongs to.
+  - **Behind Cloudflare Access** (`-listen-access`): your browser opens Access's sign-in once, then lands back in the app. The app keeps the tokens in the Keychain and refreshes them itself.
+  - **On a lasso with `MCP_OAUTH`** and no edge in front: the same browser sign-in, against lasso's own consent screen.
+  - **A lasso that uses `UI_AUTH`**: the app reads the password from a Keychain item named `ui-auth`, and Connect says so when it is missing.
+- When a sign-in runs out and cannot be refreshed, Settings shows **Sign in again**, and everything on screen stays as it was until you do. **Sign out** forgets that lasso's tokens.
+
+The app uses one lasso at a time. [Security](../security.md) and [Authentication](../design/auth.md) describe what each network proves.
+
+## Using it
+
+- **The rail.** Move the pointer to the screen edge to reveal it. Its dot shows the most urgent state across your agents.
+- **The Inbox** lists the questions agents are asking, agents blocked with nothing to pick from, finished turns and lasso's notices, newest first within each. Answer a question in place, reply to a finished turn, **Acknowledge** what needs nothing more, or open the agent's window. The Inbox and the phone's [simple app](./phone.md#the-simple-app) follow the same rules, so both list the same things. Acknowledge is shared by every device.
+- **Agents.** The agents list groups your agents by workspace. Hover one for a preview, click it for its own window. Click an agent's name, or right-click it, to **Rename** it; the name becomes the agent's herdr label.
+- **New agents.** **⌥⇧O** starts an agent in a repository and **⌃⇧O** a scratch agent, from any app; **⌘O** and **⌘⇧O** do the same while the app has the keyboard. The form is the web UI's [New dialog](../web-ui/new-agent.md).
+- **Bots.** Your [bots](../web-ui/bots.md) are in the rail, with their conversations.
+- **Shortcuts.** **⌥Space** opens the Inbox with the keyboard in it. Settings › Shortcuts changes any shortcut, including a double tap of ⌥, ⌘ or ⌃ (which needs the Accessibility permission).
+- **Sounds.** A sound plays when something new arrives in the Inbox. Pick one of three, or upload your own in Settings; an uploaded sound is stored on lasso and every Mac using that lasso plays it.
+- **Dock and menu bar.** Settings › Info chooses whether the app shows in the Dock and in the menu bar (with the Inbox's count), and has **Quit**.
+
+## Notifications
+
+The Mac is a notification device of its own, registered as "LassoDesktop on <your Mac>". Settings › Notifications lists the same **Notify me about** choices as the web UI, and a sound plays only for a kind this Mac wants. A choice never hides anything from the Inbox. See [Notifications](../concepts/notifications.md#choosing-what-interrupts-each-device).
+
+## Updates
+
+The app updates itself with [Sparkle](https://sparkle-project.org). It checks the newest lasso release's update feed, verifies the download's signature against the key built into the app, and installs it. **Check for updates** in Settings › Info checks now.
+
+Keep the app and lasso at the same release where you can: the app is built against that release's API, and a newer app against an older lasso shows less (no notification choices, for example) rather than failing.

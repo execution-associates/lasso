@@ -51,7 +51,7 @@ run = "./scripts/container-diagram.sh"
 # agents really work (on DeepSeek, whose key isb's egress proxy injects so it
 # never enters the VM), and screenshots it with the VM's own Chromium. Takes
 # the 1Password key through `op`. READMESHOTS_KEEP=1 keeps the VM for another
-# run; names reshoot just those cells (`mise run readme:shots diff chat`).
+# run; names reshoot just those cells (`mise run readme:shots grid chat`).
 [tasks."readme:shots"]
 description = "Retake the README's screenshot grid (docs/assets/readme) in a throwaway VM with a demo fleet"
 depends = ["build"]

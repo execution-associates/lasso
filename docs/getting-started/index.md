@@ -9,7 +9,7 @@ lasso is a single binary. It runs on the machine where your coding agents live, 
 
 ## Requirements
 
-- **Linux or macOS**, on `amd64` or `arm64`.
+- **Linux or macOS**, on `amd64` or `arm64`. The [Mac app](./desktop.md) is a separate download, and talks to a lasso on any of them.
 - **herdr**, the terminal multiplexer lasso is a UI over. The installer below installs it for you if it is missing.
 - **ttyd** on `PATH`. lasso serves its terminals by spawning `ttyd` processes, and nothing installs it for you: use your package manager (`apt install ttyd`, `brew install ttyd`, or your distro's equivalent).
 - **ssh** and an `~/.ssh/config`, only if you want lasso to drive other machines too. Those machines need a running herdr of the same protocol, `git`, and the `sqlite3` CLI, but not lasso itself. See [What a remote host needs](../concepts/hosts.md#what-a-remote-host-needs).
@@ -97,4 +97,5 @@ Starting lasso from outside herdr (a plain shell, systemd, `lasso start` from an
 
 - [Connect your agents](./connect-agents.md) so they can use lasso's MCP servers.
 - [Set lasso up on your phone](./phone.md), with notifications when an agent is blocked.
+- [Install the Mac app](./desktop.md), the Inbox on the edge of your screen.
 - Read [Concepts](../concepts/index.md) for how hosts, agents and the shared browser fit together.

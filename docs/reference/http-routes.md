@@ -50,7 +50,7 @@ So on the loopback listener with no `UI_AUTH` and no `MCP_OAUTH`, **everything i
 | route | purpose |
 | --- | --- |
 | `/terminal/<host>/` | Reverse proxy (HTTP and WebSocket) to the ttyd running herdr for one host. |
-| `/api/events` | Server-sent events: focused pane, layout, theme and state revisions, pushed to the browser. A `notice` event is a one-shot toast, `{level, title, detail?, id, at}`: `id` is unique within the running lasso (its prefix changes on every start) and `at` is when it was raised, in unix milliseconds. |
+| `/api/events` | Server-sent events: focused pane, layout, theme and state revisions, pushed to the browser. A `notice` event is a one-shot toast, `{level, title, detail?, id, at}`: `id` is unique within the running lasso (its prefix changes on every start) and `at` is when it was raised, in unix milliseconds. A `notification` event carries every notification to every open client, `{id, at, kind, level?, bot?, title, body?, tag?, host?, url?, icon?}`; each client filters it against its own device's choices from `/api/notify`. lasso's notices are sent as both events, `notice` for older clients. |
 | `/api/host` | `POST`: attach the calling tab to a host (spawns its terminals if needed). It switches nothing for other tabs. |
 | `/api/hosts` | The host list from `~/.ssh/config`, with each host's reachability and herdr version. |
 | `/api/active`, `/api/panes`, `/api/all-panes` | The focused pane; one host's panes; panes across the fleet. A pane's `transcript_at` is its log's mtime on whichever host has the log. |
@@ -78,7 +78,7 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 | --- | --- |
 | `/api/create-agent`, `/api/agent-upload` | Create an agent; stage its attachments. |
 | `/api/agent/close`, `/api/agent/reopen`, `/api/agent-history` | Close an agent (what `lasso closeme` calls); reopen a closed agent's directory; past agents for the pane switcher. |
-| `/api/agent/rename` | Set or clear an agent's custom label (herdr's `agent.rename`), `{pane_id, name}` with `?host=`; an empty name clears it. A bot's pane is refused (409): lasso finds a bot by that name. |
+| `/api/agent/rename` | Set or clear an agent's custom label (herdr's `agent.rename`), `{pane_id, name}` with `?host=`; an empty name clears it. The name is made a herdr agent name first ("Check HN page" is `check-hn-page`). A bot's pane is refused (409): lasso finds a bot by that name. |
 | `/api/create-terminal`, `/api/workspaces` | Open a plain terminal; list workspaces to put it in. |
 | `/api/agent-config`, `/api/repo-config`, `/api/repos`, `/api/repo-branches`, `/api/auto-title` | New dialog settings, repos and branches. |
 | `/api/chat`, `/api/chat/send`, `/api/chat/answer` | The chat view: read an agent's transcript, send it a message, answer its question dialog. `/api/chat`'s `host` is the pane's machine; the log may be served from another host lasso drives, named by `served_by`. An empty answer carries `unavailable: {reason, checked, unanswered}`. |
@@ -98,7 +98,9 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 | `/api/usage` | Provider rate-limit windows for the usage footer. |
 | `/api/frameable` | Whether a URL can be framed, for the Browser tab's iframe mode. |
 | `/api/browser`, `/api/browser/profiles[/…]` | Shared-browser status, and the browsers (stored as profiles, hence the path). |
-| `/api/push`, `/api/push/subscribe`, `/api/push/unsubscribe`, `/api/push/test` | Web Push devices. `subscribe` accepts only an `https` endpoint with a valid P-256 key. |
+| `/api/push`, `/api/push/subscribe`, `/api/push/unsubscribe`, `/api/push/test` | Web Push devices. `subscribe` accepts only an `https` endpoint with a valid P-256 key, and names the notification device it belongs to (`device_id`). |
+| `/api/notify` | `GET ?device=<id>`: the notification kinds (`kinds`: id, label, description, default) and that device's resolved choices (`device: {id, label, wants}`). |
+| `/api/notify/device` | `POST {id, label?, kinds?}`: register or relabel a notification device and change its choices, merged per kind; `null` puts a kind back to its default, and an unknown kind refuses the whole write (400). A device id is 8 to 64 characters of `A-Z a-z 0-9 _ -`. |
 | `/api/log` | With `-dev` only: browser log sink. |
 
 ### Plugins
@@ -125,4 +127,5 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 | --- | --- |
 | `/assets/…` | Hashed frontend build assets, cached long-term. |
 | `/sw.js` | The service worker, served `no-store` so it is never stale. |
+| `/m`, `/m/…` | The simple app (Inbox, Agents, Bots, Settings), the single-page app's phone entry. A phone opening `/` goes here unless that device chose the full UI. |
 | `/` | The single-page app; any unmatched path serves it. |

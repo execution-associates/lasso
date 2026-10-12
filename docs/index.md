@@ -20,8 +20,9 @@ You run it on the machine where your agents live. It needs herdr and ttyd there,
 ## What you get
 
 - **Your real terminal, anywhere.** The main column is your actual herdr session over `ttyd`: same keys, same theme, same panes. lasso adds around it and never sits in front of it. See [The terminal](./web-ui/terminal.md).
-- **A phone that is a first-class client.** A home-screen app, a dial for the keys a touch keyboard doesn't have (Esc, Ctrl-C, Tab, arrows), a chat view that renders the agent as a conversation you can answer with dictation and autocorrect, and photo and file upload straight to the agent's host. See [Using lasso on a phone](./getting-started/phone.md).
-- **A push when an agent is stuck.** lasso watches every reachable host and sends a Web Push to your locked phone when an agent blocks on a tool approval, a plan gate or a question, and when an agent pings you on purpose with `lasso notify`. See [Notifications](./concepts/notifications.md).
+- **A phone that is a first-class client.** A home-screen app that opens on an Inbox of what is waiting on you, with your agents and bots as conversations you can answer with a tap or dictation; and, one switch away, the full UI with a dial for the keys a touch keyboard doesn't have (Esc, Ctrl-C, Tab, arrows) and photo and file upload straight to the agent's host. See [Using lasso on a phone](./getting-started/phone.md).
+- **A Mac app.** LassoDesktop puts the same Inbox on the edge of your screen, with a window per agent, global shortcuts to start one, and an arrival sound. See [The Mac app](./getting-started/desktop.md).
+- **A push when an agent is stuck.** lasso watches every reachable host and sends a Web Push to your locked phone when an agent blocks on a tool approval, a plan gate or a question, and when an agent pings you on purpose with `lasso notify`. Each device chooses what may interrupt it. See [Notifications](./concepts/notifications.md).
 - **A sidebar that follows the focused pane.** A file browser and editor with a live git diff, rooted on the machine that pane is working on, even when the pane is an SSH window onto another box. See [The sidebar](./web-ui/sidebar.md).
 - **A browser you and your agents share.** A real Chromium streamed into the sidebar: you watch, and click in, the same pages an agent is driving. See [The shared browser](./concepts/shared-browser.md).
 - **Agents orchestrating agents.** An MCP server lets one agent spawn, list, inspect and close others across your machines. See [MCP server](./mcp/index.md).
@@ -34,7 +35,8 @@ You run it on the machine where your agents live. It needs herdr and ttyd there,
 1. [Install and run lasso](./getting-started/index.md).
 2. [Connect your agent CLIs](./getting-started/connect-agents.md) to its MCP servers.
 3. Decide how you'll reach it from other devices: [Deployment](./deployment/index.md). A phone needs an HTTPS origin.
-4. Read the [security model](./security.md) before you expose it anywhere. The terminal is a writable shell.
+4. Put it on [your phone](./getting-started/phone.md) and, on a Mac, install [the Mac app](./getting-started/desktop.md).
+5. Read the [security model](./security.md) before you expose it anywhere. The terminal is a writable shell.
 
 Then learn the pieces: [hosts](./concepts/hosts.md), [agents and worktrees](./concepts/agents.md), and [the web UI](./web-ui/index.md).
 

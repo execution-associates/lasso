@@ -34,11 +34,15 @@ you**.
 
 - **Your real terminal, anywhere.** Your actual herdr session over `ttyd`, with
   lasso around it, never in front of it.
-- **The phone is a first-class client.** Home-screen app, a radial dial for
-  Esc/Ctrl-C/Tab/arrows, a chat view you can answer by dictation, and photo
-  upload straight to the agent's host.
+- **The phone is a first-class client.** A home-screen app that opens on an
+  Inbox of what is waiting on you, answered with a tap or by dictation; the
+  full UI is a switch away, with a radial dial for Esc/Ctrl-C/Tab/arrows and
+  photo upload straight to the agent's host.
+- **A Mac app.** LassoDesktop keeps that Inbox on the edge of your screen, with
+  a window per agent and a shortcut to start one from anywhere.
 - **It tells you when an agent is stuck.** Web Push to a locked phone when an
-  agent blocks on an approval or a question, on any host.
+  agent blocks on an approval or a question, on any host. Each device picks
+  what may interrupt it.
 - **The sidebar follows the focused pane.** A file editor and live git diff on
   the machine that pane is actually working on.
 - **A browser you and your agents share.** A real Chromium you watch and click
@@ -61,18 +65,24 @@ you**.
       <a href="docs/web-ui/terminal.md#the-herdr-terminal">The herdr terminal →</a>
     </td>
     <td width="33%" align="center" valign="top">
+      <a href="docs/assets/readme/desktop.webp"><img src="docs/assets/readme/desktop.webp" alt="LassoDesktop on a Mac: the edge rail with the inbox's count, the inbox card answering an agent's question, and an agent's own window rendering its Markdown reply"></a><br>
+      <b>The Mac app: an edge rail, an inbox of what's waiting, agent windows</b><br>
+      <a href="docs/getting-started/desktop.md">Mac app →</a> ·
+      <a href="docs/getting-started/desktop.md#using-it">the Inbox</a>
+    </td>
+    <td width="33%" align="center" valign="top">
       <a href="docs/assets/readme/grid.webp"><img src="docs/assets/readme/grid.webp" alt="The Grid: every agent on three machines as a card with the tail of its conversation, one of them blocked and asking for input"></a><br>
       <b>Every agent at once</b><br>
       <a href="docs/web-ui/terminal.md#grid">Grid →</a>
     </td>
+  </tr>
+  <tr>
     <td width="33%" align="center" valign="top">
       <a href="docs/assets/readme/bots.webp"><img src="docs/assets/readme/bots.webp" alt="The Bots view: three bots in a list like a messaging app, one running, one idle, one stopped, and a conversation with one of them"></a><br>
       <b>Bots that stay up</b><br>
       <a href="docs/web-ui/bots.md#the-list">Bots →</a> ·
       <a href="docs/web-ui/bots.md#talking-to-a-bot">talking to one</a>
     </td>
-  </tr>
-  <tr>
     <td width="33%" align="center" valign="top">
       <a href="docs/assets/readme/files.webp"><img src="docs/assets/readme/files.webp" alt="The Files sidebar beside the terminal, showing the agent's worktree README rendered with its diagram and table"></a><br>
       <b>Files follow the focused pane</b><br>
@@ -84,14 +94,14 @@ you**.
       <b>Read and answer it as a chat</b><br>
       <a href="docs/web-ui/terminal.md#chat-view">Chat view →</a>
     </td>
+  </tr>
+  <tr>
     <td width="33%" align="center" valign="top">
       <a href="docs/assets/readme/browser.webp"><img src="docs/assets/readme/browser.webp" alt="The Browser sidebar showing the page an agent just built, in the Chromium it shares with you"></a><br>
       <b>A browser you share with agents</b><br>
       <a href="docs/concepts/shared-browser.md#what-you-and-agents-each-see">Shared browser →</a> ·
       <a href="docs/web-ui/sidebar.md#browser">Browser tab</a>
     </td>
-  </tr>
-  <tr>
     <td width="33%" align="center" valign="top">
       <a href="docs/assets/readme/new-agent.webp"><img src="docs/assets/readme/new-agent.webp" alt="The New dialog over the Grid, starting a git agent on another machine: the prompt, the repository and branch, the harness and the host"></a><br>
       <b>Start an agent on any host</b><br>
@@ -103,18 +113,13 @@ you**.
       <b>One lasso, every machine</b><br>
       <a href="docs/concepts/hosts.md#how-the-host-menu-groups-them">Hosts →</a>
     </td>
+  </tr>
+  <tr>
     <td width="33%" align="center" valign="top">
       <a href="docs/assets/readme/mcp.webp"><img src="docs/assets/readme/mcp.webp" alt="An omp session using lasso's MCP tools to list the agents on every host and start another agent on a second machine"></a><br>
       <b>Agents orchestrating agents</b><br>
       <a href="docs/mcp/index.md#two-servers">MCP server →</a> ·
       <a href="docs/mcp/cli.md#lasso-mcp">lasso mcp</a>
-    </td>
-  </tr>
-  <tr>
-    <td width="33%" align="center" valign="top">
-      <a href="docs/assets/readme/diff.webp"><img src="docs/assets/readme/diff.webp" alt="The Diff sidebar: the agent's dirty files with their line counts, one expanded to its hunks"></a><br>
-      <b>Live git diff</b><br>
-      <a href="docs/web-ui/sidebar.md#diff">Diff →</a>
     </td>
     <td width="33%" align="center" valign="top">
       <a href="docs/assets/readme/phone.webp"><img src="docs/assets/readme/phone.webp" alt="lasso on two phones: an agent's question to answer with a tap, and the terminal with the radial input dial open"></a><br>
@@ -131,7 +136,7 @@ you**.
   </tr>
 </table>
 
-<p align="center"><sub>Taken from a demo lasso in a throwaway VM, with real omp agents at work on three machines. <code>mise run readme:shots</code> retakes them.</sub></p>
+<p align="center"><sub>Taken from a demo lasso in a throwaway VM, with real omp agents at work on three machines. <code>mise run readme:shots</code> retakes them, all but the Mac app, which comes from its own renders of sample data.</sub></p>
 
 ## Install
 
@@ -164,7 +169,7 @@ the terminal is a writable shell and lasso never belongs on a public interface.
 
 | | |
 | --- | --- |
-| [Getting started](docs/getting-started/index.md) | Install, first run, connecting agents, the phone app |
+| [Getting started](docs/getting-started/index.md) | Install, first run, connecting agents, the phone app, the Mac app |
 | [Concepts](docs/concepts/index.md) | Hosts, agents and worktrees, the shared browser, notifications |
 | [Web UI](docs/web-ui/index.md) | The terminal, the sidebar, the New dialog, theming, bots |
 | [MCP server](docs/mcp/index.md) | Tools (the browser tools among them), the herdr MCP, the CLI, OAuth, agent scope |
