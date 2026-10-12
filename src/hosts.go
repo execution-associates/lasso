@@ -214,8 +214,13 @@ func sshConfigHosts() []string {
 // provision script does — makes detection and update robust regardless of how the
 // host's profile is set up. $HOME/$PATH are left for the remote login shell to
 // expand (the single-quoted body is opaque to the outer shell).
+//
+// The whole body is quoted with shellQuote rather than spliced between literal
+// single quotes: a herdrCmd carrying its own quoted argument (a session name
+// like O'Brien) would otherwise end the outer quote early and run the rest in
+// the outer shell.
 func remoteHerdrShell(herdrCmd string) string {
-	return `${SHELL:-sh} -lc 'export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"; ` + herdrCmd + `'`
+	return `${SHELL:-sh} -lc ` + shellQuote(`export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"; `+herdrCmd)
 }
 
 // Probe budget. hostProbeTimeout bounds one host's whole probe and
