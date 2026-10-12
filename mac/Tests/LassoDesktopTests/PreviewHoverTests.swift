@@ -65,3 +65,30 @@ import Testing
     h = PreviewHover()
     #expect(rest("c", 0.3) == [.show("c")])
 }
+
+/// A preview already showing moves to another row after the shorter
+/// switch rest, and `wait` says when each pending rest is due, so the hover
+/// looks again at that moment rather than at its next poll.
+@Test func aShowingPreviewSwitchesSoonerAndEachRestIsTimed() {
+    var h = PreviewHover()
+    let t0 = Date(timeIntervalSince1970: 1000)
+    func tick(_ row: String?, _ showing: String?, _ at: Double) -> PreviewHover.Action {
+        h.tick(row: row, showing: showing, holds: false, now: t0.addingTimeInterval(at), openAfter: 0.06,
+               switchAfter: 0.05, closeAfter: 0.3)
+    }
+    func wait(_ showing: String?, _ at: Double) -> Double? {
+        h.wait(showing: showing, holds: false, now: t0.addingTimeInterval(at), openAfter: 0.06, switchAfter: 0.05,
+               closeAfter: 0.3)
+    }
+    #expect(tick("a", nil, 0) == .none)
+    #expect(abs(wait(nil, 0)! - 0.06) < 1e-9, "the open is due in 60 ms")
+    #expect(tick("a", nil, 0.061) == .show("a"))
+    #expect(wait("a", 0.061) == nil, "nothing pending while it shows the row")
+    #expect(tick("b", "a", 0.1) == .none)
+    #expect(abs(wait("a", 0.1)! - 0.05) < 1e-9, "the switch is due in 50 ms")
+    #expect(tick("b", "a", 0.151) == .show("b"))
+    #expect(tick(nil, "b", 0.2) == .none)
+    #expect(abs(wait("b", 0.2)! - 0.3) < 1e-9, "the close is due in 300 ms")
+    #expect(tick(nil, "b", 0.501) == .hide)
+    #expect(wait(nil, 0.501) == nil)
+}
