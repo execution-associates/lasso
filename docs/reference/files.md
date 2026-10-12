@@ -21,6 +21,7 @@ lasso keeps its own state in one directory and one SQLite database. Beyond that 
 | `prompts/<agent-id>.md` | The initial prompt staged for an agent, removed when lasso closes that agent. |
 | `plugins/<name>/` | Installed and hand-placed plugins, each with a `plugin.json`. `plugins/.staging/` holds GitHub installs being previewed. `plugins/.runner.lock` is held by the one lasso that runs this directory's plugin MCP servers, and names its pid and listen address. |
 | `plugin-data/<name>/` | Each plugin's one writable directory (mode 0700). Survives uninstall unless you purge it. |
+| `desktop/sound` | The inbox arrival sound uploaded for LassoDesktop (mode 0600, in a 0700 directory), served at `/api/desktop/sound` to every Mac using this lasso. Its name, SHA-256, size and type are `desktop_sound` in the `ui_state` setting. |
 | `omarchy/themes/<name>/` | Omarchy themes installed from a git URL in Settings. |
 | `browser-profile/` | The default browser's Chromium data directory (mode 0700): cookies, logins, and a `lasso-browser.pid`. Two lasso instances cannot share it. |
 | `browser-profiles/<id>/` | The data directory of each other browser, by id. |
@@ -41,13 +42,15 @@ One SQLite file holds everything lasso remembers. It is local to the machine las
 | `agents` | One record per agent lasso created: host, title, repo, branch, harness, options, working directory, herdr workspace and pane, boot status. A closed agent is marked closed, not deleted. |
 | `oauth_clients`, `oauth_codes`, `oauth_tokens` | MCP OAuth clients (including per-host `lasso mcp-client` credentials), authorization codes and tokens, all stored as SHA-256 hashes. Used only with `MCP_OAUTH`. |
 | `mcp_groups`, `mcp_group_members`, `mcp_group_grants` | Host groups and grants from `lasso mcp-group`. |
-| `push_subscriptions` | Devices registered for Web Push, with the outcome of the last push to each. |
+| `push_subscriptions` | Web Push subscriptions, each with the notification device it belongs to and the outcome of the last push to it. |
+| `notify_devices` | Notification devices (a browser, or a Mac running the Mac app): id, label, and the kinds it chose, only the ones changed from the defaults. |
+| `bot_message_meta` | The `meta` a client sent with a message to an omp bot, keyed by a hash of the text, the newest 500 per bot. |
 
 Notable `settings` keys:
 
 | key | contents |
 | --- | --- |
-| `ui_state` | UI state shared by every browser: theme backdrops and appearance, sidebar layout and tab order, typography, browser mode, and similar. |
+| `ui_state` | UI state shared by every browser: theme backdrops and appearance, sidebar layout and tab order, typography, browser mode, pinned and dismissed agent cards, the desktop sound's metadata, and similar. |
 | `repos_root`, `branch_prefix`, `default_agent`, `scratch_setup` | New dialog defaults. |
 | `push_vapid_private` | The VAPID private key identifying this server to push services, generated once. If it changes, every registered device stops receiving notifications. |
 | `plugins`, `plugin_sources` | Plugin approvals (permission fingerprints), trust and VM flags; where each plugin was installed from. |
@@ -55,6 +58,7 @@ Notable `settings` keys:
 | `sync_agent_themes`, `theme_sync_off`, `theme_hub`, `theme_written:<host>` | Fleet theme sync: the agent-theme toggle, hosts opted out, and what lasso last wrote where. |
 | `omarchy_installed` | Omarchy themes installed from a URL. |
 | `auto_title_agents`, `terminal_workspace` | The auto-title toggle; the New terminal form's default workspace. |
+| `transcribe` | The speech-to-text provider `/api/transcribe` uses: provider, model, `base_url` and the name of the key's variable. Never a key. |
 
 ## Temporary files
 

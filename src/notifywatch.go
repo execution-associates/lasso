@@ -1,6 +1,7 @@
 package main
 
-// The blocked-agent watcher — the one producer of notifications today.
+// The agent watcher: it notices an agent becoming blocked, and an agent
+// finishing a turn.
 //
 // It answers a question nothing else in lasso does: an agent that stops to ask
 // for approval is invisible until someone looks at a screen. The pane feeds
@@ -19,6 +20,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -57,6 +59,24 @@ type paneNotifyState struct {
 type blockedWatcher struct {
 	mu   sync.Mutex
 	seen map[string]paneNotifyState
+	// bots is this poll's bots by host + herdr agent name: a bot's pane
+	// carries the bot's name as its agent label, so an event there is told as
+	// the bot's (watcherBots).
+	bots map[string]*botRecord
+}
+
+// watcherBots indexes the bots for observe. A db that cannot be read gives no
+// bots, so their panes are told as plain agents rather than not at all.
+func watcherBots() map[string]*botRecord {
+	list, err := listBots()
+	if err != nil {
+		return nil
+	}
+	out := make(map[string]*botRecord, len(list))
+	for _, r := range list {
+		out[r.Host+"\x00"+r.Name] = r
+	}
+	return out
 }
 
 // startBlockedWatcher runs the watcher for the life of the server.
@@ -73,6 +93,9 @@ func startBlockedWatcher(ctx context.Context) {
 		if !notifyEnabled() {
 			continue
 		}
+		w.mu.Lock()
+		w.bots = watcherBots()
+		w.mu.Unlock()
 		for _, n := range w.observe(panesSnapshot(ctx).Panes, time.Now()) {
 			publishNotification(n)
 		}
@@ -80,7 +103,7 @@ func startBlockedWatcher(ctx context.Context) {
 }
 
 // observe records this poll's pane statuses and returns a notification for each
-// agent that has just become blocked.
+// agent that has just become blocked or just finished a turn.
 //
 // Deliberately NOT suppressed on the first poll. A silent baseline would mean an
 // agent that blocked while lasso was restarting — or while the user was
@@ -123,9 +146,22 @@ func (w *blockedWatcher) observe(panes []hostPane, now time.Time) []notification
 		fresh := blocked && prev.status != "blocked" &&
 			(prev.notifiedAt.IsZero() || now.Sub(prev.notifiedAt) >= notifyRenotify)
 		next := paneNotifyState{status: p.AgentStatus, notifiedAt: prev.notifiedAt, seenAt: now}
+		bot := w.bots[p.Host+"\x00"+p.AgentLabel]
+		if p.AgentLabel == "" {
+			bot = nil
+		}
 		if fresh {
 			next.notifiedAt = now
-			out = append(out, blockedNotification(p, key, shared[blockedTitle(p)] > 1))
+			out = append(out, asBot(blockedNotification(p, key, shared[blockedTitle(p)] > 1), bot, "is waiting on you", p))
+		}
+		// A finished turn is working → done (herdr's "finished, nobody looked")
+		// or straight to idle. Only a transition: the first sighting of a pane
+		// says nothing, since there is no turn it was seen to finish. A bot set
+		// not to notify says nothing about its turns here either, as the bot
+		// loop says nothing about its replies.
+		if prev.status == "working" && (p.AgentStatus == "done" || p.AgentStatus == "idle") &&
+			(bot == nil || bot.Notify) {
+			out = append(out, asBot(finishedNotification(p, key, shared[blockedTitle(p)] > 1), bot, "finished a turn", p))
 		}
 		w.seen[key] = next
 	}
@@ -211,6 +247,45 @@ func blockedNotification(p hostPane, key string, ambiguous bool) notification {
 		Tag:   "blocked:" + key,
 		Host:  host,
 	}
+}
+
+// finishedNotification renders one agent that has finished a turn, named the
+// way a blocked one is.
+func finishedNotification(p hostPane, key string, ambiguous bool) notification {
+	title := blockedTitle(p)
+	if d := paneDiscriminator(p); ambiguous && d != "" {
+		title = clipNotifyText(title, max(20, 70-len([]rune(d))-3)) + " · " + d
+	}
+	agent := p.Agent
+	if agent == "" {
+		agent = "An agent"
+	}
+	body := fmt.Sprintf("%s finished on %s", agent, firstNonEmpty(p.HostLabel, p.Host))
+	if task := strings.TrimSpace(p.TerminalTitle); task != "" && task != blockedTitle(p) {
+		body += " — " + clipNotifyText(task, 90)
+	}
+	return notification{
+		Kind:  notifAgentFinished,
+		Title: clipNotifyText(title, 70),
+		Body:  body,
+		Tag:   "finished:" + key,
+		Host:  p.Host,
+	}
+}
+
+// asBot tells a pane's event as its bot's: the bot's name and picture, a link
+// to its chat, and Bot set so a device hears about one bot turn once
+// (notifDelivers). The tag stays the pane's.
+func asBot(n notification, r *botRecord, what string, p hostPane) notification {
+	if r == nil {
+		return n
+	}
+	n.Bot = r.Name
+	n.Title = r.Name
+	n.Body = fmt.Sprintf("%s %s on %s", r.Name, what, firstNonEmpty(p.HostLabel, p.Host))
+	n.URL = "/bots/" + url.PathEscape(r.Name)
+	n.Icon = botIconURL(r)
+	return n
 }
 
 func firstNonEmpty(vals ...string) string {

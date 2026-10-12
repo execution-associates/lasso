@@ -1,0 +1,67 @@
+{
+  "about": "A chat with a lasso bot (homie, omp): its conversation and an open approval the bot is waiting on, shown as numbered options.",
+  "state": "chat-open",
+  "extends": "rail-expanded",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": true,
+    "bot": "homie",
+    "recording": null
+  },
+  "chats": {
+    "bot:homie": {
+      "pane_id": "bot:homie",
+      "agent": "omp",
+      "host": "local",
+      "model": "claude-opus-5-5",
+      "start_offset": 0,
+      "running": false,
+      "items": [
+        {
+          "kind": "user",
+          "id": "u1",
+          "at": "2026-10-11T18:50:02Z",
+          "text": "What's waiting on me?"
+        },
+        {
+          "kind": "agent",
+          "id": "a1",
+          "at": "2026-10-11T18:50:09Z",
+          "text": "Two agents: lasso-desktop-mac asks whether to install the tunnel unit, and notarize on minime wants a signing identity."
+        },
+        {
+          "kind": "user",
+          "id": "u2",
+          "at": "2026-10-11T18:51:30Z",
+          "text": "Tell lasso-desktop-mac to install it."
+        },
+        {
+          "kind": "tool",
+          "id": "t1",
+          "at": "2026-10-11T18:51:33Z",
+          "tool": {
+            "call_id": "c1",
+            "name": "send_agent",
+            "title": "send_agent",
+            "subject": "lasso-desktop-mac",
+            "state": "running"
+          }
+        }
+      ],
+      "pending_ui": [
+        {
+          "id": "q1",
+          "method": "select",
+          "title": "Approve tool call",
+          "message": "send_agent to lasso-desktop-mac",
+          "options": [
+            "Approve",
+            "Deny"
+          ]
+        }
+      ]
+    }
+  }
+}

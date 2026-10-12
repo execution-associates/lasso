@@ -16,7 +16,9 @@ cd "$root"
 vm=${READMESHOTS_VM:-lasso-readme-shots}
 secret=lasso-readme-shots.deepseek
 work=${XDG_CACHE_HOME:-$HOME/.cache}/lasso-readme-shots
-cells=(terminal grid chat files diff browser new-agent hosts mcp bots phone plugins)
+# The README's grid also has desktop.webp, the Mac app, which is composed from
+# its parity renders (mac/), not shot here; this task never touches it.
+cells=(terminal grid chat files browser new-agent hosts mcp bots phone plugins)
 dest=docs/assets/readme
 
 # A plain sandbox in incus' default project, never an org's, and never a

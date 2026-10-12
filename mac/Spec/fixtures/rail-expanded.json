@@ -1,0 +1,311 @@
+{
+  "about": "Sketch of a parity state fixture, in the Go server's JSON shapes (hostPane src/hostpanes.go:263, hostsPayload src/hosts.go:72, uiState src/db.go:276, botView src/botruntime.go:215), decoded by the same models LiveSource uses. Modelled on titan: an Agents workspace holding several agents named by their herdr labels (stub, clem, and the bot jessica), a Bots workspace with the bot homie, and agents in workspaces of their own. FixtureSource serves it and turns every action into a recorded no-op.",
+  "state": "rail-expanded",
+  "now": "2026-10-11T19:00:00Z",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "recording": null
+  },
+  "permissions": {
+    "microphone": "authorized",
+    "accessibility": "not_determined"
+  },
+  "settings": {
+    "base_url": "http://127.0.0.1:18090",
+    "engine": "lasso"
+  },
+  "server": {
+    "version": {
+      "lasso_protocol": 22,
+      "lasso_version": "6.3.0 (fixture)",
+      "herdr_protocol": 22,
+      "herdr_version": "0.9.3",
+      "compatible": true,
+      "updatable": false,
+      "update_state": "current",
+      "latest_version": "v6.3.0"
+    },
+    "hosts": {
+      "active": "local",
+      "local": {
+        "version": "0.9.3",
+        "protocol": 22,
+        "hostname": "titan",
+        "user": "stephan"
+      },
+      "hosts": [
+        {
+          "alias": "minime",
+          "hostname": "minime.tail9dd8e.ts.net",
+          "user": "stephanfitzpatrick",
+          "reachable": true,
+          "running": true,
+          "version": "0.9.3",
+          "protocol": 22,
+          "socket": "",
+          "compatible": true
+        }
+      ],
+      "probing": false
+    },
+    "all_panes": {
+      "panes": [
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w1:p1",
+          "workspace_id": "w1",
+          "workspace_label": "Agents",
+          "tab_id": "w1:t1",
+          "tab_label": "stub",
+          "cwd": "/home/stephan/projects/ticket500/stub",
+          "agent": "claude",
+          "agent_status": "blocked",
+          "has_agent": true,
+          "focused": false,
+          "agent_label": "stub",
+          "transcript_at": 1791745140000,
+          "agent_id": "a1",
+          "repo": "lasso",
+          "repo_key": "lasso",
+          "repo_label": "lasso"
+        },
+        {
+          "host": "minime",
+          "host_label": "minime",
+          "pane_id": "w2:p1",
+          "workspace_id": "w2",
+          "workspace_label": "notarize",
+          "tab_id": "w2:t1",
+          "tab_label": "notarize",
+          "cwd": "/Users/stephanfitzpatrick/src/app",
+          "agent": "codex",
+          "agent_status": "blocked",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1791744600000,
+          "repo": "app",
+          "repo_key": "app",
+          "repo_label": "app"
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w1:p2",
+          "workspace_id": "w1",
+          "workspace_label": "Agents",
+          "tab_id": "w1:t2",
+          "tab_label": "clem",
+          "cwd": "/home/stephan/projects/ocai/clem",
+          "agent": "claude",
+          "agent_status": "done",
+          "has_agent": true,
+          "focused": false,
+          "agent_label": "clem",
+          "transcript_at": 1791745020000
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w4:p1",
+          "workspace_id": "w4",
+          "workspace_label": "isb-egress",
+          "tab_id": "w4:t1",
+          "tab_label": "isb-egress",
+          "cwd": "/home/stephan/projects/isb",
+          "agent": "claude",
+          "agent_status": "working",
+          "has_agent": true,
+          "focused": true,
+          "transcript_at": 1791745195000,
+          "agent_id": "a4",
+          "repo": "isb",
+          "repo_key": "isb",
+          "repo_label": "isb"
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w5:p1",
+          "workspace_id": "w5",
+          "workspace_label": "readme-shots",
+          "tab_id": "w5:t1",
+          "tab_label": "readme-shots",
+          "cwd": "/home/stephan",
+          "agent": "omp",
+          "agent_status": "working",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1791745180000,
+          "agent_id": "a5",
+          "repo": "lasso",
+          "repo_key": "lasso",
+          "repo_label": "lasso"
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w6:p1",
+          "workspace_id": "w6",
+          "workspace_label": "Scratch",
+          "tab_id": "w6:t1",
+          "tab_label": "triage",
+          "cwd": "/home/stephan",
+          "agent": "claude",
+          "agent_status": "idle",
+          "has_agent": true,
+          "focused": false,
+          "transcript_at": 1791741600000
+        },
+        {
+          "host": "minime",
+          "host_label": "minime",
+          "pane_id": "w7:p1",
+          "workspace_id": "w7",
+          "workspace_label": "shortcuts",
+          "tab_id": "w7:t1",
+          "tab_label": "shortcuts",
+          "cwd": "/Users/stephanfitzpatrick",
+          "agent": "pi",
+          "agent_status": "unknown",
+          "has_agent": true,
+          "focused": false
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w8:p1",
+          "workspace_id": "w8",
+          "workspace_label": "logs",
+          "tab_id": "w8:t1",
+          "tab_label": "zsh",
+          "cwd": "/home/stephan",
+          "agent": "",
+          "agent_status": "",
+          "has_agent": false,
+          "focused": false
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w9:p1",
+          "workspace_id": "w9",
+          "workspace_label": "Bots",
+          "tab_id": "w9:t1",
+          "tab_label": "homie",
+          "cwd": "/home/stephan/bots/homie",
+          "agent": "omp",
+          "agent_status": "idle",
+          "has_agent": true,
+          "focused": false,
+          "agent_label": "homie",
+          "transcript_at": 1791744300000
+        },
+        {
+          "host": "local",
+          "host_label": "titan",
+          "pane_id": "w1:p3",
+          "workspace_id": "w1",
+          "workspace_label": "Agents",
+          "tab_id": "w1:t3",
+          "tab_label": "jessica",
+          "cwd": "/home/stephan/bots/jessica",
+          "agent": "claude",
+          "agent_status": "blocked",
+          "has_agent": true,
+          "focused": false,
+          "agent_label": "jessica",
+          "transcript_at": 1791745170000
+        }
+      ],
+      "errors": {}
+    },
+    "ui_state": {
+      "pinned_agents": [
+        "local\u0000w4:p1"
+      ],
+      "assistant_bot": "",
+      "dismissed_cards": {}
+    },
+    "bots": {
+      "bots": [
+        {
+          "id": 1,
+          "host": "local",
+          "name": "homie",
+          "runtime": "omp",
+          "dir": "~/bots/homie",
+          "workspace": "Bots",
+          "model": "",
+          "effort": "",
+          "permission_mode": "",
+          "mcp": [],
+          "strict_mcp": false,
+          "extra_args": [],
+          "launch_task": "",
+          "avatar": "",
+          "avatar_image": "",
+          "notify": true,
+          "keep_running": true,
+          "stopped": false,
+          "last_session_id": "",
+          "created_at": "2026-10-11T18:00:00Z",
+          "updated_at": "2026-10-11T18:00:00Z",
+          "state": "idle",
+          "pane_id": "w9:p1",
+          "last_kind": "agent",
+          "last_text": "Done. The tunnel unit is linked.",
+          "last_at": "2026-10-11T18:58:00Z"
+        },
+        {
+          "id": 2,
+          "host": "local",
+          "name": "jessica",
+          "runtime": "claude",
+          "dir": "~/bots/jessica",
+          "workspace": "Agents",
+          "model": "",
+          "effort": "",
+          "permission_mode": "",
+          "mcp": [],
+          "strict_mcp": false,
+          "extra_args": [],
+          "launch_task": "",
+          "avatar": "",
+          "avatar_image": "",
+          "notify": true,
+          "keep_running": true,
+          "stopped": false,
+          "last_session_id": "",
+          "created_at": "2026-10-11T18:00:00Z",
+          "updated_at": "2026-10-11T18:00:00Z",
+          "state": "blocked",
+          "pane_id": "w1:p3",
+          "waiting_for": "Approve a calendar invite",
+          "last_kind": "agent",
+          "last_text": "Shall I accept the 3pm with Saul?",
+          "last_at": "2026-10-11T18:58:00Z"
+        }
+      ]
+    }
+  },
+  "expect": {
+    "badge": 4,
+    "rail_slots": [
+      "local\u0000w1:p3",
+      "local\u0000w1:p1",
+      "minime\u0000w2:p1",
+      "local\u0000w1:p2",
+      "+5"
+    ],
+    "notes": [
+      "has_agent=false rows are not fleet members (w8), as in the web client.",
+      "Order is most urgent first: blocked, done, working, idle, unknown; ties by transcript_at, newest first.",
+      "The badge counts what waits on the human: blocked agents that are not a bot's pane (stub, notarize) and blocked bots (jessica): 3.",
+      "Agents are named by their herdr label, else their tab: stub, clem, jessica in the Agents workspace."
+    ]
+  }
+}

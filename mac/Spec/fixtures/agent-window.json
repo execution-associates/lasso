@@ -1,0 +1,103 @@
+{
+  "about": "A click on stub's row opened its own window: header with minimize and close, the whole conversation with tool runs folded and the files it shared rendered (an image inline, a recording as a player), the composer and footer, and a resize corner.",
+  "state": "agent-window",
+  "extends": "card-open",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "window": "local\u0000w1:p1"
+  },
+  "chats": {
+    "local\u0000w1:p1": {
+      "pane_id": "w1:p1",
+      "agent": "claude",
+      "host": "local",
+      "title": "lasso-desktop-mac",
+      "model": "claude-opus-5-5",
+      "path": "/home/stephan/.claude/projects/x/session.jsonl",
+      "start_offset": 0,
+      "tokens": 48211,
+      "running": false,
+      "items": [
+        {
+          "kind": "user",
+          "id": "u1",
+          "at": "2026-10-11T18:52:10Z",
+          "text": "Plan the native mac client for lasso, then build M1."
+        },
+        {
+          "kind": "agent",
+          "id": "a1",
+          "at": "2026-10-11T18:52:20Z",
+          "text": "Reading the brief and lasso's routes first."
+        },
+        {
+          "kind": "tool",
+          "id": "t1",
+          "at": "2026-10-11T18:52:31Z",
+          "tool": {
+            "call_id": "c1",
+            "name": "Read",
+            "title": "Read",
+            "subject": "src/hostpanes.go",
+            "state": "completed",
+            "result_line": "1,180 lines"
+          }
+        },
+        {
+          "kind": "tool",
+          "id": "t2",
+          "at": "2026-10-11T18:53:02Z",
+          "tool": {
+            "call_id": "c2",
+            "name": "Bash",
+            "title": "Bash",
+            "subject": "swift build -c release",
+            "state": "completed",
+            "result_line": "Build complete"
+          }
+        },
+        {
+          "kind": "agent",
+          "id": "a2",
+          "at": "2026-10-11T18:58:40Z",
+          "text": "M1 is green on minime: **126 checks** pass. The `lasso-desktop-tunnel` unit is not installed yet."
+        },
+        {
+          "kind": "agent",
+          "id": "a3",
+          "at": "2026-10-11T19:01:10Z",
+          "text": "Here is the rail beside the reference, and the arrival sound I picked:"
+        },
+        {
+          "kind": "tool",
+          "id": "t4",
+          "at": "2026-10-11T19:01:12Z",
+          "tool": {
+            "call_id": "c4",
+            "name": "SendUserFile",
+            "title": "Shared",
+            "subject": "The rail, and the arrival sound",
+            "state": "completed",
+            "result_line": "2 files delivered",
+            "files": [
+              {
+                "path": "/home/stephan/.lasso/worktrees/lasso/lasso-desktop-mac/mac/dist/parity/shot.png",
+                "kind": "image",
+                "caption": "The rail, and the arrival sound"
+              },
+              {
+                "path": "/home/stephan/.lasso/worktrees/lasso/lasso-desktop-mac/mac/Resources/Sounds/take.mp3",
+                "kind": "audio",
+                "caption": "The rail, and the arrival sound"
+              }
+            ]
+          }
+        }
+      ],
+      "cwd": "/home/stephan/.lasso/worktrees/lasso/lasso-desktop-mac"
+    }
+  }
+}

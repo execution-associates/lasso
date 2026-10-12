@@ -15,6 +15,7 @@
 // primary key) and repairs a server whose db was restored from a backup.
 
 import { api } from "./api"
+import { notifyDeviceID } from "./notify"
 import { isStandalone } from "./standalone"
 
 // Why notifications may be unavailable — each needs a different sentence in the
@@ -75,7 +76,7 @@ export async function readPushState(): Promise<PushState> {
     // endpoint, so this is idempotent, and a failure just leaves the state as
     // it was rather than blocking the read.
     await api
-      .pushSubscribe(sub.toJSON(), window.location.origin)
+      .pushSubscribe(sub.toJSON(), window.location.origin, notifyDeviceID())
       .catch(() => {})
   }
   return { support, permission, subscribed: !!sub }
@@ -123,7 +124,11 @@ export async function enablePush(publicKey: string): Promise<PushState> {
       applicationServerKey: key,
     })
   }
-  await api.pushSubscribe(sub.toJSON(), window.location.origin)
+  await api.pushSubscribe(
+    sub.toJSON(),
+    window.location.origin,
+    notifyDeviceID()
+  )
   return { support, permission, subscribed: true }
 }
 

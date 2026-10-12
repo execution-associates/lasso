@@ -1,0 +1,13 @@
+{
+  "about": "The pointer rests on stub's row in the agents list: its preview stands to the left, fixed in place: header with the state dot, the latest turn (tool runs folded into one line, the reply as a bubble with inline markdown, the question), its choices, the composer and the folder and model.",
+  "state": "list-hover-preview",
+  "extends": "card-open",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "preview": "local\u0000w1:p1",
+    "hovered": "local\u0000w1:p1"
+  }
+}

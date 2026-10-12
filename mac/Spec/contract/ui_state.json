@@ -1,0 +1,62 @@
+{
+  "sidebar_collapsed": true,
+  "sidebar_pct": 1,
+  "files_click_navigates": true,
+  "terminal_links_in_sidebar": true,
+  "usage_hidden": [
+    "x"
+  ],
+  "usage_order": [
+    "x"
+  ],
+  "usage_compact": true,
+  "theme_atmosphere": {
+    "x": {
+      "background": "x",
+      "scrim": 1,
+      "shading": true
+    }
+  },
+  "custom_backgrounds": [
+    "x"
+  ],
+  "appearance_mode": "x",
+  "palette_light": "x",
+  "palette_dark": "x",
+  "creator_default_host": "x",
+  "creator_last_host": "x",
+  "agents_group_host": true,
+  "agents_group_repo": true,
+  "chat_sidebar": true,
+  "pinned_agents": [
+    "x"
+  ],
+  "browser_mode": "x",
+  "texture": "x",
+  "sidebar_tabs": [
+    {
+      "id": "x",
+      "hidden": true
+    }
+  ],
+  "typography": {
+    "x": "x"
+  },
+  "chat_text": {
+    "x": null
+  },
+  "terminal_text": {
+    "x": null
+  },
+  "onboarding_done": true,
+  "dismissed_cards": {
+    "x": 1
+  },
+  "desktop_sound": {
+    "name": "x",
+    "sha256": "x",
+    "size": 1,
+    "content_type": "x",
+    "updated_at": 1
+  }
+}

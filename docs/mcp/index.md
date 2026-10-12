@@ -72,17 +72,17 @@ Every MCP session receives a short set of instructions at `initialize`, so an ag
 
 ## Authentication at a glance
 
-`/mcp` is **open by default**. That is the same trust model as lasso's file endpoints: fine on loopback, on a private tailnet, or behind an edge gate such as Cloudflare Access, and not fine on an address strangers can reach.
+On lasso's loopback listener `/mcp` is **open by default**. That is the same trust model as lasso's file endpoints: fine for the processes on lasso's own machine. From other machines, lasso is reached through a network listener, `-tailnet` or `-listen-access`, which identifies every caller first and lets in a machine (a tagged tailnet device, an Access service token) only when `LASSO_ALLOW` or the Access policy names it. See [Security](../security.md#listener-roles-and-the-caller-check).
 
 | setup | `/mcp` and `/herdr-mcp` | the `browser_*` tools and `/cdp` |
 | --- | --- | --- |
 | nothing set | open | open |
 | `UI_AUTH=user:pass` only | open | `UI_AUTH` basic credentials |
 | `MCP_OAUTH=client_id:secret` | a lasso bearer token, or the `UI_AUTH` basic credentials | the same, and a token's reach must include lasso's own machine |
-| `-require-access-header` | every request also needs Cloudflare Access's identity header | same |
+| a caller a network listener verified | in, with no credential; a lasso token it sends sets its scope | the same |
 
 - **`MCP_OAUTH`** turns lasso into a small OAuth 2.1 authorization server for its own `/mcp`. It is what makes per-host credentials, scoping and groups take effect. See [OAuth](./oauth.md).
-- **Cloudflare Access** in front of lasso gates everything at the edge. With `MCP_OAUTH` unset, claude.ai and Claude Desktop connectors can sign in through Access's Managed OAuth. See [OAuth](./oauth.md#claudeai-and-claude-desktop-connectors) and [Cloudflare deployment](../deployment/cloudflare.md).
+- **Cloudflare Access** in front of lasso decides who reaches it at all, and lasso verifies its assertion on every request. claude.ai and Claude Desktop connectors sign in through Access's Managed OAuth, with or without `MCP_OAUTH`. A lasso token sent as `X-Lasso-Token` narrows an agent's reach behind Access. See [OAuth](./oauth.md#claudeai-and-claude-desktop-connectors) and [Cloudflare deployment](../deployment/cloudflare.md).
 - **Per-host credentials and groups** bound which hosts' agents a caller can see and manage. See [Agent scope](./agent-scope.md).
 
 A browser tool call that falls short of its column is a tool error; the rest of `/mcp` still works. Regardless of auth, the browser tools and `/cdp` refuse any request that a different website's page sends from your browser, so a site you visit cannot drive the browsers through a lasso on your own machine.

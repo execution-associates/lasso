@@ -145,7 +145,7 @@ func openDB() error {
 			return fmt.Errorf("%s: %w", pragma, err)
 		}
 	}
-	if _, err := h.Exec(dbSchema + oauthSchema + groupsSchema + pushSchema + agentMsgSchema + botsSchema + botOAuthSchema + botJobsSchema); err != nil {
+	if _, err := h.Exec(dbSchema + oauthSchema + groupsSchema + pushSchema + notifyDeviceSchema + agentMsgSchema + botsSchema + botOAuthSchema + botJobsSchema + botMessageMetaSchema); err != nil {
 		h.Close()
 		return fmt.Errorf("create schema: %w", err)
 	}
@@ -183,6 +183,7 @@ func openDB() error {
 		`ALTER TABLE bot_jobs ADD COLUMN last_run_note TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE bot_events ADD COLUMN runs TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE bot_events ADD COLUMN run_status TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE push_subscriptions ADD COLUMN device_id TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := h.Exec(alter); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 			h.Close()
@@ -418,7 +419,25 @@ type uiState struct {
 	// human does not need a welcome after an upgrade. Settings can replay the
 	// tour at any time without touching this.
 	OnboardingDone bool `json:"onboarding_done"`
+	// DismissedCards are the agent cards a client dismissed, each as the
+	// paneKey PinnedAgents uses (host + NUL + pane id) mapped to the pane's
+	// transcript_at (unix ms) at the moment of dismissal: the card stays
+	// dismissed until that pane's transcript moves past it. Written only
+	// through the card_dismiss OPS (see uiStateWriter), never as a map, for
+	// the reason pins are: a stale copy would undo another device's dismissal.
+	// Capped at maxDismissedCards, smallest transcript_at dropped first.
+	DismissedCards map[string]int64 `json:"dismissed_cards"`
+	// DesktopSound describes the inbox arrival sound uploaded for LassoDesktop
+	// (desktopsound.go), absent when none is. Server-owned: only PUT and
+	// DELETE /api/desktop/sound change it, and POST /api/ui-state discards it,
+	// so a client learns of a new sound through the ui_state_rev it already
+	// watches and refetches the file only when sha256 moves.
+	DesktopSound *desktopSound `json:"desktop_sound,omitempty"`
 }
+
+// maxDismissedCards caps DismissedCards. A dismissal outlives its pane until
+// it is the oldest past the cap, so the map cannot grow without bound.
+const maxDismissedCards = 256
 
 // typographySlots are the keys ui_state.typography may hold. Where each one
 // applies is the frontend's business (lib/typography.ts); the server only
@@ -665,6 +684,7 @@ func getUIState() (uiState, error) {
 		Typography:             map[string]string{},
 		ChatText:               map[string]any{},
 		TerminalText:           map[string]any{},
+		DismissedCards:         map[string]int64{},
 	}
 	var v string
 	err := db.QueryRow(`SELECT value FROM settings WHERE key='ui_state'`).Scan(&v)
@@ -714,6 +734,10 @@ func getUIState() (uiState, error) {
 	}
 	us.ChatText = sanitizeChatText(us.ChatText)
 	us.TerminalText = terminalTextKind.sanitize(us.TerminalText)
+	us.DismissedCards = mergeDismissedCards(us.DismissedCards, nil)
+	if s := us.DesktopSound; s != nil && (s.SHA256 == "" || s.Size <= 0) {
+		us.DesktopSound = nil // a hand-edited blob: no sound rather than a broken one
+	}
 	return us, nil
 }
 

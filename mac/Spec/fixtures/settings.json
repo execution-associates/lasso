@@ -1,0 +1,87 @@
+{
+  "about": "Settings on a fresh Mac: the lassos it can talk to (production in use, a dev lasso on the tunnel), and the permission states: accessibility not asked; and which kinds of news may interrupt this Mac, from lasso's catalog (finished turns turned on here).",
+  "state": "settings",
+  "extends": "rail-expanded",
+  "ui": {
+    "rail": "collapsed",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "settings": true,
+    "settings_tab": "info"
+  },
+  "permissions": {
+    "accessibility": "not_determined"
+  },
+  "lassos": [
+    {
+      "url": "http://127.0.0.1:18090",
+      "version": {
+        "lasso_protocol": 22,
+        "lasso_version": "6.3.0 (fixture)",
+        "herdr_protocol": 22,
+        "herdr_version": "0.9.3",
+        "compatible": true,
+        "updatable": false,
+        "update_state": "current",
+        "latest_version": "v6.3.0"
+      }
+    },
+    {
+      "url": "http://127.0.0.1:18191",
+      "version": {
+        "lasso_protocol": 22,
+        "lasso_version": "6.4.0-dev (fixture)",
+        "herdr_protocol": 22,
+        "herdr_version": "0.9.3",
+        "compatible": true,
+        "updatable": false,
+        "update_state": "current",
+        "latest_version": "v6.3.0",
+        "dev": true,
+        "listen": "127.0.0.1:8191"
+      }
+    }
+  ],
+  "notify": {
+    "kinds": [
+      {
+        "id": "agent_blocked",
+        "label": "An agent is waiting on you",
+        "description": "A question, an approval or a plan gate.",
+        "default": true
+      },
+      {
+        "id": "agent_finished",
+        "label": "An agent finished a turn",
+        "description": "Any agent that stops working with its turn done.",
+        "default": false
+      },
+      {
+        "id": "agent_message",
+        "label": "An agent pinged you",
+        "description": "An agent's own message for you (lasso notify).",
+        "default": true
+      },
+      {
+        "id": "bot_message",
+        "label": "A bot replied",
+        "description": "A bot finished a turn with something new to say.",
+        "default": true
+      },
+      {
+        "id": "lasso_notice",
+        "label": "lasso's own notices",
+        "description": "Errors and results from lasso itself, like a theme a host would not take.",
+        "default": true
+      }
+    ],
+    "device": {
+      "id": "mac-fixture0000000",
+      "label": "LassoDesktop on minime",
+      "wants": {
+        "agent_finished": true
+      }
+    }
+  }
+}

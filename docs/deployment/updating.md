@@ -4,7 +4,7 @@ description: Update lasso with lasso update, what it restarts, and how to update
 order: 64
 ---
 
-lasso and herdr are updated separately. lasso is one binary on one machine and updates itself with `lasso update`. herdr runs on every host lasso drives, and the host menu can update it on remote hosts for you.
+lasso, herdr and the Mac app are updated separately. lasso is one binary on one machine and updates itself with `lasso update`. herdr runs on every host lasso drives, and the host menu can update it on remote hosts for you.
 
 ## Checking for a new lasso
 
@@ -57,6 +57,10 @@ In this mode, the host menu also offers an **update** button beside the lasso ve
 ### Turning the in-app update off
 
 `-disable-self-update` (or `LASSO_DISABLE_SELF_UPDATE=1`) removes the in-app update button and makes `POST /api/self-update` answer 403. Use it where an agent working through lasso's UI must not be able to rebuild and restart lasso. It does not stop someone with a shell on the machine from running `lasso update`.
+
+## Updating the Mac app
+
+The [Mac app](../getting-started/desktop.md) is released with lasso, at the same version, and updates itself: it checks the newest release's signed update feed and installs it (**Check for updates** in its Settings › Info checks now). Update lasso and the Mac app together where you can. An app newer than its lasso shows less rather than failing.
 
 ## Updating herdr
 

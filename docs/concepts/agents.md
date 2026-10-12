@@ -77,6 +77,8 @@ A prompt's first line is written for the agent, not for a sidebar, so lasso then
 - never overrides a title an MCP caller passed explicitly;
 - can be turned off in Settings → General → Agents → **Auto-title new agents from their prompt**.
 
+Any agent, lasso's or one you started by hand, can also carry a **label**: herdr's own name for the agent, which the [Mac app](../getting-started/desktop.md) sets when you rename an agent there (`POST /api/agent/rename`). A label is an identifier (a lowercase letter first, then lowercase letters, digits, `-` and `_`, at most 32 characters), so a typed "Check HN page" becomes `check-hn-page`; an empty one clears it. A bot's pane cannot be renamed this way, because lasso finds a bot by that name.
+
 ## Agent records
 
 lasso keeps a record of every agent it creates, in `lasso.db` on lasso's machine: id, host, title, type, harness, model, effort, plan mode, repo, branch, base, work dir, herdr workspace and root pane, prompt, boot status and creation time. That record is what lets `list_agents`, `get_agent`, `close_agent` and `whoami` answer with more than herdr knows.

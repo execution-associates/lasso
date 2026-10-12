@@ -4,20 +4,33 @@ description: lasso's route table, and which auth gate guards each route.
 order: 99
 ---
 
-Everything lasso serves comes from one listener (`-listen`). The browser UI uses the `/api/*` routes; agents use `/mcp`, `/herdr-mcp` and `/cdp`. The `/api/*` routes are lasso's own UI API, not a stable public interface: they can change between releases. Script lasso through [`lasso mcp`](../mcp/cli.md) or the MCP server instead.
+Every listener serves the same routes: the local `-listen`, and the network listeners `-tailnet`, `-listen-access` and `-listen-serve` when they are on. The browser UI uses the `/api/*` routes; agents use `/mcp`, `/herdr-mcp` and `/cdp`. The `/api/*` routes are lasso's own UI API, not a stable public interface: they can change between releases. Script lasso through [`lasso mcp`](../mcp/cli.md) or the MCP server instead.
 
 ## Auth gates
+
+Who is calling depends on the listener the request arrived on:
+
+| listener | proof lasso checks | the caller | admitted by default | with `LASSO_ALLOW` set |
+| --- | --- | --- | --- | --- |
+| local (`-listen`) | none | whoever connected | everyone; the gates below decide | not read |
+| access (`-listen-access`) | `Cf-Access-Jwt-Assertion`, verified against `LASSO_ACCESS_TEAM`'s keys and `LASSO_ACCESS_AUD` | a person (the email) or a machine (`service:<client id>`) | whoever Access admitted | only the entries it lists |
+| tailnet (`-tailnet`) | tailscaled's whois of the connection's peer address | a person (the device owner's login) or a machine (the device's tags) | the node's owner only | only the entries it lists |
+| serve (`-listen-serve`) | the `Tailscale-User-Login` header `tailscale serve` sets | a person | the node's owner only | only the entries it lists |
+
+A request on a network listener without its proof, or from a caller not admitted, gets 403, except on `/hooks/bots` and `/bot-channel`, which pass unproven to handlers that check their own keys. A machine caller reaches only `/mcp`, `/herdr-mcp`, `/cdp`, `/hooks/bots`, `/bot-channel`, `/oauth/register`, `/oauth/token` and the two `/.well-known/oauth-*` documents, unless its `LASSO_ALLOW` entry carries `ui:` or it sends a lasso token with the `ui` scope.
 
 A request passes through these layers, outermost first:
 
 1. **Internal CDP token.** lasso's own chrome-devtools-mcp children reach `/cdp` with a random per-process token, honored on `/cdp` paths only, ahead of every other gate.
-2. **The Access header gate**, when `-require-access-header` is on: every route, with no exemptions, answers 403 without a non-empty `Cf-Access-Authenticated-User-Email` header (or with one not in `-access-allowed-emails`). Off by default, and nothing reads the header while it is off.
-3. **UI_AUTH basic auth**, when `UI_AUTH` is set: every route **except** `/mcp`, `/herdr-mcp`, `/cdp`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/oauth/register` and `/oauth/token` (and their subpaths). `/oauth/authorize` stays behind it on purpose: that is where a human approves a client.
-4. **Per-route gates** on the exempt routes:
+2. **The caller check**, by listener role, as in the table above. It also moves an `X-Lasso-Token` header into `Authorization: Bearer`, and on a network listener drops a bearer token lasso did not issue.
+3. **The local guard**, on every listener: a `Host` lasso does not answer to gets 421 (skipped on the access listener), and a state-changing request or websocket upgrade from another site's page gets 403, except on `/oauth/register`, `/oauth/token`, `/hooks/bots` and `/bot-channel`. See [Security](../security.md#the-local-guard).
+4. **The Access header gate** (deprecated), when `-require-access-header` is on: every route answers 403 without a Cloudflare Access identity (or with one not in `-access-allowed-emails`). With `LASSO_ACCESS_AUD` set it verifies the assertion; otherwise it reads `Cf-Access-Authenticated-User-Email`. A caller a network listener verified passes. Off by default.
+5. **UI_AUTH basic auth**, when `UI_AUTH` is set: every route **except** `/mcp`, `/herdr-mcp`, `/cdp`, `/hooks/bots`, `/bot-channel`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/oauth/register` and `/oauth/token` (and their subpaths). `/oauth/authorize` stays behind it on purpose: that is where a human approves a client. A caller a network listener verified, or a lasso token with the `ui` scope, passes without the password. With `MCP_OAUTH` set, its 401 also carries a `Bearer` challenge naming the resource metadata and the scope `mcp ui`.
+6. **Per-route gates** on the exempt routes:
 
 | route | gate | open by default? | with `UI_AUTH` only | with `MCP_OAUTH` |
 | --- | --- | --- | --- | --- |
-| `/mcp` | `withMCPAuth` | yes | open | bearer token or `UI_AUTH` basic credentials |
+| `/mcp` | `withMCPAuth` | yes | open | bearer token (`Authorization` or `X-Lasso-Token`) or `UI_AUTH` basic credentials |
 | `/mcp`'s `browser_*` tools | `withBrowserToolGate`, checked per call | yes | `UI_AUTH` basic | as `/mcp`; the token's scope must include lasso's own machine |
 | `/herdr-mcp` | `withMCPAuth` | yes | open | same as `/mcp`; each call's host is checked against the token's scope |
 | `/cdp` | `withCDPAuth` | yes | `UI_AUTH` basic | bearer token or `UI_AUTH` basic; the token's scope must include lasso's own machine |
@@ -26,7 +39,9 @@ The `browser_*` tools front `/cdp`, so they meet `/cdp`'s standard rather than `
 
 `/cdp` and the `browser_*` tools also refuse any request whose `Origin` names a different website, before any credential check and whatever the auth settings. That is what stops a page you visit from driving a lasso on your own machine. Under `MCP_OAUTH` without `UI_AUTH`, lasso's own Browser tab (same origin, no `Authorization` header) still reaches `/cdp`.
 
-So on a loopback or tailnet lasso with no `UI_AUTH` and no `MCP_OAUTH`, **everything is open** to whoever can reach the port. That is the intended trust model for a private network; put an edge gate (Cloudflare Access) or `UI_AUTH` in front of anything wider. See [Security](../security.md).
+A caller a network listener verified passes every per-route gate without a credential of its own; a lasso token it also sends still sets its MCP scope.
+
+So on the loopback listener with no `UI_AUTH` and no `MCP_OAUTH`, **everything is open** to whatever can connect to it on lasso's machine. Reach lasso from anywhere else through a network listener, which identifies the caller first. See [Security](../security.md).
 
 ## Routes
 
@@ -35,13 +50,14 @@ So on a loopback or tailnet lasso with no `UI_AUTH` and no `MCP_OAUTH`, **everyt
 | route | purpose |
 | --- | --- |
 | `/terminal/<host>/` | Reverse proxy (HTTP and WebSocket) to the ttyd running herdr for one host. |
-| `/api/events` | Server-sent events: focused pane, layout, theme and state revisions, pushed to the browser. |
+| `/api/events` | Server-sent events: focused pane, layout, theme and state revisions, pushed to the browser. A `notice` event is a one-shot toast, `{level, title, detail?, id, at}`: `id` is unique within the running lasso (its prefix changes on every start) and `at` is when it was raised, in unix milliseconds. A `notification` event carries every notification to every open client, `{id, at, kind, level?, bot?, title, body?, tag?, host?, url?, icon?}`; each client filters it against its own device's choices from `/api/notify`. lasso's notices are sent as both events, `notice` for older clients. |
 | `/api/host` | `POST`: attach the calling tab to a host (spawns its terminals if needed). It switches nothing for other tabs. |
 | `/api/hosts` | The host list from `~/.ssh/config`, with each host's reachability and herdr version. |
 | `/api/active`, `/api/panes`, `/api/all-panes` | The focused pane; one host's panes; panes across the fleet. A pane's `transcript_at` is its log's mtime on whichever host has the log. |
 | `/api/focus`, `/api/close`, `/api/rename`, `/api/workspace-rename` | Focus, close or rename herdr panes, tabs and workspaces. |
 | `/api/clients`, `/api/term-claim` | The browsers attached to this lasso; which tab owns the terminal's size. |
-| `/api/ui-state` | Read and patch the shared UI state stored in `lasso.db`. |
+| `/api/ui-state` | Read and patch the shared UI state stored in `lasso.db`. Collections a stale client must not overwrite change only through ops: `agent_pins` (for `pinned_agents`) and `card_dismiss: {<key>: <transcript_at ms>\|null}` (for `dismissed_cards`, at most 256, smallest `transcript_at` dropped first), each key a host, a NUL and a pane id. |
+| `/api/desktop/sound` | `GET`: the inbox arrival sound uploaded for LassoDesktop, the Mac app, with its `Content-Type`, an `ETag` (its SHA-256), `Cache-Control: no-cache` and a 304 for a matching `If-None-Match`; 404 when none is set. `PUT`: replace it with the request body, the raw audio file (at most 1 MiB, 413 beyond; empty is a 400), and `?name=` for its display name (at most 64 characters, control characters dropped; `Custom sound` when absent). The format is told by the bytes, never by `Content-Type`: MP3, WAV, AIFF/AIFC, M4A (AAC or ALAC in MP4) or CAF, anything else a 415. Answers the stored metadata. `DELETE`: remove it (204, also when none is set). The metadata is `desktop_sound` in `/api/ui-state`, `{name, sha256, size, content_type, updated_at}` (unix ms) and absent when none is set; only this route changes it, and each change moves `ui_state_rev`, so a client re-downloads only when `sha256` differs from its copy. |
 
 Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` header or a `?host=` parameter. See [Hosts](../concepts/hosts.md).
 
@@ -62,9 +78,14 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 | --- | --- |
 | `/api/create-agent`, `/api/agent-upload` | Create an agent; stage its attachments. |
 | `/api/agent/close`, `/api/agent/reopen`, `/api/agent-history` | Close an agent (what `lasso closeme` calls); reopen a closed agent's directory; past agents for the pane switcher. |
+| `/api/agent/rename` | Set or clear an agent's custom label (herdr's `agent.rename`), `{pane_id, name}` with `?host=`; an empty name clears it. The name is made a herdr agent name first ("Check HN page" is `check-hn-page`). A bot's pane is refused (409): lasso finds a bot by that name. |
 | `/api/create-terminal`, `/api/workspaces` | Open a plain terminal; list workspaces to put it in. |
 | `/api/agent-config`, `/api/repo-config`, `/api/repos`, `/api/repo-branches`, `/api/auto-title` | New dialog settings, repos and branches. |
 | `/api/chat`, `/api/chat/send`, `/api/chat/answer` | The chat view: read an agent's transcript, send it a message, answer its question dialog. `/api/chat`'s `host` is the pane's machine; the log may be served from another host lasso drives, named by `served_by`. An empty answer carries `unavailable: {reason, checked, unanswered}`. |
+| `/api/chat/answer` | `POST {pane_id, expect, labels, answers: [{selected, multi, options, custom?, previews?}]}`, one answer per question in order, `selected` being option indexes and `options` the question's option count. lasso types the keys a human would into the claude or omp dialog once the pane's screen still shows `expect` or one of `labels` (the first question's), and answers `{outcome: "sent" \| "refused", detail?}`; nothing is retried. `custom` is a free-text answer typed into the dialog's own "Other" row: one line (no newline or other control character), at most 1200 characters, at most 8 per request, with `selected` empty on a single-select question (a multi-select one may carry both); with any `custom` in the request, the first answer's `options` must equal the length of `labels` when those are sent, since the walk to the "Other" row is counted in options. `previews` marks a question whose options carry previews: claude draws a single-select one with no "Other" row, so a `custom` answer there is refused. A malformed body is a 400. |
+| `/api/bots`, `/api/bots/<name>[/…]` | Bots: create, configure, start and stop them, their jobs, skills, env and sign-ins. A blocked omp bot's row carries `pending_ui`, the questions it waits on, as its chat does. An omp bot's chat is `/api/bots/<name>/chat` with `chat/send` (`{text, meta?}`; `meta` is up to 16 string values, at most 1 KB, shown back on the user's row), `chat/stop` and `chat/answer`. See [Bots](../design/bots.md). |
+| `/api/transcribe` | `POST` a PCM16 WAV (raw body, at most 4 MiB and 120 s; `?language=`, `?prompt=`) and get `{text, engine, provider, model, language, audio_ms, elapsed_ms}`; `GET` says whether it is `available` and its limits. 503 while the provider is off, 429 past 2 in flight. See [Transcription](../design/transcription.md). |
+| `/api/transcribe/config` | The `transcribe` setting: provider (`off`, `groq`, `openai`, `openai-compatible`), model, `base_url` and the NAME of the key's variable. |
 
 ### Settings, themes and maintenance
 
@@ -72,12 +93,14 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 | --- | --- |
 | `/api/theme`, `/api/theme-set`, `/api/theme-sync` | The resolved theme; change it; push it to every host now. |
 | `/api/omarchy-themes`, `/omarchy/bg/…`, `/omarchy/thumb/…` | The theme catalog; background images and thumbnails. |
-| `/api/version`, `/api/self-update` | Versions and herdr compatibility; update a supervised source checkout (403 with `-disable-self-update`). |
+| `/api/version`, `/api/self-update` | Versions and herdr compatibility; update a supervised source checkout (403 with `-disable-self-update`). A lasso running with `-dev` adds `dev: true` and `listen`, the address it bound. |
 | `/api/host-update`, `/api/host-provision` | Update herdr on a host; install and start herdr on a host that lacks it. |
 | `/api/usage` | Provider rate-limit windows for the usage footer. |
 | `/api/frameable` | Whether a URL can be framed, for the Browser tab's iframe mode. |
 | `/api/browser`, `/api/browser/profiles[/…]` | Shared-browser status, and the browsers (stored as profiles, hence the path). |
-| `/api/push`, `/api/push/subscribe`, `/api/push/unsubscribe`, `/api/push/test` | Web Push devices. `subscribe` accepts only an `https` endpoint with a valid P-256 key. |
+| `/api/push`, `/api/push/subscribe`, `/api/push/unsubscribe`, `/api/push/test` | Web Push devices. `subscribe` accepts only an `https` endpoint with a valid P-256 key, and names the notification device it belongs to (`device_id`). |
+| `/api/notify` | `GET ?device=<id>`: the notification kinds (`kinds`: id, label, description, default) and that device's resolved choices (`device: {id, label, wants}`). |
+| `/api/notify/device` | `POST {id, label?, kinds?}`: register or relabel a notification device and change its choices, merged per kind; `null` puts a kind back to its default, and an unknown kind refuses the whole write (400). A device id is 8 to 64 characters of `A-Z a-z 0-9 _ -`. |
 | `/api/log` | With `-dev` only: browser log sink. |
 
 ### Plugins
@@ -96,7 +119,7 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 | `/cdp/browsers` | `GET`: every browser and the CDP address of each, for a client with no MCP. Never starts a browser. Same gates as `/cdp`. `/cdp/profiles` answers the same list under a `profiles` key. See [Discovering browsers over CDP](../mcp/browser.md#discovering-browsers-over-cdp). |
 | `/.well-known/oauth-protected-resource[/…]`, `/.well-known/oauth-authorization-server[/…]` | OAuth discovery documents. 404 unless `MCP_OAUTH` is set. |
 | `/oauth/register`, `/oauth/token` | Dynamic client registration; token endpoint. 404 unless `MCP_OAUTH` is set. |
-| `/oauth/authorize` | The consent screen. Behind `UI_AUTH` and the Access gate. 404 unless `MCP_OAUTH` is set. |
+| `/oauth/authorize` | The consent screen; grants `mcp`, or `mcp ui` when the client asks for `ui`. Behind `UI_AUTH` and the network listeners' caller check. 404 unless `MCP_OAUTH` is set. |
 
 ### Static
 
@@ -104,4 +127,5 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 | --- | --- |
 | `/assets/…` | Hashed frontend build assets, cached long-term. |
 | `/sw.js` | The service worker, served `no-store` so it is never stale. |
+| `/m`, `/m/…` | The simple app (Inbox, Agents, Bots, Settings), the single-page app's phone entry. A phone opening `/` goes here unless that device chose the full UI. |
 | `/` | The single-page app; any unmatched path serves it. |

@@ -1,0 +1,27 @@
+{
+  "active": "x",
+  "local": {
+    "version": "x",
+    "protocol": 1,
+    "hostname": "x",
+    "user": "x"
+  },
+  "hosts": [
+    {
+      "alias": "x",
+      "hostname": "x",
+      "user": "x",
+      "reachable": true,
+      "running": true,
+      "version": "x",
+      "protocol": 1,
+      "socket": "x",
+      "compatible": true,
+      "err": "x",
+      "state": "x",
+      "checked_at": "x",
+      "stale": true
+    }
+  ],
+  "probing": true
+}

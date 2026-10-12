@@ -50,7 +50,7 @@ type botStateOut struct {
 
 func summarizeBot(v botView) botSummary {
 	return botSummary{
-		Name: v.Name, Host: v.Host, Dir: v.Dir, Workspace: v.Workspace, Runtime: v.Runtime, Model: v.Model,
+		Name: v.Name, Host: mcpHostName(v.Host), Dir: v.Dir, Workspace: v.Workspace, Runtime: v.Runtime, Model: v.Model,
 		State: v.State, WaitingFor: v.WaitingFor, PaneID: v.PaneID, KeepRunning: v.KeepRunning,
 		Channels: v.channels(), LastText: v.LastText, LastAt: v.LastAt,
 	}

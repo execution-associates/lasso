@@ -90,3 +90,30 @@ func TestVersionPingError(t *testing.T) {
 		t.Errorf("lasso_protocol should still report the target, got %d", vi.LassoProtocol)
 	}
 }
+
+// A dev lasso says so, and where it bound (it falls forward past a busy
+// port); any other instance carries neither key.
+func TestVersionDevInstance(t *testing.T) {
+	stubPinger(t, func() (string, int, error) { return "0.9.0", lassoHerdrProtocol, nil })
+	prevDev, prevListen := *devMode, *listenAddr
+	t.Cleanup(func() { *devMode, *listenAddr = prevDev, prevListen })
+
+	*devMode, *listenAddr = false, "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	serveVersion(rec, httptest.NewRequest(http.MethodGet, "/api/version", nil))
+	var raw map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := raw["dev"]; ok {
+		t.Errorf("production payload carries dev: %s", rec.Body.String())
+	}
+	if _, ok := raw["listen"]; ok {
+		t.Errorf("production payload carries listen: %s", rec.Body.String())
+	}
+
+	*devMode, *listenAddr = true, "127.0.0.1:8191"
+	if vi := callVersion(t); !vi.Dev || vi.Listen != "127.0.0.1:8191" {
+		t.Errorf("dev payload = dev %v listen %q, want true and the bound address", vi.Dev, vi.Listen)
+	}
+}

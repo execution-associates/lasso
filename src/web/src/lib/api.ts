@@ -213,6 +213,8 @@ export interface HostPane {
   // When the agent's transcript was last written, unix milliseconds. Absent
   // when the pane has no transcript lasso can read.
   transcript_at?: number
+  // herdr's custom agent label (agent.list's name), when one was set.
+  agent_label?: string
 }
 
 export interface PanesPayload {
@@ -261,6 +263,15 @@ export interface ChatTool {
   // and on an ask whose payload lasso could not read (that one stays a plain
   // tool row rather than an empty form).
   ask?: ChatAsk
+  // Files the agent showed the human (Claude Code's SendUserFile), each
+  // classified by extension so a viewer is picked before anything is fetched.
+  files?: ChatFile[]
+}
+
+export interface ChatFile {
+  path: string
+  kind: "image" | "audio" | "video" | "file"
+  caption?: string
 }
 
 // A question an agent is waiting on. The options are the content: a chat that
@@ -504,6 +515,12 @@ export interface UIState {
   // Read-only here: write it through the agent_pins ops (setAgentPinned).
   // Optional because an older server never sends it.
   pinned_agents?: string[]
+  // Cards the human discarded, by key (a paneKey, or bot:<name>[#<ask id>]),
+  // each with the moment it was discarded up to: a pane's transcript_at, a
+  // bot's last_at in ms. A card returns once its own moment passes that.
+  // Read-only here: write it through the card_dismiss ops. Optional because
+  // an older server never sends it.
+  dismissed_cards?: Record<string, number>
   // How much character the palette chrome carries (lib/character.ts). Never
   // send "": the server answers 400, as it does for browser_mode.
   texture: Texture
@@ -611,6 +628,9 @@ export interface UIStatePatch
   forget_background?: string
   // Pin ops on pinned_agents, per paneKey: true pins, false unpins.
   agent_pins?: Record<string, boolean>
+  // Dismissal ops on dismissed_cards, per key: a value dismisses up to it,
+  // null brings the card back.
+  card_dismiss?: Record<string, number | null>
 }
 
 // What a POST /api/ui-state write sends beyond the preferences themselves: who
@@ -913,6 +933,8 @@ export interface BotView extends BotFields {
   // Its picture (.lasso/avatar.<ext> plus a ?v= revision), or "": see
   // botAvatarURL. Set through avatarSet, never by a save.
   avatar_image: string
+  // What an omp bot is waiting on the human for, as its chat would carry it.
+  pending_ui?: BotPendingUI[]
 }
 
 export interface BotDetail {
@@ -1209,6 +1231,8 @@ export interface CreateTerminalResult {
 // digest of it.
 export interface PushDevice {
   id: string
+  // The notify device the subscription belongs to (lib/notify.ts).
+  device?: string
   label: string
   created_at?: string
   last_ok?: string
@@ -1573,6 +1597,36 @@ function splitLines(s: string): string[] {
   return lines
 }
 
+// One kind of notification a device can choose (notify.go's catalog).
+export interface NotifyKind {
+  id: string
+  label: string
+  description: string
+  default: boolean
+}
+
+export interface NotifyView {
+  kinds: NotifyKind[]
+  device: { id: string; label?: string; wants: Record<string, boolean> }
+}
+
+// A notification as the live channel delivers it to an open client (the
+// `notification` SSE event, notifylive.go).
+export interface LiveNotification {
+  id: string
+  at: number
+  kind: string
+  level?: "error" | "info" | "success"
+  // The bot a pane's event is about (a bot is a herdr agent too).
+  bot?: string
+  title: string
+  body?: string
+  tag?: string
+  host?: string
+  url?: string
+  icon?: string
+}
+
 export interface PushConfig {
   public_key: string
   devices: PushDevice[]
@@ -1825,11 +1879,24 @@ export const api = {
   // subscribe body is the browser's own PushSubscription JSON, passed through
   // verbatim so nothing here has to understand its key encoding (lib/push.ts).
   pushConfig: () => getJSON<PushConfig>("/api/push"),
-  pushSubscribe: (sub: PushSubscriptionJSON, origin: string) =>
+  // `device` links the subscription to this browser's notify device, whose
+  // choices filter what it is pushed (lib/notify.ts).
+  pushSubscribe: (sub: PushSubscriptionJSON, origin: string, device: string) =>
     postJSON<{ ok: boolean; devices: number }>("/api/push/subscribe", {
       ...sub,
       origin,
+      device,
     }),
+  // Which notifications a device takes (notifydevices.go): the catalog of
+  // kinds and the device's resolved choice for each.
+  notify: (device: string) =>
+    getJSON<NotifyView>(`/api/notify?device=${encodeURIComponent(device)}`),
+  // Merged per kind; null brings a kind back to its default.
+  notifyDevice: (body: {
+    id: string
+    label?: string
+    kinds?: Record<string, boolean | null>
+  }) => postJSON<NotifyView>("/api/notify/device", body),
   pushUnsubscribe: (endpoint: string) =>
     postJSON<{ ok: boolean; devices: number }>("/api/push/unsubscribe", {
       endpoint,
@@ -1979,7 +2046,16 @@ export const api = {
     pane: string,
     expect: string,
     labels: string[],
-    answers: { selected: number[]; multi: boolean; options: number }[]
+    answers: {
+      selected: number[]
+      multi: boolean
+      options: number
+      // Free text typed into the dialog's "Other" row.
+      custom?: string
+      // The question's options carry previews (claude lays those out with no
+      // "Other" row, so the server refuses `custom` there).
+      previews?: boolean
+    }[]
   ) =>
     postJSON<ChatAnswerResult>(withHost("/api/chat/answer", host), {
       pane_id: pane,
@@ -2341,7 +2417,6 @@ export const api = {
     pane_id?: string
     reveal?: boolean
   }) => postJSON<{ ok: boolean; reattach?: boolean }>("/api/focus", sel),
-
   // Both renames name their machine the way close does: omitted is the tab's
   // host, explicit is the pane's own.
   rename: (tab_id: string | undefined, label: string, host?: string) =>

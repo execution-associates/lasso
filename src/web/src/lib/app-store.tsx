@@ -1,5 +1,4 @@
 import * as React from "react"
-import { toast } from "sonner"
 
 import { type ActiveState, api } from "@/lib/api"
 import {
@@ -10,6 +9,7 @@ import { subscribeChatText } from "@/lib/chat-text"
 import { clientID } from "@/lib/client-id"
 import { setTabHost, tabHost, withTabHost } from "@/lib/host"
 import { applyMode, subscribeAppearance, watchSystemMode } from "@/lib/mode"
+import { handleLiveNotification } from "@/lib/notify"
 import { handleOpenFileEvent } from "@/lib/open-file"
 import { invalidateHostScoped, qk, queryClient } from "@/lib/query"
 import { setTermOwner, watchTermIntent } from "@/lib/term-claim"
@@ -59,29 +59,6 @@ export async function moveTabToHost(host: string) {
 
 // Internal: the SSE stream and host-scoped caches listen for this to re-subscribe.
 export const HOST_MOVED_EVENT = "lasso:host-moved"
-
-// A server-pushed toast (SSE "notice"): how background work that outlives its
-// request — auto-titling a new agent, which finishes long after create-agent
-// answered — reports a failure the user would otherwise only see in the log.
-interface Notice {
-  level?: "error" | "info" | "success"
-  title: string
-  detail?: string
-}
-
-function showNotice(raw: string) {
-  let n: Notice
-  try {
-    n = JSON.parse(raw)
-  } catch {
-    return
-  }
-  if (!n?.title) return
-  const opts = n.detail ? { description: n.detail } : undefined
-  if (n.level === "error") toast.error(n.title, opts)
-  else if (n.level === "success") toast.success(n.title, opts)
-  else toast.info(n.title, opts)
-}
 
 // How long the event stream may carry nothing before it is presumed dead and
 // replaced. The server pings every 25s (serveSSE), so this is two missed pings
@@ -224,9 +201,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         seen()
         apply(JSON.parse((e as MessageEvent).data))
       })
-      src.addEventListener("notice", (e) => {
+      // Every notification, of every kind, on its way to every open client:
+      // lib/notify.ts decides whether this device shows it. (The server also
+      // sends lasso's notices as `notice` events, for clients older than
+      // this channel; this one takes them from here.)
+      src.addEventListener("notification", (e) => {
         seen()
-        showNotice((e as MessageEvent).data)
+        void handleLiveNotification((e as MessageEvent).data)
       })
       // An agent asked to show the human a file (open_file / `lasso open`).
       // lib/open-file.ts gates it on this tab being visible and hands it on.

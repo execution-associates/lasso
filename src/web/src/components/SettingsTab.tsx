@@ -18,6 +18,7 @@ import {
   Moon,
   Palette,
   RotateCw,
+  Smartphone,
   Sun,
   Upload,
   X,
@@ -98,6 +99,7 @@ import {
   subscribeSystemScheme,
   systemPrefersDark,
 } from "@/lib/mode"
+import { notifyDeviceID, setNotifyKind, useNotifyChoices } from "@/lib/notify"
 import { startOnboarding } from "@/lib/onboarding"
 import {
   githubCommitURL,
@@ -155,6 +157,7 @@ import {
   setThemeBackground,
   themeBackgrounds,
 } from "@/lib/wallpaper"
+import { switchUI } from "@/simple/route"
 
 type SaveState = "idle" | "saving" | "saved" | "error"
 
@@ -321,6 +324,16 @@ function SettingsGroup({
 // screen.
 type SettingsSub = "general" | "themes"
 const SUB_KEY = "lasso-settings-sub"
+const SHOW_GENERAL_EVENT = "lasso:settings-general"
+
+// showGeneralSettings turns the Settings tab to its General pane: ⌘, and the
+// desktop app's Advanced Settings link (?open=settings) land there, whichever
+// pane was last showing. Stored first, so a tab not yet mounted opens on it.
+export function showGeneralSettings() {
+  lsSet(SUB_KEY, "general")
+  window.dispatchEvent(new Event(SHOW_GENERAL_EVENT))
+}
+
 export function SettingsTab({ active }: { active: boolean }) {
   // Which pane is showing, remembered per browser like the right-hand view
   // itself: someone iterating on a theme should not have to re-find it.
@@ -330,6 +343,11 @@ export function SettingsTab({ active }: { active: boolean }) {
   React.useEffect(() => {
     lsSet(SUB_KEY, sub)
   }, [sub])
+  React.useEffect(() => {
+    const show = () => setSub("general")
+    window.addEventListener(SHOW_GENERAL_EVENT, show)
+    return () => window.removeEventListener(SHOW_GENERAL_EVENT, show)
+  }, [])
 
   // Which host's settings to edit — each host stores them in its own lasso.db.
   // The picker lists the local machine plus every reachable, compatible remote
@@ -379,6 +397,23 @@ export function SettingsTab({ active }: { active: boolean }) {
           forceMount
           className="min-h-0 overflow-y-auto px-3 py-4 data-[state=inactive]:hidden"
         >
+          {/* The way back to the simple app, remembered on this device. */}
+          <button
+            type="button"
+            onClick={() => switchUI("simple")}
+            className="mb-4 flex w-full items-center gap-2.5 rounded-lg border border-border px-3 py-2.5 text-left hover:bg-accent/40"
+          >
+            <Smartphone className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] text-foreground">
+                Switch to the simple view
+              </span>
+              <span className="block text-[11px] text-muted-foreground">
+                Inbox, agents, bots and settings, made for a phone. Remembered
+                on this device.
+              </span>
+            </span>
+          </button>
           {/* Grouped so a phone opens on a short list of headers. Agents is
               kept mounted: CreationSettings is a set of autosaving drafts
               with a save status, and the host picker's choice lives here. */}
@@ -2437,6 +2472,45 @@ function SharedBrowserSettings({ active }: { active: boolean }) {
 // half is the server's (which devices it pushes to), so the section reads both
 // and never infers one from the other — a device whose permission was revoked
 // in iOS Settings still has a server row, and saying "on" then would be a lie.
+// Which kinds may interrupt THIS device (lib/notify.ts): its pushes, and the
+// toasts its open tabs show. Kept per device on the server, so a phone and a
+// laptop choose differently.
+function NotifyKindChoices() {
+  const q = useNotifyChoices()
+  if (!q.data) return null
+  return (
+    <div className="mt-2 flex flex-col gap-1.5">
+      <span className="text-[11px] text-muted-foreground">
+        This device is told about:
+      </span>
+      {q.data.kinds.map((k) => (
+        <label
+          key={k.id}
+          className="flex cursor-pointer select-none items-start gap-2 text-[13px] text-foreground"
+          htmlFor={`notify-kind-${k.id}`}
+        >
+          <Checkbox
+            id={`notify-kind-${k.id}`}
+            className="mt-0.5"
+            checked={q.data.device.wants[k.id] ?? k.default}
+            onCheckedChange={(c) =>
+              void setNotifyKind(k.id, c === true).catch((e) =>
+                toast.error((e as Error).message)
+              )
+            }
+          />
+          <span>
+            {k.label}
+            <span className="block text-[11px] text-muted-foreground">
+              {k.description}
+            </span>
+          </span>
+        </label>
+      ))}
+    </div>
+  )
+}
+
 function NotificationsSettings({ active }: { active: boolean }) {
   const queryClient = useQueryClient()
   const config = useQuery({
@@ -2507,13 +2581,10 @@ function NotificationsSettings({ active }: { active: boolean }) {
         Push notifications to this device
       </label>
       <p className="text-[11px] text-muted-foreground">
-        Two things reach you: an agent that <em>blocks</em> waiting on you — a
-        tool approval, a plan gate — which lasso watches every host for in the
-        background, and an agent that pings you deliberately (its{" "}
-        <code>lasso notify</code>). Every device registered here gets both, and
-        opening one lands you on that agent's host. Nothing is polled while no
-        device is registered.
+        Pushes reach this device even when lasso is closed. Opening one lands
+        you on the agent's host.
       </p>
+      <NotifyKindChoices />
       {state?.support === "needs-home-screen" && (
         <p className="text-[11px] text-warn">
           On iOS, notifications only work from a Home Screen web app: open the
@@ -2542,6 +2613,7 @@ function NotificationsSettings({ active }: { active: boolean }) {
             >
               <span className="text-foreground">{d.label}</span>
               <span className="font-mono opacity-60">{d.id}</span>
+              {d.device === notifyDeviceID() && <span>(this device)</span>}
               {d.last_error ? (
                 <span className="text-destructive">
                   last push failed: {d.last_error}

@@ -1,0 +1,18 @@
+{
+  "pane_id": "x",
+  "expect": "x",
+  "labels": [
+    "x"
+  ],
+  "answers": [
+    {
+      "selected": [
+        1
+      ],
+      "multi": true,
+      "options": 1,
+      "custom": "x",
+      "previews": true
+    }
+  ]
+}

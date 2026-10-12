@@ -1,0 +1,84 @@
+{
+  "id": 1,
+  "host": "x",
+  "name": "x",
+  "runtime": "x",
+  "dir": "x",
+  "workspace": "x",
+  "model": "x",
+  "effort": "x",
+  "permission_mode": "x",
+  "mcp": [
+    {
+      "name": "x",
+      "type": "x",
+      "command": "x",
+      "args": [
+        "x"
+      ],
+      "env": {
+        "x": "x"
+      },
+      "url": "x",
+      "headers": {
+        "x": "x"
+      },
+      "channel": true,
+      "oauth": true,
+      "oauth_client_id": "x",
+      "oauth_redirect": "x",
+      "oauth_scope": "x"
+    }
+  ],
+  "strict_mcp": true,
+  "extra_args": [
+    "x"
+  ],
+  "launch_task": "x",
+  "avatar": "x",
+  "avatar_image": "x",
+  "notify": true,
+  "keep_running": true,
+  "stopped": true,
+  "last_session_id": "x",
+  "created_at": "x",
+  "updated_at": "x",
+  "state": "x",
+  "dir_path": "x",
+  "pane_id": "x",
+  "session_id": "x",
+  "waiting_for": "x",
+  "last_text": "x",
+  "last_kind": "x",
+  "last_at": "x",
+  "error": "x",
+  "host_version": "x",
+  "host_outdated": true,
+  "live_model": {
+    "id": "x",
+    "name": "x",
+    "provider": "x",
+    "context_window": 1
+  },
+  "thinking": "x",
+  "thinking_levels": [
+    "x"
+  ],
+  "context": {
+    "tokens": 1,
+    "window": 1,
+    "percent": 1
+  },
+  "pending_ui": [
+    {
+      "id": "x",
+      "method": "x",
+      "title": "x",
+      "message": "x",
+      "options": [
+        "x"
+      ],
+      "placeholder": "x"
+    }
+  ]
+}

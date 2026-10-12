@@ -26,7 +26,7 @@ lasso's Go backend lives in `src/` (the module root, with `go.mod`). The fronten
 | `mise run check` | `biome check --write`: format, lint fixes, import and class sorting. |
 | `mise run icons` | Re-render the favicons and home-screen icons from `brand/icon/icon.png`. |
 | `mise run diagram` | Render `docs/assets/architecture/*.reladraw` to SVG. |
-| `mise run readme:shots [NAME...]` | Retake the README's screenshot grid (`docs/assets/readme/`) in a throwaway isb VM: a demo fleet of three hosts with real omp agents on DeepSeek, whose key comes from 1Password and is injected by isb's egress proxy, never entering the VM. Names reshoot just those cells; `READMESHOTS_KEEP=1` keeps the VM for the next run. |
+| `mise run readme:shots [NAME...]` | Retake the README's screenshot grid (`docs/assets/readme/`) in a throwaway isb VM: a demo fleet of three hosts with real omp agents on DeepSeek, whose key comes from 1Password and is injected by isb's egress proxy, never entering the VM. Names reshoot just those cells; `READMESHOTS_KEEP=1` keeps the VM for the next run. The Mac app's cell (`desktop.webp`) is not shot here: it is composed from the Mac app's parity renders. |
 | `mise run dev:containers` | List the per-worktree dev containers, the worktree each belongs to, and whether it still exists. |
 | `mise run dev:prune` | Delete dev containers whose worktree is gone. A dry run unless you pass `-y`. Never touches a container whose worktree exists. |
 | `mise run bump [major\|minor\|patch]` | Bump `lassoSemver` in `src/version.go` (default `patch`). `--commit` commits the change. |

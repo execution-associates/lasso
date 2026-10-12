@@ -34,7 +34,8 @@ import (
 // so there's nothing per-connection to scope).
 // mcpInstructions is surfaced to the model once per MCP session through
 // initialize, so shared guidance belongs here rather than repeated in every
-// tool description.
+// tool description. newMCPHandler appends mcpHostsInstruction, which names
+// lasso's host and so is built at startup.
 const mcpInstructions = `Lasso orchestrates coding agents in herdr panes: spawn them, inspect them, message them, and manage their lifecycle.
 
 notify pushes a notification to the HUMAN who runs this lasso (their phone, if lasso is on its home screen). Use it only when you need them — a decision, a blocking question, a long job finishing while they are away — and check the reply's "sent": false means nobody received it.
@@ -74,7 +75,7 @@ func newMCPHandler() http.Handler {
 		Name:    "lasso",
 		Title:   "Lasso agent orchestrator",
 		Version: lassoSemver,
-	}, &mcp.ServerOptions{Instructions: mcpInstructions, Capabilities: caps})
+	}, &mcp.ServerOptions{Instructions: mcpInstructions + "\n\n" + mcpHostsInstruction(), Capabilities: caps})
 	registerMCPTools(srv)
 	if len(skills) > 0 {
 		registerMCPSkills(srv, skills)
@@ -89,14 +90,16 @@ func newMCPHandler() http.Handler {
 		// on loopback, which 403s ("Forbidden: invalid Host header") every tunnelled
 		// request before it reaches a tool — the actual cause of remote MCP clients
 		// (Claude desktop/mobile) failing *after* a successful Access OAuth login.
-		// The trust gate here is Cloudflare Access (OAuth + policy) / the tailnet,
-		// not the Host header, so disable the loopback guard. See CLAUDE.md.
+		// lasso's own local guard (localguard.go) checks the Host against the
+		// names lasso answers to, public ones included, so the SDK's
+		// loopback-only version is turned off. See CLAUDE.md.
 		DisableLocalhostProtection: true,
 	}))
 }
 
-// resolveBackend maps a tool's optional `host` argument to a Backend. An empty
-// host means "the box lasso runs on" (local) — the default the user asked for.
+// resolveBackend maps a tool's resolved host (lasso's key: "local" or an ssh
+// alias, after mcpHostArg) to a Backend. An empty host means "the box lasso
+// runs on" (local).
 // hostBackend returns a backend for any reachable+compatible host without
 // mutating the UI's active host.
 //
@@ -133,5 +136,5 @@ func findAgentRecord(host, id string) (AgentRecord, error) {
 			return r, nil
 		}
 	}
-	return AgentRecord{}, fmt.Errorf("no agent %q on host %q", id, host)
+	return AgentRecord{}, fmt.Errorf("no agent %q on host %q", id, mcpHostName(host))
 }

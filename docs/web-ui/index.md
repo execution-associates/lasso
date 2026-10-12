@@ -53,7 +53,7 @@ A host that is not answering says so in the host menu rather than holding up the
 
 ## On a phone
 
-Below 768 px wide (a phone, or a desktop window dragged narrow) the layout changes:
+A phone opens the [simple app](../getting-started/phone.md#the-simple-app) at `/m` unless it chose the full UI (**Switch to the advanced view** in the simple app's Settings; **Simple view** in the view menu goes back). In the full UI, below 768 px wide (a phone, or a desktop window dragged narrow) the layout changes:
 
 - The footer is gone and the terminal gets the whole screen.
 - The **input dial** in the terminal's bottom-right corner takes over the footer's job: its big button opens the view picker, which also holds New, Search, the host menu and the sidebar, and the smaller button above it opens the keys a touch keyboard lacks. See [The input dial](./terminal.md#the-input-dial-phones-and-narrow-windows).
@@ -88,6 +88,7 @@ Every app shortcut uses the `⌘` key only, never `Ctrl`, so none of them collid
 | `⌘⇧O` | New Scratch agent |
 | `⌘I` | New terminal (from Chat, returns to the terminal first) |
 | `⌘/` | Toggle the keyboard shortcut reference |
+| `⌘,` | Open the sidebar on Settings › General |
 
 ### Views
 

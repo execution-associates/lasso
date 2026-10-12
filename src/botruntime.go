@@ -236,6 +236,10 @@ type botView struct {
 	Thinking       string           `json:"thinking,omitempty"`
 	ThinkingLevels []string         `json:"thinking_levels,omitempty"`
 	Context        *ompContextUsage `json:"context,omitempty"`
+	// PendingUI is what an omp bot is waiting on, the same requests its chat
+	// carries, so a list of bots says what each one asks without a chat read
+	// per bot. A claude bot's questions are in its pane's chat.
+	PendingUI []ompUIRequest `json:"pending_ui,omitempty"`
 }
 
 func botStatus(b Backend, r *botRecord, sessions []claudeSessionEntry) botView {
@@ -584,17 +588,22 @@ func botNotification(r *botRecord, v botView) (notification, bool) {
 	if !seen || prev == v.LastAt {
 		return notification{}, false
 	}
-	icon := ""
-	if _, rev, ok := strings.Cut(r.AvatarImage, "?"); ok {
-		icon = "/api/bots/" + url.PathEscape(r.Name) + "/avatar?" + rev
-	}
 	return notification{
 		Kind:  notifBotMessage,
+		Bot:   r.Name,
 		Title: r.Name,
 		Body:  v.LastText,
 		Tag:   "bot:" + r.Name,
 		Host:  r.Host,
 		URL:   "/bots/" + url.PathEscape(r.Name),
-		Icon:  icon,
+		Icon:  botIconURL(r),
 	}, true
+}
+
+// botIconURL is the bot's picture for a notification, or "" for lasso's own.
+func botIconURL(r *botRecord) string {
+	if _, rev, ok := strings.Cut(r.AvatarImage, "?"); ok {
+		return "/api/bots/" + url.PathEscape(r.Name) + "/avatar?" + rev
+	}
+	return ""
 }

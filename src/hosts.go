@@ -83,8 +83,9 @@ type hostsPayload struct {
 
 // localHostname is the short machine hostname (first label) used as the display
 // label for the local host, falling back to "local" if it can't be resolved.
+// MCP clients address the local host by it too (mcphost.go).
 func localHostname() string {
-	h, err := os.Hostname()
+	h, err := osHostname()
 	if err != nil || h == "" {
 		return "local"
 	}
@@ -236,6 +237,8 @@ var (
 	// behaviour can be asserted without real ssh.
 	probeHostFn      = probeHost
 	sshConfigHostsFn = sshConfigHosts
+	// osHostname is os.Hostname, a seam so tests see one fixed machine name.
+	osHostname = os.Hostname
 )
 
 const (

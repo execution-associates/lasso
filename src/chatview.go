@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Chat view: the focused pane's agent session rendered as a conversation, so a
@@ -81,6 +82,11 @@ type chatItem struct {
 	// Source is the channel server an incoming row came from
 	// ("gmail-channel"); its envelope is the row's Text.
 	Source string `json:"source,omitempty"`
+	// Meta is what the client said about a message it sent to an omp bot
+	// (`meta` on /api/bots/<name>/chat/send: how it was input, by which
+	// engine), matched back onto the user row by botmeta.go. omp's session
+	// file has nowhere to keep it.
+	Meta map[string]string `json:"meta,omitempty"`
 	// off is where in the transcript this row's record begins. Not on the wire:
 	// it is what makes paging exact (the oldest KEPT row is the cursor the next
 	// page is fetched before), and a row dropped by the per-read cap must not
@@ -129,7 +135,38 @@ type chatTool struct {
 	// path for th…" and had to open the terminal to find out what it was being
 	// asked, let alone answer it.
 	Ask *chatAsk `json:"ask,omitempty"`
+	// Files are what the call showed the human: Claude Code's SendUserFile
+	// hands a person files to look at (an image, a recording, a report), and a
+	// client renders them — an image inline, audio and video as players —
+	// rather than as one more tool line. Paths are on the transcript's host
+	// (served_by, else host); the bytes come through /api/file.
+	Files []chatFile `json:"files,omitempty"`
 }
+
+// chatFile is one file a call put in front of the human.
+type chatFile struct {
+	Path string `json:"path"`
+	// Kind is image, audio, video or file, from the extension, so a client
+	// picks its viewer before fetching anything.
+	Kind    string `json:"kind"`
+	Caption string `json:"caption,omitempty"`
+}
+
+// chatFileKind classifies a shared file by its extension.
+func chatFileKind(path string) string {
+	switch strings.ToLower(strings.TrimPrefix(filepath.Ext(path), ".")) {
+	case "png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "bmp", "tif", "tiff", "svg":
+		return "image"
+	case "mp3", "wav", "m4a", "aac", "aif", "aiff", "flac", "ogg", "oga", "opus", "caf":
+		return "audio"
+	case "mp4", "mov", "m4v", "webm", "mkv":
+		return "video"
+	}
+	return "file"
+}
+
+// chatFileCap bounds one call's files: a list, not an archive.
+const chatFileCap = 20
 
 // chatAsk is a question an agent stopped to ask: the choices it offered and,
 // once it has them, what was picked.
@@ -1258,6 +1295,26 @@ func describeTool(t *chatTool, args map[string]json.RawMessage) {
 		}
 	}
 
+	// SendUserFile (Claude Code): the files themselves, with the caption as
+	// the subject. A shape it does not recognise stays an ordinary row.
+	if strings.EqualFold(t.Name, "SendUserFile") {
+		var files []string
+		if json.Unmarshal(args["files"], &files) == nil && len(files) > 0 {
+			caption := str("caption")
+			for _, f := range files[:min(len(files), chatFileCap)] {
+				if f = strings.TrimSpace(f); f != "" {
+					t.Files = append(t.Files, chatFile{Path: f, Kind: chatFileKind(f), Caption: caption})
+				}
+			}
+			t.Title = "Shared"
+			t.Subject = clipLine(caption, chatSubjectCap)
+			if t.Subject == "" {
+				t.Subject = clipLine(shortPath(files[0]), chatSubjectCap)
+			}
+			return
+		}
+	}
+
 	switch t.Family {
 	case "shell":
 		t.Command = str("command", "cmd")
@@ -1393,6 +1450,10 @@ type chatAskAnswer struct {
 	Question string
 	Selected []string
 	Custom   string
+	// OtherInSelected says an "Other" text rides in Selected as one more
+	// value, which is how claude records it ("Green, Purple haze"): whatever
+	// in Selected names no option is that text. omp keeps it apart, in Custom.
+	OtherInSelected bool
 }
 
 // applyAskAnswers marks an ask as answered. Answers are matched to questions by
@@ -1414,8 +1475,12 @@ func applyAskAnswers(t *chatTool, answers []chatAskAnswer) {
 			if strings.TrimSpace(a.Question) != strings.TrimSpace(q.Question) {
 				continue
 			}
-			q.Selected = matchAskLabels(q.Options, a.Selected)
+			var rest string
+			q.Selected, rest = matchAskLabels(q.Options, a.Selected)
 			q.Custom = strings.TrimSpace(a.Custom)
+			if q.Custom == "" && a.OtherInSelected {
+				q.Custom = rest
+			}
 			if len(q.Selected) > 0 || q.Custom != "" {
 				matched = true
 			}
@@ -1436,13 +1501,14 @@ func applyAskAnswers(t *chatTool, answers []chatAskAnswer) {
 // `"Which colours do you want?": "Red, Green"` for two ticked boxes. Splitting
 // is safe precisely because the option list is here to check against — only
 // real labels survive, and a label that itself contains a comma still matches
-// whole, first.
-func matchAskLabels(options []chatAskOption, values []string) []string {
+// whole, first. What names no option comes back as rest, re-joined the way it
+// was written, for the caller that knows it is an "Other" text.
+func matchAskLabels(options []chatAskOption, values []string) (out []string, rest string) {
 	known := make(map[string]bool, len(options))
 	for _, o := range options {
 		known[o.Label] = true
 	}
-	var out []string
+	var unknown []string
 	for _, v := range values {
 		v = strings.TrimSpace(v)
 		if v == "" {
@@ -1455,10 +1521,12 @@ func matchAskLabels(options []chatAskOption, values []string) []string {
 		for _, part := range strings.Split(v, ", ") {
 			if part = strings.TrimSpace(part); part != "" && known[part] {
 				out = append(out, part)
+			} else if part != "" {
+				unknown = append(unknown, part)
 			}
 		}
 	}
-	return out
+	return out, strings.Join(unknown, ", ")
 }
 
 // ompAskAnswers takes the omp envelope apart. Which shape arrives depends on how
@@ -1514,7 +1582,7 @@ func claudeAskAnswers(raw json.RawMessage) []chatAskAnswer {
 	}
 	out := make([]chatAskAnswer, 0, len(r.Answers))
 	for question, v := range r.Answers {
-		a := chatAskAnswer{Question: question}
+		a := chatAskAnswer{Question: question, OtherInSelected: true}
 		var one string
 		if json.Unmarshal(v, &one) == nil {
 			a.Selected = []string{one}
@@ -2196,8 +2264,32 @@ type chatAskPick struct {
 	// Options is how many options the question offered, not counting the
 	// dialog's own "Other" row. claude's dialog is left by walking the cursor
 	// off the end of that list, so the walk needs its length, and the selected
-	// indexes alone do not give it.
+	// indexes alone do not give it. It is also where that "Other" row is: the
+	// row right after the options, in both harnesses.
 	Options int `json:"options"`
+	// Custom is a free-text answer, typed into the dialog's own "Other" row. A
+	// single-select question takes either it or one index in Selected; a
+	// multi-select one may carry both, since both dialogs record ticked boxes
+	// and an Other text side by side ("Green, Purple haze").
+	Custom string `json:"custom,omitempty"`
+	// Previews says the question's options carry previews. claude draws a
+	// single-select question with previews side by side, with notes and NO
+	// "Other" row: a walk past its options lands on "Chat about this", whose
+	// Enter abandons the question. So a Custom answer there is refused rather
+	// than typed (see chatAnswer).
+	Previews bool `json:"previews,omitempty"`
+}
+
+// chatAnswerRequest is POST /api/chat/answer's body.
+type chatAnswerRequest struct {
+	PaneID string `json:"pane_id"`
+	// Expect is the question those answers were picked for — what the card
+	// had on screen, and the first of the two things the dialog is checked
+	// against. Labels is the second: the question's own options, which stay
+	// on screen when a short pane has scrolled the question itself off it.
+	Expect  string        `json:"expect"`
+	Labels  []string      `json:"labels"`
+	Answers []chatAskPick `json:"answers"`
 }
 
 // chatAskClampUps is how many ↑ presses reset an omp dialog's cursor to its
@@ -2213,13 +2305,75 @@ const chatAskClampUps = 24
 // handful of options, and a request naming dozens is not one.
 const chatAskMaxPicks = 64
 
+// chatAskMaxCustom bounds the free-text answers in one request. Each one costs
+// a few chatAskSegmentGap pauses inside the request, and an ask has a handful of
+// questions (claude's tool takes at most four).
+const chatAskMaxCustom = 8
+
+// chatAskSegmentGap is the pause between two segments of an answer's
+// keystrokes (see askKeys). Long enough that the harness has read and handled
+// one write before the next arrives, which is all a segment boundary is for.
+var chatAskSegmentGap = 200 * time.Millisecond
+
+// askKeys builds an answer's keystrokes as SEGMENTS, each written to the pane
+// in one send and chatAskSegmentGap apart. A pick is one segment, as it always
+// was; free text needs boundaries, and both were measured on real dialogs
+// (claude 2.1.296, omp 18.8.9):
+//
+//   - claude's input reads a long write as a paste and drops an Enter that
+//     arrives in the same read (1209 characters typed, the Enter after them
+//     lost), so the text goes in a write of its own;
+//   - omp's free-text prompt hands focus back to the ask dialog a microtask
+//     after its Enter, so every key in the same read as that Enter is lost (a
+//     two-question answer stopped dead on the second question).
+type askKeys struct {
+	segs []string
+	cur  strings.Builder
+}
+
+func (k *askKeys) keys(s string) { k.cur.WriteString(s) }
+
+// cut ends the current segment: whatever comes next reaches the harness in a
+// later read.
+func (k *askKeys) cut() {
+	if k.cur.Len() > 0 {
+		k.segs = append(k.segs, k.cur.String())
+		k.cur.Reset()
+	}
+}
+
+// text types free text as a segment of its own.
+func (k *askKeys) text(s string) {
+	k.cut()
+	k.segs = append(k.segs, s)
+}
+
+func (k *askKeys) done() []string {
+	k.cut()
+	return k.segs
+}
+
+func askDown(n int) string { return strings.Repeat("\x1b[B", max(n, 0)) }
+
+// sortedPicks is a pick's indexes in walking order.
+func sortedPicks(selected []int) []int {
+	picks := append([]int(nil), selected...)
+	sort.Ints(picks)
+	return picks
+}
+
+func isClaudeKind(agentKind string) bool {
+	return strings.EqualFold(strings.TrimSpace(agentKind), "claude")
+}
+
 // chatAskKeystrokes is the byte sequence that answers an ask, in whichever
-// keyboard language the pane's harness speaks. Doing this from a phone is only
-// safe because each language is exact rather than approximate — both builders
-// below were read out of their harness's own source, not guessed from the
-// dialog's footer.
-func chatAskKeystrokes(agentKind string, answers []chatAskPick) string {
-	if strings.EqualFold(strings.TrimSpace(agentKind), "claude") {
+// keyboard language the pane's harness speaks, as the segments askKeys
+// describes. Doing this from a phone is only safe because each language is
+// exact rather than approximate — both builders below were read out of their
+// harness's own source, not guessed from the dialog's footer, and the free-text
+// walks were then checked against live dialogs.
+func chatAskKeystrokes(agentKind string, answers []chatAskPick) []string {
+	if isClaudeKind(agentKind) {
 		return claudeAskKeystrokes(answers)
 	}
 	return ompAskKeystrokes(answers)
@@ -2235,37 +2389,54 @@ func chatAskKeystrokes(agentKind string, answers []chatAskPick) string {
 //     cursor is on and Enter only advances, so its picks are toggled on the way
 //     down and Enter is pressed after them.
 //
+// Free text goes through the "Other (type your own)" row after the options:
+// Enter there opens a prompt over the dialog, the text is typed into it, and
+// Enter submits it. The dialog then moves on exactly as a pick's Enter would —
+// except on a lone multi-select question, where it lands on the review screen
+// and one more Enter submits.
+//
 // Everything is addressed by option INDEX, never by label: the dialog selects
 // whichever row the cursor is on, and a label would have to match through
 // however that harness decorates it on screen ("… (Recommended)").
-func ompAskKeystrokes(answers []chatAskPick) string {
-	var b strings.Builder
+func ompAskKeystrokes(answers []chatAskPick) []string {
+	var k askKeys
 	for _, a := range answers {
-		b.WriteString(strings.Repeat("\x1b[A", chatAskClampUps))
-		picks := append([]int(nil), a.Selected...)
-		sort.Ints(picks)
-		if len(picks) == 0 {
+		k.keys(strings.Repeat("\x1b[A", chatAskClampUps))
+		picks := sortedPicks(a.Selected)
+		custom := strings.TrimSpace(a.Custom)
+		if len(picks) == 0 && custom == "" {
 			continue
 		}
+		at := 0
 		if a.Multi {
-			at := 0
 			for _, idx := range picks {
 				if idx < at {
 					continue
 				}
-				b.WriteString(strings.Repeat("\x1b[B", idx-at))
-				b.WriteString(" ")
+				k.keys(askDown(idx - at))
+				k.keys(" ")
 				at = idx
 			}
-		} else {
-			b.WriteString(strings.Repeat("\x1b[B", picks[0]))
+		} else if custom == "" {
+			k.keys(askDown(picks[0]))
 		}
-		b.WriteString("\r")
+		if custom == "" {
+			k.keys("\r")
+			continue
+		}
+		k.keys(askDown(a.Options - at))
+		k.keys("\r") // opens the prompt
+		k.text(custom)
+		k.keys("\r") // submits it
+		k.cut()      // the dialog has its focus back only after this read
+		if a.Multi && len(answers) == 1 {
+			k.keys("\r") // the review screen: Enter submits it
+		}
 	}
 	if len(answers) > 1 {
-		b.WriteString("\r") // the review screen: Enter submits it
+		k.keys("\r") // the review screen: Enter submits it
 	}
-	return b.String()
+	return k.done()
 }
 
 // claudeAskKeystrokes answers claude's AskUserQuestion, whose dialog is the one
@@ -2285,17 +2456,29 @@ func ompAskKeystrokes(answers []chatAskPick) string {
 // A single-select question is answered by moving to the row and pressing Enter.
 // A single-question ask submits right there; every other shape lands on a
 // review screen afterwards, where one more Enter submits.
-func claudeAskKeystrokes(answers []chatAskPick) string {
-	var b strings.Builder
+//
+// Free text goes into the "Other" row right after the options ("Type
+// something."), which is an inline text field: the cursor reaching it focuses
+// it, typing fills it, and on a single-select question Enter answers with it.
+// On a multi-select question typing ticks that row, and the walk goes on to
+// Submit/Next as for a pick. The question claude draws with previews has no such
+// row (see chatAskPick.Previews).
+func claudeAskKeystrokes(answers []chatAskPick) []string {
+	var k askKeys
 	for _, a := range answers {
-		picks := append([]int(nil), a.Selected...)
-		sort.Ints(picks)
-		if len(picks) == 0 {
+		picks := sortedPicks(a.Selected)
+		custom := strings.TrimSpace(a.Custom)
+		if len(picks) == 0 && custom == "" {
 			continue
 		}
 		if !a.Multi {
-			b.WriteString(strings.Repeat("\x1b[B", picks[0]))
-			b.WriteString("\r")
+			if custom != "" {
+				k.keys(askDown(a.Options))
+				k.text(custom)
+			} else {
+				k.keys(askDown(picks[0]))
+			}
+			k.keys("\r")
 			continue
 		}
 		at := 0
@@ -2303,20 +2486,25 @@ func claudeAskKeystrokes(answers []chatAskPick) string {
 			if idx < at {
 				continue
 			}
-			b.WriteString(strings.Repeat("\x1b[B", idx-at))
-			b.WriteString(" ")
+			k.keys(askDown(idx - at))
+			k.keys(" ")
 			at = idx
+		}
+		if custom != "" {
+			k.keys(askDown(a.Options - at))
+			k.text(custom)
+			at = a.Options
 		}
 		// Off the end of the option list, past the dialog's own "Other" row,
 		// and onto Submit/Next.
-		b.WriteString(strings.Repeat("\x1b[B", a.Options-at+1))
-		b.WriteString("\r")
+		k.keys(askDown(a.Options - at + 1))
+		k.keys("\r")
 	}
 	last := answers[len(answers)-1]
 	if len(answers) > 1 || last.Multi {
-		b.WriteString("\r") // the review screen: Enter submits it
+		k.keys("\r") // the review screen: Enter submits it
 	}
-	return b.String()
+	return k.done()
 }
 
 // serveChatAnswer answers the ask dialog the chat is showing, by typing the
@@ -2339,17 +2527,8 @@ func serveChatAnswer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	var req struct {
-		PaneID string `json:"pane_id"`
-		// Expect is the question those answers were picked for — what the card
-		// had on screen, and the first of the two things the dialog is checked
-		// against. Labels is the second: the question's own options, which stay
-		// on screen when a short pane has scrolled the question itself off it.
-		Expect  string        `json:"expect"`
-		Labels  []string      `json:"labels"`
-		Answers []chatAskPick `json:"answers"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var req chatAnswerRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 		http.Error(w, "bad body", http.StatusBadRequest)
 		return
 	}
@@ -2357,7 +2536,7 @@ func serveChatAnswer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "pane_id and answers are required", http.StatusBadRequest)
 		return
 	}
-	if err := checkAskAnswers(req.Answers); err != nil {
+	if err := checkAskAnswers(req.Labels, req.Answers); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -2375,10 +2554,15 @@ func serveChatAnswer(w http.ResponseWriter, r *http.Request) {
 }
 
 // checkAskAnswers bounds what a caller can make lasso type into an ask dialog.
-func checkAskAnswers(answers []chatAskPick) error {
+// labels are the first question's options, as the request carries them.
+func checkAskAnswers(labels []string, answers []chatAskPick) error {
+	customs := 0
 	for _, a := range answers {
-		if len(a.Selected) == 0 || len(a.Selected) > chatAskMaxPicks {
-			return errors.New("every answer needs at least one option")
+		if len(a.Selected) > chatAskMaxPicks {
+			return errors.New("too many options picked")
+		}
+		if len(a.Selected) == 0 && a.Custom == "" {
+			return errors.New("every answer needs at least one option or a custom answer")
 		}
 		if a.Options < 0 || a.Options > chatAskMaxPicks {
 			return errors.New("option count out of range")
@@ -2390,6 +2574,56 @@ func checkAskAnswers(answers []chatAskPick) error {
 				return errors.New("option index out of range")
 			}
 		}
+		if a.Custom == "" {
+			continue
+		}
+		customs++
+		if err := checkAskCustom(a.Custom); err != nil {
+			return err
+		}
+		if !a.Multi && len(a.Selected) > 0 {
+			return errors.New("a single-select answer is one option or a custom answer, not both")
+		}
+	}
+	if customs > chatAskMaxCustom {
+		return fmt.Errorf("at most %d custom answers", chatAskMaxCustom)
+	}
+	// The walk to the "Other" row is counted in options, so a count that does
+	// not match the question's own labels would type the text onto an option
+	// row instead — where claude reads a digit as a pick.
+	if customs > 0 && len(labels) > 0 && answers[0].Options != len(labels) {
+		return errors.New("options must count the first question's labels")
+	}
+	return nil
+}
+
+// checkAskCustom bounds a free-text answer. It is typed into a one-line field,
+// so it is one line: both dialogs read a typed newline as Enter (claude's Other
+// field answers with what precedes it, omp's prompt submits), which would send
+// a truncated answer and type the rest into whatever the dialog shows next.
+// Neither has a newline key a pane write can carry the same way in every
+// terminal, so a newline is refused rather than translated. Every other control
+// character is refused for the same reason: it is a key, not text.
+func checkAskCustom(s string) error {
+	if !utf8.ValidString(s) {
+		return errors.New("a custom answer must be UTF-8")
+	}
+	t := strings.TrimSpace(s)
+	if t == "" {
+		// omp's prompt reads a blank answer as "no answer" and stays on the
+		// question, so the keys after it would land on the wrong row.
+		return errors.New("a custom answer needs some text")
+	}
+	if utf8.RuneCountInString(t) > chatAskQuestionCap {
+		return fmt.Errorf("a custom answer is at most %d characters", chatAskQuestionCap)
+	}
+	for _, r := range s {
+		if r == '\n' || r == '\r' {
+			return errors.New("a custom answer is one line")
+		}
+		if unicode.IsControl(r) {
+			return errors.New("a custom answer cannot contain control characters")
+		}
 	}
 	return nil
 }
@@ -2397,6 +2631,13 @@ func checkAskAnswers(answers []chatAskPick) error {
 // chatAnswer types an ask's answers into a pane once its screen still shows
 // that question. "sent" or "refused"; never retried (see serveChatAnswer).
 func chatAnswer(be Backend, paneID, kind, expect string, labels []string, answers []chatAskPick) (outcome, detail string) {
+	if isClaudeKind(kind) {
+		for _, a := range answers {
+			if a.Custom != "" && a.Previews && !a.Multi {
+				return "refused", "claude's dialog has no free-text row on a question with previews — answer it in the terminal"
+			}
+		}
+	}
 	screen, ok := paneVisibleText(be, paneID)
 	if !ok {
 		return "refused", "could not read the pane to check the question is still up"
@@ -2404,11 +2645,26 @@ func chatAnswer(be Backend, paneID, kind, expect string, labels []string, answer
 	if !askScreenHolds(screen, expect, labels) {
 		return "refused", "that question is no longer on the pane's screen — answer it in the terminal"
 	}
-	if _, err := be.HerdrCall("pane.send_text", map[string]any{
-		"pane_id": paneID,
-		"text":    chatAskKeystrokes(kind, answers),
-	}); err != nil {
-		return "refused", "the pane stopped answering: " + err.Error()
+	// The flag above is the client's word; for the question on screen the
+	// screen says it too. claude's preview layout is the one with notes in its
+	// legend, and it has no "Other" row to type into.
+	if isClaudeKind(kind) && answers[0].Custom != "" && !answers[0].Multi &&
+		strings.Contains(strings.ToLower(collapseSpace(screen)), "add notes") {
+		return "refused", "claude's dialog has no free-text row on a question with previews — answer it in the terminal"
+	}
+	for i, seg := range chatAskKeystrokes(kind, answers) {
+		if i > 0 {
+			time.Sleep(chatAskSegmentGap)
+		}
+		if _, err := be.HerdrCall("pane.send_text", map[string]any{
+			"pane_id": paneID,
+			"text":    seg,
+		}); err != nil {
+			if i > 0 {
+				return "refused", "the pane stopped answering partway through the answer, so part of it may have been typed — finish it in the terminal: " + err.Error()
+			}
+			return "refused", "the pane stopped answering: " + err.Error()
+		}
 	}
 	return "sent", ""
 }

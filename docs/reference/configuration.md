@@ -18,14 +18,18 @@ lasso serve -h    # the authoritative list, with the defaults this build uses
 
 | flag | env | default | effect |
 | --- | --- | --- | --- |
-| `-listen` | | `127.0.0.1:8090` | Address the web server binds. lasso refuses to start on a non-loopback address unless `UI_AUTH` is set, `-require-access-header` is on, or `-insecure-no-auth` is passed. Never bind `0.0.0.0` without one of them: the terminal is a writable shell. |
-| `-insecure-no-auth` | | `false` | Permit a non-loopback bind with no auth at all. Only for a private interface such as a tailnet address. |
-| `-require-access-header` | `LASSO_REQUIRE_ACCESS_HEADER` | `false` | Answer 403 to every request without a non-empty `Cf-Access-Authenticated-User-Email` header, before any other auth check. Counts as auth for the non-loopback rule. Only safe behind an edge that strips client-supplied `Cf-Access-*` headers, such as Cloudflare Access. The variable is on for `1`, `true`, `yes` or `on`. |
-| `-access-allowed-emails` | `LASSO_ACCESS_ALLOWED_EMAILS` | empty | Comma-separated allowlist for `-require-access-header`, compared case-insensitively. Empty lets any identity Access vouched for through. |
+| `-listen` | | `127.0.0.1:8090` | The local listener: the address the web server binds, trusting whoever connects. lasso refuses to start on a non-loopback address unless `UI_AUTH` is set, `-require-access-header` is on, or `-insecure-no-auth` is passed. Never bind `0.0.0.0`: the terminal is a writable shell. |
+| `-tailnet` | `LASSO_TAILNET` | `false` | Also serve HTTPS on this node's tailnet addresses, with tailscaled's certificate for its MagicDNS name, identifying each caller by tailscaled's whois of the connection. Needs MagicDNS and HTTPS certificates on the tailnet and, on Linux, `sudo tailscale set --operator=$USER`. Admits the node's owner unless `LASSO_ALLOW` is set. See [Tailscale](../deployment/tailnet.md). |
+| `-tailnet-port` | `LASSO_TAILNET_PORT` | the `-listen` port | Port for `-tailnet`. |
+| `-listen-access` | `LASSO_LISTEN_ACCESS` | empty | A loopback address for `cloudflared` to target. Every request on it must carry a `Cf-Access-Jwt-Assertion` that verifies against `LASSO_ACCESS_TEAM` and `LASSO_ACCESS_AUD`, or it gets 403. lasso refuses to start without both variables or with a non-loopback address. See [Cloudflare](../deployment/cloudflare.md). |
+| `-listen-serve` | `LASSO_LISTEN_SERVE` | empty | A loopback address for `tailscale serve` to target. lasso trusts the `Tailscale-User-Login` header there, so nothing else may forward to it; a request without one (a tagged device, Funnel) gets 403. Refuses a non-loopback address. |
+| `-insecure-no-auth` | | `false` | **Deprecated**; use `-tailnet`. Permits a non-loopback `-listen` with no auth at all, for a private interface such as a tailnet address. |
+| `-require-access-header` | `LASSO_REQUIRE_ACCESS_HEADER` | `false` | **Deprecated**; use `-listen-access`. Answers 403 to every request on every listener without a Cloudflare Access identity, ahead of `UI_AUTH`. With `LASSO_ACCESS_TEAM` and `LASSO_ACCESS_AUD` set it verifies the `Cf-Access-Jwt-Assertion`; without them it only checks for a non-empty `Cf-Access-Authenticated-User-Email` header, which anything reaching the port can send. Counts as auth for the non-loopback rule. The variable is on for `1`, `true`, `yes` or `on`. |
+| `-access-allowed-emails` | `LASSO_ACCESS_ALLOWED_EMAILS` | empty | **Deprecated**, with `-require-access-header`; use `LASSO_ALLOW`. Comma-separated allowlist for that gate, compared case-insensitively. Empty lets any identity Access vouched for through. |
 | `-disable-self-update` | `LASSO_DISABLE_SELF_UPDATE` | `false` | Turn off the in-app self-update of a supervised source checkout: `POST /api/self-update` answers 403 and the UI hides the action. Use it where an agent must not be able to restart its own front door. Same truthy values as above. |
 | `-dev` | | `false` | Development mode: if the port is busy, bind the next free one (up to 50 tries); tee the log to `LASSO_DEV_LOG`; mount `/api/log`; never self-update. `mise run dev` sets it. |
 
-See [Deployment](../deployment/index.md) for which combination fits your setup, and [Cloudflare](../deployment/cloudflare.md) for the Access header gate.
+`LASSO_TAILNET` takes the same truthy values. See [Deployment](../deployment/index.md) for which listener fits your setup, and [Security](../security.md#the-gates) for how they combine.
 
 ### Terminals and herdr
 
@@ -62,8 +66,13 @@ The CPU and memory caps apply only when `systemd-run` and a user systemd manager
 
 | variable | effect |
 | --- | --- |
-| `UI_AUTH` | `user:pass`. Turns on HTTP basic auth for the UI and every route except those listed in [HTTP routes](./http-routes.md#auth-gates). Also lets a non-loopback bind start. |
-| `MCP_OAUTH` | `client_id:client_secret`. Turns lasso into an OAuth 2.1 authorization server for its own `/mcp`, and gates `/mcp` (its `browser_*` tools included) and `/cdp` on a bearer token (or the `UI_AUTH` credentials). Unset, `/mcp` is open and every OAuth route answers 404. See [MCP OAuth](../mcp/oauth.md). |
+| `UI_AUTH` | `user:pass`. Turns on HTTP basic auth for the UI and every route except those listed in [HTTP routes](./http-routes.md#auth-gates). A caller a network listener verified, or a lasso token with the `ui` scope, needs no password. Also lets a non-loopback bind start. |
+| `MCP_OAUTH` | `client_id:client_secret`. Turns lasso into an OAuth 2.1 authorization server for its own `/mcp`, and gates `/mcp` (its `browser_*` tools included) and `/cdp` on a bearer token (or the `UI_AUTH` credentials, or a caller a network listener verified). Unset, `/mcp` is open and every OAuth route answers 404. See [MCP OAuth](../mcp/oauth.md). |
+| `LASSO_ALLOW` | Who, among the callers a network listener (`-tailnet`, `-listen-access`, `-listen-serve`) verified, may in. Comma-separated: emails or tailnet logins, `tag:<name>` for tagged tailnet devices, `service:<client id>` for Access service tokens, and a `ui:` prefix on a machine entry to let it into the UI and `/api`. Unset: whoever Access admits on the access listener, and only the node's owner on the tailnet and serve listeners. The loopback listener never reads it. See [Security](../security.md#lasso_allow). |
+| `LASSO_ACCESS_TEAM` | Your Cloudflare Access team: `<team>`, `<team>.cloudflareaccess.com` or its `https://` URL. Needed by `-listen-access`; also makes `-require-access-header` verify assertions. |
+| `LASSO_ACCESS_AUD` | The Access application's Audience (AUD) tag, comma-separated for several applications. Required with `LASSO_ACCESS_TEAM`. |
+| `LASSO_HOSTNAMES` | Extra host names lasso answers to, comma-separated, `*.example.com` for a domain. lasso answers to IP addresses, `localhost`, this machine's hostname, its tailnet names and these; any other `Host` gets 421, except on the access listener. Add the name a reverse proxy publishes lasso under. |
+| `TS_SOCKET` | tailscaled's LocalAPI socket, for `-tailnet` and `-listen-serve`. Default: `/var/run/tailscale/tailscaled.sock`, then `/run/tailscale/tailscaled.sock`, then the `tailscale` CLI. |
 | `MCP_OAUTH_REDIRECT_URIS` | Comma-separated allowlist of redirect URIs for the pre-registered `MCP_OAUTH` client. Unset, that client accepts any `https` or loopback callback (the consent screen shows the target). |
 | `LASSO_DIR` | lasso's state directory. Default `~/.lasso`. Moves `lasso.db`, plugins, plugin data, installed themes, the shared browsers' data directories, and the worktree, scratch, upload and prompt directories. It does not move `lasso start`'s PID and log files, which stay in `~/.lasso`. When set, lasso uses this same path on remote hosts too, instead of each host's `~/.lasso`. |
 | `LASSO_PUSH_CONTACT` | The contact the VAPID JWT names to push services, e.g. `mailto:you@example.com`. Default: the origin the device subscribed from. |

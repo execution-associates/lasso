@@ -65,7 +65,9 @@ With no flags, the entries carry whatever credential the environment offers:
 
 - `$LASSO_MCP_TOKEN` (or `-token`) becomes `Authorization: Bearer <token>`.
 - Otherwise `$UI_AUTH` (`user:pass`) becomes `Authorization: Basic ...`.
-- Otherwise there is no auth header, which is right for a loopback lasso with `/mcp` open.
+- Otherwise there is no auth header, which is right for a loopback lasso with `/mcp` open, and for a lasso on your tailnet, which identifies the machine itself.
+
+Behind Cloudflare Access, the service token's headers go in with `-header`, and a lasso token for [host scope](../mcp/agent-scope.md) rides beside them as `-header 'X-Lasso-Token: <token>'`. lasso reads `X-Lasso-Token` exactly like `Authorization: Bearer`, and it still works when something else needs `Authorization`.
 
 Secrets are masked in everything lasso connect prints. Claude Code and OpenCode only accept headers on their command line, so for those two the header values are briefly visible in this machine's process list while the command runs. Codex and omp get theirs written straight into their config files, and the first rewrite of a config file leaves a `.bak` copy beside it.
 
@@ -86,14 +88,22 @@ For how tokens are minted and scoped per host, see [Agent scope](../mcp/agent-sc
 On a machine other than lasso's, `127.0.0.1` would point that machine's agents at themselves. Pass the URL that machine actually reaches lasso on:
 
 ```bash
-# over a tailnet
-lasso connect -url http://myhost:8090
+# over a tailnet (lasso started with -tailnet)
+lasso connect -url https://myhost.example-tailnet.ts.net:8090
 
 # behind Cloudflare Access, with a service token
 lasso connect -url https://lasso.example.com \
   -header 'CF-Access-Client-Id: <id>.access' \
   -header 'CF-Access-Client-Secret: <secret>'
+
+# the same, held to this machine's own host (lasso has MCP_OAUTH set)
+lasso connect -url https://lasso.example.com \
+  -header 'CF-Access-Client-Id: <id>.access' \
+  -header 'CF-Access-Client-Secret: <secret>' \
+  -header 'X-Lasso-Token: <lasso token>'
 ```
+
+lasso must let that machine in. On a tailnet, a machine you own gets in as you; a tagged one needs its tag in lasso's `LASSO_ALLOW`. Behind Access, the service token needs a Service Auth policy on the Access application. A tagged machine or a service token reaches the MCP servers and `/cdp`, not the UI. See [Security](../security.md#lasso_allow).
 
 The lasso binary on that machine is only used as the installer here; it does not need a server of its own running. When lasso connect can't reach `/mcp`, its hint depends on the URL: for an `https://` URL with no `CF-Access-Client-Id` header it suggests a service token, and for a loopback URL it asks whether lasso is running there.
 

@@ -1,0 +1,101 @@
+{
+  "pane_id": "x",
+  "agent": "x",
+  "host": "x",
+  "title": "x",
+  "model": "x",
+  "cwd": "x",
+  "path": "x",
+  "start_offset": 1,
+  "items": [
+    {
+      "kind": "x",
+      "id": "x",
+      "at": "x",
+      "text": "x",
+      "thinking": true,
+      "marker": "x",
+      "count": 1,
+      "tool": {
+        "call_id": "x",
+        "name": "x",
+        "title": "x",
+        "family": "x",
+        "group": "x",
+        "subject": "x",
+        "command": "x",
+        "state": "x",
+        "result_line": "x",
+        "output": "x",
+        "diff": [
+          {
+            "kind": "x",
+            "text": "x"
+          }
+        ],
+        "error": "x",
+        "images": 1,
+        "duration_ms": 1,
+        "ask": {
+          "questions": [
+            {
+              "header": "x",
+              "question": "x",
+              "options": [
+                {
+                  "label": "x",
+                  "description": "x",
+                  "preview": "x"
+                }
+              ],
+              "multi": true,
+              "recommended": 1,
+              "selected": [
+                "x"
+              ],
+              "custom": "x"
+            }
+          ]
+        },
+        "files": [
+          {
+            "path": "x",
+            "kind": "x",
+            "caption": "x"
+          }
+        ]
+      },
+      "source": "x",
+      "meta": {
+        "x": "x"
+      }
+    }
+  ],
+  "tokens": 1,
+  "running": true,
+  "more": true,
+  "note": "x",
+  "starting": true,
+  "served_by": "x",
+  "unavailable": {
+    "reason": "x",
+    "checked": [
+      "x"
+    ],
+    "unanswered": [
+      "x"
+    ]
+  },
+  "pending_ui": [
+    {
+      "id": "x",
+      "method": "x",
+      "title": "x",
+      "message": "x",
+      "options": [
+        "x"
+      ],
+      "placeholder": "x"
+    }
+  ]
+}

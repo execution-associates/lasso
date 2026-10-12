@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -276,9 +277,13 @@ type hostPane struct {
 	TerminalTitle string `json:"terminal_title,omitempty"`
 	Cwd           string `json:"cwd"`
 	Agent         string `json:"agent"`
-	AgentStatus   string `json:"agent_status"`
-	HasAgent      bool   `json:"has_agent"`
-	Focused       bool   `json:"focused"`
+	// AgentLabel is the agent's custom label (`herdr agent rename`, agent.list's
+	// name), what a client should call the agent before its tab's label: the
+	// workspace often holds several agents ("Agents" with stub, clem, …).
+	AgentLabel  string `json:"agent_label,omitempty"`
+	AgentStatus string `json:"agent_status"`
+	HasAgent    bool   `json:"has_agent"`
+	Focused     bool   `json:"focused"`
 	// TranscriptAt is when the agent's transcript was last written, in unix
 	// milliseconds (see paneTranscriptAt): the agents lists' recency order.
 	// Absent for a pane with no readable transcript.
@@ -407,6 +412,11 @@ type uiStateWriter struct {
 	// a client coalesces queued writes into one patch, and two pins clicked in
 	// one round trip must both land.
 	AgentPins map[string]bool `json:"agent_pins"`
+	// CardDismiss are OPS on DismissedCards, per paneKey: a number (the
+	// pane's transcript_at in unix ms) dismisses the card until the
+	// transcript moves past it, null forgets the dismissal. A map for the
+	// same coalescing reason as AgentPins.
+	CardDismiss map[string]*int64 `json:"card_dismiss"`
 }
 
 // atmospherePatch is one theme's backdrop as a CALLER sends it: every field
@@ -483,6 +493,13 @@ func serveUIState(w http.ResponseWriter, r *http.Request) {
 		// Detached, and whatever the body says about it is discarded below: it
 		// changes only through the agent_pins ops.
 		us.PinnedAgents = nil
+		// Same as the pins: dismissed_cards changes only through card_dismiss,
+		// and detaching keeps the decode from writing into stored's map.
+		us.DismissedCards = nil
+		// Detached, and put back after the decode whatever the body said: the
+		// desktop sound's metadata describes a file on disk, so only
+		// /api/desktop/sound may change it.
+		us.DesktopSound = nil
 		if err := json.Unmarshal(body, &us); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -536,6 +553,18 @@ func serveUIState(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		us.PinnedAgents = mergePinnedAgents(stored.PinnedAgents, who.AgentPins)
+		for k, at := range who.CardDismiss {
+			if k == "" || len(k) > pinnedAgentKeyMax {
+				http.Error(w, fmt.Sprintf("card_dismiss: every key must be 1-%d bytes", pinnedAgentKeyMax), http.StatusBadRequest)
+				return
+			}
+			if at != nil && *at < 0 {
+				http.Error(w, "card_dismiss: a value is a transcript_at in unix ms (>= 0) or null", http.StatusBadRequest)
+				return
+			}
+		}
+		us.DismissedCards = mergeDismissedCards(stored.DismissedCards, who.CardDismiss)
+		us.DesktopSound = stored.DesktopSound
 
 		// The sidebar layout is the one field group several clients write
 		// unprompted, so it is arbitrated rather than merged (see uilock.go).
@@ -675,6 +704,41 @@ func mergePinnedAgents(stored []string, ops map[string]bool) []string {
 	out = append(out, adds...)
 	if len(out) > maxPinnedAgents {
 		out = out[len(out)-maxPinnedAgents:]
+	}
+	return out
+}
+
+// mergeDismissedCards applies dismissal ops to the stored map: a value sets
+// (or moves) a card's dismissal, null removes it. Past maxDismissedCards the
+// entries with the smallest transcript_at go first, ties broken by key so one
+// patch always yields one result. With no ops it just repairs a stored map:
+// drops blank or oversized keys and negative values, applies the cap.
+func mergeDismissedCards(stored map[string]int64, ops map[string]*int64) map[string]int64 {
+	out := make(map[string]int64, len(stored)+len(ops))
+	for k, at := range stored {
+		if k == "" || len(k) > pinnedAgentKeyMax || at < 0 {
+			continue
+		}
+		out[k] = at
+	}
+	for k, at := range ops {
+		if at == nil {
+			delete(out, k)
+		} else {
+			out[k] = *at
+		}
+	}
+	if extra := len(out) - maxDismissedCards; extra > 0 {
+		keys := slices.Collect(maps.Keys(out))
+		sort.Slice(keys, func(i, j int) bool {
+			if out[keys[i]] != out[keys[j]] {
+				return out[keys[i]] < out[keys[j]]
+			}
+			return keys[i] < keys[j]
+		})
+		for _, k := range keys[:extra] {
+			delete(out, k)
+		}
 	}
 	return out
 }
@@ -1249,16 +1313,21 @@ func enumerateHostPanes(b Backend, host, hostLabel string) ([]hostPane, error) {
 	// whose agent herdr never identified at all — but where it does answer it is
 	// the most direct one, so it is folded in first.
 	agentKind := map[string]string{}
+	agentLabel := map[string]string{}
 	if r, err := b.HerdrCall("agent.list", map[string]any{}); err == nil {
 		var al struct {
 			Agents []struct {
 				PaneID string `json:"pane_id"`
 				Agent  string `json:"agent"`
+				Name   string `json:"name"`
 			} `json:"agents"`
 		}
 		if json.Unmarshal(r, &al) == nil {
 			for _, a := range al.Agents {
 				agentKind[a.PaneID] = a.Agent
+				if a.Name != "" {
+					agentLabel[a.PaneID] = a.Name
+				}
 			}
 		}
 	}
@@ -1364,6 +1433,7 @@ func enumerateHostPanes(b Backend, host, hostLabel string) ([]hostPane, error) {
 			RepoKey:        wsRepo[p.WorkspaceID],
 			RepoLabel:      repoLabel[wsRepo[p.WorkspaceID]],
 			Agent:          kind,
+			AgentLabel:     agentLabel[p.PaneID],
 			AgentStatus:    status,
 			HasAgent:       isAgent,
 			Focused:        p.Focused,

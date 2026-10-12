@@ -339,33 +339,51 @@ func TestHubNoticeReachesTheEventStream(t *testing.T) {
 		}
 	}
 
+	before := time.Now().UnixMilli()
 	h.notify(notice{Level: "error", Title: "Couldn't auto-title", Detail: "claude: not installed"})
+	h.notify(notice{Level: "info", Title: "Second"})
+	after := time.Now().UnixMilli()
 
 	// The host feed pushes its own "active" frames on the same stream, so skip
 	// past any that arrive before the notice rather than reading the first frame
 	// and asserting on it.
-	var event, data string
-	for {
-		line, err := r.ReadString('\n')
-		if err != nil {
-			t.Fatalf("read notice frame: %v", err)
+	next := func() notice {
+		var event, data string
+		for {
+			line, err := r.ReadString('\n')
+			if err != nil {
+				t.Fatalf("read notice frame: %v", err)
+			}
+			switch {
+			case strings.HasPrefix(line, "event: "):
+				event = strings.TrimSpace(strings.TrimPrefix(line, "event: "))
+				data = ""
+			case strings.HasPrefix(line, "data: "):
+				data = strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+			}
+			if event == "notice" && data != "" {
+				break
+			}
 		}
-		switch {
-		case strings.HasPrefix(line, "event: "):
-			event = strings.TrimSpace(strings.TrimPrefix(line, "event: "))
-			data = ""
-		case strings.HasPrefix(line, "data: "):
-			data = strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+		var got notice
+		if err := json.Unmarshal([]byte(data), &got); err != nil {
+			t.Fatalf("decode notice: %v (%s)", err, data)
 		}
-		if event == "notice" && data != "" {
-			break
-		}
+		return got
 	}
-	var got notice
-	if err := json.Unmarshal([]byte(data), &got); err != nil {
-		t.Fatalf("decode notice: %v (%s)", err, data)
-	}
+	got := next()
 	if got.Level != "error" || got.Title != "Couldn't auto-title" || got.Detail != "claude: not installed" {
 		t.Errorf("notice = %+v, want the one sent", got)
+	}
+	// Each notice is stamped with an identity a client can keep it under, and
+	// when it was raised.
+	second := next()
+	if got.ID == "" || second.ID == "" || got.ID == second.ID {
+		t.Errorf("ids = %q, %q, want two distinct ones", got.ID, second.ID)
+	}
+	for _, n := range []notice{got, second} {
+		if n.At < before || n.At > after {
+			t.Errorf("%q at = %d, want within [%d, %d]", n.Title, n.At, before, after)
+		}
 	}
 }

@@ -51,7 +51,7 @@ run = "./scripts/container-diagram.sh"
 # agents really work (on DeepSeek, whose key isb's egress proxy injects so it
 # never enters the VM), and screenshots it with the VM's own Chromium. Takes
 # the 1Password key through `op`. READMESHOTS_KEEP=1 keeps the VM for another
-# run; names reshoot just those cells (`mise run readme:shots diff chat`).
+# run; names reshoot just those cells (`mise run readme:shots grid chat`).
 [tasks."readme:shots"]
 description = "Retake the README's screenshot grid (docs/assets/readme) in a throwaway VM with a demo fleet"
 depends = ["build"]
@@ -205,6 +205,7 @@ trap 'kill "$backend" "$tailpid" 2>/dev/null; rm -f "$logf"' EXIT
 
 echo "lasso (dev): backend on 127.0.0.1:$port · Vite UI in this worktree's dev container, URL printed below (frontend hot reload ON)"
 echo "edit anything under src/web/src and the browser hot-reloads; restart this task for Go changes."
+echo "LassoDesktop: mac/Scripts/dev.sh use dev points the Mac app at this backend (use prod to go back)."
 ./scripts/container-dev-web.sh "$port" "$dns"
 '''
 

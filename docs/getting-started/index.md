@@ -9,7 +9,7 @@ lasso is a single binary. It runs on the machine where your coding agents live, 
 
 ## Requirements
 
-- **Linux or macOS**, on `amd64` or `arm64`.
+- **Linux or macOS**, on `amd64` or `arm64`. The [Mac app](./desktop.md) is a separate download, and talks to a lasso on any of them.
 - **herdr**, the terminal multiplexer lasso is a UI over. The installer below installs it for you if it is missing.
 - **ttyd** on `PATH`. lasso serves its terminals by spawning `ttyd` processes, and nothing installs it for you: use your package manager (`apt install ttyd`, `brew install ttyd`, or your distro's equivalent).
 - **ssh** and an `~/.ssh/config`, only if you want lasso to drive other machines too. Those machines need a running herdr of the same protocol, `git`, and the `sqlite3` CLI, but not lasso itself. See [What a remote host needs](../concepts/hosts.md#what-a-remote-host-needs).
@@ -61,7 +61,7 @@ The other lifecycle commands:
 
 Open `http://127.0.0.1:8090` in a browser on the same machine. You get herdr's terminal in the main column, a sidebar of tabs on the right (Files, Browser, Terminal, Usage, Settings and others), and a footer with **New**, the host menu (server icon), the sidebar toggle and your agents' usage budgets. [The web UI](../web-ui/index.md) walks through the layout.
 
-lasso binds to loopback by default, and that is deliberate: the terminal is a writable shell as you, and the MCP endpoints can spawn agents. It refuses to listen on a non-loopback address unless you configure authentication (or explicitly opt out with `-insecure-no-auth`, which is only safe on a private interface). To reach it from another machine or a phone, see [Deployment](../deployment/index.md); for a phone specifically you also need HTTPS ([On your phone](./phone.md)).
+lasso binds to loopback by default, and that is deliberate: the terminal is a writable shell as you, and the MCP endpoints can spawn agents. To reach it from your other devices, serve it on your tailnet with `-tailnet`, or publish it through Cloudflare Access with `-listen-access`. Both serve HTTPS, which a phone needs, and both check who is calling before lasso answers. See [Deployment](../deployment/index.md) and [On your phone](./phone.md).
 
 ## Check the install
 
@@ -97,4 +97,5 @@ Starting lasso from outside herdr (a plain shell, systemd, `lasso start` from an
 
 - [Connect your agents](./connect-agents.md) so they can use lasso's MCP servers.
 - [Set lasso up on your phone](./phone.md), with notifications when an agent is blocked.
+- [Install the Mac app](./desktop.md), the Inbox on the edge of your screen.
 - Read [Concepts](../concepts/index.md) for how hosts, agents and the shared browser fit together.

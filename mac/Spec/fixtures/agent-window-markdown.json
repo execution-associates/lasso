@@ -1,0 +1,46 @@
+{
+  "about": "An agent window rendering the agent's Markdown (a heading, a pipe table with right-aligned numbers, a list with inline code, a fenced block) while the agent works on the next turn.",
+  "state": "agent-window-markdown",
+  "extends": "agent-window",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "window": "local\u0000w4:p1"
+  },
+  "chats": {
+    "local\u0000w4:p1": {
+      "pane_id": "w4:p1",
+      "agent": "claude",
+      "host": "local",
+      "title": "lasso-desktop-mac",
+      "model": "claude-opus-5-5",
+      "path": "/home/stephan/.claude/projects/x/session.jsonl",
+      "start_offset": 0,
+      "tokens": 48211,
+      "running": true,
+      "items": [
+        {
+          "kind": "user",
+          "id": "u1",
+          "at": "2026-10-11T22:41:10Z",
+          "text": "what's on the top of hacker news atm"
+        },
+        {
+          "kind": "agent",
+          "id": "a1",
+          "at": "2026-10-11T22:41:40Z",
+          "text": "## HN front page right now\n\n| # | Story | Pts | Comments |\n|--:|---|--:|--:|\n| 1 | [Total Annihilation, rebuilt for modern computers](https://example.com/1) | 279 | 119 |\n| 2 | [Cartographers of North Korea](https://example.com/2) | 111 | 12 |\n| 3 | **Terence Tao**: Math 2.0 | 280 | 337 |\n\nWorth a look:\n- the *Total Annihilation* rebuild\n- `IRCv3`, if you run a bouncer\n\n```sh\ncurl -s hacker-news.firebaseio.com/v0/topstories.json\n```"
+        },
+        {
+          "kind": "user",
+          "id": "u2",
+          "at": "2026-10-11T22:42:05Z",
+          "text": "open the first one"
+        }
+      ],
+      "cwd": "/home/stephan/.lasso/worktrees/lasso/lasso-desktop-mac"
+    }
+  }
+}

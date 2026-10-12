@@ -7,19 +7,42 @@ nav_title: Overview
 
 lasso listens on `127.0.0.1:8090` by default, which is fine for a browser on the same machine and useless for your phone. This section covers the ways to reach it from elsewhere, how to keep it running, and how to keep it up to date.
 
-## The rule: never bind it publicly
+## Choosing a setup
 
-The left column of lasso is a **writable shell** on your machine. The file endpoints read and write any path as the user lasso runs as, `/mcp` lets a caller spawn agents, and `/cdp` and `/mcp`'s browser tools drive a real browser with whatever logins it holds. Anyone who reaches the port can do all of that. [Security](../security.md) has the full picture.
+There are two ways to reach lasso from your other devices. Both give you a real HTTPS origin, so the phone app and push notifications work, and both identify every caller before lasso answers.
 
-So never bind lasso to `0.0.0.0` or a public address. On a VPS that is the open internet.
+| setup | flag | who can reach it | who gets in by default | good for |
+| --- | --- | --- | --- | --- |
+| **[Tailscale](./tailnet.md)** | `-tailnet` | devices on your tailnet | you, the node's owner | your own devices, with no public hostname |
+| **[Cloudflare tunnel + Access](./cloudflare.md)** | `-listen-access` | anyone who passes your Access policy, from anywhere | whoever your Access policy admits | devices off your tailnet, claude.ai connectors, agents on other networks |
+| **Local only** (default) | `-listen` | this machine | whoever runs on it | a laptop or desktop you sit at |
 
-lasso enforces part of this itself. On startup it refuses a non-loopback `-listen` address unless one of these is true:
+The two can run side by side on one lasso. A few questions settle it:
+
+- **Are all your devices on a tailnet?** Use `-tailnet`. Nothing to sign in to, and nobody but you gets in until you name them in `LASSO_ALLOW`.
+- **Do you need it from a device that is not on your tailnet**, or from a hosted MCP client such as a claude.ai connector? Use Cloudflare.
+- **Do other people or agent machines need in?** Name them in `LASSO_ALLOW` (see [Security](../security.md#lasso_allow)), and for agents, consider per-host [scope](../mcp/agent-scope.md).
+
+## The listeners
+
+The left column of lasso is a **writable shell** on your machine. The file endpoints read and write any path as the user lasso runs as, `/mcp` lets a caller spawn agents, and `/cdp` and `/mcp`'s browser tools drive a real browser with whatever logins it holds. [Security](../security.md) has the full picture. So lasso never binds a public address, and each way in is a listener with a role that says who it trusts:
+
+| listener | flag (env) | binds | trusts |
+| --- | --- | --- | --- |
+| local | `-listen` | `127.0.0.1:8090` by default | whoever connects; `UI_AUTH` and `MCP_OAUTH` apply when set |
+| tailnet | `-tailnet` (`LASSO_TAILNET=1`), `-tailnet-port` | this node's tailnet addresses, over HTTPS | the person or tagged device tailscaled names for the connection |
+| access | `-listen-access` (`LASSO_LISTEN_ACCESS`) | a loopback address that `cloudflared` targets | a request carrying a Cloudflare Access assertion that verifies |
+| serve | `-listen-serve` (`LASSO_LISTEN_SERVE`) | a loopback address that `tailscale serve` targets | the user `tailscale serve` names |
+
+The network listeners (tailnet, access, serve) fail closed: a request without the proof its front door adds gets 403. lasso refuses to start with a non-loopback `-listen-access` or `-listen-serve`.
+
+lasso also refuses a non-loopback `-listen` unless one of these is true:
 
 | condition | what it means |
 | --- | --- |
-| `UI_AUTH=user:pass` is set in the environment | Every route needs HTTP basic auth, except `/mcp` (open unless `MCP_OAUTH` is set) and the OAuth handshake endpoints. |
-| `-require-access-header` (or `LASSO_REQUIRE_ACCESS_HEADER=1`) | Every request needs a Cloudflare Access identity header. Only safe behind Cloudflare Access; see [Cloudflare](./cloudflare.md#requiring-the-access-identity-in-lasso). |
-| `-insecure-no-auth` | You are binding to a private interface (such as your tailscale IP) and accept that anything on that network can reach it. |
+| `UI_AUTH=user:pass` is set in the environment | Every route needs HTTP basic auth, except `/mcp` (open unless `MCP_OAUTH` is set), `/herdr-mcp`, `/cdp`, the bot webhooks and the OAuth handshake endpoints. |
+| `-require-access-header` (deprecated) | Every request needs a Cloudflare Access identity. Use `-listen-access` instead; see [Cloudflare](./cloudflare.md#the-header-gate-deprecated). |
+| `-insecure-no-auth` (deprecated) | You are binding to a private interface and accept that anything on that network can reach it, with no identity. Use `-tailnet` instead. |
 
 Without one of them, lasso exits with:
 
@@ -27,22 +50,21 @@ Without one of them, lasso exits with:
 refusing to listen on non-loopback "100.64.0.5:8090" without auth — set UI_AUTH=user:pass, pass -require-access-header when Cloudflare Access fronts this hostname, or pass -insecure-no-auth to bind bare (only safe on a private interface like tailscale0)
 ```
 
-The check looks only at the address lasso **binds**. A loopback lasso with something forwarding to it (a Cloudflare tunnel, `tailscale serve`, an SSH port forward, a reverse proxy) is exactly as exposed as whatever that forwarder exposes, and lasso cannot tell. The forwarder's own access control is what protects you in those setups.
+## Other reverse proxies
 
-## Choosing a setup
+lasso answers only to names it knows: IP addresses, `localhost`, this machine's hostname, its tailnet names, and the names in `LASSO_HOSTNAMES`. A request for any other name gets **421** (see [Security](../security.md#the-local-guard)). To put another reverse proxy (nginx, Caddy) in front of `-listen` under a hostname, add that hostname, comma-separated, with `*.example.com` for a whole domain:
 
-| setup | who can reach it | HTTPS | auth comes from | good for |
-| --- | --- | --- | --- | --- |
-| **Local only** (default) | this machine | not needed (loopback counts as secure) | nothing | a laptop or desktop you sit at |
-| **[Cloudflare tunnel + Access](./cloudflare.md)** | anyone who passes your Access policy, from anywhere | yes | Cloudflare Access | the phone app, push, sharing across networks, claude.ai connectors |
-| **[Tailnet bind](./tailnet.md#binding-to-your-tailscale-address)** | every device on your tailnet | no | the tailnet (plus optional `UI_AUTH`) | quick access from your own devices when push isn't needed |
-| **[`tailscale serve`](./tailnet.md#real-https-with-tailscale-serve)** | every device on your tailnet | yes | the tailnet (plus optional `UI_AUTH`) | the phone app and push without Cloudflare |
+```bash
+LASSO_HOSTNAMES=lasso.internal.example.com
+```
 
-A few questions settle it:
+lasso cannot tell who is behind such a proxy: `-listen` trusts whoever connects, so the proxy's own access control is all that protects you. Prefer the two setups above, where lasso checks the caller itself.
 
-- **Do you want notifications on your phone?** Then you need HTTPS. Pick Cloudflare or `tailscale serve`. A plain-HTTP tailnet address cannot do Web Push at all.
-- **Do you need to reach it from a device that is not on your tailnet**, or connect a hosted MCP client such as a claude.ai connector? Pick Cloudflare.
-- **Is your tailnet shared** with people or machines you wouldn't hand a shell to? Either set `UI_AUTH` or use Cloudflare Access, which can restrict by identity.
+## A machine lasso drives is not a client
+
+**Never forward lasso's port onto a machine lasso drives**: no `ssh -R`, no tunnel, no socat from lasso's box to a host in its SSH config. On that machine, every agent lasso runs and every other process would reach the loopback listener's trust, and lasso could not tell them from you. An agent on another machine reaches lasso the way your phone does, through the tailnet or through Access, as a machine named in `LASSO_ALLOW`.
+
+Your tailnet policy is the outer wall: a machine that has no business with lasso should not be able to open a connection to it at all.
 
 ## Why HTTPS matters
 
@@ -52,7 +74,7 @@ Several browser features only exist in a [secure context](https://developer.mozi
 - **Files-tab downloads may not arrive.** A download is an ordinary link to the file, which lasso serves with `Content-Disposition: attachment`, but some browsers warn about or block downloads from a plain-HTTP page. Viewing files still works.
 - **Terminal copy falls back** to a legacy clipboard write (`execCommand("copy")`), since the Clipboard API is absent.
 
-Uploads, dictation, and everything else work over plain HTTP.
+Uploads, dictation, and everything else work over plain HTTP. Both `-tailnet` and Cloudflare serve HTTPS.
 
 ## Keeping it running and up to date
 

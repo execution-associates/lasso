@@ -122,13 +122,6 @@ def files(page: Page) -> None:
     page.wait_for_timeout(4000)
 
 
-def diff(page: Page) -> None:
-    load(page, "/", agent("tide"))
-    open_tab(page, "Diff")
-    page.locator(".dfhead", has_text="chart.js").first.click()
-    page.wait_for_timeout(2500)
-
-
 def browser(page: Page) -> None:
     # Click the agent's new toggle in the shared browser itself, over lasso's
     # /cdp, as a person clicking in the Browser tab would: the tab streams the
@@ -228,7 +221,6 @@ SHOTS = {
     "grid": grid,
     "chat": chat,
     "files": files,
-    "diff": diff,
     "browser": browser,
     "new-agent": new_agent,
     "hosts": hosts,
@@ -243,7 +235,7 @@ SHOTS = {
 
 # The cells where the herdr terminal is on screen, rather than covered by
 # Chat, the Grid or Bots.
-SHOWS_TERMINAL = {"terminal", "files", "diff", "browser"}
+SHOWS_TERMINAL = {"terminal", "files", "browser"}
 
 
 def main() -> None:
@@ -277,7 +269,7 @@ def main() -> None:
             # A cell that closed the sidebar opens it again for the next.
             sidebar(False)
             # 1600x1000 WebP: sharp at the grid's cell width on a 2x screen.
-            # Busy cells (a diff, a terminal) compress worse than calm ones,
+            # Busy cells (a terminal) compress worse than calm ones,
             # so cwebp aims at a size rather than a quality.
             subprocess.run(
                 ["cwebp", "-quiet", "-size", "100000", "-pass", "6", "-resize", "1600", "1000",

@@ -31,6 +31,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: "⌘⇧O", label: "New Scratch agent…" },
       { keys: "⌘I", label: "New terminal…" },
       { keys: "⌘/", label: "Toggle keyboard shortcuts" },
+      { keys: "⌘,", label: "Settings" },
     ],
   },
   {
@@ -74,5 +75,6 @@ export const APP_KEYS = new Set([
   "b",
   ".",
   ";",
+  ",",
 ])
 export const APP_SHIFT_KEYS = new Set(["o", "f", "s", "b"])

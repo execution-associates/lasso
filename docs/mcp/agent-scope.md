@@ -9,13 +9,13 @@ This is the operator runbook for per-host MCP credentials: who an agent can see,
 
 ## The model in one paragraph
 
-Two bounds decide which agents an MCP caller can see and manage, and both apply. **What lasso can address** is the local box plus the concrete aliases in the SSH config lasso reads. Membership comes from that config, never from lasso's agent records, so a host whose alias was removed stops being addressable instead of resolving to a target no call can reach. **What this caller may address** is per credential: one OAuth client per host, with the host carried in every token, so a caller's host is derived from its credential and cannot be asserted by the caller. Scope is `self` (that host only, the default) or `fleet` (everything lasso can address). **Groups** add reach to named sets of *other* hosts on top of `self`, the middle ground between those two ends.
+Two bounds decide which agents an MCP caller can see and manage, and both apply. **What lasso can address** is lasso's own box plus the concrete aliases in the SSH config lasso reads. Membership comes from that config, never from lasso's agent records, so a host whose alias was removed stops being addressable instead of resolving to a target no call can reach. **What this caller may address** is per credential: one OAuth client per host, with the host carried in every token, so a caller's host is derived from its credential and cannot be asserted by the caller. Scope is `self` (that host only, the default) or `fleet` (everything lasso can address). **Groups** add reach to named sets of *other* hosts on top of `self`, the middle ground between those two ends.
 
 MCP itself offers nothing here: a client's `clientInfo` is a self-asserted name and version, and no header identifies the caller. That is why identity comes from a credential rather than a tool argument.
 
 ## Prerequisite: `MCP_OAUTH` must be set
 
-**Without it none of this applies.** While `MCP_OAUTH` is unset, `/mcp` is open, every caller is unidentified, and an unidentified caller is fleet-scoped. Provisioned per-host credentials are inert, and lasso logs a startup warning when that combination exists. The same is true of a caller using the `UI_AUTH` basic credentials on `/mcp`: it carries no host.
+**Without it none of this applies.** While `MCP_OAUTH` is unset, `/mcp` is open, every caller is unidentified, and an unidentified caller is fleet-scoped. Provisioned per-host credentials are inert, and lasso logs a startup warning when that combination exists. The same is true of a caller using the `UI_AUTH` basic credentials on `/mcp`, or a caller a network listener verified without a lasso token: neither carries a host.
 
 Set `MCP_OAUTH=client_id:client_secret` in lasso's environment (never a flag) and restart; [OAuth](./oauth.md#enabling-it) shows how under systemd. Verify on loopback, which sidesteps any edge gate:
 
@@ -27,9 +27,9 @@ curl -s -u "$MCP_OAUTH" -d grant_type=client_credentials \
 
 To roll back, unset `MCP_OAUTH` and restart.
 
-### Trade-off: this displaces Access Managed OAuth for connectors
+### Behind Cloudflare Access too
 
-While `MCP_OAUTH` is unset the origin implements no OAuth at all, which is what lets **Cloudflare Access Managed OAuth** act as the authorization server for claude.ai and Claude Desktop connectors: they authenticate to Access, and lasso just sees an authenticated session. Once `MCP_OAUTH` is set, lasso demands a bearer token *it* issued, and a connector's token is Access's, so that connector stops working. A verified Access identity is not accepted as a caller on `/mcp`. Either connect the connector through lasso's own OAuth instead (see [OAuth](./oauth.md#claudeai-and-claude-desktop-connectors)) or go without it.
+`MCP_OAUTH` and Access work together. Access decides who reaches lasso at all, and a lasso token narrows what an agent may reach once inside. A caller Access verified with no lasso token (you in a browser, a claude.ai connector signed in through Access's Managed OAuth, a service token on its own) is unidentified as far as host scope goes, and sees the whole fleet. A caller that also sends a per-host lasso token gets that token's scope. Send the token as `X-Lasso-Token` when `Authorization` is taken, or always, since lasso reads both alike. The same holds on the tailnet listener.
 
 ## Provisioning a host
 
@@ -42,7 +42,7 @@ lasso mcp-client token <client_id> [--ttl 90d]  # bearer token; default no expir
 lasso mcp-client rm <client_id>                 # also drops its outstanding tokens
 ```
 
-`--host` takes `local` (the box lasso runs on) or an SSH-config alias exactly as `list_hosts` shows it; a host lasso cannot address is refused up front. The secret prints once and is stored hashed. Only these clients and the `MCP_OAUTH` client may use the `client_credentials` grant. A client that registered itself through open Dynamic Client Registration may not, since that path takes no human approval.
+`--host` takes `local` (the box lasso runs on) or an SSH-config alias; a host lasso cannot address is refused up front. The CLI and lasso's database keep lasso's box as `local`, while MCP tools and their results call it by its hostname (and accept `local` too), so `list_hosts` shows `titan` where `--host` takes `local`. The secret prints once and is stored hashed. Only these clients and the `MCP_OAUTH` client may use the `client_credentials` grant. A client that registered itself through open Dynamic Client Registration may not, since that path takes no human approval.
 
 `lasso mcp-client` writes to `lasso.db` directly, so it works whether or not the server is running.
 
@@ -109,7 +109,7 @@ Reaching `local` here is a bigger grant than it reads: a browser acts with whate
 
 ## Installing on a host
 
-When Cloudflare Access fronts lasso, a remote box needs **two** credentials, and the split is the useful part: an Access service token decides *whether* that box may talk to lasso at all; the lasso credential decides *what it may see* once inside.
+When Cloudflare Access fronts lasso, a remote box needs **two** credentials, and the split is the useful part: an Access service token decides *whether* that box may talk to lasso at all; the lasso credential decides *what it may see* once inside. On a tailnet the box's tag (named in `LASSO_ALLOW`) plays the service token's part.
 
 ```bash
 # on lasso's machine: provision the host, then mint it a token
@@ -119,12 +119,12 @@ lasso mcp-client token <client_id>          # no --ttl => never expires
 # on the box (keep the token in that box's own secret store)
 claude mcp add --transport http --scope user lasso \
   https://lasso.example.com/mcp \
-  --header "Authorization: Bearer $LASSO_MCP_TOKEN" \
+  --header "X-Lasso-Token: $LASSO_MCP_TOKEN" \
   --header "CF-Access-Client-Id: $LASSO_ACCESS_ID" \
   --header "CF-Access-Client-Secret: $LASSO_ACCESS_SECRET"
 ```
 
-`lasso connect -url https://lasso.example.com -token <token> -header "CF-Access-Client-Id: ..." -header "CF-Access-Client-Secret: ..."` registers both servers with every agent CLI on the box in one go (see [Connect your agents](../getting-started/connect-agents.md)). Exporting `LASSO_MCP_TOKEN` and `LASSO_URL` on the box also lets [`lasso mcp`, `lasso notify` and `lasso open`](./cli.md) authenticate.
+`lasso connect -url https://lasso.example.com -header "X-Lasso-Token: <token>" -header "CF-Access-Client-Id: ..." -header "CF-Access-Client-Secret: ..."` registers both servers with every agent CLI on the box in one go (see [Connect your agents](../getting-started/connect-agents.md)). Exporting `LASSO_MCP_TOKEN` and `LASSO_URL` on the box also lets [`lasso mcp`, `lasso notify` and `lasso open`](./cli.md) authenticate where they can reach lasso, such as its tailnet address; they send no Access headers, so they cannot pass Access.
 
 `token` defaults to **no expiry**, because it sits unattended in a host's config, where a rolling expiry is an outage on a timer rather than a security win. Pass `--ttl 90d` (or `2w`, `12h`, `30m`) for a dated one. To revoke: `lasso mcp-client rm <client_id>` drops the client and every token issued to it; then `add` a replacement. One client is one host, so the blast radius is exactly the host you are re-keying. `lasso mcp-client list` shows how many tokens each host holds and how many never expire.
 
@@ -139,4 +139,4 @@ Sanity check from that box: `list_agents` with no `host` should return **its own
 
 ## What this is not
 
-Not a sandbox. A fleet-scoped agent is one message away from proxying for a contained one, and a secret on a box can be exfiltrated from it. Where a trust zone is a real boundary, enforce it at the network (block that box's path to lasso, for example with Access policy or by binding lasso to loopback) and treat credential scope as defence in depth.
+Not a sandbox. A fleet-scoped agent is one message away from proxying for a contained one, and a secret on a box can be exfiltrated from it. Where a trust zone is a real boundary, enforce it at the network (block that box's path to lasso, for example with your tailnet policy, an Access policy, or `LASSO_ALLOW`) and treat credential scope as defence in depth.

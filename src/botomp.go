@@ -840,6 +840,7 @@ func botOmpStatus(b Backend, r *botRecord) botView {
 	case len(s.pending) > 0:
 		v.State = "blocked"
 		v.WaitingFor = ompFirstLine(firstNonEmpty(s.pending[0].Title, s.pending[0].Message, "a question"))
+		v.PendingUI = s.pending
 	case !s.ready:
 		v.State = "starting"
 	case s.streaming:
@@ -913,6 +914,7 @@ func botOmpChat(b Backend, r *botRecord, before string) chatPayload {
 	}
 	run, _ := fillChatLog(&out, b, path, "omp", info.Size(), before, false)
 	out.Running = run || s.streaming
+	annotateBotMeta(r.Name, out.Items)
 	return out
 }
 

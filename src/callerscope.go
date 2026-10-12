@@ -119,13 +119,14 @@ func (c mcpCaller) reachesBeyondOwnHost() bool {
 }
 
 // hostOr resolves a tool's optional `host` argument for this caller. An explicit
-// host wins. Otherwise an identified caller defaults to ITS OWN host rather than
-// to "local" — "local" means the box lasso runs on, which for a remote caller is
+// host wins, read through mcpHostArg so lasso's hostname means "local".
+// Otherwise an identified caller defaults to ITS OWN host rather than to
+// "local" — "local" means the box lasso runs on, which for a remote caller is
 // somebody else's machine entirely, so the old default silently pointed every
 // remote agent at the lasso host's agents and called them its neighbours.
 func (c mcpCaller) hostOr(host string) string {
 	if host != "" {
-		return host
+		return mcpHostArg(host)
 	}
 	if c.Host != "" {
 		return c.Host
@@ -151,7 +152,7 @@ func (c mcpCaller) hostOr(host string) string {
 // closeAgentTool) rather than bending the rule here for both.
 func (c mcpCaller) searchHost(host string) string {
 	if host != "" {
-		return host
+		return mcpHostArg(host)
 	}
 	return c.Host
 }
@@ -169,23 +170,25 @@ func (c mcpCaller) requireHost(host string) error {
 	// widen it. Since host groups exist, the answer to "it should reach further"
 	// is usually a group rather than a fleet credential — and an operator who only
 	// hears about --fleet will hand out the fleet.
+	// The prose names hosts as MCP clients do (mcpHostName); the commands keep
+	// lasso's own keys, which is what the CLI stores.
 	return fmt.Errorf("this credential may not address host %q: it was provisioned for agents running on %q with scope %q, so it reaches %s — put both hosts in one group (`lasso mcp-group add-member <group> %s %s`), grant one group access to the other (`lasso mcp-group grant`), or mint a fleet-scoped credential (`lasso mcp-client add --host %s --fleet`)",
-		host, c.Host, scopeSelf, c.reachSummary(), c.Host, host, c.Host)
+		mcpHostName(host), mcpHostName(c.Host), scopeSelf, c.reachSummary(), c.Host, host, c.Host)
 }
 
 // reachSummary spells out what a scoped caller currently reaches, for refusals.
 func (c mcpCaller) reachSummary() string {
 	if !c.reachesBeyondOwnHost() {
-		return fmt.Sprintf("only %q", c.Host)
+		return fmt.Sprintf("only %q", mcpHostName(c.Host))
 	}
 	others := make([]string, 0, len(c.Reach))
 	for h := range c.Reach {
 		if h != c.Host {
-			others = append(others, strconv.Quote(h))
+			others = append(others, strconv.Quote(mcpHostName(h)))
 		}
 	}
 	sort.Strings(others)
-	return fmt.Sprintf("%q plus its groups (%s)", c.Host, strings.Join(others, ", "))
+	return fmt.Sprintf("%q plus its groups (%s)", mcpHostName(c.Host), strings.Join(others, ", "))
 }
 
 // allows reports whether the caller may address host, ignoring the separate
