@@ -326,6 +326,19 @@ public struct CardView: View {
                 .opacity(model.killing ? Theme.Card.killing.number("dim") : 1)
                 .parityAnchor("card.steps")
             }
+            // With choices or the answer fields on screen, the line above that
+            // carries notices is not drawn, so an answer, send or stop that
+            // failed would leave no trace. Say it under them.
+            if !(steps.isEmpty && !model.blockedWithoutChoices && !model.allowsCustom), let n = model.notice {
+                Text(n)
+                    .font(Theme.Fonts.small.font)
+                    .foregroundStyle(Theme.Text.secondary.color)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, Theme.Card.titleX.pt - contentX)
+                    .accessibilityLabel(n)
+                    .parityAnchor("card.notice")
+            }
         }
         .parityAnchor("card.footer")
     }
