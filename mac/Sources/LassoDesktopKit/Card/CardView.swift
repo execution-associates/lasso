@@ -340,7 +340,11 @@ struct ChatRow: View {
             Text("— \(item.marker ?? "marker") —")
                 .font(font)
                 .foregroundStyle(Theme.Text.secondary.color)
-        case "user", "incoming":
+        case "user" where TaskNotification.parse(item.text ?? "") != nil:
+            TaskNotificationRow(id: item.id, note: TaskNotification.parse(item.text ?? "")!)
+        case "incoming":
+            ChannelCard(id: item.id, msg: ChannelMessage.parse(item.text ?? "", source: item.source))
+        case "user":
             Text("› " + (item.text ?? ""))
                 .font(font)
                 .foregroundStyle(Theme.Text.primary.color)

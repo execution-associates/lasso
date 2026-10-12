@@ -256,9 +256,9 @@ struct ConversationPreviewView<M: Conversation>: View {
 
 extension ConversationEntry {
     /// The other side of the latest turn: everything after the last message
-    /// you sent, folded.
+    /// you sent, folded. A background task's notice is not one of yours.
     static func latestTurn(_ items: [ChatItem], cwd: String? = nil) -> [ConversationEntry] {
-        let start = items.lastIndex { $0.kind == "user" }.map { $0 + 1 } ?? 0
+        let start = items.lastIndex { $0.kind == "user" && TaskNotification.parse($0.text ?? "") == nil }.map { $0 + 1 } ?? 0
         let turn = Array(items[min(start, items.count)...])
         return fold(turn.isEmpty ? Array(items.suffix(1)) : turn, cwd: cwd)
     }

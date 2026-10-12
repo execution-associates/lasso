@@ -158,6 +158,10 @@ func messageTime(_ at: String?) -> String? {
 /// One thing in the conversation, after folding.
 enum ConversationEntry: Identifiable {
     case message(ChatItem, text: String, mine: Bool)
+    /// A background task's result: the harness, on the human's side (Envelope.swift).
+    case task(ChatItem, TaskNotification)
+    /// A message a Claude Code channel delivered, labelled with its source.
+    case incoming(ChatItem, ChannelMessage)
     case tools(id: String, [ChatTool])
     case ask(ChatItem, ChatTool.Ask)
     case marker(ChatItem)
@@ -167,7 +171,7 @@ enum ConversationEntry: Identifiable {
 
     var id: String {
         switch self {
-        case .message(let i, _, _), .ask(let i, _), .marker(let i): i.id
+        case .message(let i, _, _), .ask(let i, _), .marker(let i), .task(let i, _), .incoming(let i, _): i.id
         case .tools(let id, _), .media(let id, _, _): id
         }
     }
@@ -199,7 +203,13 @@ enum ConversationEntry: Identifiable {
             }
             flush()
             switch item.kind {
-            case "user", "incoming": out.append(.message(item, text: item.text ?? "", mine: true))
+            case "user":
+                if let note = TaskNotification.parse(item.text ?? "") {
+                    out.append(.task(item, note))
+                } else {
+                    out.append(.message(item, text: item.text ?? "", mine: true))
+                }
+            case "incoming": out.append(.incoming(item, ChannelMessage.parse(item.text ?? "", source: item.source)))
             case "marker": out.append(.marker(item))
             default:
                 guard item.thinking != true, let raw = item.text, !raw.isEmpty else { break }
@@ -278,6 +288,8 @@ struct AgentConversation: View {
             }
             .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
         case .tools(_, let tools): ToolRunRow(tools: tools)
+        case .task(let item, let note): TaskNotificationRow(id: item.id, note: note)
+        case .incoming(let item, let msg): ChannelCard(id: item.id, msg: msg)
         case .media(_, let version, let files): SharedFilesView(files: files, host: host, version: version)
         case .ask(_, let ask): AskRow(ask: ask, font: Theme.Fonts.chat.font)
         case .marker(let item):
