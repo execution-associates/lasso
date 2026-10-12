@@ -17,6 +17,8 @@ public final class AppCoordinator {
     let botActions: BotChatActions
     private let inboxModel: InboxModel
     private let inbox: SidePanel
+    /// The arrival sound and macOS's notifications (PLAN 17).
+    let alerts: InboxAlerts
     private let settingsModel: SettingsModel
     private let settings: SidePanel
     private var chat: (model: ChatModel, panel: SidePanel)?
@@ -45,8 +47,6 @@ public final class AppCoordinator {
     private var firstRun: FirstRunController?
     private var presence: AppPresence?
     private var commandO: Any?
-    /// What was in the inbox last time it changed, to hear what is new.
-    private var inboxSeen: Set<String>?
     /// Settings opened by a hover and not clicked yet, and since when the
     /// pointer has been away from both rail and panel.
     private var settingsGlance = false
@@ -56,7 +56,9 @@ public final class AppCoordinator {
     /// A shortcut-opened pop-out also goes on a click elsewhere.
     private let clickAway = ClickAwayWatch()
 
-    public init(fleet: FleetModel, sync: FleetSync?, fixture: Fixture?) {
+    /// `notifier` posts macOS notifications: the live one by default, for a
+    /// live lasso in the signed app; tests pass a fake, fixtures none.
+    public init(fleet: FleetModel, sync: FleetSync?, fixture: Fixture?, notifier: Notifier? = nil) {
         self.fleet = fleet
         self.sync = sync
         client = sync?.client
@@ -90,6 +92,9 @@ public final class AppCoordinator {
             inboxModel.persist = true
         }
         inbox = SidePanel(size: Theme.List.size.size, content: InboxView(model: inboxModel))
+        alerts = InboxAlerts(
+            fleet: fleet, inbox: inboxModel, actions: cardActions,
+            notifier: notifier ?? (sync != nil && SystemNotifier.available ? SystemNotifier() : nil))
         let baseURL = (client ?? .configured()).baseURL
         settingsModel = SettingsModel(
             permissions: permissions, baseURL: { [weak client] in (client?.baseURL ?? baseURL).absoluteString },
@@ -336,12 +341,14 @@ public final class AppCoordinator {
             return true
         }
 
-        // Something new in the inbox makes the arrival sound. The first
-        // reading is a baseline; a live lasso only (fixtures make no sound).
-        if sync != nil {
+        // Something new in the inbox makes the arrival sound and a macOS
+        // notification. The first reading once lasso has answered is the
+        // baseline; a live lasso only (fixtures make no sound and post nothing).
+        wireAlerts()
+        if sync != nil || alerts.notifier != nil {
             Publishers.CombineLatest4(fleet.$panes, fleet.$bots, fleet.$uiState, fleet.$notices)
                 .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
-                .sink { [weak self] _ in self?.noteArrivals() }
+                .sink { [weak self] _ in self?.alerts.note() }
                 .store(in: &subs)
         }
         fleet.$bots
@@ -634,16 +641,65 @@ public final class AppCoordinator {
         waitForThePointer()
     }
 
-    /// Play the arrival sound when the inbox holds something it did not.
-    private func noteArrivals() {
-        let arrivals = inboxModel.arrivals
-        let now = Set(arrivals.keys)
-        defer { inboxSeen = now }
-        guard let before = inboxSeen else { return }
-        // Sound only for a kind this Mac wants to be interrupted by.
-        let kinds = Set(now.subtracting(before).flatMap { arrivals[$0] ?? [] })
-        guard kinds.contains(where: { fleet.notify?.wants($0) ?? true }) else { return }
-        InboxSound.play()
+    private func wireAlerts() {
+        let fleet = fleet
+        if sync != nil {
+            alerts.playSound = { InboxSound.play() }
+            alerts.ready = { fleet.ready }
+            alerts.mayAsk = { UserDefaults.standard.bool(forKey: FirstRunModel.doneKey) }
+        }
+        alerts.showing = { [weak self] a in
+            guard let self else { return false }
+            switch a.item {
+            case .entry(let e): return self.card.shown?.pane.key == e.pane.key
+            case .notice: return self.inbox.isOpen
+            }
+        }
+        alerts.picture = { [weak self] name in self?.avatars.images[name] }
+        let actions = cardActions
+        // Acknowledge from a notification is the card's own when the card
+        // shows that entry, so the card moves on as after an A.
+        alerts.acknowledgeEntry = { [weak self] e in
+            if let m = self?.card.shown, m.pane.key == e.pane.key {
+                m.acknowledge()
+                return
+            }
+            try await actions.acknowledge(e.pane)
+            fleet.markAcknowledged(e)
+        }
+        alerts.openEntry = { [weak self] p in self?.openFromNotification(p) }
+        alerts.openNotices = { [weak self] in self?.showNotices() }
+        alerts.openInbox = { [weak self] in self?.showInbox() }
+        inboxModel.onSeen = { [weak self] p in self?.alerts.seen(p) }
+        inboxModel.onNoticesSeen = { [weak self] in self?.alerts.noticesSeen() }
+        settingsModel.notifier = alerts.notifier
+    }
+
+    /// A notification clicked: the inbox card on its entry, opened as the
+    /// inbox shortcut opens it (an explicit open: it stays until esc, a
+    /// click elsewhere, or the pointer coming onto it and leaving).
+    func openFromNotification(_ p: HostPane) {
+        Trace.event("inbox opened from a notification")
+        hideSettingsGlance()
+        rail.model.setExpanded(true)
+        if fleet.offline, sync != nil { return openFirstRun() }
+        openCard(p)
+        waitForThePointer()
+    }
+
+    /// A notice's notification clicked: the inbox panel, where notices list.
+    func showNotices() {
+        Trace.event("notices opened from a notification")
+        hideSettingsGlance()
+        rail.model.setExpanded(true)
+        if !inbox.isOpen {
+            closeAll(except: inbox)
+            inbox.open(takeKey: true)
+        } else if !inbox.isKey {
+            inbox.takeKey()
+        }
+        inboxModel.markNoticesSeen()
+        waitForThePointer()
     }
 
     /// Resting on a rail control opens it, without the keyboard: the user may
@@ -746,6 +802,7 @@ public final class AppCoordinator {
         banner.hide()
         chat?.model.stopPolling()
         chat = nil
+        alerts.reset()
         sync?.retarget(url)
         Trace.event("lasso \(url.absoluteString)")
     }

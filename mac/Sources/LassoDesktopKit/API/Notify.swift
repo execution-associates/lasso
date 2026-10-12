@@ -3,9 +3,10 @@ import Foundation
 
 // lasso's notification kinds, chosen per device (src/notifydevices.go,
 // docs/design/notifications.md): this Mac is one device, and its choices
-// decide what interrupts it here (the arrival sound), never what the inbox
-// lists. A lasso without the routes answers 404 (or its web app), and the
-// app then behaves as it did before kinds existed: every arrival sounds.
+// decide what interrupts it here (the arrival sound, macOS notifications),
+// never what the inbox lists. A lasso without the routes answers 404 (or its
+// web app), and the app then behaves as it did before kinds existed: every
+// arrival sounds and notifies.
 
 /// One kind a device can choose (notify.go notifKindInfo).
 public struct NotifyKind: Codable, Sendable, Equatable, Identifiable {
