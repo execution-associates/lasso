@@ -560,7 +560,7 @@ The colours are the Execution Associates palette as isb's web app applies it (`i
 
 The user reshaped the app:
 
-- **The rail is three buttons.** The top button is the **inbox**: what waits on the human. That means blocked agents, agents that finished unseen and aren't dismissed, bots waiting on an answer, and bots with an unread reply. The agents capsule below it opens the **agents** list. The ellipsis opens **settings**. The tools capsule is gone.
+- **The rail, top to bottom:** the **inbox** (what waits on the human: blocked agents, agents that finished unseen and aren't dismissed, bots waiting on an answer, and bots with an unread reply), the agents capsule (the **agents** list), the **Bots** button while lasso has bots (§23), the **terminal** (§22), the **+** (the New form, §20) and the ellipsis (**settings**). The tools capsule is gone.
 - **Voice is removed for now.** The capture, transcription and recording UI are gone, along with the V binding, the microphone permission and every voice and recording token. `/api/transcribe` (S2) and bot-send `meta` (S3) stay on the server, unused by the app. The voice code is in git history (`mac: M6 and M7 …`).
 - **"Bot", never "assistant", and no default bot.** The app has no single bot of its own; that will come later. A bot's chat opens from the inbox, or from its pane in the agents list. The default-bot setting and its Create button are gone, from the app and from the server (ui_state `default_bot` was removed before release). So brief B.5's "ensure the app's bot exists" is deferred.
 - **Agents are grouped by herdr workspace and named by their label, else their tab name** (herdr.dev/docs/agents, "custom agent labels").
@@ -933,7 +933,7 @@ The Mac launches agents and terminals the way lasso's web New dialog does (`src/
 - **⌥⇧O** for an agent in a repository, **⌃⇧O** for a scratch agent and **⌥⇧I** for a terminal (the web's ⌘I), from any app. ⌘⇧I is taken in many apps (Safari's Mail This Page), and ⌥I alone is a dead key. The user's rule is at most three keys, never four.
 - Shift keeps ⌃O for terminals (Claude Code's transcript view, nano's save, vim's jump back, the shell) and ⌥O for typing "ø". ⌥⇧O no longer types "Ø" while it is set.
 - **⌘O, ⌘⇧O and ⌘I** do the same while a Lasso window has the keyboard, as in the web app. They are never system-wide, because ⌘O is every app's File › Open.
-- The rail has a **+** button ("New…") above the terminal (§22) and the ellipsis, and the agents list a **New agent** button. The **+** opens the form on a click only: hovering lights it but does not open it, because the form takes the keyboard.
+- The rail has a **+** button ("New…") under the terminal (§22) and above the ellipsis, and the agents list a **New** button that opens the same form. The **+** opens the form on a click only: hovering lights it but does not open it, because the form takes the keyboard.
 - Each chip opens its menu inside the form, toward the side with room (a system popover from a floating panel can land half off screen). Long lists (repositories, branches, a big fleet) and the model have a filter that takes the typing, like the web app's combobox; ↑/↓ move and ⏎ picks. The model's suggestions are a hint, as in the web's EditableCombobox: a typed name no suggestion has is offered first as Use “<name>”.
 
 All four system-wide shortcuts (inbox, new agent, new scratch agent, new terminal) are `ShortcutSlot`s, each stored on its own and recorded the same way.
@@ -1051,7 +1051,7 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
 
 ## 22. lasso's herdr in a window
 
-**The rail's terminal button** (between the **+** and the ellipsis, `rail.terminal`) opens lasso's herdr in a window of its own. Like the **+**, it opens on a click only, because the terminal takes the keyboard. **Every agent's header** has a terminal button too: the agent window's (beside minimize, `agent.herdr`) and the inbox card's (beside close, `card.herdr`), with **T** as its key. It focuses that agent's pane and shows the window. A blocked agent's **Focus in herdr** opens the window the same way. There is one window: a second open brings it forward.
+**The rail's terminal button** (under the Bots button, or the agents, and above the **+**, `rail.terminal`) opens lasso's herdr in a window of its own. Like the **+**, it opens on a click only, because the terminal takes the keyboard. **Every agent's header** has a terminal button too: the agent window's (beside minimize, `agent.herdr`) and the inbox card's (beside close, `card.herdr`), with **T** as its key. It focuses that agent's pane and shows the window. A blocked agent's **Focus in herdr** opens the window the same way. There is one window: a second open brings it forward.
 
 **The window is lasso's own web terminal**, ttyd's document under `/terminal/<slug>/`, the page the web app frames. It runs in a WKWebView whose page never reaches the network itself (`Terminal/TerminalBridge.swift`):
 - **Its document and its `token` fetch** come through the `lasso-terminal:` URL scheme. The app answers each one with a request through its `LassoClient`, carrying the same credentials as every API call.
@@ -1104,7 +1104,7 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
 
 lasso's bots get a place of their own on the rail, following the web app's Bots view. Creating, deleting and configuring a bot (env, secrets, skills, jobs) stays in the web app. Bots still come to the Inbox when they ask or finish.
 
-**The rail's Bots button** sits between the agents and the **+** while lasso has bots (`RailModel.hasBots`). Its dot is the most urgent bot's state: red while one asks or failed, blue while one works, none otherwise (`BotStanding.railDot`). Like the agents capsule, resting on it opens its column and a click pins nothing (§16).
+**The rail's Bots button** sits between the agents and the terminal while lasso has bots (`RailModel.hasBots`). Its glyph is SF Symbols' `bubble.left.and.text.bubble.right`. Its dot is the most urgent bot's state: red while one asks or failed, blue while one works, none otherwise (`BotStanding.railDot`). Like the agents capsule, resting on it opens its column and a click pins nothing (§16).
 
 **The Bots column** (`Bots/BotsColumn.swift`) is a rail pop-out the size of the agents column. Each bot has a row with its picture (`/api/bots/<name>/avatar`, else its initial), its name, its state and its last line: the question it asks, its last words, or why it failed.
 - **Order:** asking (blocked, or holding a `pending_ui` request), working, failed, idle, stopped, by name within each (`BotStanding`).

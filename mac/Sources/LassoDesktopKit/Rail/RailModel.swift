@@ -7,7 +7,7 @@ import SwiftUI
 @MainActor
 public final class RailModel: ObservableObject {
     public enum Item: Hashable, Sendable {
-        case inbox, agents, bots, newAgent, terminal, settings
+        case inbox, agents, bots, terminal, newAgent, settings
     }
 
     @Published public var expanded = false
@@ -54,7 +54,7 @@ public final class RailModel: ObservableObject {
         var out: [Item] = [.inbox]
         if !slots.isEmpty { out.append(.agents) }
         if hasBots { out.append(.bots) }
-        return out + [.newAgent, .terminal, .settings]
+        return out + [.terminal, .newAgent, .settings]
     }
 
     public func setExpanded(_ on: Bool, animated: Bool = true) {

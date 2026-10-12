@@ -36,16 +36,16 @@ private let fleetBots = bots(
     #expect(BotStanding.railDot(fleetBots.filter { $0.name == "stub" || $0.name == "fitty" }) == nil)
 }
 
-/// The rail's Bots button sits between the agents and the plus while lasso
-/// has bots, and is hovered and opened like the others.
-@MainActor @Test func theRailHasBotsBetweenAgentsAndNew() {
+/// The rail's Bots button sits between the agents and the terminal while
+/// lasso has bots, and is hovered and opened like the others.
+@MainActor @Test func theRailHasBotsBetweenAgentsAndTerminal() {
     let fleet = FleetModel()
     let m = RailModel(fleet: fleet)
     m.setExpanded(true, animated: false)
     #expect(!m.items.contains(.bots))
     fleet.apply(bots: BotsPayload(bots: fleetBots))
-    #expect(m.items == [.inbox, .bots, .newAgent, .terminal, .settings])
-    #expect(RailMetrics.itemFrames(0, bots: true).map(\.0) == [.inbox, .bots, .newAgent, .terminal, .settings])
+    #expect(m.items == [.inbox, .bots, .terminal, .newAgent, .settings])
+    #expect(RailMetrics.itemFrames(0, bots: true).map(\.0) == [.inbox, .bots, .terminal, .newAgent, .settings])
     var opened = false
     m.onBots = { opened = true }
     m.activate(.bots)

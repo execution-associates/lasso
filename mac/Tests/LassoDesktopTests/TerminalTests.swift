@@ -160,18 +160,18 @@ private func query(_ r: URLRequest) -> [URLQueryItem]? { URLComponents(url: r.ur
     #expect(problem == nil, "\(problem ?? "")")
 }
 
-/// The rail's terminal sits between the plus and the ellipsis, and opens on
-/// a click.
-@MainActor @Test func railTerminalSitsBetweenNewAgentAndSettings() {
+/// The rail's terminal sits above the plus (under the Bots button when there
+/// is one), and opens on a click.
+@MainActor @Test func railTerminalSitsAboveNew() {
     let m = RailModel(fleet: FleetModel())
     m.setExpanded(true, animated: false)
-    #expect(m.items == [.inbox, .newAgent, .terminal, .settings])
+    #expect(m.items == [.inbox, .terminal, .newAgent, .settings])
     var opened = false
     m.onTerminal = { opened = true }
     m.activate(.terminal)
     #expect(opened)
     let frames = RailMetrics.itemFrames(0).map(\.0)
-    #expect(frames == [.inbox, .newAgent, .terminal, .settings])
+    #expect(frames == [.inbox, .terminal, .newAgent, .settings])
 }
 
 /// T, and the header's button, show the agent in herdr: live only where
