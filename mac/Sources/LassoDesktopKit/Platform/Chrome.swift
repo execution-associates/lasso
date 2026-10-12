@@ -227,13 +227,17 @@ struct ComposerRow<Model: ComposerModel>: View {
         let h = c.number("height")
         let canSend = !model.composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         HStack(spacing: c.number("gap")) {
-            RoundButton(symbol: "paperclip", size: h, fill: c.color("fill"), label: "Attach a file (A)", action: attach)
-                .keyHint(Keys.attach)
+            RoundButton(
+                symbol: "paperclip", size: h, fill: c.color("fill"), label: "Attach a file (\(Keys.attach.legend))",
+                action: attach
+            )
+            .keyHint(Keys.attach)
             ComposerField(model: model)
                 .padding(.leading, c.number("field_pad_l"))
                 .padding(.trailing, c.number("field_pad_r"))
                 .frame(height: h)
                 .background(Capsule().fill(c.color("fill")))
+                .keyHint(Keys.reply, .bottomLeading)
                 .parityAnchor("composer.field")
             if model.showsStop {
                 // The web chat's Stop: a filled square while the agent works.
@@ -398,6 +402,7 @@ struct AgentTitle: View {
                 .contentShape(Rectangle())
                 .onHover { TitleCursor.hover($0 && model.canRename) }
                 .onDisappear { TitleCursor.hover(false) }
+                .keyHint(Keys.rename, .bottomTrailing, active: model.canRename)
                 .onTapGesture {
                     TitleCursor.hover(false)
                     model.startRename()

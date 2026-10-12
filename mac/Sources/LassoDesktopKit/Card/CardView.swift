@@ -257,7 +257,7 @@ public struct CardView: View {
                 if model.actions.canAcknowledge {
                     PillButton(
                         title: "Acknowledge", primary: true, enabled: model.canAcknowledgeNow,
-                        hint: "Send or clear your reply first", label: "Acknowledge (E)"
+                        hint: "Send or clear your reply first", label: "Acknowledge (\(Keys.acknowledge.legend))"
                     ) { model.acknowledge() }
                     .keyHint(Keys.acknowledge, active: model.canAcknowledgeNow)
                     .parityAnchor("action.acknowledge")

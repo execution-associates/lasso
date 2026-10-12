@@ -739,20 +739,25 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 |---|---|
 | `j` / `k` | Next / previous item, in Inbox order (wrapping). The card lands on it, the unread bar shows where you are, and it is marked seen. |
 | `x` | Kill, behind its confirm: a first `x` arms it ("Press X again"), a second kills, and any other key disarms. A bot has none. |
-| `e` | Acknowledge (S1): writes the entry's own key, and nothing to the agent. It returns when the item has something new. Off while the reply composer holds a draft: the button is greyed with the hint "Send or clear your reply first", `e` does nothing and shows no keycap, and a focused composer types it. |
+| `a` | Acknowledge (S1): writes the entry's own key, and nothing to the agent. It returns when the item has something new. Off while the reply composer holds a draft: the button is greyed with the hint "Send or clear your reply first", `a` does nothing and shows no keycap, and a focused composer types it. |
+| `r` | Rename the agent in place, as a click on its name does (§17): ⏎ or a click away keeps the name, esc keeps the old one. A bot has none. |
+| `l` | Put the cursor in the reply composer, draft or not. Every key is then text until esc leaves the field. |
+| `1`–`9`, `→`, `↳` | Pick a choice, answer with it, or edit it into your own words. |
+| `⏎` | To the composer when it is empty, else send what it holds. |
+| `u` | Attach a file (the paperclip; U for upload, since `a` is Acknowledge). |
+| `⌘.` | Stop: interrupts the agent's turn (one Escape through `/api/chat/stop`, or an omp bot's `chat/stop`). It works while the agent is working or starting, even with the composer focused, since a text field would take `⌘.` as esc. |
+| `esc` | Close. |
+
+The keys are `KeyBinding`s in `Theme/Keys.swift`; `CardKeys` (`Card/CardController.swift`) routes a key to a `CardKeyAction` among a surface's set (`cardSet`, `hoverSet`, `windowSet`, `previewSet`), and `CardModel.perform` does it, so the card, the agent window and the preview cannot drift apart.
 
 **A resolved entry moves the card on.** Kill and Acknowledge share one path (`CardModel.resolved`). Once the action succeeds:
 - The entry leaves the inbox at once, without waiting for a poll. A killed pane is in `FleetModel.killed`, hidden from the whole fleet until a poll stops listing it. An acknowledged entry is in `FleetModel.acknowledged` with the mark it had, hidden until ui_state catches up or something new gives it another mark. So a stale poll cannot bring either back.
 - The card shows the next entry in the Inbox order taken when the key was pressed, or the previous one when it was the last. With none left, it gives way to the empty inbox (`onInboxEmpty`).
 - A kill from an agent window closes that window.
-| `1`–`9`, `→`, `↳` | Pick a choice, answer with it, or edit it into your own words. |
-| `⏎`, `a` | To the composer (or send); attach a file. |
-| `⌘.` | Stop: interrupts the agent's turn (one Escape through `/api/chat/stop`, or an omp bot's `chat/stop`). It works while the agent is working or starting, even with the composer focused, since a text field would take `⌘.` as esc. |
-| `esc` | Close. |
 
 **How the card gets the keyboard:**
 - **By click or keyboard:** the inbox shortcut, the summon key, or a click on the inbox button gives the card the keyboard in the same press. Opening never puts the cursor in the composer, so the next `j` pages.
-- **By hover:** an inbox opened by hover is shown without the keyboard (§16). **While the pointer is over the inbox (the rail or its card)**, the card lends itself the keyboard for `j`, `k`, `x`, `e` and `esc` only. So `j`/`k` work the moment the inbox opens under the pointer, with no move onto the card.
+- **By hover:** an inbox opened by hover is shown without the keyboard (§16). **While the pointer is over the inbox (the rail or its card)**, the card lends itself the keyboard for `j`, `k`, `x`, `a` and `esc` only. `r` and `l` put the cursor in a field, so they wait for a click. So `j`/`k` work the moment the inbox opens under the pointer, with no move onto the card.
   - Any other key hands the keyboard straight back. That key is lost, since a key cannot be re-sent to another app without Accessibility, and the card keeps it back until the pointer leaves and returns.
   - The keyboard is lent **once per pointer visit**. If it goes away (a click in another app), the card does not take it again until the pointer leaves and comes back.
   - When the pointer leaves the card, the keyboard goes back to your app. A click on the card makes it fully yours.
@@ -762,8 +767,8 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
     - Typing meant for another app is cut off at its first key outside the set. The worst a stray word does is page the card or acknowledge one item.
 - **A key shows on hover.** While the card has the keyboard, a control's keycap appears when the pointer is on that control. The user found every key at once too noisy. One app-wide value says which control is hovered (`HoveredKey`). The keycaps:
   - `K`/`J` beside the paging chevrons, and `esc` on close
-  - `A` on the paperclip, and `⏎` on send or `⌘.` on Stop
-  - `X` on Kill and `E` on Acknowledge
+  - `R` on the agent's name, `L` on the message box, `U` on the paperclip, and `⏎` on send or `⌘.` on Stop
+  - `X` on Kill and `A` on Acknowledge
   - the choice numbers, plus `↳` and `→` on the selected choice
 
   A lent keyboard shows only the five keys that work then; a full one shows any live key (`CardModel.shownKeys`). Holding ⌘ shows every key at once.
@@ -892,7 +897,7 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
 
 A message you send shows at once, faded, under **Sending…**, until it appears in the transcript.
 
-**Renaming an agent:** click the agent's name in the inbox card or either agent window (the hover preview and the window), where the pointer becomes a pointing hand, or right-click it there or on a row of the agents list and choose **Rename…**. A click on a list row still opens the agent. The name becomes a field: it holds the agent's label, or is empty with the shown name as its placeholder when there is none, so a click away with nothing typed changes nothing. herdr's agent names are identifiers (a lowercase letter first, then lowercase letters, digits, `-` and `_`, at most 32), so what is typed becomes one: "Check HN page" is `check-hn-page` (`AgentName`, the same rule as lasso's `agentName`). ⏎ or a click anywhere else (or another app taking the keyboard) keeps the new name, as Finder does; esc keeps the old one; an empty name clears the label so the tab's name shows again. It is herdr's custom agent label, set through lasso's `POST /api/agent/rename`. A bot has no Rename, because lasso finds a bot by that name; bots are renamed in their own settings.
+**Renaming an agent:** click the agent's name in the inbox card or either agent window (the hover preview and the window), where the pointer becomes a pointing hand, or right-click it there or on a row of the agents list and choose **Rename…**, or press R in the inbox card or either window. A click on a list row still opens the agent. The name becomes a field: it holds the agent's label, or is empty with the shown name as its placeholder when there is none, so a click away with nothing typed changes nothing. herdr's agent names are identifiers (a lowercase letter first, then lowercase letters, digits, `-` and `_`, at most 32), so what is typed becomes one: "Check HN page" is `check-hn-page` (`AgentName`, the same rule as lasso's `agentName`). ⏎ or a click anywhere else (or another app taking the keyboard) keeps the new name, as Finder does; esc keeps the old one; an empty name clears the label so the tab's name shows again. It is herdr's custom agent label, set through lasso's `POST /api/agent/rename`. A bot has no Rename, because lasso finds a bot by that name; bots are renamed in their own settings.
 
 ## 20. Launching agents (the web app's ⌘O and ⌘⇧O)
 
@@ -1006,7 +1011,7 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
   - The bytes come through `/api/file` (`download=1`) from the host that served the transcript. They are cached in `~/Library/Caches/Lasso/Media` per path and showing, since an agent may overwrite a file in place.
 - **Choices need a confirm.** A click (or 1–9) only selects a choice; the selected one shows **Answer**, and that button (or →) sends it. An answer cannot be taken back, and the preview appears under a moving pointer.
 - **No header menu:** the window's header is minimize and close. **Kill** is a red pill at the trailing end of the folder/model row (`AgentKill`; a bot has none, and neither does a hover preview), behind the inbox's confirm: X or a click arms it ("Confirm kill"), a second kills. Its accessibility label is "Kill <agent>". Once the kill goes through, the window closes and the agent's inbox entry goes with it (§13.7a).
-- The composer's paperclip (A) attaches any files: each goes through `/api/paste-file` to the agent's machine and its path into the message.
+- The composer's paperclip (U) attaches any files: each goes through `/api/paste-file` to the agent's machine and its path into the message.
 - **Paste and drop attach too** (`Platform/Attachments.swift`), in every composer (inbox card, agent window and preview, bot chat) and the New Agent prompt.
   - The composer's NSTextField uses its own field editor (`ComposerCell` → `AttachingTextView`), so ⌘V and Edit › Paste reach it. A drop works on the field and on its editor alike.
   - `Attachments.plan` decides from the pasteboard: **file URLs first**, then image data (PNG before TIFF, any other image read as TIFF), then text. Screenshot tools like BetterShot and Finder's Copy put the file next to its path or name as text and an icon as an image, and the file is what goes. Image data beats text only when the text is a lone URL or path (a browser's Copy Image); words with a rendering (Word, Excel) paste as text.
@@ -1015,7 +1020,7 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
   - Refused before any upload: folders, empty files (lasso refuses an empty body), and anything over lasso's `maxUpload` (1 GiB, `src/main.go`).
   - The New Agent prompt has no agent yet, so its files go to the chosen host through the same route, and Create waits for them.
 - One window per agent; a second click brings it forward. Where each agent's window was is kept in UserDefaults `agentWindowFrames`.
-- Keys while it has the keyboard: 1–9, →, ↳, ⏎, A (attach), ⌘. (Stop), and X X to kill. A focused composer keeps every key as text except ⌘. (§13.7a).
+- Keys while it has the keyboard (`CardKeys.windowSet`): 1–9, →, ↳, ⏎ (to the composer, or send), L (to the composer), R (rename), U (attach), ⌘. (Stop), and X X to kill. They are the inbox card's, with the same letters, minus paging, esc and Acknowledge: a window has no inbox entry to resolve. A clicked hover preview has the same minus Kill, and esc closes it. A focused composer keeps every key as text except ⌘. (§13.7a).
 - **Stop** (the web chat's rule). While the agent is working or starting and the composer is empty, the send button is Stop, a filled square with the label "Stop <agent>". A draft brings Send back.
   - It is in every composer: the inbox card, the agent window and preview, and the bot chat.
   - A press sends one Escape (`CardActions.stop`: `/api/chat/stop?host=` with `{pane_id}`, or an omp bot's `chat/stop`). The button then stays dimmed until a poll shows the turn over, or `live.stop_wait` (10 s) passes.

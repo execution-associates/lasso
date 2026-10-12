@@ -213,8 +213,9 @@ public final class CardModel: ComposerModel {
     /// screen may show (the parity harness checks every rendered keycap is
     /// in here).
     public var activeBindings: Set<KeyBinding> {
-        var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.send, Keys.next, Keys.previous]
+        var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.send, Keys.reply, Keys.next, Keys.previous]
         if !isBot { b.insert(Keys.kill) }
+        if canRename { b.insert(Keys.rename) }
         if isWorking { b.insert(Keys.stop) }
         if canAcknowledgeNow { b.insert(Keys.acknowledge) }
         if !nextSteps.isEmpty { b.formUnion([Keys.editStep, Keys.takeStep]) }
@@ -485,7 +486,7 @@ public final class CardModel: ComposerModel {
     /// cleared, so a draft is never left behind on an entry that goes away.
     public var hasDraft: Bool { !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
-    /// Acknowledge can be pressed now (E, or its button).
+    /// Acknowledge can be pressed now (A, or its button).
     public var canAcknowledgeNow: Bool { actions.canAcknowledge && !hasDraft }
 
     public func acknowledge() {
@@ -532,9 +533,12 @@ public final class CardModel: ComposerModel {
     /// The inbox card resolved its last entry: show the empty inbox.
     public var onInboxEmpty: () -> Void = {}
 
-    /// The paperclip (A): choose files, upload them to the agent's machine,
+    /// The paperclip (U): choose files, upload them to the agent's machine,
     /// and put their paths in the message.
-    public func attachFile() { attach(FilePicker.choose(), at: nil) }
+    public func attachFile() { attach(chooseFiles(), at: nil) }
+
+    /// The paperclip's chooser (a seam for tests, which cannot click one).
+    var chooseFiles: () -> [URL] = { FilePicker.choose() }
 
     /// Upload files (the paperclip's, or pasted or dropped on the message box)
     /// to the agent's machine and put their paths in the message at `caret`
@@ -557,6 +561,36 @@ public final class CardModel: ComposerModel {
     }
 
     public func focusComposer() { focusRequest += 1 }
+
+    /// Do what a routed key asks, in the inbox card or an agent window
+    /// (CardKeys). Any key but X disarms a kill. Returns false for a key that
+    /// does nothing here (the window's own keys, esc and the unbound, are
+    /// its caller's), so the system gets it.
+    @discardableResult
+    public func perform(_ action: CardKeyAction) -> Bool {
+        if action != .kill { disarm() }
+        switch action {
+        case .digit(let n): highlight(n)
+        case .attach: attachFile()
+        // ⏎: to the composer, or send what it holds.
+        case .send: if composer.isEmpty { focusComposer() } else { send() }
+        case .reply: focusComposer()
+        case .rename:
+            guard canRename else { return false }
+            startRename()
+        case .kill: kill()
+        case .acknowledge: acknowledge()
+        case .next: page(1)
+        case .previous: page(-1)
+        case .editStep: editStep()
+        case .takeStep: takeStep()
+        case .stop:
+            guard isWorking else { return false }
+            stop()
+        case .close, .unbound, .handBack: return false
+        }
+        return true
+    }
 
     public var composerPlaceholder: String {
         guard answeringCustom else { return "Reply to \(current.displayName)" }

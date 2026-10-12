@@ -210,29 +210,12 @@ final class AgentWindowController {
         UserDefaults.standard.set(frames, forKey: Self.framesKey)
     }
 
-    /// The card's keys, minus paging and Acknowledge: 1–9 highlight a choice,
-    /// → takes it, ↳ edits it, ⏎ to the composer, A attaches, ⌘. stops,
-    /// X X kills.
-    private func handle(_ e: NSEvent) -> Bool {
-        // ⌘. stops a working agent, the composer focused or not.
-        if Keys.stop.matches(e), model.isWorking {
-            model.stop()
-            return true
-        }
-        if model.composerFocused || panel.editingText { return false }
-        if !Keys.kill.matches(e) { model.disarm() }
-        if let n = Keys.digit(e) {
-            model.highlight(n)
-            return true
-        }
-        switch true {
-        case Keys.attach.matches(e): model.attachFile()
-        case Keys.send.matches(e): if model.composer.isEmpty { model.focusComposer() } else { model.send() }
-        case Keys.editStep.matches(e): model.editStep()
-        case Keys.takeStep.matches(e): model.takeStep()
-        case Keys.kill.matches(e): model.kill()
-        default: return false
-        }
-        return true
+    /// The card's keys, minus paging and Acknowledge (CardKeys.windowSet):
+    /// 1–9 highlight a choice, → takes it, ↳ edits it, ⏎ to the composer (or
+    /// send), L to the composer, R renames, U attaches, ⌘. stops, X X kills.
+    func handle(_ e: NSEvent) -> Bool {
+        guard let a = CardKeys.route(e, editing: model.composerFocused || panel.editingText, among: CardKeys.windowSet)
+        else { return false }
+        return model.perform(a)
     }
 }

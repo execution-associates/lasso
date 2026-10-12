@@ -55,7 +55,7 @@ public final class ChatModel: ComposerModel {
     }
 
     public var activeBindings: Set<KeyBinding> {
-        var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.send]
+        var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.send, Keys.reply]
         if isWorking { b.insert(Keys.stop) }
         if !pendingOptions.isEmpty { b.formUnion([Keys.editStep, Keys.takeStep]) }
         return b

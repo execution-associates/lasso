@@ -214,13 +214,13 @@ private let specDir = packageDir.appendingPathComponent("Spec")
     #expect(!m.allowsCustom)
 }
 
-private func key(_ c: String, _ code: UInt16) -> NSEvent {
+func key(_ c: String, _ code: UInt16) -> NSEvent {
     NSEvent.keyEvent(
         with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
         characters: c, charactersIgnoringModifiers: c, isARepeat: false, keyCode: code)!
 }
 
-/// The inbox card answers j/k/x/e (PLAN 13.7a): they are in its live
+/// The inbox card answers j/k/x/a (PLAN 13.7a): they are in its live
 /// bindings, they route to paging, kill and acknowledge, a focused composer keeps
 /// them as text, and a keyboard the pointer lent takes those four (and esc)
 /// only, handing everything else back.
@@ -236,16 +236,17 @@ private func key(_ c: String, _ code: UInt16) -> NSEvent {
     for b in [Keys.next, Keys.previous, Keys.kill, Keys.acknowledge] {
         #expect(m.activeBindings.contains(b), "\(b.id) not live in the inbox card")
     }
-    let j = key("j", 38), k = key("k", 40), x = key("x", 7), e = key("e", 14)
+    let j = key("j", 38), k = key("k", 40), x = key("x", 7), a = key("a", 0)
     #expect(CardKeys.route(j, editing: false, pointerKeyed: false) == .next)
     #expect(CardKeys.route(k, editing: false, pointerKeyed: false) == .previous)
     #expect(CardKeys.route(x, editing: false, pointerKeyed: false) == .kill)
-    #expect(CardKeys.route(e, editing: false, pointerKeyed: false) == .acknowledge)
+    #expect(CardKeys.route(a, editing: false, pointerKeyed: false) == .acknowledge)
     // A focused composer: the field types them.
-    for ev in [j, k, x, e] { #expect(CardKeys.route(ev, editing: true, pointerKeyed: false) == nil) }
+    for ev in [j, k, x, a] { #expect(CardKeys.route(ev, editing: true, pointerKeyed: false) == nil) }
     // Lent by the pointer: the four and esc act; anything else goes back.
     #expect(CardKeys.route(j, editing: false, pointerKeyed: true) == .next)
-    #expect(CardKeys.route(key("a", 0), editing: false, pointerKeyed: true) == .handBack)
+    #expect(CardKeys.route(a, editing: false, pointerKeyed: true) == .acknowledge)
+    #expect(CardKeys.route(key("u", 32), editing: false, pointerKeyed: true) == .handBack)
     #expect(CardKeys.route(key("q", 12), editing: false, pointerKeyed: true) == .handBack)
 }
 

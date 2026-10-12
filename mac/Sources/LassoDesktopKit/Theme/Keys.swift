@@ -24,12 +24,17 @@ public struct KeyBinding: Hashable, Sendable, Identifiable {
 
 public enum Keys {
     public static let esc = KeyBinding(id: "esc", legend: "esc", action: "Close", keyCode: 53, character: nil)
+    /// The paperclip: U for upload, since A is Acknowledge.
     public static let attach = KeyBinding(
-        id: "a", legend: "A", action: "Attach a file", keyCode: nil, character: "a")
+        id: "u", legend: "U", action: "Attach a file", keyCode: nil, character: "u")
     public static let send = KeyBinding(id: "enter", legend: "⏎", action: "Send", keyCode: 36, character: nil)
     public static let kill = KeyBinding(id: "x", legend: "X", action: "Kill agent", keyCode: nil, character: "x")
     public static let acknowledge = KeyBinding(
-        id: "e", legend: "E", action: "Acknowledge", keyCode: nil, character: "e")
+        id: "a", legend: "A", action: "Acknowledge", keyCode: nil, character: "a")
+    /// Turn the agent's name into a field, as a click on it does.
+    public static let rename = KeyBinding(id: "r", legend: "R", action: "Rename", keyCode: nil, character: "r")
+    /// Put the cursor in the reply composer.
+    public static let reply = KeyBinding(id: "l", legend: "L", action: "Reply", keyCode: nil, character: "l")
     public static let next = KeyBinding(id: "j", legend: "J", action: "Next card", keyCode: nil, character: "j")
     public static let previous = KeyBinding(
         id: "k", legend: "K", action: "Previous card", keyCode: nil, character: "k")
@@ -45,7 +50,9 @@ public enum Keys {
     public static let stop = KeyBinding(
         id: "stop", legend: "⌘.", action: "Stop", keyCode: 47, character: nil, command: true)
 
-    public static let all: [KeyBinding] = [esc, attach, send, stop, kill, acknowledge, next, previous, editStep, takeStep]
+    public static let all: [KeyBinding] = [
+        esc, attach, send, reply, rename, stop, kill, acknowledge, next, previous, editStep, takeStep,
+    ]
 
     /// 1-9 highlight a next step.
     public static func digit(_ e: NSEvent) -> Int? {
