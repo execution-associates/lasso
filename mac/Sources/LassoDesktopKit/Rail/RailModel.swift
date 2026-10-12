@@ -12,7 +12,10 @@ public final class RailModel: ObservableObject {
 
     @Published public var expanded = false
     @Published public var focus: Item?
-    /// Keyboard focus is drawn only after a key moved it, as macOS does.
+    /// Keyboard focus is drawn only after a key moved it, as macOS does,
+    /// and only until the pointer takes over, the rail hides or it loses
+    /// the keyboard: a ring left on would follow the pointer, since resting
+    /// on a control moves the focus there.
     @Published public var focusVisible = false
     /// The control under the pointer: one value, since the pointer is over
     /// one thing. Resting on it opens it (`onHoverOpen`).
@@ -81,6 +84,7 @@ public final class RailModel: ObservableObject {
             withTransaction(t) { expanded = on }
         }
         if !items.contains(where: { $0 == focus }) { focus = .inbox }
+        if !on { focusVisible = false }
     }
 
     public func activate(_ item: Item) {
