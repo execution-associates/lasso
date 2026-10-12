@@ -578,7 +578,8 @@ final class FirstRunController {
     func show(takeKey: Bool = true) {
         opens += 1
         isOpen = true
-        if !panel.isVisible, let v = NSScreen.main?.visibleFrame {
+        if !panel.isVisible {
+            let v = Screens.underPointer
             let s = panel.frame.size
             panel.setFrameOrigin(NSPoint(x: (v.midX - s.width / 2).rounded(), y: (v.midY - s.height / 2 + v.height / 8).rounded()))
             panel.alphaValue = 0

@@ -370,6 +370,11 @@ public final class AppCoordinator {
         closeRailPanels()
     }
 
+    /// Settings' panel (tests).
+    var isSettingsOpen: Bool { settings.isOpen }
+    var settingsFrame: NSRect { settings.panel.frame }
+    func closeSettings() { settings.close() }
+
     /// An agent's own window, if open (tests).
     func agentWindow(_ key: String) -> AgentWindowController? { windows[key] }
 

@@ -350,14 +350,16 @@ final class ConversationWindowController<M: Conversation> {
     init(model: M, near anchor: NSRect, media: MediaSource?) {
         self.model = model
         let size = Theme.Agent.window.size2("size")
-        let vis = NSScreen.main?.visibleFrame ?? .zero
+        var vis = Screens.visibleFrame(for: anchor)
         var frame = NSRect(
             x: anchor.minX - Theme.Agent.preview.number("gap") - size.width, y: anchor.maxY - size.height,
             width: size.width, height: size.height)
+        // Where it was left, on whichever screen that is, while that screen is there.
         if let saved = (UserDefaults.standard.dictionary(forKey: M.framesKey)?[model.windowKey] as? String).map(NSRectFromString),
-           saved.width > 0, vis.intersects(saved)
+           saved.width > 0, NSScreen.screens.contains(where: { $0.visibleFrame.intersects(saved) })
         {
             frame = saved
+            vis = Screens.visibleFrame(for: saved)
         }
         frame.origin.x = max(vis.minX, min(frame.origin.x, vis.maxX - frame.width))
         frame.origin.y = max(vis.minY, min(frame.origin.y, vis.maxY - frame.height))
@@ -511,7 +513,7 @@ final class ConversationPreviewController<M: Conversation> {
         // Back from a close still fading out: its polling stopped with it.
         holder.model?.startPolling()
         let size = Theme.Agent.preview.size2("size")
-        let vis = NSScreen.main?.visibleFrame ?? .zero
+        let vis = Screens.visibleFrame(for: column)
         let x = max(vis.minX, column.minX - Theme.Agent.preview.number("gap") - size.width)
         let y = min(max(vis.minY, row.maxY - size.height), vis.maxY - size.height)
         panel.setFrameOrigin(NSPoint(x: x.rounded(), y: y.rounded()))

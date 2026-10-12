@@ -666,7 +666,8 @@ final class NewAgentController {
         let saved = UserDefaults.standard.string(forKey: Self.originKey).map(NSPointFromString)
         if let o = saved, NSScreen.screens.contains(where: { $0.visibleFrame.contains(NSRect(origin: o, size: s)) }) {
             panel.setFrameOrigin(o)
-        } else if let v = NSScreen.main?.visibleFrame {
+        } else {
+            let v = Screens.underPointer
             panel.setFrameOrigin(NSPoint(x: (v.midX - s.width / 2).rounded(), y: (v.midY - s.height / 2 + v.height / 8).rounded()))
         }
         panel.makeKeyAndOrderFront(nil)
