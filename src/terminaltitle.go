@@ -1,10 +1,12 @@
 package main
 
 import (
+	"errors"
 	"log"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Naming a new terminal's tab after what it runs. The New terminal form leaves
@@ -100,11 +102,19 @@ Command:
 // for the background titler instead of launching real CLIs.
 var terminalTitler = autoTitleTerminal
 
+// terminalLabelWait bounds how long autoTitleTerminal waits for herdr to detect
+// an agent in the new pane. Most commands never start one (a dev server, a
+// log tail), so this is short: an agent CLI the command launches shows up in
+// seconds. A var so tests can shrink it.
+var terminalLabelWait = 60 * time.Second
+
 // autoTitleTerminal asks the titler for a name for command and renames tabID
-// to it. Runs in its own goroutine after the create has answered; a failure
-// leaves the program-name fallback in place and is only logged, since that
-// name is already a sensible one.
-func autoTitleTerminal(b Backend, tabID, command string) {
+// to it, then, when the command runs an agent herdr detects in paneID, gives
+// that agent the name's first two words as its herdr label (as autoTitleAgent
+// does for lasso's agents). Runs in its own goroutine after the create has
+// answered; a failure leaves the program-name fallback in place and is only
+// logged, since that name is already a sensible one.
+func autoTitleTerminal(b Backend, tabID, paneID, command string) {
 	title, err := generateTitle(terminalTitleInstruction(command))
 	if err != nil {
 		log.Printf("terminal tab %s on %s: auto-title failed: %v", tabID, b.Name(), err)
@@ -117,4 +127,17 @@ func autoTitleTerminal(b Backend, tabID, command string) {
 	}
 	invalidatePaneList(b.Name())
 	invalidatePanesCache()
+	if paneID == "" {
+		return
+	}
+	switch label, err := labelAgent(b, storedHost(b.Name()), paneID, shortName(title), terminalLabelWait); {
+	case errors.Is(err, errAgentNeverAppeared):
+		// A plain command: there is no agent to label.
+	case err != nil:
+		log.Printf("terminal pane %s on %s: herdr label failed: %v", paneID, b.Name(), err)
+	case label != "":
+		invalidatePaneList(b.Name())
+		invalidatePanesCache()
+		log.Printf("terminal pane %s on %s: herdr label %q", paneID, b.Name(), label)
+	}
 }

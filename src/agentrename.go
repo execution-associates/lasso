@@ -109,6 +109,9 @@ func agentLabelOf(b Backend, paneID string) string {
 
 // botNamed is the bot on host called name, "" when there is none.
 func botNamed(host, name string) string {
+	if db == nil {
+		return ""
+	}
 	bots, err := listBots()
 	if err != nil {
 		return ""
