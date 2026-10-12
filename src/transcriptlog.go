@@ -166,7 +166,11 @@ func (c *transcriptLog) lineEnd(i int) int64 {
 // past its bound, and extended over whatever was appended since.
 func (c *transcriptLog) sync(b Backend, path string, size int64) bool {
 	if c.init && (size < c.hi || c.kept > logCacheKept) {
-		*c = transcriptLog{used: c.used}
+		// Field by field: the caller holds c.mu, and assigning a whole
+		// transcriptLog would overwrite that locked mutex with an unlocked one,
+		// so the caller's deferred Unlock is a fatal "unlock of unlocked mutex"
+		// and a goroutine waiting on the lock gets in alongside it.
+		c.init, c.lo, c.hi, c.lines, c.kept = false, 0, 0, nil, 0
 	}
 	if !c.init {
 		anchor, ok := lastLineEnd(b, path, size)
