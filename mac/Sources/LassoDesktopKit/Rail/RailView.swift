@@ -2,8 +2,9 @@ import SwiftUI
 
 // The rail. At rest only a sliver of a pill shows at the screen edge (the
 // peek); hovering it reveals the rail: the inbox (what waits on you), the
-// agents capsule (the fleet), the plus (a new agent), the terminal (lasso's
-// herdr) and the ellipsis (settings), each floating on its own (no backing).
+// agents capsule (the fleet), the terminal (lasso's herdr), the globe
+// (lasso's browsers), the plus (a new agent) and the ellipsis (settings),
+// each floating on its own (no backing).
 // Layout numbers all come from Theme.Rail.
 
 enum RailMetrics {
@@ -33,7 +34,7 @@ enum RailMetrics {
     /// The Bots button shows while lasso has bots.
     static func revealHeight(_ slots: Int, bots: Bool = false) -> CGFloat {
         let agents = slots > 0 ? gap + agentsHeight(slots) : 0
-        return agents + CGFloat(bots ? 4 : 3) * (gap + Theme.Rail.ellipsisOuter.pt)
+        return agents + CGFloat(bots ? 5 : 4) * (gap + Theme.Rail.ellipsisOuter.pt)
     }
 
     /// The panel's height holds the tallest rail: every slot and the Bots button.
@@ -54,6 +55,8 @@ enum RailMetrics {
             y += e + gap
         }
         out.append((.terminal, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
+        y += e + gap
+        out.append((.browser, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
         y += e + gap
         out.append((.newAgent, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
         y += e + gap
@@ -178,6 +181,7 @@ public struct RailView: View {
                     if !slots.isEmpty { agents(slots) }
                     if model.hasBots { bots }
                     terminal
+                    browser
                     plus
                     ellipsis
                 }
@@ -380,6 +384,32 @@ public struct RailView: View {
         .help("Open herdr")
     }
 
+    /// lasso's browsers in a window of their own. It opens on a click only,
+    /// like the terminal; while an agent's page waits it pulses.
+    private var browser: some View {
+        let e = Theme.Rail.ellipsisOuter.pt
+        return Button { model.activate(.browser) } label: {
+            ZStack {
+                GroupBackground(hovered: model.hovered == .browser)
+                RailIcon(symbol: "globe")
+            }
+            .frame(width: e, height: e)
+            .contentShape(Circle())
+            .overlay {
+                if model.browserPulse {
+                    BrowserPulse(frozen: model.browserPulsePhase)
+                }
+            }
+        }
+        .buttonStyle(RailPress())
+        .parityAnchor("rail.browser")
+        .modifier(FocusRing(on: focused(.browser)))
+        .accessibilityLabel("Open the browser")
+        .accessibilityValue(model.browserPulse ? "an agent opened a page for you" : "")
+        .accessibilityHint("lasso's browsers in a window")
+        .help(model.browserPulse ? "An agent opened a page for you" : "Open the browser")
+    }
+
     private var ellipsis: some View {
         Button { model.activate(.settings) } label: {
             ZStack {
@@ -441,5 +471,36 @@ extension RailSlot {
         case .agent(let p): "\(p.displayName), \(p.state.label), on \(p.host_label)"
         case .overflow(let n): "\(n) more agents"
         }
+    }
+}
+
+/// The Browser button's pulse: a ring in the accent on the button's rim that
+/// breathes, bright to faint and back once a period (rail.browser.pulse). It
+/// stays inside the button: the rail's column is clipped to its width.
+/// `frozen` draws one phase, still.
+struct BrowserPulse: View {
+    var frozen: Double?
+
+    var body: some View {
+        if let frozen {
+            ring(frozen)
+        } else {
+            TimelineView(.animation) { t in
+                ring(t.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period)
+            }
+        }
+    }
+
+    private var period: Double { Double(Theme.Rail.browserPulse.number("period")) }
+
+    private func ring(_ phase: Double) -> some View {
+        let p = Theme.Rail.browserPulse
+        let low = Double(p.number("min_opacity"))
+        return Circle()
+            .strokeBorder(p.color("color"), lineWidth: p.number("width"))
+            .parityAnchor("rail.browser.pulse")
+            .opacity(low + (1 - low) * (0.5 + 0.5 * cos(2 * .pi * phase)))
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }

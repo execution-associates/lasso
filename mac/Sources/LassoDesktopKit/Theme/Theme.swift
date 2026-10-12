@@ -151,6 +151,12 @@ public enum Theme {
         public static let hoverFill = Token(
             "rail.hover.fill", "rgba(255,255,255,0.20)",
             .measured("reference recording, frames 655 and 734: a control's fill 43,37,29 -> 85,78,75, a 20% white overlay, stepped in one frame"))
+        /// The Browser button while an agent's page waits (PLAN 24): a ring
+        /// in the accent on its rim, breathing once a period.
+        public static let browserPulse = Token(
+            "rail.browser.pulse", ["color": "#F099BF", "width": 2, "min_opacity": 0.25, "period": 1.6],
+            .inferred("the accent (an agent wants the human), a slow breath that reads at the screen edge without flashing"),
+            proposed: true)
         public static let pressed = Token(
             "rail.pressed", ["opacity": 0.71],
             .measured("reference recording, frames 219-225, 355-361, 452-456: the whole control at 0.71 while pressed"))
@@ -422,6 +428,23 @@ public enum Theme {
             proposed: true)
     }
 
+    /// lasso's browsers in a window of their own, and the banner an agent's
+    /// page brings up beside the rail (PLAN 24).
+    public enum Browser {
+        public static let window = Token(
+            "browser.window", ["size": [1120, 760], "min": [560, 380]],
+            .inferred("a desktop page at a laptop's usual width, the web Browser tab's Agent view filling it"),
+            proposed: true)
+        public static let bar = Token(
+            "browser.bar", ["height": 40],
+            .inferred("one row: the picker's pill (control.pill) with room above and below"),
+            proposed: true)
+        public static let banner = Token(
+            "browser.banner", ["size": [340, 104], "linger": 12],
+            .inferred("two lines and a row of pills inside panel.inset; up long enough to read and reach, then the pulse alone"),
+            proposed: true)
+    }
+
     public static let summonKey = Token(
         "keys.summon", ["key": "l", "modifiers": ["option", "command"]], .unmeasured("global summon"), proposed: true)
     /// The inbox shortcut's double tap: two taps of the modifier alone, each
@@ -437,6 +460,7 @@ public enum Theme {
         Rail.rimTop, Rail.rimBottom, Rail.padTop, Rail.padBottom, Rail.glyphSize, Rail.glyphPitch, Rail.ringStroke,
         Rail.maxSlots, Rail.overflowFont, Rail.icon, Rail.ellipsisOuter, Rail.edge, Rail.edgeInset,
         Rail.panelMargin, Rail.badgeSize, Rail.badgeRing, Rail.badgeCenter, Rail.peek, Rail.peekFill, Rail.drag, Rail.hover, Rail.hoverFill, Rail.pressed,
+        Rail.browserPulse,
         State.done, State.working, State.blocked, State.idle,
         Settings.footer, Agent.window, Agent.collapsed, Agent.preview, Agent.media, Agent.picker, NewAgent.layout,
         Onboarding.layout,
@@ -453,7 +477,7 @@ public enum Theme {
         avatar, icon,
         Motion.railExpand, Motion.railCollapse, Motion.cardOpen, Motion.cardClose, Motion.toastIn, Motion.cardPaging,
         Live.pollAllPanes, Live.pollBots, Live.pollChat, Live.focusGrace, Live.stopWait, Live.sseWatchdog, Live.backoff, Live.arrivalSound,
-        Live.termClaim, Terminal.window, Terminal.zoom,
+        Live.termClaim, Terminal.window, Terminal.zoom, Browser.window, Browser.bar, Browser.banner,
         summonKey, inboxDoubleTap,
     ]
 }

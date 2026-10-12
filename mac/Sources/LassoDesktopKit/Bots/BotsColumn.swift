@@ -145,7 +145,7 @@ public final class BotAvatars: ObservableObject {
 /// a bot (`ConversationPreviewView`), which takes typing once clicked.
 @MainActor
 public final class BotsController {
-    let panel: RailPanel
+    private(set) var panel: RailPanel
     let previews: BotPreviewController
     var preview: RailPanel { previews.panel }
     public let model: BotsListModel
@@ -189,12 +189,21 @@ public final class BotsController {
 
     func open(takeKey: Bool) {
         panel.setFrameOrigin(originBesideRail(railFrame(), size: Theme.List.size.size))
-        if takeKey { panel.makeKeyAndOrderFront(nil) } else { panel.orderFrontRegardless() }
+        front(takeKey)
         withAnimationToken(Theme.Motion.cardOpen) { presence.shown = true }
         hover.start()
     }
 
-    func takeKey() { panel.makeKeyAndOrderFront(nil) }
+    func takeKey() { front(true) }
+
+    /// On the active Space (`RailPanel.orderIn`); the hover maps the pointer
+    /// through whichever panel that is.
+    private func front(_ takeKey: Bool) {
+        panel.orderIn(takeKey: takeKey) {
+            panel = $0
+            hover.panel = $0
+        }
+    }
 
     func close() {
         if panel.isKeyWindow { panel.resignKey() }

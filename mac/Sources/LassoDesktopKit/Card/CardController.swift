@@ -34,7 +34,7 @@ final class CardHolder: ObservableObject {
 /// key vocabulary.
 @MainActor
 public final class CardController {
-    let panel: RailPanel
+    private(set) var panel: RailPanel
     private let presence = CardPresence()
     private let holder = CardHolder()
     private let fleet: FleetModel
@@ -67,15 +67,24 @@ public final class CardController {
             self?.syncKeyMode()
         }
         // The card shows (and answers) the keys of how it holds the keyboard.
-        NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: panel, queue: .main) {
-            [weak self] _ in MainActor.assumeIsolated { self?.syncKeyMode() }
-        }
-        NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) {
-            [weak self] _ in
+        // Any window's notice, read for the card's panel of the moment: the
+        // panel can be replaced (`RailPanel.orderIn`).
+        NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) {
+            [weak self] n in
+            let w = (n.object as AnyObject?).map(ObjectIdentifier.init)
             MainActor.assumeIsolated {
+                guard let self, w == ObjectIdentifier(self.panel) else { return }
+                self.syncKeyMode()
+            }
+        }
+        NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main) {
+            [weak self] n in
+            let w = (n.object as AnyObject?).map(ObjectIdentifier.init)
+            MainActor.assumeIsolated {
+                guard let self, w == ObjectIdentifier(self.panel) else { return }
                 // Clicked away: a lent keyboard is simply gone.
-                self?.pointerKeyed = false
-                self?.syncKeyMode()
+                self.pointerKeyed = false
+                self.syncKeyMode()
             }
         }
     }
@@ -114,7 +123,7 @@ public final class CardController {
     }
 
     private func front(_ takeKey: Bool) {
-        if takeKey { self.takeKey() } else { panel.orderFrontRegardless() }
+        if takeKey { self.takeKey() } else { panel.orderIn(takeKey: false) { panel = $0 } }
     }
 
     /// Whether the keyboard is the card's.
@@ -138,7 +147,7 @@ public final class CardController {
 
     func takeKey() {
         pointerKeyed = false
-        panel.makeKeyAndOrderFront(nil)
+        panel.orderIn(takeKey: true) { panel = $0 }
         // Opening never puts the cursor in the composer: one-letter keys page.
         panel.makeFirstResponder(nil)
         syncKeyMode()
@@ -149,7 +158,7 @@ public final class CardController {
         guard !panel.isKeyWindow, !heldBack, !lentThisVisit else { return }
         lentThisVisit = true
         pointerKeyed = true
-        panel.makeKeyAndOrderFront(nil)
+        panel.orderIn(takeKey: true) { panel = $0 }
         panel.makeFirstResponder(nil)
         syncKeyMode()
         Trace.event("card took the keyboard (pointer over it)")

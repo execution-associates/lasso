@@ -18,7 +18,7 @@ struct SidePanelHost<Content: View>: View {
 /// the card's motion tokens: the chat and onboarding.
 @MainActor
 public final class SidePanel {
-    let panel: RailPanel
+    private(set) var panel: RailPanel
     private let presence = CardPresence()
     var railFrame: () -> NSRect = { .zero }
     var onKey: (NSEvent) -> Bool = { _ in false }
@@ -39,13 +39,13 @@ public final class SidePanel {
     /// `takeKey` false (a hover) shows the panel without taking the keyboard.
     public func open(takeKey: Bool = true) {
         panel.setFrameOrigin(originBesideRail(railFrame(), size: panel.frame.size))
-        if takeKey { panel.makeKeyAndOrderFront(nil) } else { panel.orderFrontRegardless() }
+        panel.orderIn(takeKey: takeKey) { panel = $0 }
         withAnimationToken(Theme.Motion.cardOpen) { presence.shown = true }
     }
 
     var isKey: Bool { panel.isKeyWindow }
 
-    func takeKey() { panel.makeKeyAndOrderFront(nil) }
+    func takeKey() { panel.orderIn(takeKey: true) { panel = $0 } }
 
     /// The rail moved: stay beside it.
     func follow() { if isOpen { panel.setFrameOrigin(originBesideRail(railFrame(), size: panel.frame.size)) } }

@@ -1,0 +1,19 @@
+{
+  "about": "An agent opened a page for the human (open_browser_tab): the banner beside the rail names who and which page, with Dismiss and Open. It never takes the keyboard, and nothing opens until Open (or the rail's pulsing Browser button) is clicked.",
+  "state": "browser-banner",
+  "extends": "rail-expanded",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "browser_banner": true,
+    "browser_offer": {
+      "profile": "minime",
+      "tab_id": "B7F3A0C2D1E4",
+      "url": "https://github.com/execution-associates/lasso",
+      "from": "olivia",
+      "mode": "live"
+    }
+  }
+}

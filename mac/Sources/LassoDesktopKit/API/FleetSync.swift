@@ -19,6 +19,8 @@ public final class FleetSync: ObservableObject {
     public let fleet: FleetModel
     /// Told when lasso says a bot's chat changed (one-shot `bot-chat`).
     public var onBotChat: (String) -> Void = { _ in }
+    /// Told when an agent opens a page for the human (`browser-open`).
+    public var onBrowserOpen: (BrowserOpen) -> Void = { _ in }
 
     private var events: EventStream?
     private var loops: [Task<Void, Never>] = []
@@ -114,6 +116,8 @@ public final class FleetSync: ObservableObject {
                   n.kind == NotifyKinds.lassoNotice || n.kind == NotifyKinds.agentMessage
             else { return }
             fleet.add(notice: InboxNotice(live: n))
+        case "browser-open":
+            if let o = try? JSONDecoder().decode(BrowserOpen.self, from: Data(e.data.utf8)) { onBrowserOpen(o) }
         case "bot-chat":
             struct B: Decodable { var bot: String }
             Task { await refreshBots() }
