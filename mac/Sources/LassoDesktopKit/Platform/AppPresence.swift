@@ -92,7 +92,7 @@ public final class AppPresence: NSObject {
     private func statusMenu() -> NSMenu {
         let m = NSMenu()
         m.addItem(action("Open Inbox", #selector(doOpenInbox)))
-        m.addItem(action("New Agent…", #selector(doNewAgent)))
+        m.addItem(action("New…", #selector(doNewAgent)))
         m.addItem(action("Settings…", #selector(doOpenSettings)))
         m.addItem(.separator())
         m.addItem(NSMenuItem(title: "Quit Lasso", action: #selector(NSApplication.terminate(_:)), keyEquivalent: ""))

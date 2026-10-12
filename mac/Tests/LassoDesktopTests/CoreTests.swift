@@ -367,7 +367,7 @@ func key(_ c: String, _ code: UInt16) -> NSEvent {
 /// terminals ⌃O, and none is ⌘O, which every app's File › Open already is.
 @Test func shortcutDefaultsLeaveTerminalsTheirKeys() {
     let expected: [ShortcutSlot: NSEvent.ModifierFlags] = [
-        .inbox: .option, .newAgent: [.option, .shift], .newScratch: [.control, .shift],
+        .inbox: .option, .newAgent: [.option, .shift], .newScratch: [.control, .shift], .newTerminal: [.option, .shift],
     ]
     for slot in ShortcutSlot.allCases {
         guard case .combo(let k, let m, _) = slot.fallback else { Issue.record("\(slot) has no combination"); continue }

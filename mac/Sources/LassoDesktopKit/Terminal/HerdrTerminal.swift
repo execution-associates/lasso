@@ -220,7 +220,7 @@ public final class HerdrTerminalController: NSObject {
 
     /// An agent's header button, or T: focus its pane in its host's herdr
     /// (every client's focus moves: herdr has one), then show that herdr.
-    public func show(_ pane: HostPane) {
+    public func show(_ pane: HostPane, note: String? = nil) {
         present()
         let name = pane.displayName
         model.notice = "Focusing \(name)"
@@ -229,7 +229,7 @@ public final class HerdrTerminalController: NSObject {
             var reattach = false
             do {
                 reattach = try await source.focus(pane)
-                model.notice = "Showing \(name)"
+                model.notice = note ?? "Showing \(name)"
             } catch {
                 model.notice = "Could not focus \(name): \(error)"
             }

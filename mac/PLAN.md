@@ -898,14 +898,14 @@ A message you send shows at once, faded, under **Sending…**, until it appears 
 
 **Renaming an agent:** click the agent's name in the inbox card or either agent window (the hover preview and the window), where the pointer becomes a pointing hand, or right-click it there or on a row of the agents list and choose **Rename…**, or press R in the inbox card or either window. A click on a list row still opens the agent. The name becomes a field: it holds the agent's label, or is empty with the shown name as its placeholder when there is none, so a click away with nothing typed changes nothing. herdr's agent names are identifiers (a lowercase letter first, then lowercase letters, digits, `-` and `_`, at most 32), so what is typed becomes one: "Check HN page" is `check-hn-page` (`AgentName`, the same rule as lasso's `agentName`). ⏎ or a click anywhere else (or another app taking the keyboard) keeps the new name, as Finder does; esc keeps the old one; an empty name clears the label so the tab's name shows again. It is herdr's custom agent label, set through lasso's `POST /api/agent/rename`. A bot has no Rename, because lasso finds a bot by that name; bots are renamed in their own settings.
 
-## 20. Launching agents (the web app's ⌘O and ⌘⇧O)
+## 20. The New form: agents and terminals (the web app's ⌘O, ⌘⇧O and ⌘I)
 
-The Mac launches agents the way lasso's web New dialog does (`src/web/src/components/NewDialog.tsx`), over the same routes:
+The Mac launches agents and terminals the way lasso's web New dialog does (`src/web/src/components/NewDialog.tsx`), over the same routes:
 - `GET /api/agent-config?host=` returns the harnesses, the default or last agent and the last repository.
 - `GET /api/repos?host=` lists the repositories, and `GET /api/repo-branches?path=&host=` their branches.
 - `POST /api/create-agent` creates the agent. It answers as soon as the record, workspace and root pane exist, and the agent boots afterwards. So the new agent's **own window** (§19) opens right away on that pane, and its conversation fills in as it starts. The form gives up the keyboard as it closes, and the window takes it with the cursor in its composer (as L does), so you can write to the agent at once, while it shows "Starting <harness>".
 
-**The form:**
+**The form** is titled **New** and has three modes: In a repository, Scratch and Terminal. The form does not remember the last mode: each shortcut opens its own.
 - In a repository (a Git agent: repository plus base branch, picked with a filter, since titan has 183 repositories and 502 branches in lasso), or Scratch.
 - The prompt: its first line names the agent.
 - Agent, model and thinking effort.
@@ -914,14 +914,22 @@ The Mac launches agents the way lasso's web New dialog does (`src/web/src/compon
 - ⌘⏎ creates and esc cancels. A failed create says why and keeps the form.
 - Dragging the header moves the form. It opens where it was last left (UserDefaults `newAgentOrigin`), or centred high on the screen when that spot is off every screen.
 
-**Shortcuts** are configurable in Settings › New agents, like the inbox's:
-- **⌥⇧O** for an agent in a repository and **⌃⇧O** for a scratch agent, from any app. The user's rule is at most three keys, never four.
+**Terminal mode** is the web's Terminal tab (`NewTerminalForm.tsx`) over `POST /api/create-terminal`:
+- **The prompt is the command.** It is optional: blank opens an interactive shell, and several lines run as one script. It is at most 512 characters, the web form's limit.
+- **The chips** are the machine (when lasso drives more than one) and an optional working directory. Blank uses the workspace's default, as the web does.
+- **Agent, model, thinking and plan-first are not shown.** The button reads **Run**, with ⌘⏎.
+- **The body is the web's** (`NewAgentModel.terminalRequest`). The workspace is the host's `default_terminal_workspace` from `/api/agent-config`, else Scratch. It is sent by id when `/api/workspaces` lists it live and by name otherwise, and lasso finds or makes Scratch itself. A bare shell's tab is numbered after the workspace's last. A command's tab is left for lasso to name. `focus` is true.
+- **Run** closes the form and opens the herdr window on that host, on the new pane (§22's focus with `reveal`). A command or tab name lasso could not apply shows as the window's subtitle. A failed create says why in the form, and the form stays open.
+
+
+**Shortcuts** are configurable in Settings › New, like the inbox's:
+- **⌥⇧O** for an agent in a repository, **⌃⇧O** for a scratch agent and **⌥⇧I** for a terminal (the web's ⌘I), from any app. ⌘⇧I is taken in many apps (Safari's Mail This Page), and ⌥I alone is a dead key. The user's rule is at most three keys, never four.
 - Shift keeps ⌃O for terminals (Claude Code's transcript view, nano's save, vim's jump back, the shell) and ⌥O for typing "ø". ⌥⇧O no longer types "Ø" while it is set.
-- **⌘O and ⌘⇧O** do the same while a Lasso window has the keyboard, as in the web app. They are never system-wide, because ⌘O is every app's File › Open.
-- The rail has a **+** button above the terminal (§22) and the ellipsis, and the agents list a **New agent** button. The **+** opens the form on a click only: hovering lights it but does not open it, because the form takes the keyboard.
+- **⌘O, ⌘⇧O and ⌘I** do the same while a Lasso window has the keyboard, as in the web app. They are never system-wide, because ⌘O is every app's File › Open.
+- The rail has a **+** button ("New…") above the terminal (§22) and the ellipsis, and the agents list a **New agent** button. The **+** opens the form on a click only: hovering lights it but does not open it, because the form takes the keyboard.
 - Each chip opens its menu inside the form, toward the side with room (a system popover from a floating panel can land half off screen). Long lists (repositories, branches, a big fleet) and the model have a filter that takes the typing, like the web app's combobox; ↑/↓ move and ⏎ picks. The model's suggestions are a hint, as in the web's EditableCombobox: a typed name no suggestion has is offered first as Use “<name>”.
 
-All three system-wide shortcuts (inbox, new agent, new scratch agent) are `ShortcutSlot`s, each stored on its own and recorded the same way.
+All four system-wide shortcuts (inbox, new agent, new scratch agent, new terminal) are `ShortcutSlot`s, each stored on its own and recorded the same way.
 
 ## 18. Signing in to a lasso
 
@@ -1062,6 +1070,8 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
 - While another client holds the size, the page's resize frames are held and the last one goes when the size is free or ours. A size taken before layout settles (under 20×4) is never sent.
 
 **Right-clicks are herdr's.** WebKit's context menu (Reload, Inspect Element, Copy) never opens in the window. The page script cancels the `contextmenu` event and nothing else, so a right button's press and release reach xterm, and through its mouse reporting herdr, as in a browser tab. A Control-click is a right-click, as everywhere on the Mac: the script swallows its left-button press and release and hands xterm the right button's instead. `TerminalWebView.willOpenMenu` empties the menu for a click the page did not see (one before it loaded). ⌘C and ⌘V are key equivalents and unaffected.
+
+**A new terminal** from the New form's Terminal mode (§20) opens the window on its host and pane, as an agent's header button does.
 
 **The page script also** opens terminal links in the browser, puts herdr's OSC 52 copies on the clipboard, and sends Shift/Ctrl+Enter as a Kitty CSI-u key (as the web app's `lib/terminal.ts` does). ⌘W closes the window. Closing it closes the socket, and with it that herdr client. The window remembers its frame (`LassoHerdrTerminal`), and switching to another lasso closes it.
 

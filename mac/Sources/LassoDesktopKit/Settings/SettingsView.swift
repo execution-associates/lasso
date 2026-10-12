@@ -279,14 +279,15 @@ public struct SettingsView: View {
             }
         }
         group(
-            "New agents",
+            "New",
             footnote: model.recordingSlot.map { $0 != .inbox } == true
                 ? "Press the combination, with ⌘, ⌥ or ⌃. esc cancels."
-                : "From any app. While a Lasso window has the keyboard, ⌘O and ⇧⌘O do the same."
+                : "From any app. While a Lasso window has the keyboard, ⌘O, ⇧⌘O and ⌘I do the same."
         ) {
-            ForEach(Array([ShortcutSlot.newAgent, .newScratch].enumerated()), id: \.element) { i, slot in
+            let slots: [ShortcutSlot] = [.newAgent, .newScratch, .newTerminal]
+            ForEach(Array(slots.enumerated()), id: \.element) { i, slot in
                 let s = model.shortcuts[slot] ?? slot.fallback
-                row(slot.title, last: i == 1) {
+                row(slot.title, last: i == slots.count - 1) {
                     HStack(spacing: Theme.space("s")) {
                         choice(model.recordingSlot == slot ? "Press keys…" : (s == .off ? "Record…" : s.label), on: model.recordingSlot == slot,
                                label: "\(slot.title): \(s == .off ? "no shortcut" : s.label). Record another") {

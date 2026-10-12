@@ -319,8 +319,8 @@ public struct RailView: View {
         .buttonStyle(RailPress())
         .parityAnchor("rail.new")
         .modifier(FocusRing(on: focused(.newAgent)))
-        .accessibilityLabel("New agent")
-        .help("New agent")
+        .accessibilityLabel("New…")
+        .help("New agent or terminal")
     }
 
     /// lasso's herdr in a terminal window. Like the plus it opens on a click

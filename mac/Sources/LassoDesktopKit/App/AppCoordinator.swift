@@ -105,12 +105,19 @@ public final class AppCoordinator {
             sc.apply(InboxShortcutChoice.stored(slot))
             shortcuts[slot] = sc
         }
-        // ⌘O / ⇧⌘O, as in the web app, while a Lasso window has the
+        // ⌘O / ⇧⌘O / ⌘I, as in the web app, while a Lasso window has the
         // keyboard (never system-wide: every app's File › Open is ⌘O).
         commandO = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
             let mods = e.modifierFlags.intersection([.command, .shift, .option, .control])
-            guard e.keyCode == 31, mods == .command || mods == [.command, .shift] else { return e }
-            MainActor.assumeIsolated { self?.openNewAgent(mods.contains(.shift) ? .scratch : .git) }
+            let kind: NewAgentModel.Kind? =
+                switch (e.keyCode, mods) {
+                case (31, .command): .git
+                case (31, [.command, .shift]): .scratch
+                case (ShortcutSlot.i, .command): .terminal
+                default: nil
+                }
+            guard let kind else { return e }
+            MainActor.assumeIsolated { self?.openNewAgent(kind) }
             return nil
         }
         startFirstRun()
@@ -434,6 +441,7 @@ public final class AppCoordinator {
         case .inbox: inboxShortcut()
         case .newAgent: openNewAgent(.git)
         case .newScratch: openNewAgent(.scratch)
+        case .newTerminal: openNewAgent(.terminal)
         }
     }
 
@@ -464,6 +472,14 @@ public final class AppCoordinator {
             // The form has let go of the keyboard; the window takes it with
             // the cursor in its composer, to write to the agent at once.
             self.openWindow(pane, near: frame, focusReply: true)
+        }
+        // A terminal: the herdr window on its host, on its pane.
+        m.onTerminal = { [weak self] pane, note in
+            guard let self else { return }
+            self.newAgent?.close()
+            self.newAgent = nil
+            Trace.event("terminal created")
+            self.showInHerdr(pane, note: note)
         }
         newAgent = c
         closeAll()
@@ -610,9 +626,9 @@ public final class AppCoordinator {
     }
 
     /// An agent's header button, or T: herdr's window focused on its pane.
-    func showInHerdr(_ p: HostPane) {
+    func showInHerdr(_ p: HostPane, note: String? = nil) {
         closeRailPanels()
-        herdrWindow()?.show(p)
+        herdrWindow()?.show(p, note: note)
     }
 
     /// A bot's chat.

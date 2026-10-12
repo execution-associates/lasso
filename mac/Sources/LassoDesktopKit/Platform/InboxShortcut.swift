@@ -123,7 +123,7 @@ public enum InboxShortcutChoice: Equatable, Sendable {
 /// already uses (⌘O is File › Open nearly everywhere; ⌘O itself works only
 /// while a Lasso window has the keyboard).
 public enum ShortcutSlot: String, CaseIterable, Sendable {
-    case inbox, newAgent, newScratch
+    case inbox, newAgent, newScratch, newTerminal
 
     var key: String { self == .inbox ? InboxShortcutChoice.key : "\(rawValue)Shortcut" }
 
@@ -132,6 +132,7 @@ public enum ShortcutSlot: String, CaseIterable, Sendable {
         case .inbox: "Open the inbox"
         case .newAgent: "New agent in a repository"
         case .newScratch: "New scratch agent"
+        case .newTerminal: "New terminal"
         }
     }
 
@@ -145,8 +146,15 @@ public enum ShortcutSlot: String, CaseIterable, Sendable {
             return .combo(keyCode: o, modifiers: NSEvent.ModifierFlags([.option, .shift]).rawValue, display: "⌥⇧O")
         case .newScratch:
             return .combo(keyCode: o, modifiers: NSEvent.ModifierFlags([.control, .shift]).rawValue, display: "⌃⇧O")
+        // The web app's ⌘I, as ⌥⇧O is its ⌘O: ⌘⇧I is taken in many apps
+        // (Safari's Mail This Page, Mail's mailbox), and ⌥I is a dead key.
+        case .newTerminal:
+            return .combo(keyCode: Self.i, modifiers: NSEvent.ModifierFlags([.option, .shift]).rawValue, display: "⌥⇧I")
         }
     }
+
+    /// kVK_ANSI_I.
+    static let i: UInt16 = 34
 
     /// Only the inbox offers a double tap of a modifier.
     public var allowsDoubleTap: Bool { self == .inbox }

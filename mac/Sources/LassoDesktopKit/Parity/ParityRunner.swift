@@ -11,7 +11,7 @@ public final class ParityRunner {
     /// States whose surfaces exist. The rest report as pending until their
     /// milestone lands (PLAN 6).
     public static let implemented: Set<String> = [
-        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "rail-hover-terminal", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "settings-shortcuts", "new-agent", "new-agent-menu", "agent-window-markdown",
+        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "rail-hover-terminal", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "settings-shortcuts", "new-agent", "new-agent-menu", "new-terminal", "agent-window-markdown",
         "card-killing", "first-run", "first-run-connected", "rail-offline",
     ]
 
@@ -214,9 +214,11 @@ public final class ParityRunner {
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(ListView(model: l), size: Theme.List.size.size) }
             cap = try await make()
         } else if fixture.ui.new_agent == true {
-            let m = NewAgentModel(kind: .git, source: FixtureNewAgentSource())
+            let kind = fixture.ui.new_agent_kind.flatMap(NewAgentModel.Kind.init(rawValue:)) ?? .git
+            let m = NewAgentModel(kind: kind, source: FixtureNewAgentSource())
             await m.load()
-            m.prompt = "Fix the flaky upload test\nIt fails about one run in ten on titan."
+            m.prompt =
+                kind == .terminal ? "git status\nbun test" : "Fix the flaky upload test\nIt fails about one run in ten on titan."
             m.openChip = fixture.ui.new_agent_menu
             let make: @MainActor () async throws -> Capture = {
                 try await Capturer.capture(NewAgentView(model: m), size: Theme.NewAgent.layout.size2("size"))

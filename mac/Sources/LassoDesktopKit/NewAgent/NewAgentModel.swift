@@ -1,9 +1,10 @@
 import Combine
 import Foundation
 
-// Launching an agent from the Mac: the web app's New dialog (⌘O a Git agent,
-// ⌘⇧O a Scratch one; src/web/src/components/NewDialog.tsx) over the same
-// routes, ending in the new agent's own window.
+// The New form: the web app's New dialog (⌘O an agent, ⌘I a terminal;
+// src/web/src/components/NewDialog.tsx and NewTerminalForm.tsx) over the same
+// routes. An agent in a repository or a scratch one ends in its own window; a
+// terminal ends in the herdr window, on its pane.
 
 /// GET /api/agent-config: the creator's defaults and the harness registry.
 public struct AgentConfig: Codable, Sendable, Equatable {
@@ -21,6 +22,46 @@ public struct AgentConfig: Codable, Sendable, Equatable {
     public var last_agent: String?
     public var last_agent_type: String?
     public var harnesses: [Harness]?
+    /// The workspace a new terminal goes in, by label ("" or absent: Scratch).
+    public var default_terminal_workspace: String?
+}
+
+/// One live herdr workspace (GET /api/workspaces): where a terminal can go.
+public struct TerminalWorkspace: Codable, Sendable, Equatable {
+    public var workspace_id: String
+    public var label: String
+    public var tab_count: Int
+
+    public init(workspace_id: String, label: String, tab_count: Int) {
+        self.workspace_id = workspace_id
+        self.label = label
+        self.tab_count = tab_count
+    }
+}
+
+struct WorkspacesPayload: Codable, Sendable { var workspaces: [TerminalWorkspace] }
+
+/// POST /api/create-terminal's body (src/terminal_create.go createTerminalReq),
+/// as the web's terminal form sends it.
+public struct CreateTerminal: Codable, Sendable, Equatable {
+    public var host: String
+    /// "" opens an interactive shell; several lines run as one script.
+    public var command: String
+    public var cwd: String?
+    public var workspace_id: String?
+    public var workspace_name: String
+    public var tab_name: String?
+    public var focus = true
+}
+
+/// What /api/create-terminal answers: the new terminal's pane, and what did
+/// not take (the terminal exists either way).
+public struct CreatedTerminal: Codable, Sendable, Equatable {
+    public var workspace_id: String
+    public var tab_id: String?
+    public var root_pane: String
+    public var command_error: String?
+    public var tab_name_error: String?
 }
 
 /// One repository under the host's repos root (GET /api/repos).
@@ -74,6 +115,9 @@ public protocol NewAgentSource: AnyObject {
     func repos(host: String) async throws -> [RepoEntry]
     func branches(repo: String, host: String) async throws -> RepoBranches
     func create(_ req: CreateAgent) async throws -> CreatedAgent
+    /// The host's live workspaces, for where a terminal goes.
+    func workspaces(host: String) async throws -> [TerminalWorkspace]
+    func createTerminal(_ req: CreateTerminal) async throws -> CreatedTerminal
     /// Upload a file pasted or dropped on the prompt to `host`'s machine;
     /// the path it landed at there.
     func upload(_ file: URL, host: String) async throws -> String
@@ -110,6 +154,14 @@ public final class LiveNewAgentSource: NewAgentSource {
         try await client.post("/api/create-agent", json: req)
     }
 
+    public func workspaces(host: String) async throws -> [TerminalWorkspace] {
+        try await client.get("/api/workspaces", query: ["host": host], as: WorkspacesPayload.self).workspaces
+    }
+
+    public func createTerminal(_ req: CreateTerminal) async throws -> CreatedTerminal {
+        try await client.post("/api/create-terminal", json: req)
+    }
+
     public func upload(_ file: URL, host: String) async throws -> String {
         try await client.pasteFile(file, host: host)
     }
@@ -119,9 +171,20 @@ public final class LiveNewAgentSource: NewAgentSource {
 @MainActor
 public final class NewAgentModel: ObservableObject {
     public enum Kind: String, CaseIterable, Sendable {
-        case git, scratch
-        public var label: String { self == .git ? "In a repository" : "Scratch" }
+        case git, scratch, terminal
+        public var label: String {
+            switch self {
+            case .git: "In a repository"
+            case .scratch: "Scratch"
+            case .terminal: "Terminal"
+            }
+        }
     }
+
+    /// The web's terminal form caps a command at this many characters.
+    static let maxCommand = 512
+    /// The workspace a terminal goes in when the lasso names none (the web's SCRATCH_WORKSPACE).
+    static let scratchWorkspace = "Scratch"
 
     @Published public var kind: Kind
     @Published public var host = "local" { didSet { if host != oldValue { Task { await loadHost() } } } }
@@ -131,6 +194,10 @@ public final class NewAgentModel: ObservableObject {
     @Published public var model = ""
     @Published public var effort = ""
     @Published public var planMode = false
+    /// Terminal: the directory its shell starts in ("" is the workspace's default).
+    @Published public var cwd = ""
+    /// Terminal: the workspace it goes in, from the host's setup.
+    private var terminalWorkspace = NewAgentModel.scratchWorkspace
     /// Typing in the prompt clears the last paste's notice.
     @Published public var prompt = "" { didSet { if !attaching, prompt != oldValue { notice = nil } } }
     @Published public private(set) var hostChoices: [Choice] = []
@@ -165,6 +232,9 @@ public final class NewAgentModel: ObservableObject {
     public var onDrag: (_ ended: Bool) -> Void = { _ in }
     /// The agent was created: open its window.
     public var onCreated: (HostPane) -> Void = { _ in }
+    /// The terminal was created: show its pane in the herdr window, with
+    /// what did not take (its command, its tab's name), if anything.
+    public var onTerminal: (HostPane, String?) -> Void = { _, _ in }
     public var onClose: () -> Void = {}
 
     public init(kind: Kind, source: NewAgentSource) {
@@ -181,8 +251,12 @@ public final class NewAgentModel: ObservableObject {
     }
 
     public var canCreate: Bool {
-        !busy && !attaching && !title.isEmpty && !agent.isEmpty && (kind == .scratch || !repo.isEmpty)
+        if kind == .terminal { return !busy && !attaching && commandFits }
+        return !busy && !attaching && !title.isEmpty && !agent.isEmpty && (kind == .scratch || !repo.isEmpty)
     }
+
+    /// The command is within the web form's limit.
+    public var commandFits: Bool { prompt.count <= Self.maxCommand }
 
     public func load() async {
         hostChoices = await source.hosts()
@@ -193,6 +267,8 @@ public final class NewAgentModel: ObservableObject {
         do {
             let cfg = try await source.config(host: host)
             harnesses = cfg.harnesses ?? []
+            let w = cfg.default_terminal_workspace?.trimmingCharacters(in: .whitespaces) ?? ""
+            terminalWorkspace = w.isEmpty ? Self.scratchWorkspace : w
             let preferred = [cfg.default_agent, cfg.last_agent].compactMap { $0 }.first { !$0.isEmpty }
             if agent.isEmpty || !harnesses.contains(where: { $0.id == agent }) {
                 agent = preferred.flatMap { p in harnesses.first { $0.id == p }?.id } ?? harnesses.first?.id ?? ""
@@ -325,9 +401,58 @@ public final class NewAgentModel: ObservableObject {
             plan_mode: planMode && (harness?.supports_plan_mode ?? false))
     }
 
-    /// Create it, then open its window on the pane it boots in.
+    /// The body for /api/create-terminal, as the web's terminal form builds
+    /// it: the host's terminal workspace (by id when it is live, else by
+    /// name, which creates it; Scratch is found or made by lasso), a bare
+    /// shell's tab numbered after the workspace's last, and a command's left
+    /// for lasso to name.
+    public func terminalRequest(workspaces: [TerminalWorkspace]) -> CreateTerminal {
+        let match = workspaces.first { $0.label == terminalWorkspace }
+        let blank = prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let dir = cwd.trimmingCharacters(in: .whitespaces)
+        return CreateTerminal(
+            host: host, command: blank ? "" : prompt, cwd: dir.isEmpty ? nil : dir, workspace_id: match?.workspace_id,
+            workspace_name: terminalWorkspace, tab_name: blank ? String((match?.tab_count ?? 0) + 1) : nil)
+    }
+
+    /// Terminal mode's Run: create it, then show its pane in the herdr window.
+    private func run() {
+        busy = true
+        error = nil
+        let host = host
+        Task {
+            defer { busy = false }
+            do {
+                // Without the list, Scratch still works: lasso finds or makes it.
+                let live = (try? await source.workspaces(host: host)) ?? []
+                let req = terminalRequest(workspaces: live)
+                let t = try await source.createTerminal(req)
+                guard !t.root_pane.isEmpty else {
+                    error = "lasso created the terminal but named no pane for it"
+                    return
+                }
+                let warnings = [
+                    t.command_error.map { "The command was not typed in: \($0)" },
+                    t.tab_name_error.map { "Its tab could not be named: \($0)" },
+                ].compactMap { $0 }
+                let name = req.tab_name ?? req.command.split(separator: "\n").first.map(String.init) ?? "terminal"
+                onTerminal(
+                    HostPane(
+                        host: host, host_label: hostName, pane_id: t.root_pane, workspace_id: t.workspace_id,
+                        workspace_label: req.workspace_name, tab_id: t.tab_id ?? "", tab_label: name, cwd: req.cwd ?? "", agent: "",
+                        agent_status: "idle", has_agent: false, focused: true),
+                    warnings.isEmpty ? nil : warnings.joined(separator: " "))
+            } catch {
+                self.error = "Could not start the terminal: \(error)"
+            }
+        }
+    }
+
+    /// Create it, then open its window on the pane it boots in (an agent),
+    /// or show it in the herdr window (a terminal).
     public func create() {
         guard canCreate else { return }
+        if kind == .terminal { return run() }
         busy = true
         error = nil
         let req = request
@@ -424,5 +549,19 @@ public final class FixtureNewAgentSource: NewAgentSource {
     public func create(_ req: CreateAgent) async throws -> CreatedAgent {
         created.append(req)
         return CreatedAgent(id: "a1", title: "fixture", agent: req.agent, work_dir: "/tmp", workspace_id: "w9", root_pane: "w9:p1")
+    }
+
+    public private(set) var terminals: [CreateTerminal] = []
+    /// What create-terminal answers next (a test sets a failure or a warning).
+    public var terminalAnswer: Result<CreatedTerminal, LassoError> = .success(
+        CreatedTerminal(workspace_id: "w3", tab_id: "w3:t4", root_pane: "w3:p7"))
+
+    public func workspaces(host: String) async throws -> [TerminalWorkspace] {
+        [TerminalWorkspace(workspace_id: "w1", label: "lasso", tab_count: 2), TerminalWorkspace(workspace_id: "w3", label: "Scratch", tab_count: 3)]
+    }
+
+    public func createTerminal(_ req: CreateTerminal) async throws -> CreatedTerminal {
+        terminals.append(req)
+        return try terminalAnswer.get()
     }
 }
