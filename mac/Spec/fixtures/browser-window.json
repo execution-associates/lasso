@@ -1,0 +1,46 @@
+{
+  "about": "The Browser window's own parts while its page opens (PLAN 24): the bar with the picker on the browser this Mac shows (lasso's default; minime's Chrome is the other one), over the status that covers the page. The page itself is lasso's /desktop-browser.html from a live lasso, so it is not a parity state.",
+  "state": "browser-window",
+  "extends": "rail-expanded",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "browser_window": true
+  },
+  "browser": {
+    "available": true,
+    "running": true,
+    "profiles": [
+      {
+        "id": "default",
+        "name": "Default",
+        "default": true,
+        "running": true,
+        "started_at": "2026-10-11T18:40:00Z",
+        "capped": true,
+        "reason": "",
+        "pages": [
+          { "id": "A1", "url": "https://github.com/execution-associates/lasso", "title": "lasso" },
+          { "id": "A2", "url": "http://localhost:5173/", "title": "lasso (dev)" }
+        ],
+        "ws_path": "/cdp"
+      },
+      {
+        "id": "minime",
+        "name": "minime Chrome",
+        "cdp_url": "http://100.79.171.47:9222",
+        "default": false,
+        "running": true,
+        "started_at": "2026-10-11T18:41:00Z",
+        "capped": false,
+        "reason": "",
+        "pages": [
+          { "id": "B1", "url": "https://developer.apple.com/account", "title": "Apple Developer" }
+        ],
+        "ws_path": "/cdp/p/minime"
+      }
+    ]
+  }
+}

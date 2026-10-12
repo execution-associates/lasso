@@ -38,6 +38,10 @@ func TestDesktopContract(t *testing.T) {
 		// POST /api/chat/answer's body: what the app sends, so a renamed key
 		// fails here as surely as one the app reads.
 		"chat_answer_request": filled(&chatAnswerRequest{}),
+		// GET /api/browser: the Browser window's picker lists its browsers.
+		"browser_status": filled(&browserStatus{}),
+		// The SSE "browser-open" frame's data: an agent showing the human a page.
+		"browser_open": filled(&browserOpenEvent{}),
 	}
 	dir := filepath.Join("..", "mac", "Spec", "contract")
 	update := os.Getenv("LASSO_UPDATE_CONTRACT") == "1"

@@ -44,8 +44,8 @@ private let fleetBots = bots(
     m.setExpanded(true, animated: false)
     #expect(!m.items.contains(.bots))
     fleet.apply(bots: BotsPayload(bots: fleetBots))
-    #expect(m.items == [.inbox, .bots, .terminal, .newAgent, .settings])
-    #expect(RailMetrics.itemFrames(0, bots: true).map(\.0) == [.inbox, .bots, .terminal, .newAgent, .settings])
+    #expect(m.items == [.inbox, .bots, .terminal, .browser, .newAgent, .settings])
+    #expect(RailMetrics.itemFrames(0, bots: true).map(\.0) == [.inbox, .bots, .terminal, .browser, .newAgent, .settings])
     var opened = false
     m.onBots = { opened = true }
     m.activate(.bots)

@@ -18,7 +18,7 @@ struct ListHost: View {
 /// at once.
 @MainActor
 public final class ListController {
-    let panel: RailPanel
+    private(set) var panel: RailPanel
     public let model: ListModel
     private let presence = CardPresence()
     var railFrame: () -> NSRect = { .zero }
@@ -46,7 +46,7 @@ public final class ListController {
     /// `takeKey` false (a hover) shows the list without taking the keyboard.
     public func open(takeKey: Bool = true) {
         place()
-        if takeKey { panel.makeKeyAndOrderFront(nil) } else { panel.orderFrontRegardless() }
+        front(takeKey)
         withAnimationToken(Theme.Motion.cardOpen) { presence.shown = true }
         hover.start()
     }
@@ -71,7 +71,16 @@ public final class ListController {
 
     var isKey: Bool { panel.isKeyWindow }
 
-    func takeKey() { panel.makeKeyAndOrderFront(nil) }
+    func takeKey() { front(true) }
+
+    /// On the active Space (`RailPanel.orderIn`); the hover maps the pointer
+    /// through whichever panel that is.
+    private func front(_ takeKey: Bool) {
+        panel.orderIn(takeKey: takeKey) {
+            panel = $0
+            hover.panel = $0
+        }
+    }
 
     /// The rail moved: stay beside it.
     func follow() { if isOpen { place() } }

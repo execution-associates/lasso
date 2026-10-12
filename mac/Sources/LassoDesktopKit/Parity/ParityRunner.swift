@@ -12,7 +12,7 @@ public final class ParityRunner {
     /// milestone lands (PLAN 6).
     public static let implemented: Set<String> = [
         "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "rail-hover-terminal", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "settings-shortcuts", "new-agent", "new-agent-menu", "new-terminal", "bots-column", "bot-window", "bot-window-stopped", "bot-preview", "agent-window-markdown",
-        "card-killing", "first-run", "first-run-connected", "rail-offline",
+        "card-killing", "first-run", "first-run-connected", "rail-offline", "browser-window", "browser-banner", "rail-browser-pulse",
     ]
 
     let spec: Spec
@@ -286,12 +286,37 @@ public final class ParityRunner {
             surface = CardKeys.cardSet
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(CardView(model: c), size: Theme.Card.size.size) }
             cap = try await make()
+        } else if fixture.ui.browser_window == true {
+            // The Browser window's own parts while its page opens: the page
+            // itself comes from a live lasso.
+            let defaults = UserDefaults(suiteName: "parity-browser") ?? .standard
+            defaults.removePersistentDomain(forName: "parity-browser")
+            let m = BrowserWindowModel(source: FixtureBrowserSource(fixture.browser), defaults: defaults)
+            await m.refresh()
+            m.phase = .connecting
+            let make: @MainActor () async throws -> Capture = {
+                try await Capturer.capture(BrowserWindowView(model: m), size: Theme.Browser.window.size2("size"))
+            }
+            cap = try await make()
+        } else if fixture.ui.browser_banner == true, let offer = fixture.ui.browser_offer {
+            let a = BrowserAttention()
+            a.arrived(offer)
+            let make: @MainActor () async throws -> Capture = {
+                try await Capturer.capture(BrowserBannerView(attention: a), size: Theme.Browser.banner.size2("size"))
+            }
+            cap = try await make()
         } else {
-            // A rail control under the pointer (rail-hover-*).
+            // A rail control under the pointer (rail-hover-*), and the
+            // Browser button pulsing while an agent's page waits, drawn still.
             let hoverable: [String: RailModel.Item] = [
-                "inbox": .inbox, "agents": .agents, "bots": .bots, "new": .newAgent, "terminal": .terminal, "settings": .settings,
+                "inbox": .inbox, "agents": .agents, "bots": .bots, "new": .newAgent, "terminal": .terminal, "browser": .browser,
+                "settings": .settings,
             ]
             model.hovered = fixture.ui.hovered.flatMap { hoverable[$0] }
+            if fixture.ui.browser_offer != nil {
+                model.browserPulse = true
+                model.browserPulsePhase = 0
+            }
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(RailView(model: model), size: self.railSize()) }
             cap = try await make()
         }
@@ -504,7 +529,9 @@ public final class ParityRunner {
             // A scroll bar's arrow and page parts are AppKit's, announced
             // through the scroll bar itself: not controls of ours.
             if attr(e, kAXRoleAttribute) as? String == kAXScrollBarRole as String { return }
-            if attr(e, kAXRoleAttribute) as? String == kAXButtonRole as String {
+            // Buttons, and the buttons that open a menu (a picker).
+            let role = attr(e, kAXRoleAttribute) as? String
+            if role == kAXButtonRole as String || role == kAXMenuButtonRole as String || role == kAXPopUpButtonRole as String {
                 buttons += 1
                 let label = [kAXDescriptionAttribute, kAXTitleAttribute]
                     .compactMap { attr(e, $0) as? String }.first { !$0.isEmpty } ?? ""

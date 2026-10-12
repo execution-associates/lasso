@@ -131,32 +131,20 @@ struct HerdrTerminalStatus: View {
     }
 }
 
-/// The page's web view: ⌘W closes the window (the app's menu has no Window
-/// menu to do it), and ⌘= ⌘- ⌘0 size its text. The window takes these before
-/// the page sees them, so neither xterm nor the shell gets them; they work
-/// with no menu bar, and the View menu's items reach them through the
-/// responder chain while this window is key.
-final class TerminalWebView: WKWebView {
+/// The terminal's web view: a lasso page's (⌘W, no WebKit menu), and ⌘= ⌘-
+/// ⌘0 size its text. The window takes these before the page sees them, so
+/// neither xterm nor the shell gets them; they work with no menu bar, and the
+/// View menu's items reach them through the responder chain while this
+/// window is key.
+final class TerminalWebView: LassoPageWebView {
     var onZoom: (TerminalZoom.Step) -> Void = { _ in }
 
     override func performKeyEquivalent(with e: NSEvent) -> Bool {
-        if e.modifierFlags.intersection([.command, .shift, .option, .control]) == .command, e.charactersIgnoringModifiers == "w" {
-            window?.performClose(nil)
-            return true
-        }
         if let step = TerminalZoom.step(e) {
             onZoom(step)
             return true
         }
         return super.performKeyEquivalent(with: e)
-    }
-
-    /// WebKit's own menu (Reload, Inspect Element, Copy) never opens: herdr
-    /// takes right-clicks itself. The page cancels the menu's event; this
-    /// empties it for a click the page did not see (one before it loaded).
-    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
-        menu.removeAllItems()
-        super.willOpenMenu(menu, with: event)
     }
 
     @objc func terminalZoomIn(_ sender: Any?) { onZoom(.bigger) }

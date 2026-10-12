@@ -42,6 +42,60 @@ public class RailPanel: NSPanel {
         if event.type == .keyUp, onKeyUp?(event) == true { return }
         super.sendEvent(event)
     }
+
+    // MARK: Spaces (PLAN 16)
+
+    /// Whether a panel just ordered in is on the Space the user is on (a
+    /// seam for tests).
+    static var onActiveSpace: (NSWindow) -> Bool = { $0.isOnActiveSpace }
+
+    /// Order the panel in on the Space the user is on, with the keyboard or
+    /// without. Every panel of the app's is shown through here.
+    ///
+    /// When a Lasso window's full screen ends (the herdr window leaving it,
+    /// or closing in it), macOS pins every Lasso window that is off screen
+    /// at that moment to one ordinary Space: `.canJoinAllSpaces` stops
+    /// applying to it, setting the behaviour again does not undo it, and it
+    /// orders in there, out of sight of another app's full screen. A new
+    /// window is not pinned, so a panel found off the active Space is
+    /// replaced by one carrying its content, settings and handlers.
+    /// `replaced` gets the new panel before it is shown, to hold it from now on.
+    func orderIn(takeKey: Bool, replaced: (RailPanel) -> Void) {
+        orderFrontRegardless()
+        var shown = self
+        if !Self.onActiveSpace(self) {
+            let fresh = replacement()
+            orderOut(nil)
+            handOver(to: fresh)
+            replaced(fresh)
+            fresh.orderFrontRegardless()
+            shown = fresh
+            Trace.event("a panel was pinned to another Space: replaced")
+        }
+        if takeKey { shown.makeKeyAndOrderFront(nil) }
+    }
+
+    /// An empty panel of this kind, for `orderIn` (subclasses with their
+    /// own initializer make their own).
+    func replacement() -> RailPanel { RailPanel(content: NSView(), size: frame.size) }
+
+    /// Give `p` this panel's settings, handlers, frame and content.
+    func handOver(to p: RailPanel) {
+        p.level = level
+        p.collectionBehavior = collectionBehavior
+        p.hasShadow = hasShadow
+        p.isMovable = isMovable
+        p.alphaValue = alphaValue
+        p.appearance = appearance
+        p.onKey = onKey
+        p.onKeyUp = onKeyUp
+        p.onMouseDown = onMouseDown
+        p.setFrame(frame, display: false)
+        if let content = contentView {
+            contentView = NSView(frame: content.frame)
+            p.contentView = content
+        }
+    }
 }
 
 /// Key codes the rail and card bind (Carbon virtual key codes, layout
@@ -110,7 +164,7 @@ func originBesideRail(_ rail: NSRect, size: NSSize, visible vis: NSRect) -> NSPo
 @MainActor
 public final class RailController {
     public let model: RailModel
-    let panel: RailPanel
+    private(set) var panel: RailPanel
     private var screenObserver: NSObjectProtocol?
     private var hoverTimer: Timer?
     private var inSince: Date?
@@ -153,7 +207,7 @@ public final class RailController {
     }
 
     public func show() {
-        panel.orderFrontRegardless()
+        panel.orderIn(takeKey: false) { panel = $0 }
         hoverTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 20, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.pollHover() }
         }
@@ -164,7 +218,7 @@ public final class RailController {
         model.setExpanded(true)
         model.focus = .inbox
         model.focusVisible = true
-        panel.makeKeyAndOrderFront(nil)
+        panel.orderIn(takeKey: true) { panel = $0 }
     }
 
     /// The visible frame of the screen the rail is on.

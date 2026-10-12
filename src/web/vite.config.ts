@@ -19,6 +19,17 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  // Two pages: the app, and the Mac app's Browser window (the Agent view
+  // alone, src/desktop/browser-window.tsx), which lasso serves as the file
+  // /desktop-browser.html.
+  build: {
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+        "desktop-browser": path.resolve(__dirname, "desktop-browser.html"),
+      },
+    },
+  },
   server: {
     // Reached over tailscale by whatever MagicDNS name the machine has, which
     // can change — so don't hardcode it. `true` accepts any Host header, which
