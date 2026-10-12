@@ -1465,6 +1465,53 @@ func TestServeChatRunningFromHerdrStatus(t *testing.T) {
 	}
 }
 
+// A finished omp turn with no tool calls, in the record shape omp writes
+// (trimmed to the fields the parser reads, plus the non-message records around
+// them): neither the model_usage record's own stopReason, the custom records,
+// nor the session_exit after the turn may read as an agent still working.
+func TestServeChatOmpFinishedTurnNotRunning(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "2026-10-12T02-22-33-278Z_01a12deb.jsonl")
+	recs := []string{
+		`{"type":"title","v":1,"title":""}`,
+		`{"type":"session","version":3,"id":"01a12deb","timestamp":"2026-10-12T02:22:33.278Z","cwd":"/home/x/scratch/hello"}`,
+		`{"type":"model_change","id":"325be78a","parentId":null,"timestamp":"2026-10-12T02:22:33.420Z","model":"deepseek/deepseek-v4-flash"}`,
+		`{"type":"model_usage","id":"3441fc3c","parentId":"325be78a","timestamp":"2026-10-12T02:22:37.312Z","purpose":"auto-thinking","model":"jev-latest","usage":{"totalTokens":540},"stopReason":"stop"}`,
+		`{"type":"thinking_level_change","id":"17b3f317","parentId":"3441fc3c","timestamp":"2026-10-12T02:22:37.312Z","thinkingLevel":"low"}`,
+		`{"type":"message","id":"d5133436","parentId":"17b3f317","timestamp":"2026-10-12T02:22:37.348Z","message":{"role":"user","content":[{"type":"text","text":"hello"}],"attribution":"user"}}`,
+		`{"type":"custom","customType":"system-prompt-digest","data":"e98fda6e1351738a","id":"da5c90d4","parentId":"d5133436","timestamp":"2026-10-12T02:22:39.040Z"}`,
+		`{"type":"message","id":"9dd8d55f","parentId":"da5c90d4","timestamp":"2026-10-12T02:22:39.040Z","message":{"role":"assistant","content":[{"type":"text","text":"Hello. What are you working on?"}],"model":"deepseek-v4-flash","usage":{"totalTokens":29346},"stopReason":"stop","completedAt":1791771759039,"contextSnapshot":{"promptTokens":29337}}}`,
+		`{"type":"custom","customType":"session_exit","data":{"reason":"sighup","kind":"signal"},"id":"78eed5fd","parentId":"9dd8d55f","timestamp":"2026-10-12T02:23:32.135Z"}`,
+	}
+	// Before the session_exit too: the window that matters is the idle agent
+	// still in its pane.
+	for _, tc := range []struct {
+		name string
+		log  []byte
+	}{{"live", chatLog(recs[:len(recs)-1]...)}, {"exited", chatLog(recs...)}} {
+		if err := os.WriteFile(path, tc.log, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		be := &chatFakeBackend{panes: []string{chatPaneStatus("w1:p1", path, true, "idle")}}
+		useFakeHost(t, be)
+		rec := httptest.NewRecorder()
+		serveChat(rec, httptest.NewRequest(http.MethodGet, "/api/chat", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status %d: %s", tc.name, rec.Code, strings.TrimSpace(rec.Body.String()))
+		}
+		var out chatPayload
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		if out.Running {
+			t.Errorf("%s: running = true for a finished omp turn with herdr idle", tc.name)
+		}
+		if len(out.Items) != 2 {
+			t.Errorf("%s: %d items, want the user turn and the reply", tc.name, len(out.Items))
+		}
+	}
+}
+
 // The ask shapes are copied from real transcripts. omp carries the questions on
 // the call's arguments and the picks in the result's `details.results`; claude
 // puts the questions in the tool_use input and the picks — keyed by question

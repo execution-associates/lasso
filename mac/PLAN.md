@@ -873,7 +873,7 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
 **Waits are visible.** The conversation's foot shows three pulsing dots and what it waits on (`CardModel.phase`):
 - **Loading the conversation** before the first answer.
 - **Starting <harness>** while a new agent has no transcript yet.
-- **<harness> is working** while it is on its turn. This is never shown while it waits on you.
+- **<harness> is working** while it is on its turn: lasso's chat says `running` (an unanswered call in the transcript) or herdr's live state for the pane, read from the fleet's current row and not the one the window opened on, says working. This is never shown while it waits on you.
 
 A message you send shows at once, faded, under **Sending…**, until it appears in the transcript.
 
