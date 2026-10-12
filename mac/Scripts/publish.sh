@@ -35,8 +35,12 @@ ssh "$MAC" "export PATH=/opt/homebrew/bin:\$HOME/.local/share/mise/shims:\$PATH 
 OUT="$HERE/dist/release"
 mkdir -p "$OUT"
 rsync -a "$MAC:$REMOTE/dist/LassoDesktop-$VERSION.dmg" "$MAC:$REMOTE/dist/appcast.xml" "$OUT/"
+# The same DMG under a name without the version, so the download link the
+# website and README use, releases/latest/download/LassoDesktop.dmg, always
+# reaches the newest one. The appcast names the versioned file.
+cp "$OUT/LassoDesktop-$VERSION.dmg" "$OUT/LassoDesktop.dmg"
 echo "copied to $OUT"
 if [ "$UPLOAD" = 1 ]; then
-  gh release upload "v$VERSION" "$OUT/LassoDesktop-$VERSION.dmg" "$OUT/appcast.xml" --clobber --repo "$REPO"
+  gh release upload "v$VERSION" "$OUT/LassoDesktop-$VERSION.dmg" "$OUT/LassoDesktop.dmg" "$OUT/appcast.xml" --clobber --repo "$REPO"
   echo "attached to $REPO v$VERSION"
 fi
