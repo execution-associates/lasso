@@ -197,6 +197,10 @@ public final class InboxModel: ObservableObject {
     public var persist = false
     public var onOpen: (HostPane) -> Void = { _ in }
     public var onClose: () -> Void = {}
+    /// The card showed this pane's entry, or the panel the notices: their
+    /// macOS notifications have been read.
+    public var onSeen: (HostPane) -> Void = { _ in }
+    public var onNoticesSeen: () -> Void = {}
 
     public init(fleet: FleetModel, now: @escaping () -> Date = Date.init) {
         self.fleet = fleet
@@ -210,6 +214,7 @@ public final class InboxModel: ObservableObject {
 
     /// The card reached this pane: its entry, as it is now, is seen.
     public func markSeen(_ p: HostPane) {
+        onSeen(p)
         guard let e = entries.first(where: { $0.id == p.key }), fleet.seen[e.id] != e.mark else { return }
         fleet.seen[e.id] = e.mark
         if persist { InboxMemory.save(fleet) }
@@ -217,6 +222,7 @@ public final class InboxModel: ObservableObject {
 
     /// The panel showed the notices.
     public func markNoticesSeen() {
+        onNoticesSeen()
         var changed = false
         for n in fleet.inboxNotices where fleet.seen["notice:\(n.id)"] == nil {
             fleet.seen["notice:\(n.id)"] = "seen"
@@ -233,14 +239,15 @@ public final class InboxModel: ObservableObject {
         Task { await write(InboxNotice.ackKey(n.id), n.at) }
     }
 
-    /// What arrived, for the arrival sound: an entry with a new mark, or a
-    /// notice, each with the kinds that announce it (this Mac may want none).
-    /// A bot's turn is one announcement, as lasso's notifDelivers has it: the
-    /// reply (bot_message) or, for a Mac that does not take replies, the
-    /// finished turn; a bot with notify off announces no turn at all. A
-    /// bot's question is agent_blocked like any agent's.
-    public var arrivals: [String: [String]] {
-        var out: [String: [String]] = [:]
+    /// What the inbox holds as arrivals, for the arrival sound and macOS's
+    /// notifications: an entry by its mark, or a notice, each with the kinds
+    /// that announce it (this Mac may want none). A bot's turn is one
+    /// announcement, as lasso's notifDelivers has it: the reply (bot_message)
+    /// or, for a Mac that does not take replies, the finished turn; a bot
+    /// with notify off announces no turn at all. A bot's question is
+    /// agent_blocked like any agent's.
+    public var arrivalList: [InboxArrival] {
+        var out: [InboxArrival] = []
         for e in entries {
             let kinds: [String]
             switch (e.kind, e.bot) {
@@ -250,9 +257,27 @@ public final class InboxModel: ObservableObject {
                 let notify = fleet.bots.first { $0.name == name && $0.host == e.pane.host }?.notify ?? true
                 kinds = notify ? [NotifyKinds.botMessage, NotifyKinds.agentFinished] : []
             }
-            out["\(e.id)@\(e.mark)"] = kinds
+            out.append(InboxArrival(key: "\(e.id)@\(e.mark)", kinds: kinds, item: .entry(e)))
         }
-        for n in fleet.inboxNotices { out["notice:\(n.id)"] = [n.kind] }
+        for n in fleet.inboxNotices { out.append(InboxArrival(key: "notice:\(n.id)", kinds: [n.kind], item: .notice(n))) }
         return out
     }
+
+    /// The arrivals by key, with their kinds.
+    public var arrivals: [String: [String]] {
+        Dictionary(arrivalList.map { ($0.key, $0.kinds) }, uniquingKeysWith: { a, _ in a })
+    }
+}
+
+/// Something the inbox holds, as an arrival: new when its key is.
+public struct InboxArrival: Equatable, Sendable {
+    public enum Item: Equatable, Sendable {
+        case entry(InboxEntry)
+        case notice(InboxNotice)
+    }
+
+    /// An entry's id and mark, or `notice:<id>`.
+    public var key: String
+    public var kinds: [String]
+    public var item: Item
 }

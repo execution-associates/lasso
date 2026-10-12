@@ -187,7 +187,7 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 
 **Not proposed**
 - Bearer auth on `/api/*` (see §0).
-- Native push: Web Push is VAPID-only (`src/webpush.go`). The app polls and uses local notifications, *later*.
+- Native push: Web Push is VAPID-only (`src/webpush.go`). The app polls and posts local notifications (§17).
 
 ## 4. Voice plan
 
@@ -413,7 +413,6 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 **Later**
 - Parakeet, or Apple's SpeechAnalyzer (Q3)
 - claude-runtime bots
-- local notifications
 - generated next steps
 
 ## 7. Environment recipe (from titan, repo root)
@@ -525,7 +524,7 @@ M1–M7 are built and every named state passes parity on minime: 192 checks, 0 f
 **Not done**
 - A live voice round trip: the server needs a transcription provider (`/api/transcribe/config`, or the `transcribe` settings section) and a key, or the app a Groq/OpenAI key in onboarding; then the first `V` asks for the microphone on minime's screen.
 - Creating the assistant bot: onboarding's Create button does it (`POST /api/bots`, omp, started); it was not clicked, since it makes a real bot.
-- On-device transcription (Q3), native notifications, generated next steps, a Settings tab section for `transcribe` in the web client.
+- On-device transcription (Q3), generated next steps, a Settings tab section for `transcribe` in the web client.
 
 ## 10. Design rework from the reference screenshots (2026-10-11)
 
@@ -769,7 +768,7 @@ The keys are `KeyBinding`s in `Theme/Keys.swift`; `CardKeys` (`Card/CardControll
 
 ### 13.8a As built (M8)
 
-- **One computation:** `FleetModel.inbox` serves the card, the badge, the peek's dot and the arrival sound.
+- **One computation:** `FleetModel.inbox` serves the card, the badge, the peek's dot, the arrival sound and macOS notifications.
   - **Waiting:** a claude or omp pane that is blocked, or an omp bot with `pending_ui`.
   - **Finished:** a turn newer than lasso's `inbox_since` and not acknowledged; a bot's turn is its last reply.
   - **Order:** newest first within each group.
@@ -806,7 +805,7 @@ The keys are `KeyBinding`s in `Theme/Keys.swift`; `CardKeys` (`Card/CardControll
 ## 14. Connecting to a dev lasso
 
 A Mac uses one lasso. Settings has three tabs, each laid out as macOS's grouped settings are: titled groups, each a rounded card of rows split by hairlines, a row's name and why on the left and its control on the right (switches for on/off), footnotes under a group. The tabs carry icons, and the chosen one is lifted onto its own pill.
-- **Notifications:** the arrival sound and Notify me about.
+- **Notifications:** whether macOS lets Lasso post notifications (§17), the arrival sound and Notify me about.
 - **Shortcuts:** opening the inbox, the new-agent shortcuts, and Accessibility, which only the double-tap shortcut needs.
 - **Info:** first the lasso, named by the machine it runs on ("titan"), with its release number (never a build's `(dev)` tag), the address this Mac reaches it at, sign-in, herdr's version, how many machines it drives, and **Advanced Settings**, which opens the lasso's web app at `/?open=settings` (its sidebar on Settings › General, read once on load) in the default browser. **Change…** opens the address field for moving to another lasso (§18); it stays closed otherwise. A sign-out opens Settings here, and so does opening Settings while no lasso answers. Then the app: its version and Check for updates, **Show in the Dock** (the app turns regular, with a menu bar of Settings… ⌘, and Quit ⌘Q; clicking the Dock icon opens the inbox), **Show in the menu bar** (the EXA monogram as a template image, `Resources/Brand/monogram-template*`, with the inbox's count, and Open Inbox, New Agent…, Settings…, Quit), both off by default and applied at once (`AppPresence`, UserDefaults `showInDock`/`showInMenuBar`), **Start at login**, and **Quit Lasso**.
 - **Start at login** (`Platform/LoginItem.swift`) is `SMAppService.mainApp`: the switch calls `register()`/`unregister()`, and its state is macOS's `status`, read each time Settings shows, since System Settings › General › Login Items changes it too. Nothing caches it.
@@ -886,7 +885,7 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
 - **Arrival sound**, in Settings › Inbox (UserDefaults `inboxSound`, default Whoosh):
   - Three bundled sounds made with ElevenLabs on fal: Whoosh, Marimba and Lasso (`mac/Resources/Sounds/README.md` has the prompts). They are levelled to a −4 dBFS peak, and choosing one plays it.
   - **Your own sound:** Upload picks an audio file (at most 1 MB) and stores it on lasso: `PUT /api/desktop/sound` keeps the file at `<lassoDir>/desktop/sound`, typed by its bytes, and ui_state's server-owned `desktop_sound` names it with its sha256. Every Mac on that lasso gets it. The app caches the file in `~/Library/Application Support/Lasso/Sounds/custom-<sha256>` and downloads it only when the record's hash differs from the cached one, so playing it never touches the network. Remove deletes it from lasso. Until the cache has it, the custom choice plays Whoosh.
-  - It plays when the inbox holds an item, a new turn or a new question it did not hold before (`InboxItem.arrivalKey`). The first reading is a baseline, and arrivals within 2 s make one sound (`live.arrival_sound`).
+  - It plays when the inbox holds an item, a new turn or a new question it did not hold before (`InboxModel.arrivalList`, keyed by an entry's mark or a notice's id). The baseline is the first reading once lasso has answered the panes, bots, ui_state and notices reads (`FleetModel.ready`), so a launch or a switch of lasso is silent. An arrival sounds once per run, even if it leaves the inbox and comes back, and arrivals within 2 s make one sound (`live.arrival_sound`). `InboxAlerts` decides both the sound and the notifications.
 - **Settings footer**: the Execution Associates lockup as isb ships it (`Resources/Brand`), tinted like secondary text, linking to execution.associates.
 - **Icons** are the web app's: Lucide (lucide.dev), which the web draws through `lucide-react`, so a thing wears the same icon on the Mac, the web and the phone (Bots `bot`, the inbox `inbox`, a terminal `square-terminal`, the browser `globe`, settings `settings`, attach `paperclip`, stop a filled `square`, the agents' Pin `pin`, a channel card's `mail`/`message-square`/`clock`/`phone`). Where the web has no such thing, the nearest Lucide icon stands in (an agent's avatar: `asterisk` for Claude, `code-xml` for Codex, `pi` for omp). Icons are image assets, not code, so §0's rule is untouched. `mac/Resources/Icons` holds the SVGs and Lucide's license (ISC, with Feather's MIT for the icons derived from it); `build-app.sh` copies them into the bundle. `mac/Scripts/lucide-icons.sh` writes them from the lucide-react that `src/web/bun.lock` pins (1.17.0): it reads each icon's data inside the worktree's dev container and builds lucide-static's SVG from it on titan, accepting only plain shapes. `enum Lucide` (`Theme/Lucide.swift`) is the list; add a case and run the script. They are drawn as template images tinted like text, at Lucide's stroke 2 on its 24-unit grid, sized so the glyph spans what the SF Symbol at that point size did (`icon.lucide`); the send arrow (2.5) and small checks (3) are bolder, as the web draws them. **Window controls stay SF Symbols** so they feel native: the close ✕ on every window and pop-out, minimise and expand on agent and bot windows, and the resize grip (`WindowControl`, the only place an SF Symbol is named; `IconTests` holds the code to that and every case to a bundled SVG).
 - **App icon**: the EXA monogram, exactly as `exa/brand-assets/logo/exa-mark-white.png` draws it, on a macOS icon plate in the rail's ink gradient (`Resources/AppIcon.png`). `build-app.sh` packs `AppIcon.icns`.
@@ -901,7 +900,20 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
     - a notice is `lasso_notice` or `agent_message`
   - A choice never hides anything from the inbox.
   - lasso's notices and agents' pings arrive as the `notification` event when the server has kinds, and as the older `notice` event otherwise; the app takes one or the other, never both.
-  - Against a lasso without kinds, the list is absent and every arrival sounds.
+  - Against a lasso without kinds, the list is absent and every arrival sounds and notifies.
+
+- **macOS notifications** (`Inbox/InboxAlerts.swift`, `Platform/UserNotifications.swift`): each arrival the sound is for is also a notification in Notification Center, posted through `UNUserNotificationCenter`.
+  - **Only from the signed app.** The center works only in a bundle with an identifier (`com.orangecountyai.Lasso`, set by `Info.plist.in` and `build-app.sh`'s signing), so `SystemNotifier.available` checks for one. The coordinator takes a `Notifier`: the live one for a live lasso in the app, none for fixtures and the parity harness, and a fake in the tests (`InboxNotificationTests`).
+  - **When:** at the sound's moment, for the kinds this Mac wants (Notify me about, the bot rule above), never for the baseline. It is skipped while the card shows that entry, or the inbox panel is open for a notice.
+  - **What:** the title is the agent's name (a bot's). The subtitle is **Asking** (an open question, or an omp bot's pending request), **Blocked** (waiting with nothing lasso can read), **Finished**, **Message** (a bot's reply, an agent's ping) or **lasso notice**. The body is the question, "Waiting on you in the terminal", or the last line of the last reply without its Markdown mark, one paragraph of at most 240 characters. A pane's words come from one read of its chat (`CardActions.chat`), a bot's from the fleet (`last_text`, `pending_ui`). A bot's picture, as the Bots column has it, is attached.
+  - **One per agent:** the id and thread are the agent's (`agent:<host>/<pane>`, `bot:<host>/<name>`), so an agent's newer notification replaces its older one. Notices are `notice:<id>`, threaded `lasso.notices`, or `lasso.messages` for agents' pings.
+  - **Withdrawn** (`removeDeliveredNotifications`) when its entry leaves the inbox (acknowledged, answered or killed, on any device), and when the card or the panel shows it. At the baseline, ones a previous run left stay while their entry is still in the inbox and the rest go. Switching lasso removes them all.
+  - **A click** opens the inbox card on that entry, the way the inbox shortcut opens the inbox: it stays until esc, a click elsewhere, or the pointer coming onto it and leaving. An entry that has gone opens the inbox; a notice opens the inbox panel.
+  - **Acknowledge** is on every notification. For an entry it acts only while the entry still has the mark the notification was for, so a newer question is never acknowledged unread. It is the card's own Acknowledge when the card shows that entry, else the same `card_dismiss` write and `markAcknowledged`. A notice's is the panel's ×.
+  - **Reply** is on a finished turn only, and is the composer's send (`/api/chat/send`, or an omp bot's route). A pane waiting on you is never typed into (§13.9), so a reply to one, or to a pane that has blocked since, is refused and the agent's notification says so. A failed send says why there too.
+  - **Permission** is asked once, on the first arrival after onboarding (`onboarded`). Settings › Notifications shows macOS's state: **Allowed**; **Not asked yet**, with **Allow…**; or **Off**, with **Open System Settings** (Notifications › Lasso).
+  - **Silent notifications, the app's sound.** Notifications ask only for alerts and carry no sound; the arrival sound stays the app's. A notification's sound must be an aiff, wav or caf file in the bundle or `~/Library/Sounds`, so neither the bundled mp3s nor a sound uploaded to lasso could be one. A burst would also ring once per notification rather than once per 2 s, and the sound keeps working while notifications are off.
+  - Delivery, clicks and the actions are exercised only through the fake: a live check needs the signed app installed.
 
 **An agent's prose is rendered as Markdown** (`Agent/Markdown.swift`), in the window, the hover preview and the inbox card. That covers headings, bullet and numbered lists (nested), fenced code in the terminal face, pipe tables (right-aligned where the delimiter row says so; short cells keep their width, long ones wrap; sideways scrolling only when the table cannot fit), quotes and rules. Inline Markdown (bold, inline code in the terminal face, links) is AttributedString's. Your own messages stay plain.
 

@@ -53,7 +53,9 @@ The app uses one lasso at a time. [Security](../security.md) and [Authentication
 
 ## Notifications
 
-The Mac is a notification device of its own, registered as "Lasso on <your Mac>". Settings › Notifications lists the same **Notify me about** choices as the web UI, and a sound plays only for a kind this Mac wants. A choice never hides anything from the Inbox. See [Notifications](../concepts/notifications.md#choosing-what-interrupts-each-device).
+The Mac is a notification device of its own, registered as "Lasso on <your Mac>". Settings › Notifications lists the same **Notify me about** choices as the web UI, and the sound and macOS notifications come only for a kind this Mac wants. A choice never hides anything from the Inbox. See [Notifications](../concepts/notifications.md#choosing-what-interrupts-each-device).
+
+Each new arrival in the Inbox is also a macOS notification: the agent's or bot's name, what it is (**Asking**, **Blocked**, **Finished**, **Message** or a lasso notice) and its question or the last line of its reply. An agent's newer notification replaces its older one, and a notification goes away once its entry leaves the Inbox, from any device. Click one to open the Inbox on that entry. **Acknowledge** acknowledges it without opening anything, and a finished turn also takes a **Reply**, sent as the reply box sends it; an agent waiting on you is answered in the Inbox, not from the notification. What was already waiting when the app started is not notified. The app asks macOS for permission the first time something arrives after setup, and Settings › Notifications shows whether it is allowed, with **Open System Settings** when it is not. Notifications are silent: the arrival sound plays instead, once for a burst.
 
 ## Updates
 
