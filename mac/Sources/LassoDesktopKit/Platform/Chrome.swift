@@ -259,7 +259,7 @@ struct InlineField: NSViewRepresentable {
     }
 }
 
-/// The text cursor over a renamable title: pushed once, popped once, however
+/// The pointing hand over a renamable title: pushed once, popped once, however
 /// the hover ends (a click swaps the title for a field under the pointer).
 @MainActor
 enum TitleCursor {
@@ -267,7 +267,7 @@ enum TitleCursor {
 
     static func hover(_ inside: Bool) {
         if inside, !pushed {
-            NSCursor.iBeam.push()
+            NSCursor.pointingHand.push()
             pushed = true
         } else if !inside, pushed {
             NSCursor.pop()
@@ -278,7 +278,7 @@ enum TitleCursor {
 
 /// An agent's name, as a window or card shows it. A click (or right-click,
 /// Rename…) turns it into a field: ⏎ keeps, esc cancels, empty clears the
-/// label. The pointer is a text cursor over a name that can be renamed.
+/// label. The pointer is a pointing hand over a name that can be renamed.
 struct AgentTitle: View {
     @ObservedObject var model: CardModel
     var font: Token = Theme.Fonts.title

@@ -872,7 +872,7 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
 
 A message you send shows at once, faded, under **Sending…**, until it appears in the transcript.
 
-**Renaming an agent:** click the agent's name in the inbox card or either agent window (the hover preview and the window), where the pointer becomes a text cursor, or right-click it there or on a row of the agents list and choose **Rename…**. A click on a list row still opens the agent. The name becomes a field holding the current name. ⏎ keeps the new name, esc keeps the old one, and an empty name clears the label so the tab's name shows again. It is herdr's custom agent label, set through lasso's `POST /api/agent/rename`. A bot has no Rename, because lasso finds a bot by that name; bots are renamed in their own settings.
+**Renaming an agent:** click the agent's name in the inbox card or either agent window (the hover preview and the window), where the pointer becomes a pointing hand, or right-click it there or on a row of the agents list and choose **Rename…**. A click on a list row still opens the agent. The name becomes a field holding the current name. ⏎ keeps the new name, esc keeps the old one, and an empty name clears the label so the tab's name shows again. It is herdr's custom agent label, set through lasso's `POST /api/agent/rename`. A bot has no Rename, because lasso finds a bot by that name; bots are renamed in their own settings.
 
 ## 20. Launching agents (the web app's ⌘O and ⌘⇧O)
 
