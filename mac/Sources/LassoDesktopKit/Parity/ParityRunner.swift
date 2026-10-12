@@ -171,6 +171,8 @@ public final class ParityRunner {
                 permissions: FixedPermissions(fixture.permissions), baseURL: { "http://127.0.0.1:18090" },
                 version: { fixture.server.version }, usableHosts: { (usable, hosts.hosts.count + 1) })
             m.notify = { fixture.notify }
+            // A release build with Start at login on (the default after onboarding).
+            m.loginItems = LoginItems(service: FixedLoginItem(.enabled), devBuild: false)
             m.lassoName = { fixture.server.all_panes.panes.first { $0.host == "local" }?.host_label }
             if let t = fixture.ui.settings_tab.flatMap(SettingsTab.init(rawValue:)) { m.tab = t }
             bindings = [Keys.esc]

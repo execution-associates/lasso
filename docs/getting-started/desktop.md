@@ -45,6 +45,7 @@ The app uses one lasso at a time. [Security](../security.md) and [Authentication
 - **Shortcuts.** **⌥Space** opens the Inbox with the keyboard in it. Settings › Shortcuts changes any shortcut, including a double tap of ⌥, ⌘ or ⌃ (which needs the Accessibility permission).
 - **Sounds.** A sound plays when something new arrives in the Inbox. Pick one of three, or upload your own in Settings; an uploaded sound is stored on lasso and every Mac using that lasso plays it.
 - **Dock and menu bar.** Settings › Info chooses whether the app shows in the Dock and in the menu bar (with the Inbox's count), and has **Quit**.
+- **Start at login.** Finishing the first-run setup adds Lasso to your login items once, so the rail is there after a restart; macOS says so in a notification. Turn it off with **Start at login** in Settings › Info, or in System Settings › General › Login Items. Lasso then stays off until you turn it on again. If macOS asks you to allow it, **Open Login Items** takes you there.
 
 ## Notifications
 

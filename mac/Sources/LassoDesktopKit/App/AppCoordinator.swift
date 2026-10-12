@@ -148,6 +148,8 @@ public final class AppCoordinator {
         }
         m.onClose = { [weak self] in self?.firstRun?.close() }
         m.onOpenSettings = { [weak self] in self?.openSettings() }
+        // The rail is meant to be always there: add the login item once, now.
+        m.onFinished = { [weak self] in self?.settingsModel.autoRegisterLoginItem() }
         let c = FirstRunController(model: m)
         firstRun = c
         return c
