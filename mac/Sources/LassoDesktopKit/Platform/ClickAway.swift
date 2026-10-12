@@ -1,14 +1,40 @@
 import AppKit
 
-/// The panels that open off the rail (the inbox's card or panel, the agents
-/// column, a hover preview, a bot's chat) are glances: a click anywhere else
-/// puts them away (PLAN 16). Agent windows, the herdr window, Settings and
-/// the New Agent form are windows the user arranges, and stay.
+/// A rail pop-out's life under the pointer (PLAN 16): the inbox's card or
+/// panel, the agents column, a hover preview, a bot's chat. However it
+/// opened, it closes once the pointer has been off the rail and every
+/// pop-out for `grace`. One a shortcut opened (the pointer was elsewhere)
+/// first waits for the pointer to come onto it; until then esc or a click
+/// elsewhere (`ClickAway`) puts it away.
+struct Glance: Equatable {
+    var byShortcut = false
+    /// The pointer has been on the rail or a pop-out since it opened.
+    private(set) var entered = false
+    private var away: Date?
+
+    /// One pointer reading: whether to close now.
+    mutating func tick(inside: Bool, now: Date, grace: Double) -> Bool {
+        if inside {
+            entered = true
+            away = nil
+            return false
+        }
+        if byShortcut, !entered { return false }
+        if away == nil { away = now }
+        guard now.timeIntervalSince(away!) >= grace else { return false }
+        away = nil
+        return true
+    }
+}
+
+/// A click elsewhere puts a shortcut-opened pop-out away. Agent windows, the
+/// herdr window, Settings and the New form are windows the user arranges,
+/// and stay.
 enum ClickAway {
     /// Whether a mouse-down closes the rail's panels. `window` is the Lasso
     /// window it landed in, nil for another app's (then `point`, in screen
     /// coordinates, says where). A click on one of `kept` (the panels and the
-    /// rail, whose own buttons toggle them), on a menu or popover, or on a
+    /// rail, whose buttons open them), on a menu or popover, or on a
     /// window one of them owns, keeps them.
     @MainActor
     static func closes(point: NSPoint, window: NSWindow?, kept: [NSWindow]) -> Bool {
@@ -22,9 +48,10 @@ enum ClickAway {
     }
 }
 
-/// Watches mouse-downs while a rail panel is open: in other apps (a global
-/// monitor, which needs no Accessibility for mouse events) and in Lasso's
-/// own other windows (a local one). It removes itself once nothing is open.
+/// Watches mouse-downs while a shortcut-opened pop-out waits for the
+/// pointer: in other apps (a global monitor, which needs no Accessibility
+/// for mouse events) and in Lasso's own other windows (a local one). It
+/// removes itself once that is over.
 @MainActor
 final class ClickAwayWatch {
     private var monitors: [Any] = []

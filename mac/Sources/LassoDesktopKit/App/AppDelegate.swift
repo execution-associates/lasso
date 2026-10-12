@@ -38,7 +38,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// The Dock icon clicked (when the app is in the Dock): open the inbox.
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        coordinator?.openInbox()
+        coordinator?.showInbox()
         return false
     }
 

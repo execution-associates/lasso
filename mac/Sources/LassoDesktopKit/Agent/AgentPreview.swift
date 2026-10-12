@@ -85,8 +85,6 @@ final class AgentPreviewController {
 
     var isOpen: Bool { presence.shown }
     var pane: HostPane? { holder.model?.pane }
-    /// A click in it made it the user's: it no longer closes when the pointer leaves.
-    var engaged: Bool { panel.isKeyWindow }
 
     /// Show `pane`'s preview beside `list`, top level with `row` (screen rects).
     func show(_ pane: HostPane, beside list: NSRect, row: NSRect) {
@@ -110,7 +108,9 @@ final class AgentPreviewController {
 
     func close() {
         guard presence.shown else { return }
+        if holder.model?.renaming == true { holder.model?.commitRename() }
         keepDraft()
+        if panel.isKeyWindow { panel.resignKey() }
         holder.model?.stopPolling()
         withAnimationToken(Theme.Motion.cardClose) { presence.shown = false }
         let delay = Theme.Motion.cardClose.value["duration"]?.double ?? 0

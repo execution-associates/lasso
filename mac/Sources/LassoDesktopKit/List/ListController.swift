@@ -61,6 +61,10 @@ public final class ListController {
     }
 
     public func close() {
+        // A rename in progress is kept, as a click away keeps it, and the
+        // keyboard goes back to the app that had it.
+        if model.renaming != nil { model.commitRename() }
+        if panel.isKeyWindow { panel.resignKey() }
         hoverTimer?.invalidate()
         hoverTimer = nil
         if previewShowing() != nil { onPreview(nil, .zero, .zero) }

@@ -52,6 +52,7 @@ public final class SidePanel {
 
     public func close() {
         guard presence.shown else { return }
+        if panel.isKeyWindow { panel.resignKey() }
         withAnimationToken(Theme.Motion.cardClose) { presence.shown = false }
         let delay = Theme.Motion.cardClose.value["duration"]?.double ?? 0
         Task { @MainActor [weak self] in

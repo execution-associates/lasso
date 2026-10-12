@@ -37,11 +37,13 @@ public final class AppCoordinator {
     private var commandO: Any?
     /// What was in the inbox last time it changed, to hear what is new.
     private var inboxSeen: Set<String>?
-    /// The control whose panel a hover opened and nobody has clicked yet,
-    /// and since when the pointer has been away from both rail and panel.
-    private var hoverShown: RailModel.Item?
-    private var hoverAway: Date?
-    /// A click anywhere but the rail and its panels puts the panels away.
+    /// Settings opened by a hover and not clicked yet, and since when the
+    /// pointer has been away from both rail and panel.
+    private var settingsGlance = false
+    private var settingsAway: Date?
+    /// The rail's pop-outs under the pointer (PLAN 16): nil while none is open.
+    private var glance: Glance?
+    /// A shortcut-opened pop-out also goes on a click elsewhere.
     private let clickAway = ClickAwayWatch()
 
     public init(fleet: FleetModel, sync: FleetSync?, fixture: Fixture?) {
@@ -93,7 +95,7 @@ public final class AppCoordinator {
     public func start() {
         rail.show()
         let p = AppPresence(fleet: fleet)
-        p.openInbox = { [weak self] in self?.openInbox() }
+        p.openInbox = { [weak self] in self?.showInbox() }
         p.newAgent = { [weak self] in self?.openNewAgent(.git) }
         p.openSettings = { [weak self] in self?.openSettings() }
         p.apply()
@@ -209,7 +211,7 @@ public final class AppCoordinator {
                 || self.chat?.panel.isOpen == true
         }
 
-        clickAway.active = { [weak self] in self?.railPanelOpen ?? false }
+        clickAway.active = { [weak self] in (self?.railPanelOpen ?? false) && self?.glance?.byShortcut == true }
         clickAway.onClick = { [weak self] point, window in self?.clicked(at: point, in: window) }
 
         card.inbox = inboxModel
@@ -228,10 +230,10 @@ public final class AppCoordinator {
             self.settings.follow()
             self.chat?.panel.follow()
         }
-        rail.model.onInbox = { [weak self] in self?.openInbox() }
+        rail.model.onInbox = { [weak self] in self?.railActivated(.inbox) }
         rail.model.onHoverOpen = { [weak self] item in self?.hoverOpen(item) }
         rail.onPointer = { [weak self] p in self?.hoverTick(p) }
-        rail.model.onAgents = { [weak self] in self?.toggleList() }
+        rail.model.onAgents = { [weak self] in self?.railActivated(.agents) }
         rail.model.onSettings = { [weak self] in self?.openSettings() }
         rail.model.onNewAgent = { [weak self] in self?.openNewAgent(.git) }
         rail.model.onTerminal = { [weak self] in self?.openTerminal() }
@@ -240,12 +242,7 @@ public final class AppCoordinator {
         list.model.onOpen = { [weak self] p in self?.openWindow(p) }
         list.onPreview = { [weak self] p, listFrame, row in
             guard let self else { return }
-            if let p {
-                self.preview.show(p, beside: listFrame, row: row)
-                self.clickAway.start()
-            } else {
-                self.preview.close()
-            }
+            if let p { self.preview.show(p, beside: listFrame, row: row) } else { self.preview.close() }
         }
         list.previewShowing = { [weak self] in
             guard let self, self.preview.isOpen else { return nil }
@@ -253,7 +250,7 @@ public final class AppCoordinator {
         }
         list.previewHolds = { [weak self] in
             guard let self, self.preview.isOpen else { return false }
-            return self.preview.engaged || self.preview.panel.frame.contains(NSEvent.mouseLocation)
+            return self.preview.panel.frame.contains(NSEvent.mouseLocation)
         }
         inboxModel.onOpen = { [weak self] p in self?.openCard(p) }
         inboxModel.onClose = { [weak self] in self?.inbox.close() }
@@ -340,7 +337,6 @@ public final class AppCoordinator {
     func openCard(_ p: HostPane, takeKey: Bool = true) {
         closeAll(except: card)
         card.open(p, takeKey: takeKey)
-        clickAway.start()
     }
 
     /// One of the panels that open off the rail is up (not Settings, which
@@ -371,8 +367,8 @@ public final class AppCoordinator {
     /// reply is kept for that agent's next card (CardController.drafts), and
     /// a bot chat's stays in its model.
     func closeRailPanels() {
-        hoverShown = nil
-        hoverAway = nil
+        glance = nil
+        clickAway.stop()
         preview.close()
         card.close()
         list.close()
@@ -380,25 +376,53 @@ public final class AppCoordinator {
         chat?.panel.close()
     }
 
-    /// A click on the agents capsule: open the list, give an open list that
-    /// a hover showed the keyboard, or close one that has it.
-    func toggleList(takeKey: Bool = true) {
-        if list.isOpen, takeKey, !list.isKey {
-            list.takeKey()
+    /// The agents column: opened, or given the keyboard when it is open.
+    /// Nothing closes it but the pointer leaving (or esc).
+    func openList(takeKey: Bool = true) {
+        if list.isOpen {
+            if takeKey, !list.isKey { list.takeKey() }
             return
         }
         closeAll(except: list)
-        if list.isOpen {
-            list.close()
-        } else {
-            list.open(takeKey: takeKey)
-            clickAway.start()
+        list.open(takeKey: takeKey)
+    }
+
+    /// A click on the inbox or agents button, or ⏎ on it in the summoned
+    /// rail: its pop-out opens with the keyboard, or an open one takes it.
+    /// It pins nothing: the pointer leaving closes it as after a hover. With
+    /// the pointer away from the rail (the summoned rail's ⏎) it waits as a
+    /// shortcut's does.
+    func railActivated(_ item: RailModel.Item, byPointer: Bool? = nil) {
+        let byPointer = byPointer ?? rail.panel.frame.contains(NSEvent.mouseLocation)
+        switch item {
+        case .inbox: openInbox(takeKey: true)
+        case .agents: openList(takeKey: true)
+        default: return
         }
+        if byPointer { glance = glance ?? Glance() } else { waitForThePointer() }
+    }
+
+    /// A pop-out opened with the pointer elsewhere (a shortcut, the Dock,
+    /// the menu-bar icon) waits: it goes on esc, on a click elsewhere, or once
+    /// the pointer has come onto it and left.
+    private func waitForThePointer() {
+        guard railPanelOpen else { return }
+        glance = Glance(byShortcut: true)
+        clickAway.start()
+    }
+
+    /// Open the inbox from somewhere the pointer is not: the Dock icon, the
+    /// menu-bar icon's Open Inbox.
+    func showInbox() {
+        hideSettingsGlance()
+        rail.model.setExpanded(true)
+        openInbox()
+        waitForThePointer()
     }
 
     /// The inbox drops straight into its newest message, a card that J/K
-    /// page through the rest; with nothing waiting it says so. A click while
-    /// it is open gives it the keyboard if a hover showed it, else closes it.
+    /// page through the rest; with nothing waiting it says so. Asked again
+    /// while open, it gives the open one the keyboard.
     func openInbox(takeKey: Bool = true) {
         // No lasso answers: there is no inbox to show, so connect instead.
         if fleet.offline, sync != nil {
@@ -409,7 +433,6 @@ public final class AppCoordinator {
         if card.isOpen || inbox.isOpen {
             if takeKey, card.isOpen, !card.isKey { card.takeKey() }
             else if takeKey, inbox.isOpen, !inbox.isKey { inbox.takeKey() }
-            else if takeKey { closeAll() }
             return
         }
         Trace.event("inbox opened (\(inboxModel.panes.isEmpty ? "panel" : "card"), keyboard \(takeKey ? "taken" : "left"))")
@@ -419,7 +442,6 @@ public final class AppCoordinator {
             closeAll(except: inbox)
             inbox.open(takeKey: takeKey)
             inboxModel.markNoticesSeen()
-            clickAway.start()
         }
     }
 
@@ -494,10 +516,11 @@ public final class AppCoordinator {
             closeAll()
             return
         }
-        hoverShown = nil
+        hideSettingsGlance()
         rail.model.setExpanded(true)
         if fleet.offline, sync != nil { return openFirstRun() }
         if card.isOpen { card.takeKey() } else if inbox.isOpen { inbox.takeKey() } else { openInbox() }
+        waitForThePointer()
     }
 
     /// Play the arrival sound when the inbox holds something it did not.
@@ -514,69 +537,86 @@ public final class AppCoordinator {
 
     /// Resting on a rail control opens it, without the keyboard: the user may
     /// be typing in another app, and the card's keys are single letters. A
-    /// click or the summon key gives the panel the keyboard. The plus only
-    /// lights up: the form takes the keyboard, so it opens on a click. So
-    /// does the terminal, for the same reason.
+    /// click gives the panel the keyboard. The plus only lights up: the form
+    /// takes the keyboard, so it opens on a click. So does the terminal, for
+    /// the same reason.
     func hoverOpen(_ item: RailModel.Item) {
-        guard item != .newAgent, item != .terminal, shown(item) == nil else { return }
-        switch item {
-        case .inbox: openInbox(takeKey: false)
-        case .agents: toggleList(takeKey: false)
-        case .newAgent, .terminal: return
-        case .settings: openSettings(takeKey: false)
-        }
-        hoverShown = item
-        hoverAway = nil
-    }
-
-    /// What `item` has open beside the rail: whether it has the keyboard,
-    /// and where it is.
-    private func shown(_ item: RailModel.Item) -> (isKey: Bool, frame: NSRect)? {
         switch item {
         case .inbox:
-            if card.isOpen { return (card.isKey, card.panel.frame) }
-            if inbox.isOpen { return (inbox.isKey, inbox.panel.frame) }
+            guard !card.isOpen, !inbox.isOpen else { return }
+            openInbox(takeKey: false)
         case .agents:
-            if list.isOpen { return (list.isKey, list.panel.frame) }
-        case .newAgent, .terminal: break
+            guard !list.isOpen else { return }
+            openList(takeKey: false)
         case .settings:
-            if settings.isOpen { return (settings.isKey, settings.panel.frame) }
+            guard !settings.isOpen else { return }
+            openSettings(takeKey: false)
+            settingsGlance = true
+            settingsAway = nil
+            return
+        case .newAgent, .terminal: return
         }
-        return nil
+        if glance?.byShortcut != true { glance = Glance() }
     }
 
-    /// A panel a hover opened is a glance: it closes rail.hover's
-    /// panel_close_ms after the pointer leaves both it and the rail, unless a
-    /// click (which gives it the keyboard) made it the user's.
-    private func hoverTick(_ pointer: NSPoint) {
-        guard let item = hoverShown else { return }
-        // A keyboard the pointer lent the inbox's card is not a click: the
-        // card stays a glance, and the keyboard goes back as the pointer leaves it.
-        if item == .inbox, card.isOpen {
-            // The inbox is the rail and its card: a pointer on either is on the
-            // inbox, so j/k work the moment it opens under the pointer.
+    private func hideSettingsGlance() {
+        settingsGlance = false
+        settingsAway = nil
+    }
+
+    /// The rail's pop-outs and the rail: the pointer on any of them is on Lasso's rail.
+    private func onRail(_ pointer: NSPoint) -> Bool {
+        var frames = [rail.panel.frame]
+        if card.isOpen { frames.append(card.panel.frame) }
+        if inbox.isOpen { frames.append(inbox.panel.frame) }
+        if list.isOpen { frames.append(list.panel.frame) }
+        if preview.isOpen { frames.append(preview.panel.frame) }
+        if let c = chat, c.panel.isOpen { frames.append(c.panel.panel.frame) }
+        return frames.contains { $0.contains(pointer) }
+    }
+
+    private func hoverTick(_ pointer: NSPoint) { pointerTick(pointer, now: Date()) }
+
+    /// Every rail poll (20 Hz). The rail's pop-outs live under the pointer
+    /// (`Glance`): however they opened, a click on a rail button included,
+    /// they close rail.hover's panel_close_ms after the pointer has left the
+    /// rail and all of them. One a shortcut opened waits for the pointer to
+    /// come first. Settings a hover opened is a glance until clicked.
+    func pointerTick(_ pointer: NSPoint, now: Date) {
+        settingsTick(pointer, now: now)
+        guard railPanelOpen else {
+            glance = nil
+            return
+        }
+        // The inbox is the rail and its card: a pointer on either lends the
+        // card the keyboard, so j/k work the moment it opens under the pointer.
+        if card.isOpen {
             if card.panel.frame.contains(pointer) || rail.panel.frame.contains(pointer) {
                 card.takeKeyForPointer()
             } else {
                 card.pointerLeft()
             }
         }
-        guard let s = shown(item), !s.isKey || (item == .inbox && card.pointerKeyed) else {
-            hoverShown = nil
+        var g = glance ?? Glance()
+        let close = g.tick(inside: onRail(pointer), now: now, grace: Theme.Rail.hover.number("panel_close_ms") / 1000)
+        glance = g
+        guard close else { return }
+        closeRailPanels()
+        Trace.event("rail pop-outs closed (pointer left)")
+    }
+
+    private func settingsTick(_ pointer: NSPoint, now: Date) {
+        guard settingsGlance else { return }
+        guard settings.isOpen, !settings.isKey else { return hideSettingsGlance() }
+        if settings.panel.frame.contains(pointer) || rail.panel.frame.contains(pointer) {
+            settingsAway = nil
             return
         }
-        let previewHas = preview.isOpen && preview.panel.frame.contains(pointer)
-        if s.frame.contains(pointer) || rail.panel.frame.contains(pointer) || previewHas || preview.engaged {
-            hoverAway = nil
-            return
-        }
-        let now = Date()
-        if hoverAway == nil { hoverAway = now }
-        guard now.timeIntervalSince(hoverAway!) * 1000 >= Theme.Rail.hover.number("panel_close_ms") else { return }
-        hoverShown = nil
-        hoverAway = nil
-        closeAll()
-        Trace.event("hover panel closed (pointer left)")
+        if settingsAway == nil { settingsAway = now }
+        guard now.timeIntervalSince(settingsAway!) * 1000 >= Theme.Rail.hover.number("panel_close_ms") else { return }
+        hideSettingsGlance()
+        settings.close()
+        Trace.event("settings closed (pointer left)")
     }
 
     /// Switch to another lasso: whatever was open belonged to the old one.
@@ -651,7 +691,6 @@ public final class AppCoordinator {
         closeAll(except: c.panel)
         c.model.startPolling()
         c.panel.open()
-        clickAway.start()
     }
 
     private func chatKey(_ e: NSEvent, _ m: ChatModel) -> Bool {

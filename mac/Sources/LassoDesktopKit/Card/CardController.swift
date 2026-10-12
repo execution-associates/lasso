@@ -179,7 +179,11 @@ public final class CardController {
         pointerKeyed = false
         lentThisVisit = false
         heldBack = false
+        // A rename in progress is kept, as a click away keeps it; the reply
+        // stays as a draft; the keyboard goes back to the app that had it.
+        if holder.model?.renaming == true { holder.model?.commitRename() }
         keepDraft()
+        if panel.isKeyWindow { panel.resignKey() }
         holder.model?.stopPolling()
         withAnimationToken(Theme.Motion.cardClose) { presence.shown = false }
         let delay = Theme.Motion.cardClose.value["duration"]?.double ?? 0
