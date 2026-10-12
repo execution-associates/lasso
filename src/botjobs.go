@@ -611,12 +611,9 @@ func botLassoBase() (string, bool) {
 // mcp.json, and why not when it does not.
 func botChannelOffered(r *botRecord) (bool, string) {
 	// An omp bot's jobs are prompts lasso sends over the bridge's socket
-	// (botOmpDeliver): no channel process, no listen address to reach back to.
-	// The socket is on lasso's machine, so an omp bot is too.
+	// (botOmpDeliver), on another host through an ssh forward lasso opens:
+	// no channel process, nothing that reaches back to lasso.
 	if r.isOmp() {
-		if r.Host != "local" {
-			return false, "an omp bot runs on lasso's own machine"
-		}
 		return true, ""
 	}
 	for _, s := range r.MCP {

@@ -300,11 +300,9 @@ func sendAgentTool(ctx context.Context, req *mcp.CallToolRequest, in sendAgentIn
 		return nil, sendAgentOut{}, err
 	}
 	// An omp bot's messages go over its bridge's socket, never typed into its
-	// pane.
-	if host == "local" {
-		if r, err := getBot(strings.TrimSpace(in.To)); err == nil && r.isOmp() {
-			return sendToOmpBot(ctx, cs, in, r)
-		}
+	// pane, whichever host it runs on.
+	if r, err := getBot(strings.TrimSpace(in.To)); err == nil && r.isOmp() && r.Host == host {
+		return sendToOmpBot(ctx, cs, in, r)
 	}
 	t, b, err := resolveAgentTarget(host, in.To)
 	if err != nil {
@@ -379,7 +377,7 @@ func sendToOmpBot(ctx context.Context, cs mcpCaller, in sendAgentIn, r *botRecor
 	if len(snap.pending) > 0 {
 		return nil, sendAgentOut{}, fmt.Errorf("NOT sent: the bot %s is waiting on a question (%s); answer it in lasso's Bots view first", r.Name, snap.pending[0].Title)
 	}
-	out := sendAgentOut{MessageID: "m_" + randHex(6), Host: mcpHostName("local"), To: r.Name}
+	out := sendAgentOut{MessageID: "m_" + randHex(6), Host: mcpHostName(r.Host), To: r.Name}
 	sender := senderLabel(ctx, cs, in.From, in.FromPane)
 	var token, addr string
 	var port int
@@ -392,7 +390,7 @@ func sendToOmpBot(ctx context.Context, cs mcpCaller, in sendAgentIn, r *botRecor
 			out.ReplyVia, out.InboxError = "mcp", inboxErr.Error()
 		}
 		if err := insertOutbox(outboxMsg{
-			ID: out.MessageID, SenderClient: callerClientKey(cs), Sender: sender, Host: "local",
+			ID: out.MessageID, SenderClient: callerClientKey(cs), Sender: sender, Host: r.Host,
 			Target: r.Name, Body: in.Text, CreatedAt: time.Now(),
 		}, token); err != nil {
 			return nil, sendAgentOut{}, fmt.Errorf("record message: %w", err)

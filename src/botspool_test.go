@@ -91,10 +91,10 @@ func TestBotRemoteChannelOffer(t *testing.T) {
 		t.Error("the channel is not granted")
 	}
 
-	// An omp bot stays on lasso's machine; a host whose lasso cannot spool
-	// says why.
-	if ok, _ := botChannelOffered(&botRecord{Name: "o", Host: "exa", Runtime: botRuntimeOmp}); ok {
-		t.Error("offered to an omp bot on another host")
+	// An omp bot's jobs are bridge prompts on any host, no spool; a host
+	// whose lasso cannot spool says why.
+	if ok, _ := botChannelOffered(&botRecord{Name: "o", Host: "exa", Runtime: botRuntimeOmp}); !ok {
+		t.Error("not offered to an omp bot on another host")
 	}
 	botRemoteLasso = func(host string) (string, error) {
 		return "", &botTestErr{"lasso on " + host + " is too old to deliver jobs"}

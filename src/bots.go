@@ -217,11 +217,6 @@ func (r *botRecord) normalize() error {
 	default:
 		return fmt.Errorf("runtime must be omp or claude")
 	}
-	// omp bots are driven over a unix socket on lasso's own machine (the
-	// bridge's, botomp.go), so they live there.
-	if r.isOmp() && r.Host != "local" {
-		return fmt.Errorf("an omp bot runs on lasso's own machine; use the claude runtime for a bot on %s", r.Host)
-	}
 	if e := strings.TrimSpace(r.Effort); e != "" {
 		if r.Effort = normalizeEffort(r.Runtime, e); r.Effort == "" {
 			return fmt.Errorf("effort %q is not a %s effort level", e, r.Runtime)

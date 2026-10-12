@@ -60,7 +60,9 @@ func botOmpMaterialize(b Backend, r *botRecord) error {
 		return err
 	}
 	// The bridge's socket lives here: full control of the session, so 0700.
-	{
+	// On another host the bridge makes the directory itself, 0700, when it
+	// first listens (SFTP would create it with the server's umask).
+	if b.Name() == "local" {
 		sockDir := filepath.Dir(botSocketPath(r.Name))
 		if err := os.MkdirAll(sockDir, 0o700); err != nil {
 			return fmt.Errorf("create %s: %w", sockDir, err)
@@ -154,8 +156,12 @@ func botOmpWriteMCP(b Backend, r *botRecord, dir string) error {
 // load. Every save and env change calls it; a running omp keeps the bridge it
 // loaded until it restarts (botOmpUpgrade).
 func botOmpWriteTask(b Backend, r *botRecord, dir string) error {
+	sock, err := botOmpSocketOn(b, r.Name)
+	if err != nil {
+		return err
+	}
 	for path, body := range map[string]string{
-		botTaskPath(dir):    botOmpTaskScript(r, dir, botEnvKeys(b, dir)),
+		botTaskPath(dir):    botOmpTaskScript(r, dir, sock, botEnvKeys(b, dir)),
 		botRestartPath(dir): botOmpRestartScript(dir),
 	} {
 		if err := b.WriteFile(path, []byte(body), 0o755); err != nil {
@@ -221,7 +227,7 @@ func botOmpArgv(r *botRecord, dir string) []string {
 // a claude bot's task it waits on omp rather than exec'ing it, so a self
 // restart (the marker, botOmpRestartScript) relaunches the whole task with new
 // env, servers and settings, on the same conversation.
-func botOmpTaskScript(r *botRecord, dir string, envKeys []string) string {
+func botOmpTaskScript(r *botRecord, dir, sock string, envKeys []string) string {
 	q := shellQuote
 	var b strings.Builder
 	fmt.Fprintf(&b, "#!/bin/sh\n#MISE description=%q\n", "Run the "+r.Name+" bot")
@@ -235,7 +241,7 @@ func botOmpTaskScript(r *botRecord, dir string, envKeys []string) string {
 	b.WriteString("unset CLAUDECODE CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_SESSION_ID\n")
 	resume, _ := json.Marshal(botOmpResumeArgv(r.task()))
 	b.WriteString("# lasso's bridge (an omp extension) serves the bot's socket and reports this\n# pane to herdr; herdr's own omp extension, which keys on HERDR_ENV, stays out.\n")
-	fmt.Fprintf(&b, "export LASSO_BOT_NAME=%s LASSO_BOT_SOCKET=%s\n", q(r.Name), q(botSocketPath(r.Name)))
+	fmt.Fprintf(&b, "export LASSO_BOT_NAME=%s LASSO_BOT_SOCKET=%s\n", q(r.Name), q(sock))
 	fmt.Fprintf(&b, "export LASSO_BOT_RESTART=%s LASSO_BOT_RESUME=%s LASSO_BRIDGE_VERSION=%s\n",
 		q(botRestartMarker(dir)), q(string(resume)), q(lassoVersion()))
 	b.WriteString("export LASSO_HERDR_SOCKET=\"${HERDR_SOCKET_PATH:-}\" LASSO_HERDR_PANE=\"${HERDR_PANE_ID:-}\"\n")

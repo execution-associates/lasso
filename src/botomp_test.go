@@ -676,7 +676,7 @@ func TestBotNormalizeRuntime(t *testing.T) {
 		{botRecord{Name: "a", Runtime: "omp", Effort: "auto", PermissionMode: "write"}, true},
 		{botRecord{Name: "a", Runtime: "omp", PermissionMode: "bypassPermissions"}, false},
 		{botRecord{Name: "a", Runtime: "claude", Effort: "auto"}, false},
-		{botRecord{Name: "a", Runtime: "omp", Host: "citadel"}, false},
+		{botRecord{Name: "a", Runtime: "omp", Host: "citadel"}, true},
 		{botRecord{Name: "a", Runtime: "codex"}, false},
 		{botRecord{Name: "a", Runtime: "omp", ExtraArgs: []string{"--advisor"}}, true},
 		{botRecord{Name: "a", Runtime: "omp", ExtraArgs: []string{"--mode=json"}}, false},
@@ -702,7 +702,7 @@ func TestBotOmpFiles(t *testing.T) {
 	if err := r.normalize(); err != nil {
 		t.Fatal(err)
 	}
-	s := botOmpTaskScript(r, "/b/a", []string{"TOKEN"})
+	s := botOmpTaskScript(r, "/b/a", botSocketPath(r.Name), []string{"TOKEN"})
 	for _, want := range []string{
 		"#MISE secrets=[\"TOKEN\"]", "#MISE interactive=true",
 		"export LASSO_BOT_NAME='a' LASSO_BOT_SOCKET='/l/bots/a.sock'",

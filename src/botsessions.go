@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -42,7 +41,7 @@ func botSessions(b Backend, r *botRecord) []botSessionInfo {
 	dir := expandTildeOn(b, r.Dir)
 	var out []botSessionInfo
 	if r.isOmp() {
-		out = ompSessionList(botOmpSessionDir(dir), ompBotFor(r.Name).snapshot().sessionID)
+		out = ompSessionList(b, botOmpSessionDir(dir), ompBotFor(r.Name).snapshot().sessionID)
 	} else {
 		out = claudeSessionList(b, dir, r.LastSessionID)
 	}
@@ -52,21 +51,22 @@ func botSessions(b Backend, r *botRecord) []botSessionInfo {
 	return out
 }
 
-func ompSessionList(dir, current string) []botSessionInfo {
-	ents, err := os.ReadDir(dir)
+func ompSessionList(b Backend, dir, current string) []botSessionInfo {
+	ents, err := b.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
 	var out []botSessionInfo
 	for _, e := range ents {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+		if e.Dir || !strings.HasSuffix(e.Name, ".jsonl") {
 			continue
 		}
-		info, err := e.Info()
+		path := filepath.Join(dir, e.Name)
+		info, err := b.Stat(path)
 		if err != nil {
 			continue
 		}
-		s := ompSessionSummary(filepath.Join(dir, e.Name()))
+		s := ompSessionSummary(b, path)
 		if s.ID == "" {
 			continue
 		}
@@ -81,8 +81,8 @@ func ompSessionList(dir, current string) []botSessionInfo {
 // ompSessionSummary reads one omp session file: its id and title, its first
 // user message, and how many messages it holds. Lines are read whole (an
 // inlined image makes one huge) but only these few fields are decoded.
-func ompSessionSummary(path string) botSessionInfo {
-	f, err := os.Open(path)
+func ompSessionSummary(b Backend, path string) botSessionInfo {
+	f, err := b.Open(path)
 	if err != nil {
 		return botSessionInfo{}
 	}
@@ -272,8 +272,7 @@ func botResumeSession(b Backend, r *botRecord, id string) error {
 	// The launch task's `-c` (a restart, herdr's restore) continues the newest
 	// file: making this one newest is what keeps it across a restart, even
 	// before anything is said in it.
-	now := time.Now()
-	_ = os.Chtimes(target.path, now, now)
+	_ = botTouch(b, target.path, time.Now())
 	ob := ompBotFor(r.Name)
 	if !(ob.ensure() && ob.snapshot().ready) {
 		if botRunning(b, r) {

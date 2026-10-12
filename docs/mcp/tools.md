@@ -402,7 +402,7 @@ Returns `closed` (the tab id) and `browser`.
 
 ## Bots
 
-These manage lasso's [bots](../web-ui/bots.md): long-lived agent sessions lasso keeps running. A bot's runtime is `omp` (omp in RPC mode under lasso's bot host, on lasso's own machine) or `claude` (Claude Code in a herdr pane). A bot is named by `name`, as `list_bots` shows it. A bot on a host outside your reach is answered as if it did not exist. Every bot on lasso's own machine has these tools through an MCP server named `lasso`, so a bot can change its own settings when its human asks. Creating and deleting a bot, and signing one in to an OAuth server, stay in the Bots view. Design: [bots.md](../design/bots.md).
+These manage lasso's [bots](../web-ui/bots.md): long-lived agent sessions lasso keeps running. A bot's runtime is `omp` (omp in a herdr pane, driven through lasso's bridge) or `claude` (Claude Code in a herdr pane), on any host lasso drives. A bot is named by `name`, as `list_bots` shows it. A bot on a host outside your reach is answered as if it did not exist. Every bot on lasso's own machine has these tools through an MCP server named `lasso`, so a bot can change its own settings when its human asks. Creating and deleting a bot, and signing one in to an OAuth server, stay in the Bots view. Design: [bots.md](../design/bots.md).
 
 To talk to a running bot, use [`send_agent`](#send_agent) with its name as `to`.
 
