@@ -220,3 +220,33 @@ final class FieldPageStub: URLProtocol, @unchecked Sendable {
     again.close()
     #expect(PageWindow.storedFrame(HerdrTerminalController.frameName) == nil, "a close remembers nothing")
 }
+
+/// Collapsed to its header, the window's Close takes a real click all the
+/// way to its trailing edge: the resize corner, hidden while collapsed, sits
+/// over that edge of the button and must not take it.
+@MainActor @Test func aCollapsedPageWindowClosesOnARealClick() async throws {
+    guard canPostClicks() else { return }
+    let keys = [PageWindow.frameKey(HerdrTerminalController.frameName), "NSWindow Frame " + HerdrTerminalController.frameName]
+    let saved = keys.map { UserDefaults.standard.object(forKey: $0) }
+    defer { for (k, v) in zip(keys, saved) { UserDefaults.standard.set(v, forKey: k) } }
+    let c = HerdrTerminalController(source: FieldTermSource(), client: fieldClient(), fleet: FleetModel())
+    c.open()
+    defer { c.close() }
+    let pw = try #require(c.pageWindow)
+    pw.panel.setFrame(NSRect(x: 600, y: 450, width: 700, height: 500), display: true)
+    pw.toggle()
+    #expect(pw.collapsed)
+    try? await Task.sleep(nanoseconds: 300_000_000)
+
+    let root = try #require(pw.panel.contentView)
+    let header = Theme.Terminal.window.number("header")
+    let button = Theme.Agent.window.number("button")
+    // Close's trailing edge, low in the header: inside the button, and
+    // inside where the corner is (the window's bottom-right `button` square).
+    let x = root.bounds.width - Theme.Panel.inset.pt - 2
+    let y = (header - button) / 2 + 2
+    try #require(x > root.bounds.width - button && y < button)
+    await realClick(root, at: NSPoint(x: x, y: root.bounds.height - y))
+    await until(2) { !c.isOpen }
+    #expect(!c.isOpen, "the click went to \(hitView(root, at: NSPoint(x: x, y: root.bounds.height - y)).map { String(describing: type(of: $0)) } ?? "nothing")")
+}

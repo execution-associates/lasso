@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   AlertTriangle,
   ArrowRight,
+  ArrowUp,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -1624,10 +1625,106 @@ export type ChatModalActions = {
   onEnd: () => void
 }
 
-// One message held by the send-while-working queue: typed while the agent was
-// busy, sent once it is idle. Keyed by target like the echoes, so a queue for
-// one agent never drains into another.
-type HeldMessage = { id: number; target: string; text: string }
+// One waiting message in the "Up next" panel: its text (a field while it is
+// edited), why it failed when it did, and its controls.
+function QueuedRow({
+  text,
+  failed,
+  onRemove,
+  onEdit,
+  onMoveUp,
+}: {
+  text: string
+  failed?: string
+  onRemove: () => void
+  onEdit: (text: string) => Promise<void>
+  onMoveUp?: () => void
+}) {
+  const [draft, setDraft] = React.useState<string | null>(null)
+  const save = async () => {
+    if (draft === null) return
+    if (draft.trim() && draft !== text) await onEdit(draft)
+    setDraft(null)
+  }
+  return (
+    <div className="flex items-start gap-2 rounded-lg border border-border border-dashed bg-background/60 py-1 pr-1 pl-2.5">
+      <div className="min-w-0 flex-1 py-0.5">
+        {draft === null ? (
+          <span className="line-clamp-3 whitespace-pre-wrap break-words text-[12.5px] text-foreground">
+            {text}
+          </span>
+        ) : (
+          <textarea
+            {...NO_AUTOCORRECT}
+            // biome-ignore lint/a11y/noAutofocus: the field replaces the text the human just asked to edit
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault()
+                void save()
+              } else if (e.key === "Escape") {
+                e.preventDefault()
+                setDraft(null)
+              }
+            }}
+            rows={Math.min(6, Math.max(2, draft.split("\n").length))}
+            className="w-full resize-none rounded border border-input bg-background px-1.5 py-1 text-base outline-none focus-visible:border-ring md:text-[12.5px]"
+          />
+        )}
+        {failed && (
+          <div className="mt-0.5 text-[11px] text-amber-600 dark:text-amber-400">
+            {failed}
+          </div>
+        )}
+      </div>
+      {draft === null ? (
+        <>
+          {onMoveUp && (
+            <button
+              type="button"
+              onClick={onMoveUp}
+              aria-label="Send this one sooner"
+              title="Move up"
+              className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+            >
+              <ArrowUp className="size-3.5" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setDraft(text)}
+            aria-label="Edit queued message"
+            title="Edit"
+            className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+          >
+            <Pencil className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={onRemove}
+            aria-label="Remove queued message"
+            title="Remove"
+            className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+          >
+            <X className="size-3.5" />
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={() => void save()}
+          aria-label="Save queued message"
+          title="Save (⌘Enter)"
+          className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+        >
+          <Check className="size-3.5" />
+        </button>
+      )}
+    </div>
+  )
+}
 
 export function ChatView({
   address,
@@ -1835,6 +1932,24 @@ export function ChatView({
     setQueued((prev) => reconcileQueued(prev, target, newestUser))
   }, [newestUser, target])
 
+  // The pane's "Up next" queue, as lasso holds it (see the send-while-working
+  // queue below).
+  const serverQueue = botName ? undefined : data?.queue
+  const queueItems = serverQueue?.items ?? []
+  const waiting = queueItems.filter(
+    (m) => m.state === "queued" || m.state === "failed"
+  )
+  const holdPaused = serverQueue?.paused ?? false
+  // What lasso has typed and the transcript has not shown yet, drawn as
+  // echoes like a direct send's. A sent one is hidden as soon as this view's
+  // own newest user turn has moved past the one it went out after, rather
+  // than doubling the row until lasso's next pass retires it.
+  const queueEchoes = queueItems.filter(
+    (m) =>
+      m.state === "sending" ||
+      (m.state === "sent" && (m.after ?? "") === newestUser)
+  )
+
   const loadOlder = React.useCallback(async () => {
     const before = acc.olderStart ?? data?.start_offset
     if (!before || before <= 0 || loadingOlder || !data) return
@@ -1896,7 +2011,11 @@ export function ChatView({
   // output has to re-pin too.
   React.useLayoutEffect(() => {
     const el = scrollRef.current
-    if (!el || (rows.length === 0 && queued.length === 0)) return
+    if (
+      !el ||
+      (rows.length === 0 && queued.length === 0 && queueEchoes.length === 0)
+    )
+      return
     const restore = restoreHeight.current
     if (restore != null) {
       el.scrollTop += el.scrollHeight - restore
@@ -1910,8 +2029,9 @@ export function ChatView({
       setAtBottom(true)
     }
     // `queued` too: a sent message shows as an echo below the rows before the
-    // transcript has it, and that echo is what the sender wants to see.
-  }, [rows, queued])
+    // transcript has it, and that echo is what the sender wants to see. The
+    // same for one lasso sent from the queue.
+  }, [rows, queued, queueEchoes.length])
 
   // The transcript's viewport shrinks when the composer grows into a longer
   // draft, and when a phone's keyboard opens over it. A reader who is at the
@@ -1951,24 +2071,29 @@ export function ChatView({
     [target]
   )
 
-  // The send-while-working queue. A message sent while the agent is busy is
-  // HELD rather than typed into a turn in progress, and goes out by itself, one
-  // at a time, once the agent is idle — how a chat app holds a follow-up. It is
-  // this tab's (state, not the server's), so it says so. Stop pauses it: the
-  // next message after an interrupt is a decision, not something that fires the
-  // moment the agent goes quiet.
-  const [held, setHeld] = React.useState<HeldMessage[]>([])
-  const [holdPaused, setHoldPaused] = React.useState(false)
+  // The send-while-working queue ("Up next"). A message sent while the agent
+  // is busy is HELD rather than typed into a turn in progress, and goes out by
+  // itself, one at a time, once the agent is idle — how a chat app holds a
+  // follow-up. It is LASSO's (src/chatqueue.go), not this tab's: a phone
+  // suspends a tab the moment it locks, and a queue in the tab went nowhere.
+  // It rides every poll of this payload and every device shows the same one.
+  // Stop pauses it (server-side): the next message after an interrupt is a
+  // decision, not something that fires the moment the agent goes quiet. An
+  // omp bot takes a message mid-run (a steer), so it never queues.
   const [delivering, setDelivering] = React.useState(false)
-  const heldHere = React.useMemo(
-    () => held.filter((m) => m.target === target),
-    [held, target]
+  const queueHost = data?.host ?? ""
+  const queuePane = data?.pane_id ?? ""
+  const changeQueue = React.useCallback(
+    async (what: string, call: () => Promise<unknown>) => {
+      try {
+        await call()
+      } catch (e) {
+        toast.error(`could not ${what}: ${(e as Error).message}`)
+      }
+      void queryClient.invalidateQueries({ queryKey })
+    },
+    [queryClient, queryKey]
   )
-  // Echoes still waiting for their row. The queue does not drain past one: a
-  // confirmed send only becomes "running" in the payload once the transcript
-  // records the turn, and until then an idle-looking agent would be handed the
-  // next message mid-start.
-  const echoesHere = queued.some((q) => q.target === target)
 
   // deliver types one message into the pane on screen. Only "confirmed" puts
   // an echo up; the caller decides what a refusal means for its draft or queue.
@@ -2011,16 +2136,26 @@ export function ChatView({
       setAtBottom(true)
       const el = scrollRef.current
       if (el) el.scrollTop = el.scrollHeight
-      // Stop holds only what was already waiting: with nothing held, a new
-      // message goes out as usual.
-      if (heldHere.length === 0) setHoldPaused(false)
-      // An omp bot takes a message mid-run (a steer), so nothing is held for it
-      // while it works.
-      if ((running && !botName) || heldHere.length > 0 || delivering) {
-        setHeld((prev) => [
-          ...prev,
-          { id: echoSeq.current++, target, text: message },
-        ])
+      // Anything already in line goes first, so a new message joins the
+      // queue rather than overtaking it. Queued into an EMPTY queue, it starts
+      // a fresh one: a Stop's pause holds only what was already waiting.
+      if (
+        !botName &&
+        data?.pane_id &&
+        (running || queueItems.length > 0 || delivering)
+      ) {
+        try {
+          await api.chatQueue.add(data.host, data.pane_id, message, data.path)
+        } catch (e) {
+          return {
+            cleared: false,
+            notice: {
+              tone: "bad",
+              text: `not queued: ${(e as Error).message}`,
+            },
+          }
+        }
+        void queryClient.invalidateQueries({ queryKey })
         onSubmitted?.()
         return { cleared: true }
       }
@@ -2033,44 +2168,23 @@ export function ChatView({
     },
     [
       running,
-      heldHere.length,
+      queueItems.length,
       delivering,
       deliver,
-      target,
       botName,
       onSubmitted,
+      data?.pane_id,
+      data?.host,
+      data?.path,
+      queryClient,
+      queryKey,
     ]
   )
 
-  // Drain one held message whenever the agent is idle and nothing is in flight.
-  // A failure pauses the queue and leaves the message in it: a refusal can be
-  // sent again with "Send queued messages", and an uncertain one is never
-  // resent by itself.
-  React.useEffect(() => {
-    if (running || delivering || holdPaused || echoesHere) return
-    const head = heldHere[0]
-    if (!head) return
-    void deliver(head.text).then((res) => {
-      if (res.outcome === "confirmed") {
-        setHeld((prev) => prev.filter((m) => m.id !== head.id))
-      } else {
-        setHoldPaused(true)
-        setNotice(noticeFor(res))
-      }
-    })
-  }, [
-    running,
-    delivering,
-    holdPaused,
-    echoesHere,
-    heldHere,
-    deliver,
-    setNotice,
-  ])
-
+  // Stop also pauses the queue, server-side (/api/chat/stop), so nothing of
+  // the queue goes out the moment the interrupted agent reads idle.
   const stopAgent = React.useCallback(async () => {
     if (!data?.pane_id) return
-    setHoldPaused(true)
     setNotice(null)
     try {
       const res = botName
@@ -2419,6 +2533,19 @@ export function ChatView({
                   </div>
                 </div>
               ))}
+            {/* The same for a message lasso sent from the queue. */}
+            {queueEchoes.map((m) => (
+              <div key={`q${m.id}`} className="flex justify-end">
+                <div className="max-w-[85%] rounded-xl rounded-br-sm border border-primary/20 border-dashed bg-primary/8 px-3 py-2 text-[13.5px] text-foreground leading-snug opacity-60">
+                  <div className="whitespace-pre-wrap break-words">
+                    {m.text}
+                  </div>
+                  <div className="mt-1 text-[10.5px] text-muted-foreground">
+                    {m.state === "sending" ? "sending…" : "sent…"}
+                  </div>
+                </div>
+              </div>
+            ))}
             {/* Where the agent's NEXT message will land. The header says the same
                 thing, but a view waiting on output should say it at the point
                 the output will appear — and that gap is seconds long every
@@ -2453,9 +2580,10 @@ export function ChatView({
       </div>
 
       {/* Held messages, above the composer that queued them: what goes next,
-          in order, each removable — and, once a Stop or a failed send has
-          paused them, the one explicit way to let them go. */}
-      {data?.pane_id && heldHere.length > 0 && (
+          in order, each editable, movable and removable — and, once a Stop or
+          a failed send has paused them, the one explicit way to let them go.
+          lasso holds them, so they go out with this tab closed too. */}
+      {data?.pane_id && waiting.length > 0 && (
         <div className="flex-none border-border border-t bg-card">
           <div className={cn("flex flex-col gap-1.5 py-2", MEASURE)}>
             <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
@@ -2465,36 +2593,60 @@ export function ChatView({
               <span className="truncate">
                 {holdPaused
                   ? "· nothing goes out until you say so"
-                  : "· sent when the agent is done, from this tab"}
+                  : "· sent when the agent is done"}
               </span>
             </div>
-            {heldHere.map((m) => (
+            {serverQueue?.note && (
               <div
-                key={m.id}
-                className="flex items-start gap-2 rounded-lg border border-border border-dashed bg-background/60 py-1 pr-1 pl-2.5"
+                className={cn(
+                  "text-[11.5px]",
+                  serverQueue.tone === "bad"
+                    ? "text-destructive"
+                    : "text-amber-600 dark:text-amber-400"
+                )}
               >
-                <span className="line-clamp-3 min-w-0 flex-1 whitespace-pre-wrap break-words py-0.5 text-[12.5px] text-foreground">
-                  {m.text}
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setHeld((prev) => prev.filter((x) => x.id !== m.id))
-                  }
-                  aria-label="Remove queued message"
-                  title="Remove"
-                  className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground/70 hover:bg-accent hover:text-foreground"
-                >
-                  <X className="size-3.5" />
-                </button>
+                {serverQueue.note}
               </div>
+            )}
+            {waiting.map((m, i) => (
+              <QueuedRow
+                key={m.id}
+                text={m.text}
+                failed={m.state === "failed" ? m.detail || "failed" : undefined}
+                onRemove={() =>
+                  void changeQueue("remove the message", () =>
+                    api.chatQueue.remove(queueHost, queuePane, m.id)
+                  )
+                }
+                onEdit={(text) =>
+                  changeQueue("save the message", () =>
+                    api.chatQueue.edit(queueHost, queuePane, m.id, text)
+                  )
+                }
+                onMoveUp={
+                  i === 0
+                    ? undefined
+                    : () => {
+                        const order = waiting.map((x) => x.id)
+                        order.splice(i, 1)
+                        order.splice(i - 1, 0, m.id)
+                        void changeQueue("reorder the queue", () =>
+                          api.chatQueue.update(queueHost, queuePane, { order })
+                        )
+                      }
+                }
+              />
             ))}
             {holdPaused && (
               <button
                 type="button"
                 onClick={() => {
                   setNotice(null)
-                  setHoldPaused(false)
+                  void changeQueue("resume the queue", () =>
+                    api.chatQueue.update(queueHost, queuePane, {
+                      paused: false,
+                    })
+                  )
                 }}
                 className="self-start rounded-lg bg-primary px-3 py-1.5 font-medium text-[12.5px] text-primary-foreground"
               >

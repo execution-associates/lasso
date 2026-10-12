@@ -91,6 +91,9 @@ public final class CardController {
 
     public var isOpen: Bool { holder.model != nil }
 
+    /// The card's model while it is on screen (not fading out).
+    var shown: CardModel? { presence.shown ? holder.model : nil }
+
     /// Open the card on `pane`. `takeKey` false (a hover) shows it without
     /// taking the keyboard from the app the user is typing in: its one-letter
     /// keys act only once a click or the summon key has made it key.

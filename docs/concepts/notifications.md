@@ -4,7 +4,7 @@ description: What lasso notifies you about, how each device chooses what may int
 order: 24
 ---
 
-An agent blocked on a tool approval stops until a human answers, and nothing in a browser tab can tell you unless you're already looking at it. lasso closes that gap with one notification pipeline that reaches you wherever you are: **Web Push** to a registered device with no lasso tab open, including a locked phone, and a live toast (or, in the [Mac app](../getting-started/desktop.md), a sound) in every lasso window that is open. To set a device up, follow [On your phone](../getting-started/phone.md); this page explains what gets sent and when.
+An agent blocked on a tool approval stops until a human answers, and nothing in a browser tab can tell you unless you're already looking at it. lasso closes that gap with one notification pipeline that reaches you wherever you are: **Web Push** to a registered device with no lasso tab open, including a locked phone, and a live toast (or, in the [Mac app](../getting-started/desktop.md), a sound and a macOS notification) in every lasso window that is open. To set a device up, follow [On your phone](../getting-started/phone.md); this page explains what gets sent and when.
 
 ## What triggers a notification
 
@@ -71,7 +71,7 @@ Every device chooses which kinds of notification may interrupt it, in Settings (
 
 - **A device** is one browser (a phone's home-screen app, a laptop's browser) or one Mac running the Mac app. The choice is stored on lasso against that device, so it holds for both its pushes and its open windows.
 - **Only what you changed is stored.** A kind you never touched follows the default above, and so does a kind a later release adds.
-- **A choice governs interruptions, never a list.** It decides whether a device is pushed, shown a toast or played a sound. The simple app's and the Mac app's Inbox list everything that is waiting either way, because turning a kind off must never hide something that needs you.
+- **A choice governs interruptions, never a list.** It decides whether a device is pushed, shown a toast, played a sound or shown a macOS notification. The simple app's and the Mac app's Inbox list everything that is waiting either way, because turning a kind off must never hide something that needs you.
 - A phone that turned on push before devices had choices gets the defaults until it registers again, which it does the next time its Settings opens.
 
 ## Delivery is reported honestly

@@ -217,7 +217,7 @@ public final class BrowserWindowController: NSObject {
     private var window: PageWindow?
     private var web: LassoPageWebView?
     private var bridge: BrowserBridge?
-    private var status: NSHostingView<BrowserStatus>?
+    private var status: OverlayHostingView<BrowserStatus>?
     /// The page has mounted and takes requests.
     private var ready = false
     /// An agent's page that arrived before the page could take it.
@@ -312,7 +312,7 @@ public final class BrowserWindowController: NSObject {
         web.setAccessibilityLabel("Browser page")
         bridge.webView = web
 
-        let status = NSHostingView(rootView: BrowserStatus(model: model))
+        let status = OverlayHostingView(rootView: BrowserStatus(model: model))
         status.frame = pageFrame
         status.autoresizingMask = [.width, .height]
         content.addSubview(web)

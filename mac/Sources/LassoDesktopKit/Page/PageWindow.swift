@@ -10,6 +10,19 @@ import SwiftUI
 // their frame remembered. A panel on every Space cannot go full screen, so
 // neither window can.
 
+/// SwiftUI over a page that comes and goes (the status covering the page
+/// until it is up, the resize corner, hidden while collapsed): hidden, it
+/// takes no clicks. The app is linked against the macOS 14 SDK, and under
+/// that SDK's rule a hidden NSHostingView still answers hitTest: the Browser
+/// window's status, hidden over its live page, took the page's every press,
+/// so the release never reached WebKit and no click on the page acted (a
+/// press still focused a field), and the herdr window's took xterm's.
+final class OverlayHostingView<Content: View>: NSHostingView<Content> {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        isHiddenOrHasHiddenAncestor ? nil : super.hitTest(point)
+    }
+}
+
 /// A lasso page's window: a header over its page, in an agent window's panel.
 @MainActor
 final class PageWindow {
@@ -71,7 +84,7 @@ final class PageWindow {
         root.addSubview(top)
 
         let side = Theme.Agent.window.number("button")
-        let corner = NSHostingView(rootView: WindowGrip(chrome: chrome))
+        let corner = OverlayHostingView(rootView: WindowGrip(chrome: chrome))
         corner.frame = NSRect(x: bounds.width - side, y: 0, width: side, height: side)
         corner.autoresizingMask = [.minXMargin, .maxYMargin]
         root.addSubview(corner)

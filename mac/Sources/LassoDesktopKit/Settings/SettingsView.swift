@@ -202,6 +202,29 @@ public struct SettingsView: View {
     // MARK: Notifications
 
     @ViewBuilder private var notificationsTab: some View {
+        if let state = model.notifications {
+            group("macOS notifications") {
+                row("Notifications", detail: Self.notificationsDetail(state), last: true) {
+                    HStack(spacing: Theme.space("m")) {
+                        dot(
+                            state == .granted ? Theme.State.done.color : (state == .denied ? Theme.State.blocked.color : Theme.State.idle.color),
+                            anchor: "settings.permission[Notifications]")
+                        value(state.label)
+                        switch state {
+                        case .granted: EmptyView()
+                        case .denied:
+                            PillButton(title: "Open System Settings", label: "Open System Settings: Notifications") {
+                                model.openNotificationSettings()
+                            }
+                        case .notDetermined:
+                            PillButton(title: "Allow…", label: "Allow Lasso's notifications") { model.allowNotifications() }
+                        }
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Notifications: \(state.label)")
+            }
+        }
         group("Sound", footnote: model.soundNotice) {
             stackedRow("Arrival sound", detail: "Plays when something new lands in the inbox. Picking one plays it.", last: model.upload == nil) {
                 HStack(spacing: Theme.space("s")) {
@@ -232,7 +255,7 @@ public struct SettingsView: View {
             }
         }
         if let n = model.notify() {
-            group("Notify me about", footnote: "A kind that is off makes no sound on this Mac. The inbox still lists everything waiting.") {
+            group("Notify me about", footnote: "A kind that is off makes no sound and no notification on this Mac. The inbox still lists everything waiting.") {
                 ForEach(Array(n.kinds.enumerated()), id: \.element.id) { i, k in
                     let on = n.wants(k.id)
                     row(k.label, detail: k.description, last: i == n.kinds.count - 1) {
@@ -242,7 +265,16 @@ public struct SettingsView: View {
                 }
             }
         } else {
-            group("Notify me about", footnote: "This lasso has no notification kinds yet, so every arrival sounds.") { EmptyView() }
+            group("Notify me about", footnote: "This lasso has no notification kinds yet, so every arrival sounds and notifies.") { EmptyView() }
+        }
+    }
+
+    /// What the macOS notifications row says under its name.
+    static func notificationsDetail(_ s: PermissionState) -> String {
+        switch s {
+        case .granted: "Each arrival you want shows as a notification, silently: the arrival sound below plays once for a burst."
+        case .denied: "Off for Lasso in System Settings. The inbox and the arrival sound still work."
+        case .notDetermined: "Lasso asks the first time something arrives."
         }
     }
 

@@ -298,6 +298,9 @@ func runServer() {
 	// Anonymous usage analytics (telemetry.go): a sender nothing waits on, inert
 	// while analytics is off.
 	go startTelemetry(ctx)
+	// The chat's "Up next" queue: typed while an agent works, delivered by
+	// lasso when it is idle, whether or not any browser is open (chatqueue.go).
+	go startChatQueueLoop(ctx)
 
 	// The shared browser launches lazily (first /cdp request, the Browser tab's
 	// start, or the MCP tool); nothing runs until then. run() is its idle stop
@@ -372,6 +375,8 @@ func runServer() {
 	mux.HandleFunc("/api/chat/send", serveChatSend)
 	mux.HandleFunc("/api/chat/answer", serveChatAnswer)
 	mux.HandleFunc("/api/chat/stop", serveChatStop)
+	mux.HandleFunc("/api/chat/queue", serveChatQueue)
+	mux.HandleFunc("/api/chat/queue/", serveChatQueue)
 	mux.HandleFunc("/api/bots", serveBots)
 	mux.HandleFunc("/api/bots/", serveBots)
 	// A bot job's webhook and lasso's bot channel (botjobs.go). Exempt from
@@ -1213,15 +1218,16 @@ type Active struct {
 	TabLabel       string `json:"tab_label"`
 	Agent          string `json:"agent"`
 	AgentStatus    string `json:"agent_status"`
-	PanesRev       int    `json:"panes_rev"`    // bumps when workspace order or pane membership changes
-	ThemeRev       int    `json:"theme_rev"`    // bumps when herdr's resolved theme changes (config.toml edited)
-	HerdrUp        bool   `json:"herdr_up"`     // false when herdr's socket is unreachable; the rest of the struct is then last-known (stale)
-	Host           string `json:"host"`         // the host THIS stream is for: "local" or an ssh-config alias
-	HostSlug       string `json:"host_slug"`    // Host's URL path segment, so the browser can address /terminal/<slug>/ without re-deriving it
-	CwdHost        string `json:"cwd_host"`     // host Cwd lives on — can differ from Host when the focused pane is an ssh window onto another host's herdr; the sidebar browses Cwd on this host
-	UIStateRev     int    `json:"ui_state_rev"` // bumps when the persisted UI prefs change, so every open tab refetches and converges
-	PluginsRev     int    `json:"plugins_rev"`  // bumps when the plugin listing changes (enable/disable/trust, an MCP server's status, a manifest edit), so every tab refetches /api/plugins
-	TermOwner      string `json:"term_owner"`   // client_id currently allowed to resize this host's shared terminal; "" means the claim is free and the next asker gets it (see uilock.go)
+	PanesRev       int    `json:"panes_rev"`      // bumps when workspace order or pane membership changes
+	ThemeRev       int    `json:"theme_rev"`      // bumps when herdr's resolved theme changes (config.toml edited)
+	HerdrUp        bool   `json:"herdr_up"`       // false when herdr's socket is unreachable; the rest of the struct is then last-known (stale)
+	Host           string `json:"host"`           // the host THIS stream is for: "local" or an ssh-config alias
+	HostSlug       string `json:"host_slug"`      // Host's URL path segment, so the browser can address /terminal/<slug>/ without re-deriving it
+	CwdHost        string `json:"cwd_host"`       // host Cwd lives on — can differ from Host when the focused pane is an ssh window onto another host's herdr; the sidebar browses Cwd on this host
+	UIStateRev     int    `json:"ui_state_rev"`   // bumps when the persisted UI prefs change, so every open tab refetches and converges
+	PluginsRev     int    `json:"plugins_rev"`    // bumps when the plugin listing changes (enable/disable/trust, an MCP server's status, a manifest edit), so every tab refetches /api/plugins
+	ChatQueueRev   int    `json:"chat_queue_rev"` // bumps when any chat's server-side "Up next" queue changes (chatqueue.go), so every tab re-reads the chat it shows
+	TermOwner      string `json:"term_owner"`     // client_id currently allowed to resize this host's shared terminal; "" means the claim is free and the next asker gets it (see uilock.go)
 }
 
 // fetchActive returns the focused-pane state plus a layout signature. The
@@ -2724,7 +2730,10 @@ type hub struct {
 	themeRev   int // theme revision (bumped when the resolved theme changes)
 	uiStateRev int // UI-prefs revision (bumped on every /api/ui-state save)
 	pluginsRev int // plugin-listing revision (plugins.go bumps it on every state change)
-	curTheme   resolvedTheme
+	// chatQueueRev moves on every change to a chat's server-side "Up next"
+	// queue (chatqueue.go), so every tab re-reads the chat it shows.
+	chatQueueRev int
+	curTheme     resolvedTheme
 	// strayTheme is the last config.toml theme the poll refused to adopt because
 	// an appearance palette governs (see refreshTheme). Held only to say so ONCE
 	// per value: the file keeps disagreeing until somebody changes it, so the
@@ -2779,6 +2788,22 @@ func (h *hub) pluginsRevNow() int {
 func (h *hub) bumpPluginsRev() {
 	h.mu.Lock()
 	h.pluginsRev++
+	h.mu.Unlock()
+	h.eachFeed((*hostFeed).pushCurrent)
+}
+
+// chatQueueRevNow reads the chat-queue revision feeds stamp into every frame.
+func (h *hub) chatQueueRevNow() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.chatQueueRev
+}
+
+// bumpChatQueueRev is bumpPluginsRev for the chat queues: they live in this
+// lasso's db, not on a host, so the bump reaches every tab.
+func (h *hub) bumpChatQueueRev() {
+	h.mu.Lock()
+	h.chatQueueRev++
 	h.mu.Unlock()
 	h.eachFeed((*hostFeed).pushCurrent)
 }

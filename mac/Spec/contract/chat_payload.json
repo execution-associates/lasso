@@ -97,5 +97,22 @@
       ],
       "placeholder": "x"
     }
-  ]
+  ],
+  "queue": {
+    "paused": true,
+    "note": "x",
+    "tone": "x",
+    "items": [
+      {
+        "id": 1,
+        "text": "x",
+        "state": "x",
+        "created_at": 1,
+        "created_by": "x",
+        "sent_at": 1,
+        "after": "x",
+        "detail": "x"
+      }
+    ]
+  }
 }

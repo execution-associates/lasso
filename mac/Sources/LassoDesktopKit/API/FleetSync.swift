@@ -135,6 +135,7 @@ public final class FleetSync: ObservableObject {
     public func refreshPanes() async {
         do {
             fleet.apply(panes: try await client.get("/api/all-panes", as: AllPanes.self))
+            fleet.markHeard(.panes)
             lastError = nil
             heard(true)
         } catch {
@@ -158,10 +159,12 @@ public final class FleetSync: ObservableObject {
     }
 
     public func refreshBots() async {
+        defer { fleet.markHeard(.bots) }
         do { fleet.apply(bots: try await client.get("/api/bots", as: BotsPayload.self)) } catch { note(error, "bots") }
     }
 
     public func refreshUIState() async {
+        defer { fleet.markHeard(.uiState) }
         do { fleet.apply(uiState: try await client.get("/api/ui-state", as: UIStateSlice.self)) } catch {
             note(error, "ui-state")
         }
@@ -170,6 +173,7 @@ public final class FleetSync: ObservableObject {
     /// The notices lasso keeps for the inbox. An older lasso has none to
     /// give: the ones heard live stay.
     public func refreshNotices() async {
+        defer { fleet.markHeard(.notices) }
         guard let p = try? await client.get("/api/notices", as: NoticesPayload.self) else { return }
         fleet.apply(notices: p)
     }
