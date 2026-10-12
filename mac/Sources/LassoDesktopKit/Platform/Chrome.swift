@@ -200,7 +200,8 @@ struct ComposerRow<Model: ComposerModel>: View {
 
 /// A one-line text field that takes the cursor as it appears, with its text
 /// selected (a rename in place). ⏎ submits and esc cancels, unless the
-/// panel's own key handler takes them first.
+/// panel's own key handler takes them first. A click anywhere outside it, or
+/// its window losing the keyboard, submits too (as Finder's rename does).
 struct InlineField: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
@@ -210,6 +211,8 @@ struct InlineField: NSViewRepresentable {
     var onCancel: () -> Void = {}
 
     func makeCoordinator() -> Coordinator { Coordinator(text: $text, submit: onSubmit, cancel: onCancel) }
+
+    static func dismantleNSView(_ f: NSTextField, coordinator: Coordinator) { coordinator.stopWatching() }
 
     func makeNSView(context: Context) -> NSTextField {
         let f = NSTextField(string: text)
@@ -227,6 +230,7 @@ struct InlineField: NSViewRepresentable {
             f.window?.makeKeyAndOrderFront(nil)
             f.window?.makeFirstResponder(f)
             f.currentEditor()?.selectAll(nil)
+            context.coordinator.watch(f)
         }
         return f
     }
@@ -255,6 +259,41 @@ struct InlineField: NSViewRepresentable {
             default: return false
             }
             return true
+        }
+
+        private var monitor: Any?
+        private var resign: NSObjectProtocol?
+
+        /// End the edit on a click outside the field, in its window or any
+        /// other of the app's, and when its window loses the keyboard (a click
+        /// in another app). Submitting twice is harmless: the models guard it.
+        func watch(_ f: NSTextField) {
+            stopWatching()
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self, weak f] e in
+                if let f, e.window !== f.window || !f.bounds.contains(f.convert(e.locationInWindow, from: nil)) {
+                    self?.end(f)
+                }
+                return e
+            }
+            if let w = f.window {
+                resign = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: w, queue: .main) {
+                    [weak self, weak f] _ in
+                    MainActor.assumeIsolated { if let f { self?.end(f) } }
+                }
+            }
+        }
+
+        private func end(_ f: NSTextField) {
+            stopWatching()
+            f.window?.makeFirstResponder(nil)
+            submit()
+        }
+
+        func stopWatching() {
+            if let m = monitor { NSEvent.removeMonitor(m) }
+            if let r = resign { NotificationCenter.default.removeObserver(r) }
+            monitor = nil
+            resign = nil
         }
     }
 }

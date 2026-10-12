@@ -103,7 +103,9 @@ public struct ListView: View {
                             AgentAvatar(agent: p.agent, state: p.state)
                             Group {
                                 if model.renaming == key {
-                                    InlineField(text: $model.renameDraft, placeholder: p.tab_label, label: "New name for \(p.displayName)")
+                                    InlineField(
+                                        text: $model.renameDraft, placeholder: p.tab_label, label: "New name for \(p.displayName)",
+                                        onSubmit: { model.commitRename() }, onCancel: { model.cancelRename() })
                                         .padding(.horizontal, Theme.space("s"))
                                         .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).strokeBorder(Theme.accent.color, lineWidth: 1))
                                 } else {
