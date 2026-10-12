@@ -203,7 +203,7 @@ public final class HerdrTerminalController: NSObject {
     private var window: PageWindow?
     private var web: TerminalWebView?
     private var bridge: TerminalBridge?
-    private var status: NSHostingView<HerdrTerminalStatus>?
+    private var status: OverlayHostingView<HerdrTerminalStatus>?
     private var stream: EventStream?
     private var loading: Task<Void, Never>?
     private var subs: Set<AnyCancellable> = []
@@ -311,7 +311,7 @@ public final class HerdrTerminalController: NSObject {
         web.onZoom = { [weak self] in self?.zoom($0) }
         bridge.webView = web
 
-        let status = NSHostingView(rootView: HerdrTerminalStatus(model: model))
+        let status = OverlayHostingView(rootView: HerdrTerminalStatus(model: model))
         status.frame = web.frame
         status.autoresizingMask = [.width, .height]
         let container = NSView(frame: web.frame)

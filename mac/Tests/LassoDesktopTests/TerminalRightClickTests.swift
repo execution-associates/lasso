@@ -35,6 +35,9 @@ final class RightClickStub: URLProtocol, @unchecked Sendable {
         let url = request.url!
         let page = url.path.hasPrefix("/terminal/") && !url.path.hasSuffix("/token")
         let status = url.path.hasPrefix("/terminal/") ? 200 : 404
+        // As ttyd's page does, it takes a moment: the window's status is up
+        // over the page first, and hidden once it is live.
+        if page { Thread.sleep(forTimeInterval: 0.5) }
         let resp = HTTPURLResponse(
             url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": page ? "text/html" : "application/json"])!
         client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
@@ -168,4 +171,37 @@ final class StandInSocketServer: @unchecked Sendable {
     await until(3) { ttyd.frames.count >= 2 }
     #expect(ttyd.frames == ["0ESC[<0;21;6M", "0ESC[<0;21;6m"])
     #expect(await pageLog() == "mousedown:0 mouseup:0")
+}
+
+/// A real click in the herdr window (through the window server, as the
+/// pointer's are) reaches herdr: the page's terminal gets the press and the
+/// release, reported to ttyd. The status that covered the page while it
+/// opened, hidden since, must take neither.
+@MainActor @Test func aRealClickInTheHerdrWindowReachesHerdr() async throws {
+    guard canPostClicks() else { return }
+    let ttyd = try StandInSocketServer()
+    defer { ttyd.stop() }
+    await until(2) { ttyd.port != 0 }
+    let client = LassoClient(baseURL: URL(string: "http://127.0.0.1:\(ttyd.port)")!, protocolClasses: [RightClickStub.self])
+    let c = HerdrTerminalController(source: StubSource(), client: client, fleet: FleetModel())
+    c.open()
+    defer { c.close() }
+    let w = c.hostWindow
+    w.setFrame(NSRect(x: 600, y: 500, width: 640, height: 400), display: true)
+    let web = try #require(c.pageView)
+    await until(10) {
+        guard c.model.phase == .live else { return false }
+        return ((try? await web.evaluateJavaScript("window.__open === true")) as? Bool) == true
+    }
+    #expect(c.model.phase == .live)
+    if w.isKeyWindow { w.resignKey() }
+
+    // The page's (205, 105): cell 21;6.
+    let at = NSPoint(x: 205, y: 105)
+    let hit = hitView(web, at: at)
+    #expect(hit.map { $0 === web || $0.isDescendant(of: web) } == true, "the click lands on \(hit.map { String(describing: type(of: $0)) } ?? "nothing")")
+    await realClick(web, at: at)
+    await until(3) { ttyd.frames.count >= 2 }
+    #expect(ttyd.frames == ["0ESC[<0;21;6M", "0ESC[<0;21;6m"])
+    #expect(((try? await web.evaluateJavaScript("__log.join(' ')")) as? String) == "mousedown:0 mouseup:0")
 }
