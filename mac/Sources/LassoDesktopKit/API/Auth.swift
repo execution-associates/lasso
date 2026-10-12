@@ -64,13 +64,15 @@ public enum LassoAuth {
         return c.string ?? base.absoluteString
     }
 
-    /// Ask the lasso at `base` what it needs, sending no credential. The
+    /// Ask the lasso at `base` what it needs, sending no credential (or only
+    /// UI_AUTH's "user:pass", to check a password before keeping it). The
     /// X-Requested-With header is Cloudflare's documented way to get a clean
     /// 401 from Access rather than a redirect to its login page.
-    public static func probe(_ base: URL, session: URLSession = .shared) async -> LassoAccess {
+    public static func probe(_ base: URL, basicAuth: String? = nil, session: URLSession = .shared) async -> LassoAccess {
         var r = URLRequest(url: base.appendingPathComponent("/api/version"))
         r.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
         r.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let b = basicAuth { r.setValue("Basic " + Data(b.utf8).base64EncodedString(), forHTTPHeaderField: "Authorization") }
         r.timeoutInterval = 10
         do {
             let (data, resp) = try await session.data(for: r)
@@ -201,6 +203,8 @@ public final class OAuthSignIn: NSObject, ASWebAuthenticationPresentationContext
     let session: URLSession
     weak var anchor: NSWindow?
     private var web: ASWebAuthenticationSession?
+    private var callback: LoopbackCallback?
+    private var cancelled = false
 
     public init(base: URL, metadata: URL, anchor: NSWindow?, session: URLSession = .shared) {
         self.base = base
@@ -245,9 +249,15 @@ public final class OAuthSignIn: NSObject, ASWebAuthenticationPresentationContext
         let resource = LassoAuth.origin(base)
 
         let callback = try await LoopbackCallback.start()
-        defer { callback.stop() }
+        self.callback = callback
+        defer {
+            callback.stop()
+            self.callback = nil
+        }
+        if cancelled { throw OAuthError.cancelled }
         let redirect = "http://127.0.0.1:\(callback.port)/callback"
         let clientID = try await register(sm.registration_endpoint, redirect: redirect)
+        if cancelled { throw OAuthError.cancelled }
 
         let (verifier, challenge) = LassoAuth.pkce()
         let state = LassoAuth.randomURLSafe(16)
@@ -292,6 +302,13 @@ public final class OAuthSignIn: NSObject, ASWebAuthenticationPresentationContext
             throw OAuthError.token("HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0)")
         }
         return try LassoAuth.grant(data, clientID: clientID, tokenEndpoint: token, resource: resource, keepRefresh: nil)
+    }
+
+    /// Give up on this sign-in: its window closes and `run` throws `cancelled`.
+    public func cancel() {
+        cancelled = true
+        web?.cancel()
+        callback?.cancel()
     }
 
     /// Dynamic client registration (RFC 7591) as a public native client.
@@ -426,4 +443,28 @@ private final class Once: @unchecked Sendable {
         done = true
         return true
     }
+}
+
+extension LassoConnector {
+    /// The app's connector: the real probe, and the browser sign-in hung
+    /// from `anchor`'s window, cancellable while it waits.
+    public static func live(anchor: @escaping () -> NSWindow?) -> LassoConnector {
+        let current = SignInHolder()
+        let c = LassoConnector(
+            probe: { await LassoAuth.probe($0, basicAuth: $1) },
+            signIn: { base, metadata in
+                let s = OAuthSignIn(base: base, metadata: metadata, anchor: anchor())
+                current.signIn = s
+                defer { if current.signIn === s { current.signIn = nil } }
+                return try await s.run()
+            })
+        c.cancelSignIn = { current.signIn?.cancel() }
+        return c
+    }
+}
+
+/// The sign-in in progress, so Cancel can reach it.
+@MainActor
+private final class SignInHolder {
+    var signIn: OAuthSignIn?
 }

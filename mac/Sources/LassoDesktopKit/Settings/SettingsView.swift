@@ -169,6 +169,17 @@ public struct SettingsView: View {
         }
     }
 
+    /// A one-line field in the address row's style.
+    private func field<F: View>(_ f: F, label: String) -> some View {
+        f.textFieldStyle(.plain)
+            .font(Theme.Fonts.body.font)
+            .foregroundStyle(Theme.Text.primary.color)
+            .padding(.horizontal, Theme.space("l"))
+            .frame(height: Theme.NewAgent.layout.number("chip_h"))
+            .background(Capsule().fill(Theme.Panel.surface.color))
+            .accessibilityLabel(label)
+    }
+
     private var hairline: some View {
         Rectangle().fill(Theme.Panel.divider.color).frame(height: Theme.space("hair")).padding(.leading, Theme.space("xl"))
     }
@@ -351,14 +362,27 @@ public struct SettingsView: View {
                         PillButton(title: model.connecting ? "Connecting…" : "Connect", primary: true, label: "Connect to the lasso at this address") {
                             model.connect()
                         }
-                        PillButton(title: "Cancel", label: "Keep this lasso") {
-                            model.changingLasso = false
-                            model.urlDraft = ""
-                        }
+                        PillButton(title: "Cancel", label: "Keep this lasso") { model.cancelChange() }
                     }
                     .padding(.horizontal, Theme.space("xl"))
                     .padding(.vertical, Theme.space("l"))
                     hairline
+                }
+                if let asking = model.passwordFor {
+                    VStack(spacing: 0) {
+                        HStack(spacing: Theme.space("m")) {
+                            field(TextField("User", text: $model.userDraft), label: "UI_AUTH user for \(LassoConnector.shown(asking))")
+                            field(SecureField("Password", text: $model.passwordDraft), label: "UI_AUTH password")
+                                .onSubmit { model.submitPassword() }
+                            PillButton(title: "Sign in", primary: true, label: "Sign in to this lasso with its user and password") {
+                                model.submitPassword()
+                            }
+                        }
+                        .padding(.horizontal, Theme.space("xl"))
+                        .padding(.vertical, Theme.space("l"))
+                        hairline
+                    }
+                    .parityAnchor("settings.password")
                 }
             }
             if let v = model.version(), let h = v.herdr_version {

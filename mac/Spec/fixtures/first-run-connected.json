@@ -1,0 +1,12 @@
+{
+  "about": "The first-run panel once connected: the machine lasso runs on and its release, then three tips with the shortcuts as set (the defaults here), Open Settings and Done.",
+  "state": "first-run-connected",
+  "extends": "first-run",
+  "ui": {
+    "rail": "collapsed",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "first_run": "connected"
+  }
+}

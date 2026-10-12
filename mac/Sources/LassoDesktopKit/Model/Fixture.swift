@@ -28,6 +28,10 @@ public struct Fixture: Decodable, Sendable {
         /// The form's open chip menu.
         public var new_agent_menu: String?
         public var inbox: Bool?
+        /// The first-run panel, at a step (FirstRunModel.Step: "connect", "connected").
+        public var first_run: String?
+        /// No lasso answers (FleetModel.offline): the rail's grey "!".
+        public var offline: Bool?
     }
 
     public struct Server: Decodable, Sendable {

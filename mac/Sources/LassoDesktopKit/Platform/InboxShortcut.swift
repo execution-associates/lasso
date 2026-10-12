@@ -79,6 +79,15 @@ public enum InboxShortcutChoice: Equatable, Sendable {
         }
     }
 
+    /// The keys alone, as a keycap shows them ("⌥Space", "⌥⌥"); nil when off.
+    public var keys: String? {
+        switch self {
+        case .off: nil
+        case .doubleTap(let m): "\(m.symbol)\(m.symbol)"
+        case .combo(_, _, let d): d
+        }
+    }
+
     /// A double tap is read from every app's modifier keys, which macOS
     /// allows only with Accessibility; a combination needs nothing.
     public var needsAccessibility: Bool {

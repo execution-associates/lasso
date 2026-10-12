@@ -208,7 +208,7 @@ public struct RailView: View {
                 PeekShape(flare: p.number("flare"), corner: p.number("corner"))
                     .fill(Theme.Rail.peekFill.color)
                 Circle()
-                    .fill(StateStyle.color(fleet.attention ?? .idle))
+                    .fill(StateStyle.color(fleet.offline ? .idle : fleet.attention ?? .idle))
                     .frame(width: p.number("dot"), height: p.number("dot"))
                     .parityAnchor("rail.peek.dot")
             }
@@ -219,7 +219,8 @@ public struct RailView: View {
         .parityAnchor("rail.peek")
         .accessibilityLabel("Show lasso controls")
         .accessibilityHint("Drag up or down to move it along the edge")
-        .accessibilityValue(fleet.attentionCount > 0 ? "\(fleet.attentionCount) waiting on you" : "")
+        .accessibilityValue(
+            fleet.offline ? "not connected to lasso" : fleet.attentionCount > 0 ? "\(fleet.attentionCount) waiting on you" : "")
         .help("Show lasso controls")
     }
 
@@ -236,38 +237,47 @@ public struct RailView: View {
         .parityAnchor("rail.inbox")
         .overlay(alignment: .topLeading) { badge }
         .modifier(FocusRing(on: focused(.inbox)))
-        .accessibilityLabel("Inbox")
-        .accessibilityValue(inboxCount > 0 ? "\(inboxCount) in the inbox" : "nothing in the inbox")
-        .help("Inbox: what waits on you")
+        .accessibilityLabel(fleet.offline ? "Connect to lasso" : "Inbox")
+        .accessibilityValue(
+            fleet.offline ? "no lasso answers" : inboxCount > 0 ? "\(inboxCount) in the inbox" : "nothing in the inbox")
+        .help(fleet.offline ? "No lasso answers: connect to one" : "Inbox: what waits on you")
     }
 
     private var inboxCount: Int { fleet.inbox.count + fleet.notices.count }
 
     /// How many messages the inbox holds: red while one waits on the human,
     /// green when only finished turns and notices are left; none when empty.
+    /// While no lasso answers, a grey "!" instead: the inbox opens the
+    /// first-run panel then.
     @ViewBuilder private var badge: some View {
         let count = inboxCount
-        if count > 0 {
-            let b = Theme.Rail.badgeSize
-            let ring = Theme.Rail.badgeRing
-            let c = Theme.Rail.badgeCenter.size
+        if fleet.offline {
+            badgeShape("!", StateStyle.color(.idle))
+        } else if count > 0 {
             let state: AgentState = fleet.inbox.contains { $0.kind == .waiting } ? .blocked : .done
-            // The ring's ink, not white: white reads at 1.5:1 on the green and
-            // 2.5:1 on the red; the ink at 11:1 and 7:1.
-            Text(count > 99 ? "99+" : "\(count)")
-                .font(.system(size: b.number("font"), weight: .bold).monospacedDigit())
-                .foregroundStyle(ring.color("color"))
-                .padding(.horizontal, b.number("pad_h"))
-                .frame(minWidth: b.number("height"), minHeight: b.number("height"), maxHeight: b.number("height"))
-                .background(Capsule().fill(StateStyle.color(state)))
-                .parityAnchor("rail.badge")
-                .padding(ring.number("width"))
-                .background(Capsule().fill(ring.color("color")))
-                // position, not offset: offset would leave the anchor's
-                // reported frame behind.
-                .position(x: c.width, y: c.height)
-                .accessibilityHidden(true)
+            badgeShape(count > 99 ? "99+" : "\(count)", StateStyle.color(state))
         }
+    }
+
+    private func badgeShape(_ text: String, _ fill: Color) -> some View {
+        let b = Theme.Rail.badgeSize
+        let ring = Theme.Rail.badgeRing
+        let c = Theme.Rail.badgeCenter.size
+        // The ring's ink, not white: white reads at 1.5:1 on the green and
+        // 2.5:1 on the red; the ink at 11:1 and 7:1.
+        return Text(text)
+            .font(.system(size: b.number("font"), weight: .bold).monospacedDigit())
+            .foregroundStyle(ring.color("color"))
+            .padding(.horizontal, b.number("pad_h"))
+            .frame(minWidth: b.number("height"), minHeight: b.number("height"), maxHeight: b.number("height"))
+            .background(Capsule().fill(fill))
+            .parityAnchor("rail.badge")
+            .padding(ring.number("width"))
+            .background(Capsule().fill(ring.color("color")))
+            // position, not offset: offset would leave the anchor's
+            // reported frame behind.
+            .position(x: c.width, y: c.height)
+            .accessibilityHidden(true)
     }
 
     /// The agents capsule is one button: the fleet. Its glyphs are the

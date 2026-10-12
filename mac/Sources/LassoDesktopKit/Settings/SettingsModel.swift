@@ -23,10 +23,15 @@ public struct LassoChoice: Identifiable, Equatable, Sendable, Codable {
     /// Its version (the release number, never a build's "(dev)" tag) and
     /// where this Mac reaches it; "Not answering" when it did not.
     public var detail: String {
-        let here = URL(string: url).map { u in u.host.map { h in u.port.map { "\(h):\($0)" } ?? h } ?? url } ?? url
+        let here = URL(string: url).map(LassoConnector.shown) ?? url
         guard let v = version else { return "Not answering · \(here)" }
-        let release = v.lasso_version.range(of: #"^\d+\.\d+\.\d+"#, options: .regularExpression).map { String(v.lasso_version[$0]) }
-        return "lasso \(release ?? v.lasso_version) · \(here)"
+        return "\(Self.release(v)) · \(here)"
+    }
+
+    /// "lasso 6.4.0": the release number, never a build's "(dev)" tag.
+    public static func release(_ v: VersionInfo) -> String {
+        let n = v.lasso_version.range(of: #"^\d+\.\d+\.\d+"#, options: .regularExpression).map { String(v.lasso_version[$0]) }
+        return "lasso \(n ?? v.lasso_version)"
     }
 }
 
@@ -43,9 +48,8 @@ public enum SettingsTab: String, CaseIterable, Sendable {
     }
 }
 
-/// Settings (the rail's ellipsis, and the first launch): the lasso this Mac
-/// uses (one; a dev lasso is `dev.sh use`, not a choice here), and the
-/// permissions the app asks for.
+/// Settings (the rail's ellipsis): the lasso this Mac uses (one; a dev lasso
+/// is `dev.sh use`, not a choice here), and the permissions the app asks for.
 @MainActor
 public final class SettingsModel: ObservableObject {
     /// Bumped to re-read the permission states after a request.
@@ -71,15 +75,11 @@ public final class SettingsModel: ObservableObject {
     public var notify: () -> NotifyPayload? = { nil }
     /// Choose whether a kind may interrupt this Mac.
     public var chooseNotify: ((String, Bool) async throws -> Void)?
-    /// Switch the app to another lasso.
-    public var onUse: (URL) -> Void = { _ in }
-    /// A sign-in finished for this lasso: use it, with its tokens.
-    public var onSignedIn: (URL, OAuthGrant) -> Void = { _, _ in }
+    /// Connecting to another lasso (Change…) and signing in again: the
+    /// connector the first-run panel uses too (nil in the parity harness).
+    public var connector: LassoConnector?
     /// Forget the lasso in use's tokens.
     public var onSignOut: () -> Void = {}
-    /// The window the sign-in sheet hangs from.
-    public var signInAnchor: () -> NSWindow? = { nil }
-
     @Published public var tab: SettingsTab = .notifications
     /// The address field is open (Change…, or a failed connect).
     @Published public var changingLasso = false
@@ -117,35 +117,63 @@ public final class SettingsModel: ObservableObject {
     /// The lasso in use holds sign-in tokens on this Mac.
     public var signedIn: Bool { _ = tick; return URL(string: baseURL()).flatMap(TokenStore.read) != nil }
 
+    /// A lasso behind UI_AUTH asked for its user and password: the fields
+    /// show under the address, and Sign in checks them.
+    @Published public private(set) var passwordFor: URL?
+    @Published public var userDraft = ""
+    @Published public var passwordDraft = ""
+
     /// Connect to the lasso in the URL field: ask it what it needs, then use
     /// it, signing in first when it asks for that.
     public func connect() {
-        var text = urlDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !connecting else { return }
-        if !text.contains("://") { text = (text.hasPrefix("127.") || text.hasPrefix("localhost") ? "http://" : "https://") + text }
-        guard let url = URL(string: text), url.host != nil else {
-            connectNote = "That is not an address."
-            return
-        }
+        guard !connecting, let connector else { return }
         connecting = true
         connectNote = nil
+        passwordFor = nil
+        let text = urlDraft
         Task {
             defer { connecting = false }
-            switch await LassoAuth.probe(url) {
-            case .open:
-                onUse(url)
-                connectNote = "Connected. This lasso needs no sign-in from here."
-                urlDraft = ""
-                changingLasso = false
-                tick += 1
-            case .signIn(let metadata):
-                await signIn(url, metadata)
-            case .password:
-                connectNote = "This lasso asks for its UI_AUTH password (Keychain item ui-auth)."
-            case .unreachable(let why):
-                connectNote = "No answer from \(url.host ?? text): \(why)"
-            }
+            show(await connector.connect(text) { [weak self] _ in self?.connectNote = Self.signingInNote })
         }
+    }
+
+    /// Check the user and password the lasso asked for.
+    public func submitPassword() {
+        guard !connecting, let connector, let url = passwordFor else { return }
+        connecting = true
+        Task {
+            defer { connecting = false }
+            show(await connector.password(url, user: userDraft, password: passwordDraft))
+        }
+    }
+
+    /// Put the address field away, and whatever it was in the middle of.
+    public func cancelChange() {
+        connector?.cancel()
+        changingLasso = false
+        urlDraft = ""
+        passwordFor = nil
+        userDraft = ""
+        passwordDraft = ""
+    }
+
+    static let signingInNote = "Finish signing in in the window that opened."
+
+    private func show(_ r: ConnectOutcome) {
+        connectNote = r.message
+        switch r {
+        case .connected:
+            urlDraft = ""
+            passwordFor = nil
+            userDraft = ""
+            passwordDraft = ""
+            changingLasso = false
+        case .needsPassword(let url):
+            passwordFor = url
+        case .cancelled, .failed:
+            break
+        }
+        tick += 1
     }
 
     /// Show the lasso connection (Info), as a sign-out does.
@@ -153,33 +181,12 @@ public final class SettingsModel: ObservableObject {
 
     /// The lasso in use stopped taking its token: sign in to it again.
     public func signInAgain() {
-        guard !connecting, let url = AuthState.shared.expired ?? URL(string: baseURL()) else { return }
+        guard !connecting, let connector, let url = AuthState.shared.expired ?? URL(string: baseURL()) else { return }
         connecting = true
         Task {
             defer { connecting = false }
-            guard case .signIn(let metadata) = await LassoAuth.probe(url) else {
-                connectNote = "This lasso no longer asks for a sign-in."
-                AuthState.shared.signedIn()
-                return
-            }
-            await signIn(url, metadata)
+            show(await connector.signInAgain(url) { [weak self] _ in self?.connectNote = Self.signingInNote })
         }
-    }
-
-    private func signIn(_ url: URL, _ metadata: URL) async {
-        connectNote = "Finish signing in in the window that opened."
-        do {
-            let g = try await OAuthSignIn(base: url, metadata: metadata, anchor: signInAnchor()).run()
-            TokenStore.write(g, for: url)
-            onSignedIn(url, g)
-            AuthState.shared.signedIn()
-            connectNote = "Signed in."
-            urlDraft = ""
-            changingLasso = false
-        } catch {
-            connectNote = String(describing: error)
-        }
-        tick += 1
     }
 
     public func signOut() {
@@ -187,11 +194,6 @@ public final class SettingsModel: ObservableObject {
         connectNote = "Signed out. This Mac holds no token for this lasso."
         tick += 1
     }
-
-
-    static let seenKey = "onboarded"
-    /// Settings open by themselves on the first launch only.
-    public static var seen: Bool { UserDefaults.standard.bool(forKey: seenKey) }
 
     public init(
         permissions: Permissions, baseURL: @escaping () -> String,
@@ -292,8 +294,5 @@ public final class SettingsModel: ObservableObject {
         InboxSound.play(id, force: true)
     }
 
-    public func close() {
-        UserDefaults.standard.set(true, forKey: Self.seenKey)
-        onClose()
-    }
+    public func close() { onClose() }
 }

@@ -18,6 +18,9 @@ public final class FleetModel: ObservableObject {
     @Published public var notify: NotifyPayload?
     /// Finished turns count from here (unix ms); 0 counts them all.
     public var inboxSince: Int64 = 0
+    /// No lasso answers this Mac (FleetSync): the rail says so, and the
+    /// inbox opens the first-run panel instead.
+    @Published public var offline = false
 
     public init() {}
 

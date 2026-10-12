@@ -14,6 +14,9 @@ public final class LassoClient: @unchecked Sendable {
     private let lock = NSLock()
     private var url: URL
     private var tokens: TokenAuth?
+    /// UI_AUTH's "user:pass", sent as Basic (an older install); settable,
+    /// since the first-run panel asks for it after the client exists.
+    private var basic: String?
     private let headers: [String: String]
     private let session: URLSession
 
@@ -28,12 +31,12 @@ public final class LassoClient: @unchecked Sendable {
         // X-Requested-With gets a clean 401 from Cloudflare Access when its
         // session has ended, not a redirect to its login page.
         var h: [String: String] = ["Accept": "application/json", "X-Requested-With": "XMLHttpRequest"]
-        if let b = basicAuth, !b.isEmpty { h["Authorization"] = "Basic " + Data(b.utf8).base64EncodedString() }
         if let id = accessID, let secret = accessSecret, !id.isEmpty, !secret.isEmpty {
             h["CF-Access-Client-Id"] = id
             h["CF-Access-Client-Secret"] = secret
         }
         self.init(baseURL: baseURL, headers: h, timeout: 15, protocolClasses: protocolClasses)
+        basic = basicAuth.flatMap { $0.isEmpty ? nil : $0 }
         tokens = grant.map {
             TokenAuth(
                 base: baseURL, grant: $0, session: session, serviceToken: h["CF-Access-Client-Id"] != nil,
@@ -95,8 +98,20 @@ public final class LassoClient: @unchecked Sendable {
         lock.withLock { tokens = nil }
     }
 
+    /// Send UI_AUTH's "user:pass" as Basic from now on (nil stops it).
+    public func setBasicAuth(_ userPass: String?) {
+        lock.withLock { basic = userPass.flatMap { $0.isEmpty ? nil : $0 } }
+    }
+
+    /// The Basic credential, if one is set.
+    public var basicAuth: String? { lock.withLock { basic } }
+
     /// A short-lived client for probing another lasso with these credentials.
-    public func probe(_ at: URL) -> LassoClient { LassoClient(baseURL: at, headers: headers, timeout: 2) }
+    public func probe(_ at: URL) -> LassoClient {
+        let c = LassoClient(baseURL: at, headers: headers, timeout: 2)
+        c.setBasicAuth(basicAuth)
+        return c
+    }
 
     public func request(_ path: String, query: [String: String] = [:], method: String = "GET", body: Data? = nil)
         -> URLRequest
@@ -106,6 +121,7 @@ public final class LassoClient: @unchecked Sendable {
         var r = URLRequest(url: c.url!)
         r.httpMethod = method
         for (k, v) in headers { r.setValue(v, forHTTPHeaderField: k) }
+        if let b = basicAuth { r.setValue("Basic " + Data(b.utf8).base64EncodedString(), forHTTPHeaderField: "Authorization") }
         auth?.apply(&r)
         if let body {
             r.httpBody = body

@@ -12,6 +12,7 @@ public final class ParityRunner {
     /// milestone lands (PLAN 6).
     public static let implemented: Set<String> = [
         "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "settings-shortcuts", "new-agent", "new-agent-menu", "agent-window-markdown",
+        "first-run", "first-run-connected", "rail-offline",
     ]
 
     let spec: Spec
@@ -133,13 +134,37 @@ public final class ParityRunner {
     private func runState(_ state: String) async throws {
         let fixture = try Fixture.load(state, from: specDir.appendingPathComponent("fixtures"))
         let fleet = fleet(for: fixture)
+        fleet.offline = fixture.ui.offline == true
         let model = RailModel(fleet: fleet)
         model.setExpanded(fixture.ui.rail == "expanded", animated: false)
         let cap: Capture
         var card: CardModel?
         var bindings: Set<KeyBinding>?
         var recapture: (@MainActor () async throws -> Capture)?
-        if fixture.ui.settings == true {
+        if let step = fixture.ui.first_run {
+            // The first-run panel at a step, with nothing on the network and
+            // the default shortcuts (the Mac running this has its own).
+            let connector = LassoConnector(probe: { _, _ in .unreachable("fixture") }, signIn: { _, _ in throw OAuthError.cancelled })
+            let m = FirstRunModel(connector: connector, defaults: UserDefaults(suiteName: "parity-first-run") ?? .standard)
+            m.shortcut = { $0.fallback }
+            m.configured = { URL(string: "http://127.0.0.1:18090")! }
+            switch step {
+            case "connected":
+                let name = fixture.server.all_panes.panes.first { $0.host == "local" }?.host_label ?? "lasso"
+                m.connected = FirstRunModel.Connected(
+                    name: name, version: LassoChoice.release(fixture.server.version), address: "127.0.0.1:18090")
+                m.step = .connected
+                m.focus = nil
+            default:
+                m.step = .connect
+                m.focus = .address
+            }
+            let make: @MainActor () async throws -> Capture = {
+                try await Capturer.capture(FirstRunView(model: m), size: Theme.Onboarding.layout.size2("size"))
+            }
+            cap = try await make()
+            recapture = make
+        } else if fixture.ui.settings == true {
             let hosts = fixture.server.hosts
             let usable = hosts.hosts.filter { $0.reachable && $0.running && $0.compatible }.count + 1
             let m = SettingsModel(

@@ -29,6 +29,8 @@ public final class AppCoordinator {
     private let media: MediaSource?
     private var shortcuts: [ShortcutSlot: InboxShortcut] = [:]
     private var newAgent: NewAgentController?
+    /// The first-run panel: connect, sign in, three tips.
+    private var firstRun: FirstRunController?
     private var presence: AppPresence?
     private var commandO: Any?
     /// What was in the inbox last time it changed, to hear what is new.
@@ -73,8 +75,6 @@ public final class AppCoordinator {
         settingsModel = SettingsModel(
             permissions: permissions, baseURL: { [weak client] in (client?.baseURL ?? baseURL).absoluteString },
             version: { [weak sync] in sync?.version }, usableHosts: { nil })
-        if let client {
-        }
         settings = SidePanel(size: Theme.Card.size.size, content: SettingsView(model: settingsModel))
         preview = AgentPreviewController(media: media) { [fleet, cardActions] p in CardModel(pane: p, fleet: fleet, actions: cardActions) }
         wire()
@@ -104,7 +104,79 @@ public final class AppCoordinator {
             MainActor.assumeIsolated { self?.openNewAgent(mods.contains(.shift) ? .scratch : .git) }
             return nil
         }
-        if sync != nil, !SettingsModel.seen { openSettings() }
+        startFirstRun()
+    }
+
+    // MARK: first run
+
+    /// The first launch shows the first-run panel. Later launches show it
+    /// only while this Mac has never reached a lasso and the configured one
+    /// does not answer, asked quietly first.
+    private func startFirstRun() {
+        guard sync != nil else { return }
+        let c = firstRunController()
+        if !c.model.finished {
+            c.show()
+            Task { await c.model.begin() }
+        } else if !c.model.everConnected {
+            Task {
+                await c.model.begin()
+                if c.model.step != .connected { c.show() }
+            }
+        }
+    }
+
+    /// Open the first-run panel (the inbox does, while no lasso answers).
+    /// Shown from step 3 earlier, it starts over with a quiet check.
+    func openFirstRun(takeKey: Bool = true) {
+        guard sync != nil else { return }
+        let c = firstRunController()
+        if !c.isOpen, c.model.step == .connected || c.model.step == .checking { Task { await c.model.begin() } }
+        c.show(takeKey: takeKey)
+        Trace.event("first run opened")
+    }
+
+    private func firstRunController() -> FirstRunController {
+        if let c = firstRun { return c }
+        let connector = LassoConnector.live { [weak self] in self?.firstRun?.panel }
+        wire(connector)
+        let m = FirstRunModel(connector: connector)
+        m.configured = { [weak self] in self?.client?.baseURL ?? LassoClient.configuredURL }
+        m.answers = { [weak self] in await self?.sync?.answers() ?? false }
+        m.describe = { [weak self] url in
+            await self?.describe(url) ?? FirstRunModel.Connected(name: "lasso", version: nil, address: LassoConnector.shown(url))
+        }
+        m.onClose = { [weak self] in self?.firstRun?.close() }
+        m.onOpenSettings = { [weak self] in self?.openSettings() }
+        let c = FirstRunController(model: m)
+        firstRun = c
+        return c
+    }
+
+    /// Step 3's words for the lasso just reached: the machine it runs on,
+    /// as Settings names it, its release and its address.
+    private func describe(_ url: URL) async -> FirstRunModel.Connected {
+        if let sync, sync.version == nil || fleet.panes.isEmpty { _ = await sync.answers() }
+        var name = fleet.panes.first { $0.host == "local" }?.host_label
+        if name == nil, let client, let h = try? await client.get("/api/hosts", as: HostsPayload.self) { name = h.local.hostname }
+        return FirstRunModel.Connected(
+            name: name ?? LassoConnector.shown(url), version: self.sync?.version.map(LassoChoice.release),
+            address: LassoConnector.shown(url))
+    }
+
+    /// What a connector does once a lasso lets this Mac in: use it.
+    private func wire(_ c: LassoConnector) {
+        c.onUse = { [weak self] url in self?.use(url) }
+        // A sign-in to the lasso in use keeps everything on screen; one to
+        // another lasso switches to it (its tokens are in the Keychain).
+        c.onSignedIn = { [weak self] url, grant in
+            guard let self, let client = self.client else { return }
+            if url == client.baseURL { client.signedIn(grant) } else { self.use(url) }
+        }
+        c.onPassword = { [weak self] url, pair in
+            self?.client?.setBasicAuth(pair)
+            self?.use(url)
+        }
     }
 
     private func wire() {
@@ -152,16 +224,13 @@ public final class AppCoordinator {
             return true
         }
         settingsModel.onClose = { [weak self] in self?.settings.close() }
-        settingsModel.onUse = { [weak self] url in self?.use(url) }
-        // A sign-in to the lasso in use keeps everything on screen; one to
-        // another lasso switches to it (its tokens are in the Keychain).
-        settingsModel.onSignedIn = { [weak self] url, grant in
-            guard let self, let client = self.client else { return }
-            if url == client.baseURL { client.signedIn(grant) } else { self.use(url) }
+        if client != nil {
+            let connector = LassoConnector.live { [weak self] in self?.settings.panel }
+            wire(connector)
+            settingsModel.connector = connector
         }
         settingsModel.onSignOut = { [weak self] in self?.client?.signOut() }
         settingsModel.lassoName = { [weak self] in self?.fleet.panes.first { $0.host == "local" }?.host_label }
-        settingsModel.signInAnchor = { [weak self] in self?.settings.panel }
         AuthState.shared.onExpired = { [weak self] in
             self?.settingsModel.showConnection()
             self?.openSettings(takeKey: false)
@@ -247,6 +316,12 @@ public final class AppCoordinator {
     /// page through the rest; with nothing waiting it says so. A click while
     /// it is open gives it the keyboard if a hover showed it, else closes it.
     func openInbox(takeKey: Bool = true) {
+        // No lasso answers: there is no inbox to show, so connect instead.
+        if fleet.offline, sync != nil {
+            closeAll()
+            openFirstRun(takeKey: takeKey)
+            return
+        }
         if card.isOpen || inbox.isOpen {
             if takeKey, card.isOpen, !card.isKey { card.takeKey() }
             else if takeKey, inbox.isOpen, !inbox.isKey { inbox.takeKey() }
@@ -269,6 +344,8 @@ public final class AppCoordinator {
             return
         }
         closeAll(except: settings)
+        // Nothing answers, or the lasso signed this Mac out: open on the connection.
+        if fleet.offline || AuthState.shared.expired != nil { settingsModel.showConnection() }
         settingsModel.refresh()
         Task { await sync?.refreshNotify() }
         settings.open(takeKey: takeKey)
@@ -323,6 +400,7 @@ public final class AppCoordinator {
         }
         hoverShown = nil
         rail.model.setExpanded(true)
+        if fleet.offline, sync != nil { return openFirstRun() }
         if card.isOpen { card.takeKey() } else if inbox.isOpen { inbox.takeKey() } else { openInbox() }
     }
 
