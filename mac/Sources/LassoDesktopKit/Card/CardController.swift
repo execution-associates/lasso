@@ -45,6 +45,8 @@ public final class CardController {
     var inbox: InboxModel?
     /// Kill or Acknowledge resolved the inbox's last entry.
     var onInboxEmpty: () -> Void = {}
+    /// The herdr window, focused on an agent (T, the header's button).
+    var showInHerdr: ((HostPane) -> Void)?
 
     public init(fleet: FleetModel, actions: CardActions) {
         self.fleet = fleet
@@ -92,6 +94,7 @@ public final class CardController {
         model.keyMode = !panel.isKeyWindow ? .none : (pointerKeyed ? .lent : .full)
         model.onClose = { [weak self] in self?.close() }
         model.onInboxEmpty = { [weak self] in self?.onInboxEmpty() }
+        model.onShowInHerdr = showInHerdr
         holder.model = model
         model.startPolling()
         place()
@@ -207,7 +210,7 @@ public final class CardController {
 /// What a key does in the card or an agent window, decided before anything
 /// acts (PLAN 13.7a).
 public enum CardKeyAction: Equatable, Sendable, CustomStringConvertible {
-    case close, attach, send, reply, rename, stop, kill, acknowledge, next, previous, editStep, takeStep, digit(Int)
+    case close, attach, send, reply, rename, stop, kill, acknowledge, next, previous, editStep, takeStep, herdr, digit(Int)
     /// Not a card key: left to the system.
     case unbound
     /// A key outside the hover set while the pointer lent the card the
@@ -231,6 +234,7 @@ public enum CardKeys {
         (Keys.esc, .close), (Keys.kill, .kill), (Keys.acknowledge, .acknowledge), (Keys.next, .next),
         (Keys.previous, .previous), (Keys.attach, .attach), (Keys.send, .send), (Keys.reply, .reply),
         (Keys.rename, .rename), (Keys.editStep, .editStep), (Keys.takeStep, .takeStep), (Keys.stop, .stop),
+        (Keys.herdr, .herdr),
     ]
 
     /// The keys a card answers when the pointer, not a click, gave it the
@@ -241,13 +245,13 @@ public enum CardKeys {
     /// The inbox card's whole vocabulary.
     public static let cardSet: [KeyBinding] = [
         Keys.esc, Keys.kill, Keys.acknowledge, Keys.next, Keys.previous, Keys.attach, Keys.send, Keys.reply,
-        Keys.rename, Keys.editStep, Keys.takeStep,
+        Keys.rename, Keys.editStep, Keys.takeStep, Keys.herdr,
     ]
 
     /// An agent window's: the card's minus paging, Acknowledge and esc (it
     /// has no inbox entry to resolve and closes by its header).
     public static let windowSet: [KeyBinding] = [
-        Keys.kill, Keys.attach, Keys.send, Keys.reply, Keys.rename, Keys.editStep, Keys.takeStep,
+        Keys.kill, Keys.attach, Keys.send, Keys.reply, Keys.rename, Keys.editStep, Keys.takeStep, Keys.herdr,
     ]
 
     /// A hover preview's, once a click made it the user's: no Kill, and esc closes it.

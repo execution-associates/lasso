@@ -70,6 +70,11 @@ struct AgentWindowView: View {
 
     private var buttons: some View {
         HStack(spacing: Theme.space("xs")) {
+            if model.canShowInHerdr {
+                WindowButton(symbol: "terminal", label: "Show \(model.current.displayName) in herdr") { model.showInHerdr() }
+                    .keyHint(Keys.herdr, active: !chrome.collapsed)
+                    .parityAnchor("agent.herdr")
+            }
             WindowButton(symbol: chrome.collapsed ? "arrow.up.left.and.arrow.down.right" : "minus",
                          label: chrome.collapsed ? "Expand" : "Minimize") { chrome.onToggle() }
                 .parityAnchor("agent.minimize")

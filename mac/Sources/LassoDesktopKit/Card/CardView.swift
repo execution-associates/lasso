@@ -133,6 +133,12 @@ public struct CardView: View {
             AgentTitle(model: model, anchor: "card.title")
                 .padding(.leading, Theme.Card.titleX.pt - contentX)
             Spacer(minLength: 8)
+            if model.canShowInHerdr {
+                RoundButton(symbol: "terminal", label: "Show \(pane.displayName) in herdr (T)") { model.showInHerdr() }
+                    .keyHint(Keys.herdr)
+                    .help("Show \(pane.displayName) in herdr")
+                    .parityAnchor("card.herdr")
+            }
             RoundButton(symbol: "xmark", label: "Close (esc)") { model.onClose() }
                 .keyHint(Keys.esc)
                 .parityAnchor("card.close")

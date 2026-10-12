@@ -7,7 +7,7 @@ import SwiftUI
 @MainActor
 public final class RailModel: ObservableObject {
     public enum Item: Hashable, Sendable {
-        case inbox, agents, newAgent, settings
+        case inbox, agents, newAgent, terminal, settings
     }
 
     @Published public var expanded = false
@@ -28,6 +28,8 @@ public final class RailModel: ObservableObject {
     public var onAgents: () -> Void = {}
     /// The plus: the New Agent form.
     public var onNewAgent: () -> Void = {}
+    /// The terminal: lasso's herdr in a window of its own.
+    public var onTerminal: () -> Void = {}
     /// The ellipsis: settings.
     public var onSettings: () -> Void = {}
     /// The pointer rested on a control: open what it opens (never toggle it
@@ -44,7 +46,8 @@ public final class RailModel: ObservableObject {
 
     public var items: [Item] {
         guard expanded else { return [.inbox] }
-        return slots.isEmpty ? [.inbox, .newAgent, .settings] : [.inbox, .agents, .newAgent, .settings]
+        return slots.isEmpty
+            ? [.inbox, .newAgent, .terminal, .settings] : [.inbox, .agents, .newAgent, .terminal, .settings]
     }
 
     public func setExpanded(_ on: Bool, animated: Bool = true) {
@@ -76,6 +79,7 @@ public final class RailModel: ObservableObject {
         case .inbox: onInbox()
         case .agents: onAgents()
         case .newAgent: onNewAgent()
+        case .terminal: onTerminal()
         case .settings: onSettings()
         }
     }

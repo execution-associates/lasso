@@ -121,7 +121,7 @@ DOC
   logs) ssh "$MAC" "tail -n ${1:-100} ~/Library/Logs/Lasso.log" ;;
   unlock) unlock ;;
   *)
-    sed -n '2,18p' "$0"
+    sed -n '2,20p' "$0"
     exit 2
     ;;
 esac

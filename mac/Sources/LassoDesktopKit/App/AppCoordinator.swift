@@ -29,6 +29,8 @@ public final class AppCoordinator {
     private let media: MediaSource?
     private var shortcuts: [ShortcutSlot: InboxShortcut] = [:]
     private var newAgent: NewAgentController?
+    /// lasso's herdr in a window of its own; made on first use, live lassos only.
+    private var terminal: HerdrTerminalController?
     /// The first-run panel: connect, sign in, three tips.
     private var firstRun: FirstRunController?
     private var presence: AppPresence?
@@ -76,7 +78,13 @@ public final class AppCoordinator {
             permissions: permissions, baseURL: { [weak client] in (client?.baseURL ?? baseURL).absoluteString },
             version: { [weak sync] in sync?.version }, usableHosts: { nil })
         settings = SidePanel(size: Theme.Card.size.size, content: SettingsView(model: settingsModel))
-        preview = AgentPreviewController(media: media) { [fleet, cardActions] p in CardModel(pane: p, fleet: fleet, actions: cardActions) }
+        let live = client != nil
+        preview = AgentPreviewController(media: media) { [weak self, fleet, cardActions] p in
+            let m = CardModel(pane: p, fleet: fleet, actions: cardActions)
+            // Its Focus in herdr opens the herdr window on the pane.
+            if live { m.onShowInHerdr = { [weak self] p in self?.showInHerdr(p) } }
+            return m
+        }
         wire()
     }
 
@@ -215,6 +223,8 @@ public final class AppCoordinator {
         rail.model.onAgents = { [weak self] in self?.toggleList() }
         rail.model.onSettings = { [weak self] in self?.openSettings() }
         rail.model.onNewAgent = { [weak self] in self?.openNewAgent(.git) }
+        rail.model.onTerminal = { [weak self] in self?.openTerminal() }
+        if client != nil { card.showInHerdr = { [weak self] p in self?.showInHerdr(p) } }
 
         list.model.onOpen = { [weak self] p in self?.openWindow(p) }
         list.onPreview = { [weak self] p, listFrame, row in
@@ -430,13 +440,14 @@ public final class AppCoordinator {
     /// Resting on a rail control opens it, without the keyboard: the user may
     /// be typing in another app, and the card's keys are single letters. A
     /// click or the summon key gives the panel the keyboard. The plus only
-    /// lights up: the form takes the keyboard, so it opens on a click.
+    /// lights up: the form takes the keyboard, so it opens on a click. So
+    /// does the terminal, for the same reason.
     func hoverOpen(_ item: RailModel.Item) {
-        guard item != .newAgent, shown(item) == nil else { return }
+        guard item != .newAgent, item != .terminal, shown(item) == nil else { return }
         switch item {
         case .inbox: openInbox(takeKey: false)
         case .agents: toggleList(takeKey: false)
-        case .newAgent: return
+        case .newAgent, .terminal: return
         case .settings: openSettings(takeKey: false)
         }
         hoverShown = item
@@ -452,7 +463,7 @@ public final class AppCoordinator {
             if inbox.isOpen { return (inbox.isKey, inbox.panel.frame) }
         case .agents:
             if list.isOpen { return (list.isKey, list.panel.frame) }
-        case .newAgent: break
+        case .newAgent, .terminal: break
         case .settings:
             if settings.isOpen { return (settings.isKey, settings.panel.frame) }
         }
@@ -496,6 +507,8 @@ public final class AppCoordinator {
     /// Switch to another lasso: whatever was open belonged to the old one.
     func use(_ url: URL) {
         closeAll(except: settings)
+        terminal?.close()
+        terminal = nil
         chat?.model.stopPolling()
         chat = nil
         sync?.retarget(url)
@@ -511,15 +524,30 @@ public final class AppCoordinator {
             w.show(focusReply: focusReply)
             return
         }
+        let model = CardModel(pane: p, fleet: fleet, actions: cardActions)
+        if client != nil { model.onShowInHerdr = { [weak self] p in self?.showInHerdr(p) } }
         let w = AgentWindowController(
-            model: CardModel(pane: p, fleet: fleet, actions: cardActions),
-            near: anchor ?? (list.isOpen ? list.panel.frame : rail.panel.frame),
-            media: media)
+            model: model, near: anchor ?? (list.isOpen ? list.panel.frame : rail.panel.frame), media: media)
         w.onClosed = { [weak self] in self?.windows[p.key] = nil }
         windows[p.key] = w
         w.show(focusReply: focusReply)
         Trace.event("agent window opened")
     }
+
+    /// The herdr window, made on first use (a fixture app has none).
+    private func herdrWindow() -> HerdrTerminalController? {
+        if let t = terminal { return t }
+        guard let client else { return nil }
+        let t = HerdrTerminalController(source: LiveHerdrTerminalSource(client: client), client: client, fleet: fleet)
+        terminal = t
+        return t
+    }
+
+    /// The rail's terminal button: lasso's herdr in its window.
+    func openTerminal() { herdrWindow()?.open() }
+
+    /// An agent's header button, or T: herdr's window focused on its pane.
+    func showInHerdr(_ p: HostPane) { herdrWindow()?.show(p) }
 
     /// A bot's chat.
     func openChat(_ bot: BotView) {
