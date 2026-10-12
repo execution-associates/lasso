@@ -148,6 +148,30 @@ func TestFileEndpointsDefaultToLocal(t *testing.T) {
 	}
 }
 
+// Audio plays in the viewer straight from /api/file, so it must arrive whole
+// past the text preview cap and under a real audio type: sniffing cannot name
+// FLAC, and Safari will not play audio served as application/octet-stream.
+func TestServeFileAudioWholeWithType(t *testing.T) {
+	swapBackend(t, &localBackend{})
+	dir := t.TempDir()
+	song := filepath.Join(dir, "Song.FLAC")
+	if err := os.WriteFile(song, make([]byte, maxPreview+1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	serveFile(rec, httptest.NewRequest(http.MethodGet, "/api/file?path="+song, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("serveFile status = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "audio/flac" {
+		t.Errorf("Content-Type = %q, want audio/flac", ct)
+	}
+	if rec.Body.Len() != maxPreview+1 {
+		t.Errorf("body is %d bytes, want the whole %d-byte file", rec.Body.Len(), maxPreview+1)
+	}
+}
+
 // An omitted (or active-naming) selector resolves to the ACTIVE backend itself,
 // so a one-shot read uses the connection we already hold instead of opening a
 // second one to the host we are already driving — and so the tilde below expands

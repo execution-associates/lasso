@@ -36,7 +36,7 @@ const openFileDescription = "Open a file in the human's lasso sidebar file viewe
 type openFileIn struct {
 	Path   string `json:"path" jsonschema:"Absolute path of the file (or directory) to open, or one starting with ~/ (expanded against the target host's home). Relative paths are refused — the server cannot see your working directory; use \"lasso open <path>\" from a shell for one."`
 	Host   string `json:"host,omitempty" jsonschema:"Host the file lives on; omit to target your OWN host — the host your credential was issued for, or the box lasso runs on when it is not host-scoped."`
-	Line   int    `json:"line,omitempty" jsonschema:"1-based line to scroll to and select in the editor. Optional; ignored for a directory and for images, PDFs and videos."`
+	Line   int    `json:"line,omitempty" jsonschema:"1-based line to scroll to and select in the editor. Optional; ignored for a directory and for images, PDFs, videos and audio."`
 	PaneID string `json:"pane_id,omitempty" jsonschema:"Your own herdr pane id — the value of $HERDR_PANE_ID in your shell. Used only to tell the human which agent opened the file; without it they are told \"an agent\"."`
 }
 

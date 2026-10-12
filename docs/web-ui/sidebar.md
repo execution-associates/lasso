@@ -41,7 +41,7 @@ Enabled [plugins](../plugins/index.md) add their own tabs to the same strip.
 
 - Text and code open in an editor. Changes are saved only when you press **save** or `⌘S`/`Ctrl-S`; closing with unsaved changes asks first. An unsaved buffer survives switching to another pane and back.
 - Markdown opens as a rendered preview (Mermaid diagrams included). The pencil and eye buttons switch between the raw editor and the preview.
-- Images (click to zoom), PDFs and videos are shown read-only. They reload on their own when the file changes on disk.
+- Images (click to zoom), PDFs, videos and audio are shown read-only. They reload on their own when the file changes on disk.
 - `Esc` closes the viewer.
 
 **Downloads and HTTPS.** A download is an ordinary link to the file, served with `Content-Disposition: attachment`. Some browsers warn about or block downloads from a plain-HTTP page, so if a download does not arrive, reach lasso over HTTPS (see [Why HTTPS matters](../deployment/index.md#why-https-matters)).

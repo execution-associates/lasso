@@ -601,6 +601,15 @@
   max-height: 100%;
   object-fit: contain;
 }
+.vaudio {
+  padding: 16px;
+  display: flex;
+  justify-content: center;
+}
+.vaudio audio {
+  width: 100%;
+  max-width: 640px;
+}
 /* CodeMirror 6 host: fill the scrollable .vbody (the editor itself is themed in
    lib/codemirror.ts; the .cm-scroller does the scrolling). */
 .cm-host {
