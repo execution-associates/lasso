@@ -179,6 +179,21 @@ final class TerminalBridge: NSObject {
     /// Tell the page (a new one starts allowed).
     func pushGate() { js("__lassoTerm.gate(\(resizeAllowed))") }
 
+    private var fontSize = 0
+
+    /// The terminal's text size (TerminalZoom): the page sets xterm's
+    /// fontSize and refits, now and after every (re)connect.
+    func setFontSize(_ size: Int) {
+        fontSize = size
+        pushZoom()
+    }
+
+    /// Tell the page (a new one has it in its query already).
+    func pushZoom() {
+        guard fontSize > 0 else { return }
+        js("__lassoTerm.zoom(\(fontSize))")
+    }
+
     private func js(_ call: String) {
         webView?.evaluateJavaScript("window.__lassoTerm && " + call, completionHandler: nil)
     }
@@ -393,8 +408,9 @@ private final class SocketEvents: NSObject, URLSessionWebSocketDelegate, @unchec
 extension TerminalBridge {
     /// Runs in the page before ttyd's own script: a WebSocket that is a
     /// native socket, links and herdr's copies handed to the app, a held
-    /// resize while another client has the size, and Shift/Ctrl+Enter as
-    /// herdr reads them (ported from the web app's lib/terminal.ts).
+    /// resize while another client has the size, the window's text size,
+    /// and Shift/Ctrl+Enter as herdr reads them (ported from the web app's
+    /// lib/terminal.ts).
     nonisolated static let script = #"""
     (() => {
       if (window.__lassoTerm) return;
@@ -425,6 +441,28 @@ extension TerminalBridge {
       // the size, and one taken before layout settles is never sent.
       const RESIZE = 0x31;
       const gate = { may: true, held: new Map() };
+      // The window's text size (⌘= ⌘- ⌘0), as xterm's fontSize: the option
+      // the web app's terminal text sets. ttyd's own fit (window.term.fit)
+      // turns it into columns and rows, and its resize goes through the gate
+      // above. Again on the next frame, in case the remeasure trails the
+      // write (lib/theme.ts's nudge). ttyd re-applies lasso's options, and
+      // the page's query over them, on every connect (its SET_PREFERENCES,
+      // "2"), so the size is kept in the query and set again after each.
+      const SET_PREFERENCES = 0x32;
+      let zoom = 0;
+      const applyZoom = () => {
+        const term = window.term;
+        if (!zoom || !term || !term.options || term.options.fontSize === zoom) return;
+        term.options.fontSize = zoom;
+        const fit = () => {
+          try {
+            if (typeof term.fit === "function") term.fit();
+            else dispatchEvent(new Event("resize"));
+          } catch (e) {}
+        };
+        fit();
+        requestAnimationFrame(fit);
+      };
       const laidOut = (u) => {
         try {
           const j = JSON.parse(dec.decode(u.subarray(1)));
@@ -495,6 +533,7 @@ extension TerminalBridge {
           const u = unb64(data);
           const payload = text ? dec.decode(u) : s.binaryType === "arraybuffer" ? u.buffer : new Blob([u]);
           s._fire("message", { data: payload });
+          if (u.length && u[0] === SET_PREFERENCES) applyZoom();
         },
         closed(id, code, reason, failed) {
           const s = sockets.get(id);
@@ -513,6 +552,17 @@ extension TerminalBridge {
             if (s && s.readyState === 1) post({ op: "send", id: id, data: b64(u), text: false });
           }
           gate.held.clear();
+        },
+        zoom(size) {
+          zoom = size;
+          try {
+            const u = new URL(location.href);
+            if (u.searchParams.get("fontSize") !== String(size)) {
+              u.searchParams.set("fontSize", String(size));
+              history.replaceState(history.state, "", u.href);
+            }
+          } catch (e) {}
+          applyZoom();
         },
       };
       // A key or a pointer here is a human using this window: what claims

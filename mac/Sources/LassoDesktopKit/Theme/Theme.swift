@@ -421,6 +421,11 @@ public enum Theme {
             "terminal.window", ["size": [1040, 680], "min": [560, 360]],
             .inferred("ttyd's 14 pt terminal face: about 120 columns by 38 rows, room for herdr's sidebar beside a pane"),
             proposed: true)
+        /// The window's text size (⌘= ⌘- ⌘0), in xterm's px (PLAN 22).
+        public static let zoom = Token(
+            "terminal.zoom", ["default": 14, "step": 1, "min": 8, "max": 32],
+            .inferred("lasso's ttyd launch (src/main.go -t fontSize=14) and the web app's terminal size range (lib/terminal-text.ts)"),
+            proposed: true)
     }
 
     public static let summonKey = Token(
@@ -457,7 +462,7 @@ public enum Theme {
         avatar, icon,
         Motion.railExpand, Motion.railCollapse, Motion.cardOpen, Motion.cardClose, Motion.toastIn, Motion.cardPaging,
         Live.pollAllPanes, Live.pollBots, Live.pollChat, Live.revealKeys, Live.stopWait, Live.sseWatchdog, Live.backoff, Live.arrivalSound,
-        Live.termClaim, Terminal.window,
+        Live.termClaim, Terminal.window, Terminal.zoom,
         summonKey, inboxDoubleTap, revealKeys,
     ]
 }

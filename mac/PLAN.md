@@ -1063,6 +1063,12 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
 
 **The page script also** opens terminal links in the browser, puts herdr's OSC 52 copies on the clipboard, and sends Shift/Ctrl+Enter as a Kitty CSI-u key (as the web app's `lib/terminal.ts` does). ⌘W closes the window. Closing it closes the socket, and with it that herdr client. The window remembers its frame (`LassoHerdrTerminal`), and switching to another lasso closes it.
 
+**Text size.** **⌘=** or **⌘+** makes the text bigger and **⌘-** smaller, one step at a time within bounds, and **⌘0** returns to lasso's own size (`terminal.zoom`: 14, steps of 1, 8–32, the web app's terminal text range). The size is xterm's `fontSize`, the option the web app's Settings › Terminal text sets. It is not `WKWebView.pageZoom`: herdr reflows on xterm's columns and rows either way, and a page zoom would scale ttyd's own frame and overlays as well.
+- **The keys** are `TerminalWebView.performKeyEquivalent`'s, so they work without a menu bar (the app often runs as an accessory). The page, xterm and the shell never see them. Option or Control makes them the terminal's. The main menu's **View** menu has Zoom In, Zoom Out and Actual Size, sent through the responder chain, so they are live only while this window is key.
+- **ttyd's own handling** (checked against ttyd 1.7.7's bundle). ttyd exposes `window.term` with `term.fit()`. On every connect (`SET_PREFERENCES`) it merges lasso's `-t` options with the page's URL query and refits on any `font…` option. So the page loads with `fontSize=` in its query, and ttyd sizes it in one fit. A zoom sets `term.options.fontSize`, calls `term.fit()` now and on the next frame (the web app's nudge), and writes the size into the page's query with `history.replaceState`. The script also sets the size again after each `SET_PREFERENCES` frame, so a reconnect cannot put 14 back.
+- **The shared size.** A zoom is a human resizing, so it claims the size first, as a key does. The resulting resize frame goes through the gate above.
+- **Remembered** under UserDefaults `terminalFontSize`, one size for the app. lasso's own size is kept as no value, and a host switch or reload loads at the remembered size.
+
 **Parity:** `rail-hover-terminal`, plus `rail.terminal`, `card.herdr` and `agent.herdr` rows in `rail-expanded`, `card-open` and `agent-window`. The window itself has no parity state, since its page comes from a live lasso.
 
 **Not yet verified live** (it needs an install on a Mac, and minime's app belongs to another session):

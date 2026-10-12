@@ -116,7 +116,18 @@ public final class AppPresence: NSObject {
         ] {
             edit.addItem(NSMenuItem(title: title, action: sel, keyEquivalent: key))
         }
-        for menu in [app, edit] {
+        // The herdr window's text size. The items go to whatever has the
+        // keyboard, so they are live only while that window is key; its own
+        // key handling takes the keys first, menu bar or not.
+        let view = NSMenu(title: "View")
+        for (title, sel, key) in [
+            ("Zoom In", #selector(TerminalWebView.terminalZoomIn(_:)), "+"),
+            ("Zoom Out", #selector(TerminalWebView.terminalZoomOut(_:)), "-"),
+            ("Actual Size", #selector(TerminalWebView.terminalActualSize(_:)), "0"),
+        ] {
+            view.addItem(NSMenuItem(title: title, action: sel, keyEquivalent: key))
+        }
+        for menu in [app, edit, view] {
             let holder = NSMenuItem()
             holder.submenu = menu
             main.addItem(holder)
