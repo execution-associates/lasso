@@ -10,7 +10,7 @@ holds a *completed* feature. It takes that branch all the way to a published
 release and then closes the agent. The final step kills this agent's terminal, so
 everything else must succeed first.
 
-End-to-end: **take the wrap lock → sync → verify → merge → bump → tag → wait for release → install it (mise pin, or `lasso update`) and restart → release the lock → close own herdr pane.**
+End-to-end: **take the wrap lock → sync → verify → merge → bump → tag → wait for release → publish the Mac app to it → install it (mise pin, or `lasso update`) and restart → release the lock → close own herdr pane.**
 
 **Assume the merge publishes itself.** Titan carries a GLOBAL
 `post-commit`/`post-merge` hook (`core.hooksPath = ~/.config/git/hooks`) that
@@ -321,6 +321,42 @@ done
 If it never appears, check the run: `gh run list --repo execution-associates/lasso --workflow release.yml`.
 Don't proceed to update against a missing/failed release.
 
+## 6b. Publish the Mac app to the release
+
+LassoDesktop, the Mac app, ships with every lasso release: its DMG and Sparkle
+`appcast.xml` are assets of the release, and every installed app checks
+`releases/latest/download/appcast.xml` for updates. **A release without them
+silently stops every Mac from updating**, because it becomes the newest release
+and its appcast is missing. GitHub cannot build it (no runner on minime: the
+repo is public), so this step does, from titan, once the release from step 6
+exists:
+
+```bash
+if [ -x "$MAIN/mac/Scripts/publish.sh" ]; then
+  if ssh -o BatchMode=yes -o ConnectTimeout=10 minime true 2>/dev/null; then
+    "$MAIN/mac/Scripts/publish.sh" "$VER"     # build, Developer ID sign, notarize on minime; attach DMG + appcast
+  else
+    echo "minime unreachable: the Mac app is NOT published for v$VER"
+  fi
+fi
+gh release view "v$VER" --repo execution-associates/lasso --json assets -q '.assets[].name' | grep -qx appcast.xml \
+  && echo "Mac app published to v$VER"
+```
+
+- **Only titan runs it.** It needs ssh to minime, where the signing identity and
+  the notary and update keys live (fnox). On a workspace box, skip it and say so
+  in the summary.
+- **It takes several minutes** (two notarizations), and it runs over ssh, so it
+  needs no one at minime's screen.
+- **If it fails, the wrap goes on.** The server release is published and step 7
+  is still owed. Retry once, then carry on, and put the failure in the summary
+  with its last lines and the command to finish it later:
+  `mac/Scripts/publish.sh <VER>` from the main worktree. Until someone runs it,
+  Macs stay on their current version. A notarization `403 ... agreement is
+  missing or has expired` means Apple wants its developer agreement accepted
+  (developer.apple.com › Account, as knowsuchagency@gmail.com); only Stephan can
+  do that.
+
 ## 7. Install the release — then restart the daemon via **whatever owns the process**
 
 Clear the mise cache first so the new version is actually seen, then install it
@@ -447,8 +483,9 @@ Never close a pane that isn't this agent's.
 ## Summary to print before closing
 
 Right before closing the pane, tell the user what happened: merged `<feature>` →
-`main`, released `v<VER>`, installed it (now serving `v<VER>`), and closing
-the agent. After the pane closes the connection drops — that's success, not an error.
+`main`, released `v<VER>`, whether the Mac app was published to it (and if not,
+why, and the command that finishes it), installed it (now serving `v<VER>`), and
+closing the agent. After the pane closes the connection drops — that's success, not an error.
 
 ## Notes / gotchas
 
