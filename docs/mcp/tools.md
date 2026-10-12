@@ -43,6 +43,8 @@ Returns `active` (the host lasso booted on, which answers for a caller that name
 | `version` | the host's herdr version, when known |
 | `state` | empty when the probe finished; `probing` while the first probe is still in flight; `timeout` when it ran out of time. Neither means the host is down. |
 | `err` | the probe's failure detail, if any |
+| `sessions` | the host's herdr sessions (`herdr session list`), each its own herdr server: `name`, `running`, `socket`, `default` (herdr's default session), and `current` on the one lasso drives there, which is the session every tool acts on |
+| `sessions_error` | why a host that answered has no roster, such as a herdr too old to list sessions |
 
 The answer is immediate and may be partial. Top-level `probing: true` means at least one entry is still filling in: call again in a second or two (or with `refresh: true`) instead of reporting those hosts as unavailable.
 

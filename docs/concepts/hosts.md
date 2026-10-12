@@ -27,6 +27,8 @@ lasso probes each alias in the background by running `herdr status server --json
 
 Anything else shows greyed out in the host menu with the reason (`unreachable`, `herdr not installed`, `herdr not running`, `protocol 21 ≠ 22`, ...). A host whose probe is still in flight shows as probing, and one that didn't answer within 30 seconds shows **timed out**, which means "unknown", not "broken": a sleeping laptop can take that long to wake.
 
+The same ssh call also runs `herdr session list --json`, so listing a host's herdr sessions costs no extra connection. lasso drives one session per host: the one `herdr status server` reports there, and on lasso's own machine the socket `-herdr-sock` names. The others are listed for MCP callers (`list_hosts`, `machine_list`) but not driven. A herdr too old to list sessions is still usable; its roster just says why it is missing.
+
 The probe runs at startup, then every 45 seconds. A host that keeps failing is probed less and less often, backing off to once every 15 minutes, so an offline machine doesn't cost a dial every cycle. The refresh button in the host menu ("Re-scan ssh config") re-reads the config and probes every host immediately.
 
 ## How the host menu groups them

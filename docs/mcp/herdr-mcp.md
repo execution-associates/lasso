@@ -29,7 +29,7 @@ Also carried over from the bridge:
 - **Argument aliases.** `worktree_create` takes `repo`/`repo_path` for `cwd`, `agent_prompt` takes `prompt`/`message`/`body` for `text`, `agent_start` takes `agent`/`harness` for `kind`. The result notes the mapping.
 - **Agent readiness.** `agent_start` waits (up to its `timeout_ms`, default 30s) for the new agent to be interactive before answering, so the next `agent_prompt` is not typed into a harness still drawing its first screen. `agent_wait` on an agent that is still launching waits for it to become addressable first.
 
-One tool is not a herdr method: **`machine_list`** lists the hosts you may pass as `host`. It answers what `/mcp`'s `list_hosts` answers for the same credential.
+One tool is not a herdr method: **`machine_list`** lists the hosts you may pass as `host`. It answers what `/mcp`'s `list_hosts` answers for the same credential, including each host's herdr `sessions`. `current` marks the session the tools reach on that host. The others are listed but not routable: a host means its current session.
 
 ## Hosts
 
