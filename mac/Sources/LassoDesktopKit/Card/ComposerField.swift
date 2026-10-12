@@ -4,7 +4,11 @@ import SwiftUI
 /// What a composer edits: the card's and the chat's models.
 @MainActor
 public protocol ComposerModel: ObservableObject, AttachingModel {
+    /// The words typed. Attachments are never in it.
     var composer: String { get set }
+    /// Files attached to the message: previews over the field, their paths
+    /// added to the message on send (`composedMessage`).
+    var attachments: [ComposerAttachment] { get set }
     var composerFocused: Bool { get set }
     var focusRequest: Int { get }
     var composerPlaceholder: String { get }
@@ -23,81 +27,164 @@ public protocol ComposerModel: ObservableObject, AttachingModel {
 
 extension ComposerModel {
     public var leavesFieldOnSend: Bool { false }
+
+    /// What Send delivers: the words typed, then each attachment's path.
+    public var composedMessage: String { Attachments.message(composer, attachments) }
+    /// An attachment is still on its way to the agent's machine: Send waits for it.
+    public var uploading: Bool { attachments.contains { $0.path == nil } }
+    /// Send would deliver something now.
+    public var canSend: Bool { !uploading && !composedMessage.isEmpty }
+    /// Nothing typed and nothing attached.
+    public var composerIsEmpty: Bool {
+        composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty
+    }
+
+    /// A preview's x: that file stays out of the message.
+    public func removeAttachment(_ id: ComposerAttachment.ID) { attachments.removeAll { $0.id == id } }
+
+    /// The unsent message, nil when there is none. One still uploading is
+    /// not kept: its upload finishes into this model, not the draft.
+    public var draft: ComposerDraft? {
+        get {
+            let landed = attachments.filter { $0.path != nil }
+            guard !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !landed.isEmpty else { return nil }
+            return ComposerDraft(text: composer, attachments: landed)
+        }
+        set {
+            composer = newValue?.text ?? ""
+            attachments = newValue?.attachments ?? []
+        }
+    }
 }
 
-/// The composer's text field: an NSTextField, because the card needs to give
-/// it focus on demand, take it away on esc, and send on Return, and the
-/// focus API SwiftUI offers for that is a macro the Command Line Tools lack.
-/// Files and images pasted or dropped on it are uploaded to the agent's
-/// machine (ComposerTextField), never pasted as a path on this Mac.
+/// The composer's text: an NSTextView in a scroll view, because the card
+/// needs to give it focus on demand, take it away on esc, and send on
+/// Return, and the focus API SwiftUI offers for that is a macro the Command
+/// Line Tools lack. It grows with the message (`control.composer.grow`):
+/// Return sends, Shift- or Option-Return starts a new line, and pasted text
+/// keeps its newlines. Files and images pasted or dropped on it are uploaded
+/// to the agent's machine and shown as attachments over it, never as text.
 struct ComposerField<Model: ComposerModel>: NSViewRepresentable {
     @ObservedObject var model: Model
 
     func makeCoordinator() -> Coordinator { Coordinator(model: model) }
 
-    func makeNSView(context: Context) -> NSTextField {
-        let f = ComposerTextField()
-        f.attachTarget = model
-        f.isBordered = false
-        f.drawsBackground = false
-        f.focusRingType = .none
-        f.font = Theme.Fonts.body.nsFont
-        f.textColor = Theme.Text.primary.nsColor
-        f.lineBreakMode = .byTruncatingTail
-        f.cell?.usesSingleLineMode = true
-        f.delegate = context.coordinator
-        f.setAccessibilityLabel("Message")
-        placeholder(f)
-        return f
+    func makeNSView(context: Context) -> NSScrollView {
+        let t = ComposerTextField(usingTextLayoutManager: false)
+        t.attachTarget = model
+        t.isRichText = false
+        t.importsGraphics = false
+        t.allowsUndo = true
+        t.drawsBackground = false
+        t.font = ComposerLayout.font
+        t.textColor = Theme.Text.primary.nsColor
+        t.insertionPointColor = Theme.Text.primary.nsColor
+        t.typingAttributes = [.font: ComposerLayout.font, .foregroundColor: Theme.Text.primary.nsColor]
+        t.isVerticallyResizable = true
+        t.isHorizontallyResizable = false
+        t.autoresizingMask = [.width]
+        // At least the row's height, so a click anywhere on the field lands in it.
+        t.minSize = NSSize(width: 0, height: Theme.Control.composer.number("height"))
+        t.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        t.textContainer?.widthTracksTextView = true
+        t.textContainer?.lineFragmentPadding = ComposerLayout.textPad
+        t.textContainerInset = NSSize(width: 0, height: ComposerLayout.inset)
+        t.delegate = context.coordinator
+        t.setAccessibilityLabel("Message")
+        t.updateDragTypeRegistration()
+        let c = context.coordinator
+        t.onReturn = { [weak c, weak t] in
+            guard let c, let t else { return }
+            c.submit(t)
+        }
+        t.onFocus = { [weak c] on in c?.model.composerFocused = on }
+        let s = NSScrollView()
+        s.drawsBackground = false
+        s.borderType = .noBorder
+        s.hasVerticalScroller = true
+        s.hasHorizontalScroller = false
+        s.autohidesScrollers = true
+        s.scrollerStyle = .overlay
+        s.documentView = t
+        placeholder(t)
+        return s
     }
 
-    func updateNSView(_ f: NSTextField, context: Context) {
+    func updateNSView(_ s: NSScrollView, context: Context) {
         context.coordinator.model = model
-        (f as? ComposerTextField)?.attachTarget = model
-        if f.stringValue != model.composer { f.stringValue = model.composer }
-        placeholder(f)
+        guard let t = s.documentView as? ComposerTextField else { return }
+        t.attachTarget = model
+        if t.string != model.composer {
+            t.string = model.composer
+            t.needsDisplay = true
+        }
+        // A greyed composer (a stopped bot's) takes no typing.
+        t.isEditable = context.environment.isEnabled
+        placeholder(t)
         if context.coordinator.focusSeen != model.focusRequest {
             context.coordinator.focusSeen = model.focusRequest
             DispatchQueue.main.async {
-                f.window?.makeFirstResponder(f)
-                f.currentEditor()?.moveToEndOfDocument(nil)
+                t.window?.makeFirstResponder(t)
+                t.moveToEndOfDocument(nil)
             }
         }
     }
 
-    private func placeholder(_ f: NSTextField) {
-        f.placeholderAttributedString = NSAttributedString(
+    /// Its height for its text at the width offered: one line is the row's
+    /// height, and it grows to `max_lines` before it scrolls.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView s: NSScrollView, context: Context) -> CGSize? {
+        let offered = proposal.width.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        let width = offered ?? (s.bounds.width > 0 ? s.bounds.width : ComposerLayout.fallbackWidth)
+        return CGSize(width: proposal.width ?? width, height: ComposerLayout.height(model.composer, width: width))
+    }
+
+    private func placeholder(_ t: ComposerTextField) {
+        guard t.placeholder?.string != model.composerPlaceholder else { return }
+        t.placeholder = NSAttributedString(
             string: model.composerPlaceholder,
             attributes: [
                 .foregroundColor: Theme.Text.placeholder.nsColor,
-                .font: Theme.Fonts.body.nsFont,
+                .font: ComposerLayout.font,
             ])
+        t.setAccessibilityPlaceholderValue(model.composerPlaceholder)
     }
 
     @MainActor
-    final class Coordinator: NSObject, NSTextFieldDelegate {
+    final class Coordinator: NSObject, NSTextViewDelegate {
         var model: Model
         var focusSeen = 0
 
         init(model: Model) { self.model = model }
 
-        func controlTextDidChange(_ n: Notification) {
-            if let f = n.object as? NSTextField { model.composer = f.stringValue }
+        func textDidChange(_ n: Notification) {
+            guard let t = n.object as? NSTextView else { return }
+            model.composer = t.string
+            t.enclosingScrollView?.invalidateIntrinsicContentSize()
         }
 
-        func controlTextDidBeginEditing(_ n: Notification) { model.composerFocused = true }
-        func controlTextDidEndEditing(_ n: Notification) { model.composerFocused = false }
+        /// Return: send, and the inbox card's leaves the field once there was
+        /// something to send.
+        func submit(_ t: NSTextView) {
+            let sending = model.canSend
+            model.send()
+            if sending, model.leavesFieldOnSend { t.window?.makeFirstResponder(nil) }
+        }
 
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
+        func textView(_ t: NSTextView, doCommandBy sel: Selector) -> Bool {
             switch sel {
             case #selector(NSResponder.insertNewline(_:)):
-                let sending = !model.composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                model.send()
-                if sending, model.leavesFieldOnSend { control.window?.makeFirstResponder(nil) }
+                submit(t)
                 return true
-            case #selector(NSResponder.cancelOperation(_:)):
+            case #selector(NSResponder.cancelOperation(_:)), #selector(NSTextView.complete(_:)):
                 // esc leaves the field first; a second esc closes the card.
-                control.window?.makeFirstResponder(nil)
+                t.window?.makeFirstResponder(nil)
+                return true
+            case #selector(NSResponder.insertTab(_:)):
+                // Tab moves on, as it did from a one-line field.
+                t.window?.selectNextKeyView(nil)
+                return true
+            case #selector(NSResponder.insertBacktab(_:)):
+                t.window?.selectPreviousKeyView(nil)
                 return true
             default:
                 return false
@@ -106,57 +193,109 @@ struct ComposerField<Model: ComposerModel>: NSViewRepresentable {
     }
 }
 
-/// The composer's NSTextField: its editor (the text view that has the keys
-/// while you type) is an AttachingTextView, so ⌘V and Edit › Paste of a
-/// file or an image upload it; and a drop on the field when it is not being
-/// edited does the same.
-final class ComposerTextField: NSTextField {
-    override class var cellClass: AnyClass? {
-        get { ComposerCell.self }
-        set {}
-    }
+/// What Return does in the composer: on its own it sends; with Shift or
+/// Option (or both) it starts a new line. ⌘ and ⌃ combinations are the
+/// system's (nil).
+enum ComposerReturn: Equatable {
+    case send, newline
 
-    weak var attachTarget: AttachingModel? {
-        didSet { (cell as? ComposerCell)?.attachTarget = attachTarget }
-    }
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        registerForDraggedTypes(Attachments.dropTypes)
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        registerForDraggedTypes(Attachments.dropTypes)
-    }
-
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        AttachmentInput.accepts(sender.draggingPasteboard) ? .copy : []
-    }
-
-    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        AttachmentInput.accepts(sender.draggingPasteboard) ? .copy : []
-    }
-
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        AttachmentInput.take(sender.draggingPasteboard, caret: nil, model: attachTarget)
+    init?(_ flags: NSEvent.ModifierFlags) {
+        let m = flags.intersection([.shift, .option, .command, .control])
+        if m.isEmpty {
+            self = .send
+        } else if m.isSubset(of: [.shift, .option]) {
+            self = .newline
+        } else {
+            return nil
+        }
     }
 }
 
-/// Hands its field the attaching editor in place of the window's shared one.
-final class ComposerCell: NSTextFieldCell {
-    weak var attachTarget: AttachingModel? {
-        didSet { editor?.attachTarget = attachTarget }
+/// The composer's text layout: the body font, set in from the field's
+/// edges, and the height the field takes for a message.
+@MainActor
+enum ComposerLayout {
+    static var font: NSFont { Theme.Fonts.body.nsFont }
+    static var textPad: CGFloat { Theme.Control.composerGrow.number("text_pad") }
+    static var maxLines: CGFloat { Theme.Control.composerGrow.number("max_lines") }
+    /// Before the field has a width: only for a measure nothing offered one.
+    static let fallbackWidth: CGFloat = 240
+
+    static var lineHeight: CGFloat { NSLayoutManager().defaultLineHeight(for: font) }
+
+    /// Above and below the text: one line sits in the middle of the row's height.
+    static var inset: CGFloat { max(0, (Theme.Control.composer.number("height") - lineHeight) / 2) }
+
+    /// The field's height for `text` at `width`, laid out as the text view
+    /// lays it out (TextKit 1, the same font and padding): from one line (the
+    /// row's height) to `max_lines`, past which it scrolls.
+    static func height(_ text: String, width: CGFloat) -> CGFloat {
+        let storage = NSTextStorage(string: text, attributes: [.font: font])
+        let layout = NSLayoutManager()
+        storage.addLayoutManager(layout)
+        let container = NSTextContainer(size: NSSize(width: max(width, 1), height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = textPad
+        layout.addTextContainer(container)
+        layout.ensureLayout(for: container)
+        let line = lineHeight
+        // A trailing newline's empty last line is the extra line fragment.
+        let used = max(layout.usedRect(for: container).maxY, layout.extraLineFragmentRect.maxY)
+        let lines = min(max(used, line), line * maxLines)
+        return max(Theme.Control.composer.number("height"), (lines + 2 * inset).rounded(.up))
+    }
+}
+
+/// The composer's text view: an AttachingTextView, so ⌘V and Edit › Paste
+/// of a file or an image, and a drop of one, upload it. It is plain text
+/// that imports no graphics, so an image never lands in the text itself.
+/// Return is decided here, before the key bindings (`ComposerReturn`), with
+/// an input method's marked text left to commit.
+final class ComposerTextField: AttachingTextView {
+    var onReturn: (() -> Void)?
+    var onFocus: ((Bool) -> Void)?
+    /// Drawn while there is no text (a text view has no placeholder of its own).
+    var placeholder: NSAttributedString? {
+        didSet { if string.isEmpty { needsDisplay = true } }
     }
 
-    private var editor: AttachingTextView?
+    override func keyDown(with e: NSEvent) {
+        if !hasMarkedText(), e.keyCode == KeyCode.returnKey || e.keyCode == KeyCode.keypadEnter,
+           let r = ComposerReturn(e.modifierFlags)
+        {
+            switch r {
+            case .send: onReturn?()
+            case .newline: super.insertNewline(nil)
+            }
+            return
+        }
+        super.keyDown(with: e)
+    }
 
-    override func fieldEditor(for controlView: NSView) -> NSTextView? {
-        if let editor { return editor }
-        let t = AttachingTextView()
-        t.isFieldEditor = true
-        t.attachTarget = attachTarget
-        editor = t
-        return t
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        if ok { onFocus?(true) }
+        return ok
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let ok = super.resignFirstResponder()
+        if ok { onFocus?(false) }
+        return ok
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        // The placeholder comes and goes with the first character.
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard string.isEmpty, let placeholder else { return }
+        let o = textContainerOrigin
+        let pad = textContainer?.lineFragmentPadding ?? 0
+        let rect = NSRect(
+            x: o.x + pad, y: o.y, width: max(0, bounds.width - o.x - 2 * pad), height: ComposerLayout.lineHeight)
+        placeholder.draw(with: rect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
     }
 }

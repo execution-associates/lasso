@@ -68,6 +68,7 @@ public final class CardModel: ComposerModel {
     @Published public private(set) var chat: ChatPayload?
     @Published public private(set) var loadError: String?
     @Published public var composer = ""
+    @Published public var attachments: [ComposerAttachment] = []
     @Published public var composerFocused = false
     /// Bumped to ask the composer field to take focus.
     @Published public private(set) var focusRequest = 0
@@ -324,7 +325,7 @@ public final class CardModel: ComposerModel {
 
     /// Stop takes Send's place while the agent works and the composer is
     /// empty; a draft brings Send back (the web chat's rule).
-    public var showsStop: Bool { isWorking && composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    public var showsStop: Bool { isWorking && composerIsEmpty }
 
     public var stopLabel: String { "Stop \(current.displayName)" }
 
@@ -398,10 +399,11 @@ public final class CardModel: ComposerModel {
     }
 
     public func send() {
-        let text = composer.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard canSend else { return }
+        let text = composedMessage
+        let sent = Set(attachments.map(\.id))
         if answeringCustom {
-            answer(custom: text)
+            answer(custom: text, attached: sent)
             return
         }
         outgoing = text
@@ -413,7 +415,7 @@ public final class CardModel: ComposerModel {
                 outgoing = nil
                 throw error
             }
-            if o.ok { composer = "" } else { outgoing = nil }
+            if o.ok { clear(sent) } else { outgoing = nil }
             await load()
             guard o.ok else { return "\(o.outcome.capitalized): \(o.detail ?? "")" }
             // In the inbox, a reply is the answer to the entry: it is
@@ -430,6 +432,12 @@ public final class CardModel: ComposerModel {
     /// The inbox card's Return leaves the composer: J/K/A act again while
     /// the reply goes.
     public var leavesFieldOnSend: Bool { inbox != nil }
+
+    /// A message went: its words go, and the attachments it carried.
+    private func clear(_ sent: Set<ComposerAttachment.ID>) {
+        composer = ""
+        attachments.removeAll { sent.contains($0.id) }
+    }
 
     /// → : take the highlighted step (or the first): answer the open question
     /// with that option.
@@ -455,12 +463,12 @@ public final class CardModel: ComposerModel {
         }
     }
 
-    /// Send the composer's text as the answer itself.
-    private func answer(custom text: String) {
+    /// Send the composer's message as the answer itself.
+    private func answer(custom text: String, attached sent: Set<ComposerAttachment.ID>) {
         if let p = pending {
             run("Answer") { [self] in
                 let o = try await actions.answer(pane, pending: p, value: text)
-                if o.ok { composer = ""; answeringCustom = false }
+                if o.ok { clear(sent); answeringCustom = false }
                 await load()
                 return o.ok ? "Answered" : "Refused: \(o.detail ?? "")"
             }
@@ -469,7 +477,7 @@ public final class CardModel: ComposerModel {
         guard let q = captured else { return }
         run("Answer") { [self] in
             let o = try await actions.answer(pane, question: q, option: nil, custom: text)
-            if o.ok { composer = ""; answeringCustom = false }
+            if o.ok { clear(sent); answeringCustom = false }
             await load()
             return o.ok ? "Answered in your words" : "Refused: \(o.detail ?? "")"
         }
@@ -531,7 +539,7 @@ public final class CardModel: ComposerModel {
 
     /// A reply is being written: Acknowledge waits until it is sent or
     /// cleared, so a draft is never left behind on an entry that goes away.
-    public var hasDraft: Bool { !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    public var hasDraft: Bool { !composerIsEmpty }
 
     /// Acknowledge can be pressed now (A, or its button).
     public var canAcknowledgeNow: Bool { actions.canAcknowledge && !hasDraft && !killing }
@@ -581,15 +589,15 @@ public final class CardModel: ComposerModel {
     public var onInboxEmpty: () -> Void = {}
 
     /// The paperclip (U): choose files, upload them to the agent's machine,
-    /// and put their paths in the message.
+    /// and attach them to the message.
     public func attachFile() { attach(chooseFiles(), at: nil) }
 
     /// The paperclip's chooser (a seam for tests, which cannot click one).
     var chooseFiles: () -> [URL] = { FilePicker.choose() }
 
     /// Upload files (the paperclip's, or pasted or dropped on the message box)
-    /// to the agent's machine and put their paths in the message at `caret`
-    /// (UTF-16), or at its end.
+    /// to the agent's machine as attachments: previews over the field, their
+    /// paths added to the message on send, never typed into it.
     public func attach(_ files: [URL], at caret: Int?) {
         guard !files.isEmpty else { return }
         guard !busy else {
@@ -599,7 +607,7 @@ public final class CardModel: ComposerModel {
         }
         notice = Attachments.progress(files)
         run("Attach") { [self] in
-            let n = try await Attachments.upload(files, at: caret, into: \.composer, of: self) {
+            let n = try await Attachments.upload(files, into: \.attachments, of: self) {
                 try await actions.attach($0, to: pane)
             }
             if caret == nil { focusComposer() }
@@ -637,7 +645,7 @@ public final class CardModel: ComposerModel {
         case .digit(let n): highlight(n)
         case .attach: attachFile()
         // ⏎: to the composer, or send what it holds.
-        case .send: if composer.isEmpty { focusComposer() } else { send() }
+        case .send: if composerIsEmpty { focusComposer() } else { send() }
         case .reply: focusComposer()
         case .rename:
             guard canRename else { return false }

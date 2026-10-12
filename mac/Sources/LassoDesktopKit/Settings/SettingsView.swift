@@ -169,10 +169,7 @@ public struct SettingsView: View {
 
     /// A one-line field in the address row's style.
     private func field<F: View>(_ f: F, label: String) -> some View {
-        f.textFieldStyle(.plain)
-            .font(Theme.Fonts.body.font)
-            .foregroundStyle(Theme.Text.primary.color)
-            .padding(.horizontal, Theme.space("l"))
+        f.padding(.horizontal, Theme.space("l"))
             .frame(height: Theme.NewAgent.layout.number("chip_h"))
             .background(Capsule().fill(Theme.Panel.surface.color))
             .accessibilityLabel(label)
@@ -381,15 +378,11 @@ public struct SettingsView: View {
             if model.changingLasso {
                 VStack(spacing: 0) {
                     HStack(spacing: Theme.space("m")) {
-                        TextField("Address, e.g. lasso.example.com", text: $model.urlDraft)
-                            .textFieldStyle(.plain)
-                            .font(Theme.Fonts.body.font)
-                            .foregroundStyle(Theme.Text.primary.color)
-                            .padding(.horizontal, Theme.space("l"))
-                            .frame(height: Theme.NewAgent.layout.number("chip_h"))
-                            .background(Capsule().fill(Theme.Panel.surface.color))
-                            .onSubmit { model.connect() }
-                            .accessibilityLabel("lasso address")
+                        field(
+                            PlainField(
+                                text: $model.urlDraft, placeholder: "Address, e.g. lasso.example.com", label: "lasso address",
+                                onSubmit: { model.connect() }),
+                            label: "lasso address")
                         PillButton(title: model.connecting ? "Connecting…" : "Connect", primary: true, label: "Connect to the lasso at this address") {
                             model.connect()
                         }
@@ -402,9 +395,14 @@ public struct SettingsView: View {
                 if let asking = model.passwordFor {
                     VStack(spacing: 0) {
                         HStack(spacing: Theme.space("m")) {
-                            field(TextField("User", text: $model.userDraft), label: "UI_AUTH user for \(LassoConnector.shown(asking))")
-                            field(SecureField("Password", text: $model.passwordDraft), label: "UI_AUTH password")
-                                .onSubmit { model.submitPassword() }
+                            field(
+                                PlainField(text: $model.userDraft, placeholder: "User", label: "UI_AUTH user for \(LassoConnector.shown(asking))"),
+                                label: "UI_AUTH user for \(LassoConnector.shown(asking))")
+                            field(
+                                PlainField(
+                                    text: $model.passwordDraft, placeholder: "Password", label: "UI_AUTH password", secure: true,
+                                    onSubmit: { model.submitPassword() }),
+                                label: "UI_AUTH password")
                             PillButton(title: "Sign in", primary: true, label: "Sign in to this lasso with its user and password") {
                                 model.submitPassword()
                             }

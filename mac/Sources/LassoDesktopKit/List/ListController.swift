@@ -65,6 +65,9 @@ public final class ListController {
             try? await Task.sleep(nanoseconds: UInt64(delay * 1e9) + 20_000_000)
             guard let self, !self.presence.shown else { return }
             self.panel.orderOut(nil)
+            // The next opening shows the whole fleet: a filter left behind
+            // would hide agents from a column opened in passing.
+            self.model.filter = ""
             self.model.thawOrder()
         }
     }
@@ -99,7 +102,13 @@ public final class ListController {
         }
         switch e.keyCode {
         case KeyCode.escape:
-            if model.confirmEnd != nil { model.confirmEnd = nil } else { close() }
+            if model.confirmEnd != nil {
+                model.confirmEnd = nil
+            } else if !model.filter.isEmpty {
+                model.filter = ""
+            } else {
+                close()
+            }
         case KeyCode.up:
             model.move(-1)
             hover.keyboardMoved()
@@ -107,9 +116,29 @@ public final class ListController {
             model.move(1)
             hover.keyboardMoved()
         case KeyCode.returnKey, KeyCode.keypadEnter: model.openSelected()
-        default: return false
+        default:
+            if filters(e) { focusFilter() }
+            return false
         }
         return true
+    }
+
+    /// Typing (and deleting what was typed) filters: plain characters, with
+    /// no ⌘, ⌃ or ⌥, which stay the app's shortcuts.
+    private func filters(_ e: NSEvent) -> Bool {
+        if !e.modifierFlags.intersection([.command, .control, .option]).isEmpty { return false }
+        if e.keyCode == KeyCode.delete { return !model.filter.isEmpty }
+        guard let c = e.characters?.unicodeScalars.first else { return false }
+        // Arrows and function keys arrive as private-use characters.
+        return !CharacterSet.controlCharacters.contains(c) && !(0xF700...0xF8FF).contains(c.value)
+    }
+
+    /// The cursor into the filter, after what is typed there, unless it is
+    /// already in it: the key then lands in the field.
+    private func focusFilter() {
+        guard let f = model.filterField, f.window === panel, !panel.editingText else { return }
+        panel.makeFirstResponder(f)
+        f.currentEditor()?.selectedRange = NSRange(location: (f.stringValue as NSString).length, length: 0)
     }
 }
 

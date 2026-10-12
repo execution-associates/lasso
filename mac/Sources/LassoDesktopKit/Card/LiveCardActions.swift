@@ -233,8 +233,12 @@ public final class FixtureCardActions: CardActions {
     /// What a send answers (a test sets "refused").
     public var sendOutcome = "confirmed"
 
+    /// The text of each send, in order.
+    public private(set) var sent: [String] = []
+
     public func send(_ pane: HostPane, text: String) async throws -> Outcome {
         calls.append("send")
+        sent.append(text)
         return Outcome(outcome: sendOutcome)
     }
 

@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -55,6 +56,13 @@ public final class ListModel: ObservableObject, HoverColumn {
     /// lays the rows out before the column's scroll view exists, where the
     /// hover cannot map the pointer to them.
     public private(set) var held = FrozenOrder()
+    /// Filter-as-you-type: the words typed in the column's field. Every
+    /// word must appear in a row for it to show (`matches`).
+    @Published public var filter = "" {
+        didSet { if filter != oldValue { filterChanged() } }
+    }
+    /// The column's filter field, which a typed key moves the cursor into.
+    public weak var filterField: NSTextField?
 
     public let fleet: FleetModel
     public let actions: FleetActions
@@ -73,8 +81,44 @@ public final class ListModel: ObservableObject, HoverColumn {
     public var pinnedKeys: [String] { fleet.uiState.pinned_agents ?? [] }
 
     public var pinned: [HostPane] {
-        let byKey = Dictionary(fleet.agents.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        let byKey = Dictionary(shown.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         return pinnedKeys.compactMap { byKey[$0] }
+    }
+
+    /// The agents the filter lets through, in the held order.
+    public var shown: [HostPane] {
+        let terms = Self.terms(filter)
+        return held.apply(fleet.agents, key: \.key).filter { Self.matches($0, terms: terms) }
+    }
+
+    nonisolated static func terms(_ filter: String) -> [String] {
+        filter.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
+    }
+
+    /// The web's matching (lib/agents.ts agentMatches): every word must
+    /// appear somewhere in the row, whichever field it came from, so "norm
+    /// claude" finds claude agents on norm. The haystack is the agents
+    /// grid's: the names and labels, harness, cwd, repo, machine and the
+    /// prompt it was started with.
+    public nonisolated static func matches(_ p: HostPane, terms: [String]) -> Bool {
+        if terms.isEmpty { return true }
+        let hay = [
+            p.displayName, p.agent_label, p.workspace_label, p.tab_label, p.pane_label, p.terminal_title,
+            p.agent, p.cwd, p.repo, p.repo_label, p.host, p.host_label, p.prompt,
+        ]
+        .compactMap { $0 }.joined(separator: "\n").lowercased()
+        return terms.allSatisfy { hay.contains($0) }
+    }
+
+    /// A filter lights its first match, so ⏎ opens it straight away; a
+    /// row the keyboard already picked stays picked while it still matches.
+    private func filterChanged() {
+        confirmEnd = nil
+        guard !filter.isEmpty else { return }
+        let list = order
+        if !list.contains(where: { $0.key == selected }) { selected = list.first?.key }
+        keyboardLit = selected != nil
+        if keyboardLit { hovered = nil }
     }
 
     /// Hold the rows where they are now, until `thawOrder`.
@@ -86,7 +130,7 @@ public final class ListModel: ObservableObject, HoverColumn {
     }
 
     public var groups: [FleetGroup] {
-        let agents = held.apply(fleet.agents, key: \.key)
+        let agents = shown
         let machines = Set(agents.map(\.host)).count > 1
         var order: [String] = []
         var byID: [String: FleetGroup] = [:]

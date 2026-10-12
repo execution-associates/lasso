@@ -36,6 +36,8 @@ public final class AppCoordinator {
     private let media: MediaSource?
     private var shortcuts: [ShortcutSlot: InboxShortcut] = [:]
     private var newAgent: NewAgentController?
+    /// Saves the New form's prompt as it is typed (`NewAgentDraft`).
+    private var newAgentDraft: AnyCancellable?
     /// lasso's herdr in a window of its own; made on first use, live lassos only.
     private var terminal: HerdrTerminalController?
     /// lasso's browsers in a window of their own; made on first use, live
@@ -639,6 +641,8 @@ public final class AppCoordinator {
             return
         }
         let m = NewAgentModel(kind: kind, source: LiveNewAgentSource(client: client))
+        m.prompt = NewAgentDraft.text
+        newAgentDraft = m.$prompt.dropFirst().removeDuplicates().sink { NewAgentDraft.text = $0 }
         let c = NewAgentController(model: m)
         m.onClose = { [weak self] in
             self?.newAgent?.close()
@@ -650,6 +654,7 @@ public final class AppCoordinator {
                 self.analytics.track(.agentCreated(AnalyticsHarness(id: m.agent), kind))
             }
             let frame = c.panel.frame
+            NewAgentDraft.text = ""
             self.newAgent?.close()
             self.newAgent = nil
             Trace.event("agent created")
@@ -660,6 +665,7 @@ public final class AppCoordinator {
         // A terminal: the herdr window on its host, on its pane.
         m.onTerminal = { [weak self] pane, note in
             guard let self else { return }
+            NewAgentDraft.text = ""
             self.newAgent?.close()
             self.newAgent = nil
             Trace.event("terminal created")
@@ -1027,7 +1033,7 @@ public final class AppCoordinator {
         case .close?: chat?.panel.close()
         case .digit(let n)?: m.highlight(n)
         case .attach?: m.attachFile()
-        case .send?: if m.composer.isEmpty { m.focusComposer() } else { m.send() }
+        case .send?: if m.composerIsEmpty { m.focusComposer() } else { m.send() }
         case .reply?: m.focusComposer()
         case .editStep?: m.editStep()
         case .takeStep?: m.takeStep()
