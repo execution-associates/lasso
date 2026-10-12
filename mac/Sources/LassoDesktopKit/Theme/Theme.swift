@@ -394,6 +394,9 @@ public enum Theme {
             "live.poll.reveal_keys", 0.2,
             .unmeasured("keycaps re-read ⌘ while they show: a release while another app has the keys sends Lasso no event"),
             proposed: true)
+        public static let stopWait = Token(
+            "live.stop_wait", 10, .unmeasured("Stop's button stays down at most this long when no poll shows the turn end"),
+            proposed: true)
         public static let sseWatchdog = Token(
             "live.sse.watchdog", 60, .inferred("server pings every 25 s, src/main.go:2847"), proposed: true)
         public static let backoff = Token(
@@ -437,7 +440,7 @@ public enum Theme {
         spaceScale, Layout.card, Layout.chat,
         avatar, icon,
         Motion.railExpand, Motion.railCollapse, Motion.cardOpen, Motion.cardClose, Motion.toastIn, Motion.cardPaging,
-        Live.pollAllPanes, Live.pollBots, Live.pollChat, Live.revealKeys, Live.sseWatchdog, Live.backoff, Live.arrivalSound,
+        Live.pollAllPanes, Live.pollBots, Live.pollChat, Live.revealKeys, Live.stopWait, Live.sseWatchdog, Live.backoff, Live.arrivalSound,
         summonKey, inboxDoubleTap, revealKeys,
     ]
 }

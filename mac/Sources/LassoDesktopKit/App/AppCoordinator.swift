@@ -534,6 +534,10 @@ public final class AppCoordinator {
     }
 
     private func chatKey(_ e: NSEvent, _ m: ChatModel) -> Bool {
+        if Keys.stop.matches(e), m.isWorking {
+            m.stop()
+            return true
+        }
         if m.composerFocused || chat?.panel.panel.editingText == true { return false }
         if Keys.esc.matches(e) {
             chat?.panel.close()

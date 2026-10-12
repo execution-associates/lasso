@@ -200,8 +200,14 @@ final class AgentWindowController {
     }
 
     /// The card's keys, minus paging and Acknowledge: 1–9 highlight a choice,
-    /// → takes it, ↳ edits it, ⏎ to the composer, A attaches, X X kills.
+    /// → takes it, ↳ edits it, ⏎ to the composer, A attaches, ⌘. stops,
+    /// X X kills.
     private func handle(_ e: NSEvent) -> Bool {
+        // ⌘. stops a working agent, the composer focused or not.
+        if Keys.stop.matches(e), model.isWorking {
+            model.stop()
+            return true
+        }
         if model.composerFocused || panel.editingText { return false }
         if !Keys.kill.matches(e) { model.disarm() }
         if let n = Keys.digit(e) {

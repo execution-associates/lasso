@@ -12,6 +12,8 @@ public protocol CardActions: AnyObject {
     func answer(_ pane: HostPane, question: ChatTool.Question, option: Int?, custom: String?) async throws -> Outcome
     /// An omp bot's open request (`pending_ui`), answered by its id.
     func answer(_ pane: HostPane, pending: ChatPayload.PendingUI, value: String) async throws -> Outcome
+    /// Interrupt the agent's turn (one Escape; lasso refuses unless it is working).
+    func stop(_ pane: HostPane) async throws -> Outcome
     func kill(_ pane: HostPane) async throws -> String
     /// Acknowledge the pane's inbox entry (S1, ui_state card_dismiss):
     /// nothing reaches the agent, and it returns when it has something new.
@@ -39,6 +41,17 @@ public struct Outcome: Decodable, Sendable, Equatable {
     public var ok: Bool { outcome == "confirmed" || outcome == "sent" }
 }
 
+/// What a Stop's answer puts in the notice line (the web chat's words).
+enum StopNotice {
+    static func text(_ o: Outcome, name: String) -> String {
+        switch o.outcome {
+        case "refused": o.detail.map { "Not stopped: \($0)" } ?? "\(name) was not stopped"
+        case "uncertain": "\(o.detail ?? "Stop unconfirmed"): check the terminal"
+        default: "Stopping \(name)…"
+        }
+    }
+}
+
 /// A suggested next step: an option of the agent's open question.
 public struct NextStep: Equatable, Sendable, Identifiable {
     public var id: Int { index }
@@ -59,6 +72,8 @@ public final class CardModel: ComposerModel {
     /// Bumped to ask the composer field to take focus.
     @Published public private(set) var focusRequest = 0
     @Published public private(set) var busy = false
+    /// Stop was pressed: its button waits (dimmed) until the turn ends.
+    @Published public private(set) var stopping = false
     /// One line of feedback in the footer (sent, refused, kill armed…).
     @Published public private(set) var notice: String?
     /// Your message, sent and not yet in the transcript: shown at once, faded.
@@ -200,6 +215,7 @@ public final class CardModel: ComposerModel {
     public var activeBindings: Set<KeyBinding> {
         var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.send, Keys.next, Keys.previous]
         if !isBot { b.insert(Keys.kill) }
+        if isWorking { b.insert(Keys.stop) }
         if actions.canAcknowledge { b.insert(Keys.acknowledge) }
         if !nextSteps.isEmpty { b.formUnion([Keys.editStep, Keys.takeStep]) }
         return b
@@ -270,6 +286,45 @@ public final class CardModel: ComposerModel {
         return c.running == true || pane.state == .working || outgoing != nil ? .working(h) : .idle
     }
 
+    /// The agent is on its turn (or booting): Stop can interrupt it.
+    public var isWorking: Bool {
+        switch phase {
+        case .working, .starting: true
+        case .loading, .idle: false
+        }
+    }
+
+    /// Stop takes Send's place while the agent works and the composer is
+    /// empty; a draft brings Send back (the web chat's rule).
+    public var showsStop: Bool { isWorking && composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    public var stopLabel: String { "Stop \(current.displayName)" }
+
+    /// Stop (⌘.): one Escape to the agent through lasso. The button stays
+    /// down until a poll shows the turn over, or `live.stop_wait` passes.
+    public func stop() {
+        guard isWorking, !stopping else { return }
+        stopping = true
+        notice = nil
+        let p = pane
+        let name = current.displayName
+        Task {
+            do {
+                let o = try await actions.stop(p)
+                notice = StopNotice.text(o, name: name)
+                if o.outcome == "refused" { stopping = false }
+            } catch {
+                notice = "Stop failed: \(error)"
+                stopping = false
+            }
+            await load()
+        }
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Theme.Live.stopWait.seconds * 1e9))
+            self?.stopping = false
+        }
+    }
+
     public func startPolling() {
         poll?.cancel()
         poll = Task { [weak self] in
@@ -293,6 +348,7 @@ public final class CardModel: ComposerModel {
             }
             recapture()
             loadError = nil
+            if stopping, !isWorking { stopping = false }
         } catch {
             loadError = String(describing: error)
         }
@@ -475,6 +531,7 @@ public final class CardModel: ComposerModel {
         killArmed = false
         highlighted = nil
         notice = nil
+        stopping = false
         Task { await load() }
     }
 }

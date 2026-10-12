@@ -207,8 +207,8 @@ struct PillButton: View {
     }
 }
 
-/// The composer row (ref a2/a5): a round camera button, the field, a round
-/// send button.
+/// The composer row (ref a2/a5): a round paperclip button, the field, and a
+/// round send button, which is Stop while the agent works and nothing is typed.
 struct ComposerRow<Model: ComposerModel>: View {
     @ObservedObject var model: Model
     let attach: () -> Void
@@ -226,11 +226,21 @@ struct ComposerRow<Model: ComposerModel>: View {
                 .frame(height: h)
                 .background(Capsule().fill(c.color("fill")))
                 .parityAnchor("composer.field")
-            RoundButton(
-                symbol: "arrow.up", enabled: canSend, size: h, fill: c.color("fill"), label: "Send (⏎)",
-                action: model.send
-            )
-            .keyHint(Keys.send)
+            if model.showsStop {
+                // The web chat's Stop: a filled square while the agent works.
+                RoundButton(
+                    symbol: "stop.fill", enabled: !model.stopping, size: h, fill: c.color("fill"),
+                    label: "\(model.stopLabel) (⌘.)", action: model.stop
+                )
+                .keyHint(Keys.stop)
+                .parityAnchor("composer.stop")
+            } else {
+                RoundButton(
+                    symbol: "arrow.up", enabled: canSend, size: h, fill: c.color("fill"), label: "Send (⏎)",
+                    action: model.send
+                )
+                .keyHint(Keys.send)
+            }
         }
         .parityAnchor("composer")
     }

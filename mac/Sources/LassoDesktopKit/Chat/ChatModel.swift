@@ -23,6 +23,8 @@ public final class ChatModel: ComposerModel {
     @Published public var composerFocused = false
     @Published public private(set) var focusRequest = 0
     @Published public private(set) var busy = false
+    /// Stop was pressed: its button waits (dimmed) until the turn ends.
+    @Published public private(set) var stopping = false
     @Published public private(set) var notice: String?
     @Published public var highlighted: Int?
 
@@ -54,6 +56,7 @@ public final class ChatModel: ComposerModel {
 
     public var activeBindings: Set<KeyBinding> {
         var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.send]
+        if isWorking { b.insert(Keys.stop) }
         if !pendingOptions.isEmpty { b.formUnion([Keys.editStep, Keys.takeStep]) }
         return b
     }
@@ -75,6 +78,7 @@ public final class ChatModel: ComposerModel {
             let c = try await actions.chat(bot)
             if c != chat { chat = c }
             loadError = nil
+            if stopping, !isWorking { stopping = false }
         } catch {
             loadError = String(describing: error)
         }
@@ -126,10 +130,37 @@ public final class ChatModel: ComposerModel {
         highlighted = n - 1
     }
 
+    /// The bot is on its turn: Stop can interrupt it.
+    public var isWorking: Bool {
+        guard pending == nil else { return false }
+        return chat?.running == true || bot.state == "working"
+    }
+
+    /// Stop takes Send's place while the bot works and the composer is empty.
+    public var showsStop: Bool { isWorking && composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    public var stopLabel: String { "Stop \(bot.name)" }
+
+    /// Stop (⌘.), as the card's: the button stays down until the turn ends.
     public func stop() {
-        run("Stop") { [self] in
-            let o = try await actions.stop(bot)
-            return o.ok ? "Stopped" : (o.detail ?? o.outcome)
+        guard isWorking, !stopping else { return }
+        stopping = true
+        notice = nil
+        let b = bot
+        Task {
+            do {
+                let o = try await actions.stop(b)
+                notice = StopNotice.text(o, name: b.name)
+                if o.outcome == "refused" { stopping = false }
+            } catch {
+                notice = "Stop failed: \(error)"
+                stopping = false
+            }
+            await load()
+        }
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Theme.Live.stopWait.seconds * 1e9))
+            self?.stopping = false
         }
     }
 
@@ -213,12 +244,10 @@ public final class LiveBotChatActions: BotChatActions {
     }
 
     struct Empty: Encodable {}
-    struct PaneStop: Encodable { var pane_id: String }
 
     public func stop(_ bot: BotView) async throws -> Outcome {
         if bot.runtime == "omp" { return try await client.post(path(bot, "chat/stop"), json: Empty()) }
-        let p = try pane(bot)
-        return try await client.post("/api/chat/stop", query: ["host": p.host], json: PaneStop(pane_id: p.pane_id))
+        return try await card.stop(pane(bot))
     }
 
     public func attach(_ file: URL, to bot: BotView) async throws -> String {

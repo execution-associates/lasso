@@ -9,6 +9,13 @@ public protocol ComposerModel: ObservableObject, AttachingModel {
     var focusRequest: Int { get }
     var composerPlaceholder: String { get }
     func send()
+    /// Stop shows in Send's place (the agent works, the composer is empty).
+    var showsStop: Bool { get }
+    /// Stop was pressed and the turn has not ended yet.
+    var stopping: Bool { get }
+    /// "Stop <name>", its accessibility label.
+    var stopLabel: String { get }
+    func stop()
 }
 
 /// The composer's text field: an NSTextField, because the card needs to give

@@ -207,6 +207,9 @@ public final class CardController {
         case .previous: m.page(-1)
         case .editStep: m.editStep()
         case .takeStep: m.takeStep()
+        case .stop:
+            guard m.isWorking else { return false }
+            m.stop()
         case .unbound: return false
         case .handBack: break
         }
@@ -216,7 +219,7 @@ public final class CardController {
 
 /// What a key does in the card, decided before anything acts (PLAN 13.7a).
 public enum CardKeyAction: Equatable, CustomStringConvertible {
-    case close, attach, send, kill, acknowledge, next, previous, editStep, takeStep, digit(Int)
+    case close, attach, send, stop, kill, acknowledge, next, previous, editStep, takeStep, digit(Int)
     /// Not a card key: left to the system.
     case unbound
     /// A key outside the hover set while the pointer lent the card the
@@ -228,6 +231,7 @@ public enum CardKeyAction: Equatable, CustomStringConvertible {
         case .close: "esc"
         case .attach: "a"
         case .send: "enter"
+        case .stop: "cmd-."
         case .kill: "x"
         case .acknowledge: "e"
         case .next: "j"
@@ -246,10 +250,12 @@ public enum CardKeys {
     /// keyboard: paging, kill (behind its confirm), acknowledge, and esc.
     public static let hoverSet: [KeyBinding] = [Keys.next, Keys.previous, Keys.kill, Keys.acknowledge, Keys.esc]
 
-    /// Route a key: nil while text is being typed (the field takes it, a
-    /// `j` stays a `j`); the hover set only while the pointer lent the
+    /// Route a key: ⌘. is Stop wherever the keyboard is; nil while text is
+    /// being typed (the field takes it, a `j` stays a `j`); the hover set only while the pointer lent the
     /// keyboard; else the card's whole vocabulary.
     public static func route(_ e: NSEvent, editing: Bool, pointerKeyed: Bool) -> CardKeyAction? {
+        // ⌘. is never text, and the field would take it as esc.
+        if Keys.stop.matches(e) { return .stop }
         if editing { return nil }
         if pointerKeyed, !hoverSet.contains(where: { $0.matches(e) }) { return .handBack }
         switch true {

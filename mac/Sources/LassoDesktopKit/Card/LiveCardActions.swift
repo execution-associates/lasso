@@ -142,6 +142,15 @@ public final class LiveCardActions: CardActions {
         await refreshUIState()
     }
 
+    struct PaneStop: Encodable { var pane_id: String }
+    struct Empty: Encodable {}
+
+    /// POST /api/chat/stop on the pane's host, or an omp bot's own stop route.
+    public func stop(_ pane: HostPane) async throws -> Outcome {
+        if let b = ompBot(pane) { return try await client.post(botPath(b, "chat/stop"), json: Empty()) }
+        return try await client.post("/api/chat/stop", query: ["host": pane.host], json: PaneStop(pane_id: pane.pane_id))
+    }
+
     struct Focus: Encodable { var pane_id: String }
     struct Focused: Decodable { var ok: Bool? }
 
@@ -178,7 +187,7 @@ extension LassoClient {
 /// side effect is a recorded no-op.
 @MainActor
 public final class FixtureCardActions: CardActions {
-    let chats: [String: ChatPayload]
+    public var chats: [String: ChatPayload]
     public private(set) var calls: [String] = []
     public let canAcknowledge: Bool
 
@@ -202,6 +211,14 @@ public final class FixtureCardActions: CardActions {
         calls.append(custom == nil ? "answer" : "answer-custom")
         return Outcome(outcome: "sent")
     }
+
+    public func stop(_ pane: HostPane) async throws -> Outcome {
+        calls.append("stop")
+        return stopOutcome
+    }
+
+    /// What the fixture's stop answers.
+    public var stopOutcome = Outcome(outcome: "sent")
 
     public func kill(_ pane: HostPane) async throws -> String {
         calls.append("kill")

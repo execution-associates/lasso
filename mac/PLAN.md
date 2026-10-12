@@ -740,6 +740,7 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 | `e` | Acknowledge (S1): writes the entry's own key, and nothing to the agent. It returns when the item has something new. |
 | `1`–`9`, `→`, `↳` | Pick a choice, answer with it, or edit it into your own words. |
 | `⏎`, `a` | To the composer (or send); attach a file. |
+| `⌘.` | Stop: interrupts the agent's turn (one Escape through `/api/chat/stop`, or an omp bot's `chat/stop`). It works while the agent is working or starting, even with the composer focused, since a text field would take `⌘.` as esc. |
 | `esc` | Close. |
 
 **How the card gets the keyboard:**
@@ -754,7 +755,7 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
     - Typing meant for another app is cut off at its first key outside the set. The worst a stray word does is page the card or acknowledge one item.
 - **A key shows on hover.** While the card has the keyboard, a control's keycap appears when the pointer is on that control. The user found every key at once too noisy. One app-wide value says which control is hovered (`HoveredKey`). The keycaps:
   - `K`/`J` beside the paging chevrons, and `esc` on close
-  - `A` on the paperclip and `⏎` on send
+  - `A` on the paperclip, and `⏎` on send or `⌘.` on Stop
   - `X` on Kill and `E` on Acknowledge
   - the choice numbers, plus `↳` and `→` on the selected choice
 
@@ -1007,6 +1008,11 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
   - Refused before any upload: folders, empty files (lasso refuses an empty body), and anything over lasso's `maxUpload` (1 GiB, `src/main.go`).
   - The New Agent prompt has no agent yet, so its files go to the chosen host through the same route, and Create waits for them.
 - One window per agent; a second click brings it forward. Where each agent's window was is kept in UserDefaults `agentWindowFrames`.
-- Keys while it has the keyboard: 1–9, →, ↳, ⏎, A (attach), and X X to kill. A focused composer keeps every key as text (§13.7a).
+- Keys while it has the keyboard: 1–9, →, ↳, ⏎, A (attach), ⌘. (Stop), and X X to kill. A focused composer keeps every key as text except ⌘. (§13.7a).
+- **Stop** (the web chat's rule). While the agent is working or starting and the composer is empty, the send button is Stop, a filled square with the label "Stop <agent>". A draft brings Send back.
+  - It is in every composer: the inbox card, the agent window and preview, and the bot chat.
+  - A press sends one Escape (`CardActions.stop`: `/api/chat/stop?host=` with `{pane_id}`, or an omp bot's `chat/stop`). The button then stays dimmed until a poll shows the turn over, or `live.stop_wait` (10 s) passes.
+  - A refusal comes back at once with "Not stopped: <reason>", and an uncertain outcome says to check the terminal.
+  - The `agent-window-markdown` parity state renders it.
 
 **Parity states:** `list-hover-preview`, `agent-window` and `agent-window-collapsed`, from the `card-open` fixture.
