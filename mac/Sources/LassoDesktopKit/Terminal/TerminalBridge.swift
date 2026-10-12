@@ -409,8 +409,8 @@ extension TerminalBridge {
     /// Runs in the page before ttyd's own script: a WebSocket that is a
     /// native socket, links and herdr's copies handed to the app, a held
     /// resize while another client has the size, the window's text size,
-    /// and Shift/Ctrl+Enter as herdr reads them (ported from the web app's
-    /// lib/terminal.ts).
+    /// right-clicks for herdr rather than WebKit's menu, and Shift/Ctrl+Enter
+    /// as herdr reads them (ported from the web app's lib/terminal.ts).
     nonisolated static let script = #"""
     (() => {
       if (window.__lassoTerm) return;
@@ -570,6 +570,54 @@ extension TerminalBridge {
       const act = () => post({ op: "act" });
       addEventListener("keydown", act, { capture: true, passive: true });
       addEventListener("pointerdown", act, { capture: true, passive: true });
+      // herdr reads right-clicks itself: the press and release reach xterm
+      // (and herdr, through its mouse reporting), and WebKit's own menu
+      // (Reload, Inspect Element) never opens. A Control-click is a
+      // right-click, as everywhere on the Mac: its press and release go to
+      // xterm as the right button's.
+      addEventListener("contextmenu", (e) => e.preventDefault(), { capture: true });
+      let ctrlClick = false;
+      const asRight = (e, type, buttons) => {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const t = e.target;
+        if (!t || typeof t.dispatchEvent !== "function") return;
+        t.dispatchEvent(
+          new MouseEvent(type, {
+            button: 2,
+            buttons: buttons,
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+            clientX: e.clientX,
+            clientY: e.clientY,
+            screenX: e.screenX,
+            screenY: e.screenY,
+            detail: e.detail,
+            shiftKey: e.shiftKey,
+            altKey: e.altKey,
+            view: window,
+          })
+        );
+      };
+      addEventListener(
+        "mousedown",
+        (e) => {
+          if (!e.isTrusted || e.button !== 0 || !e.ctrlKey || e.metaKey) return;
+          ctrlClick = true;
+          asRight(e, "mousedown", 2);
+        },
+        { capture: true }
+      );
+      addEventListener(
+        "mouseup",
+        (e) => {
+          if (!ctrlClick || !e.isTrusted || e.button !== 0) return;
+          ctrlClick = false;
+          asRight(e, "mouseup", 0);
+        },
+        { capture: true }
+      );
       // xterm's links open a blank window and then set its location.
       window.open = (url) => {
         if (url) {

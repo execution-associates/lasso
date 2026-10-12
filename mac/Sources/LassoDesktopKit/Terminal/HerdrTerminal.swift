@@ -151,6 +151,14 @@ final class TerminalWebView: WKWebView {
         return super.performKeyEquivalent(with: e)
     }
 
+    /// WebKit's own menu (Reload, Inspect Element, Copy) never opens: herdr
+    /// takes right-clicks itself. The page cancels the menu's event; this
+    /// empties it for a click the page did not see (one before it loaded).
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        menu.removeAllItems()
+        super.willOpenMenu(menu, with: event)
+    }
+
     @objc func terminalZoomIn(_ sender: Any?) { onZoom(.bigger) }
     @objc func terminalZoomOut(_ sender: Any?) { onZoom(.smaller) }
     @objc func terminalActualSize(_ sender: Any?) { onZoom(.actual) }

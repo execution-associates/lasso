@@ -263,13 +263,12 @@ private func query(_ r: URLRequest) -> [URLQueryItem]? { URLComponents(url: r.ur
     #expect(HerdrTerminal.lassoPath(url, slug: "local") == "/terminal/local/?" + palette + "&fontSize=16")
 }
 
-/// In the page: a zoom sets xterm's fontSize and refits through ttyd's fit,
-/// keeps the size in the page's query, and sets it again when ttyd's
-/// preferences (sent on every connect) put lasso's back.
-@Test func thePageAppliesTheTextSize() throws {
+/// The page script in a bare JavaScript context, with just enough of a
+/// browser (and a stand-in for ttyd's xterm as window.term) to run it.
+/// Listeners it adds on the window are in `listeners`.
+private func pageContext(_ problem: @escaping (String) -> Void) -> JSContext {
     let ctx = JSContext()!
-    var problem: String?
-    ctx.exceptionHandler = { _, e in problem = e?.toString() }
+    ctx.exceptionHandler = { _, e in problem(e?.toString() ?? "?") }
     ctx.evaluateScript(#"""
     var window = globalThis;
     globalThis.posted = [];
@@ -309,7 +308,9 @@ private func query(_ r: URLRequest) -> [URLQueryItem]? { URLComponents(url: r.ur
     };
     globalThis.location = { href: "lasso-terminal://lasso/terminal/local/?theme=x&fontSize=14" };
     globalThis.history = { state: null, replaceState: (s, t, u) => { location.href = u; } };
-    globalThis.addEventListener = () => {};
+    globalThis.listeners = {};
+    globalThis.addEventListener = (t, f) => (listeners[t] = listeners[t] || []).push(f);
+    globalThis.MouseEvent = class extends Event { constructor(t, i) { super(t); Object.assign(this, i); } };
     globalThis.dispatchEvent = () => {};
     globalThis.setTimeout = () => {};
     globalThis.requestAnimationFrame = (f) => f();
@@ -322,6 +323,15 @@ private func query(_ r: URLRequest) -> [URLQueryItem]? { URLComponents(url: r.ur
     };
     """#)
     ctx.evaluateScript(TerminalBridge.script)
+    return ctx
+}
+
+/// In the page: a zoom sets xterm's fontSize and refits through ttyd's fit,
+/// keeps the size in the page's query, and sets it again when ttyd's
+/// preferences (sent on every connect) put lasso's back.
+@Test func thePageAppliesTheTextSize() throws {
+    var problem: String?
+    let ctx = pageContext { problem = $0 }
     ctx.evaluateScript("__lassoTerm.zoom(16)")
     #expect(problem == nil, "\(problem ?? "")")
     #expect(ctx.evaluateScript("term.options.fontSize").toInt32() == 16)
@@ -347,4 +357,37 @@ private func query(_ r: URLRequest) -> [URLQueryItem]? { URLComponents(url: r.ur
     ctx.evaluateScript("__lassoTerm.message(1, '\(Data("0hi".utf8).base64EncodedString())', false)")
     #expect(ctx.evaluateScript("term.options.fontSize").toInt32() == 13)
     #expect(ctx.evaluateScript("posted[0].op").toString() == "open")
+}
+
+/// Right-clicks are herdr's: WebKit's menu is cancelled while the press and
+/// release go on to xterm untouched, and a Control-click reaches xterm as
+/// the right button's press and release.
+@Test func rightClicksAreHerdrs() {
+    var problem: String?
+    let ctx = pageContext { problem = $0 }
+    ctx.evaluateScript(#"""
+    globalThis.fire = (type, init) => {
+      const e = Object.assign({ isTrusted: true, prevented: false, stopped: false }, init);
+      e.preventDefault = () => { e.prevented = true; };
+      e.stopImmediatePropagation = () => { e.stopped = true; };
+      for (const f of listeners[type] || []) f(e);
+      return e;
+    };
+    globalThis.sent = [];
+    globalThis.target = { dispatchEvent: (e) => sent.push(e) };
+    """#)
+    #expect(ctx.evaluateScript("fire('contextmenu', { button: 2, target }).prevented").toBool())
+    let right = ctx.evaluateScript("const r = fire('mousedown', { button: 2, target }); [r.prevented, r.stopped]").toArray() as? [Bool]
+    #expect(right == [false, false])
+    #expect(ctx.evaluateScript("sent.length").toInt32() == 0)
+
+    let ctrl = ctx.evaluateScript("const c = fire('mousedown', { button: 0, ctrlKey: true, clientX: 7, target }); [c.prevented, c.stopped]").toArray() as? [Bool]
+    #expect(ctrl == [true, true])
+    ctx.evaluateScript("fire('mouseup', { button: 0, ctrlKey: true, clientX: 7, target })")
+    #expect(ctx.evaluateScript("sent.map((e) => e.type + ':' + e.button + ':' + e.buttons + ':' + e.clientX).join(' ')").toString()
+        == "mousedown:2:2:7 mouseup:2:0:7")
+    // The page's own synthetic events, and plain clicks, pass untouched.
+    #expect(!ctx.evaluateScript("fire('mousedown', { button: 0, target }).stopped").toBool())
+    #expect(!ctx.evaluateScript("fire('mousedown', { button: 0, ctrlKey: true, isTrusted: false, target }).stopped").toBool())
+    #expect(problem == nil, "\(problem ?? "")")
 }
