@@ -16,11 +16,14 @@
 #   mac/Scripts/dev.sh logs            tail the app's log on the Mac
 #   mac/Scripts/dev.sh unlock          unlock the signing keychain (password from `secret`)
 #
-# LASSO_MAC picks the Mac (default minime).
+# LASSO_MAC picks the Mac (default minime). LASSO_MAC_DIR picks the folder on it,
+# relative to its home (default src/lasso-desktop/mac, which publish.sh builds
+# releases in): give another worktree's runs a folder of their own, since sync
+# is an rsync --delete.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 MAC="${LASSO_MAC:-minime}"
-REMOTE="src/lasso-desktop/mac"
+REMOTE="${LASSO_MAC_DIR:-src/lasso-desktop/mac}"
 KC='~/Library/Keychains/lasso-desktop-signing.keychain-db'
 
 on_mac() { ssh "$MAC" "cd $REMOTE && $*"; }
@@ -118,7 +121,7 @@ DOC
   logs) ssh "$MAC" "tail -n ${1:-100} ~/Library/Logs/Lasso.log" ;;
   unlock) unlock ;;
   *)
-    sed -n '2,18p' "$0"
+    sed -n '2,20p' "$0"
     exit 2
     ;;
 esac

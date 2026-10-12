@@ -251,6 +251,9 @@ public enum Theme {
         public static let placement = Token(
             "card.placement", ["side": "leading-of-rail", "gap": 8, "align": "top-of-rail"],
             .measured("ref a2: 8 pt from the rail"))
+        /// A kill in flight: the conversation's opacity under "Killing <agent>…".
+        public static let killing = Token(
+            "card.killing", ["dim": 0.5], .unmeasured("a kill in flight dims the conversation"), proposed: true)
     }
 
     public enum Text {
@@ -405,6 +408,19 @@ public enum Theme {
             "live.arrival_sound", ["gap_ms": 2000, "max_bytes": 1_048_576],
             .inferred("arrivals this close make one sound, not a burst; an upload is capped where lasso caps it (src/desktopsound.go)"),
             proposed: true)
+        /// The herdr window's claim on the shared terminal's size: renewed at
+        /// most this often while it holds it (the web app's RENEW_MS).
+        public static let termClaim = Token(
+            "live.term_claim", ["renew": 15],
+            .inferred("src/web/src/lib/term-claim.ts RENEW_MS, a third of the server's 45 s lease"), proposed: true)
+    }
+
+    /// lasso's herdr in a window of its own (PLAN 22).
+    public enum Terminal {
+        public static let window = Token(
+            "terminal.window", ["size": [1040, 680], "min": [560, 360]],
+            .inferred("ttyd's 14 pt terminal face: about 120 columns by 38 rows, room for herdr's sidebar beside a pane"),
+            proposed: true)
     }
 
     public static let summonKey = Token(
@@ -432,7 +448,7 @@ public enum Theme {
         Control.round, Control.composer, Control.pill, Control.pillPrimary,
         Card.size, Card.titleX, Card.contentX, Card.unreadSegment, Card.unreadDot, Card.unreadGap, Card.keycapFill,
         Card.keycapFont, Card.keycapMinSize, Card.keycapRadius, Card.keycapPadH, Card.toolRow, Card.machineChip,
-        Card.placement,
+        Card.placement, Card.killing,
         Text.primary, Text.secondary, Text.placeholder, accent, dangerText,
         Row.hover, Row.selected, Row.radius,
         Fonts.display, Fonts.title, Fonts.body, Fonts.chat, Fonts.name, Fonts.label, Fonts.header, Fonts.small, Fonts.terminal,
@@ -441,6 +457,7 @@ public enum Theme {
         avatar, icon,
         Motion.railExpand, Motion.railCollapse, Motion.cardOpen, Motion.cardClose, Motion.toastIn, Motion.cardPaging,
         Live.pollAllPanes, Live.pollBots, Live.pollChat, Live.revealKeys, Live.stopWait, Live.sseWatchdog, Live.backoff, Live.arrivalSound,
+        Live.termClaim, Terminal.window,
         summonKey, inboxDoubleTap, revealKeys,
     ]
 }

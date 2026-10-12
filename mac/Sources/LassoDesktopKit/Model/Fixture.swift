@@ -23,6 +23,8 @@ public struct Fixture: Decodable, Sendable {
         public var preview: String?
         public var window: String?
         public var collapsed: Bool?
+        /// The card's agent is being killed (lasso has not answered).
+        public var killing: Bool?
         /// The New Agent form (⌥⇧O, or ⌘O in a Lasso window).
         public var new_agent: Bool?
         /// The form's open chip menu.

@@ -45,6 +45,8 @@ public final class CardController {
     var inbox: InboxModel?
     /// Kill or Acknowledge resolved the inbox's last entry.
     var onInboxEmpty: () -> Void = {}
+    /// The herdr window, focused on an agent (T, the header's button).
+    var showInHerdr: ((HostPane) -> Void)?
 
     public init(fleet: FleetModel, actions: CardActions) {
         self.fleet = fleet
@@ -92,6 +94,7 @@ public final class CardController {
         model.keyMode = !panel.isKeyWindow ? .none : (pointerKeyed ? .lent : .full)
         model.onClose = { [weak self] in self?.close() }
         model.onInboxEmpty = { [weak self] in self?.onInboxEmpty() }
+        model.onShowInHerdr = showInHerdr
         holder.model = model
         model.startPolling()
         place()
@@ -195,34 +198,19 @@ public final class CardController {
             return true
         }
         Trace.event("card key \(action)")
-        switch action {
-        case .kill: break
-        default: m.disarm()
+        if case .close = action {
+            m.disarm()
+            close()
+            return true
         }
-        switch action {
-        case .close: close()
-        case .digit(let n): m.highlight(n)
-        case .attach: m.attachFile()
-        case .send: if m.composer.isEmpty { m.focusComposer() } else { m.send() }
-        case .kill: m.kill()
-        case .acknowledge: m.acknowledge()
-        case .next: m.page(1)
-        case .previous: m.page(-1)
-        case .editStep: m.editStep()
-        case .takeStep: m.takeStep()
-        case .stop:
-            guard m.isWorking else { return false }
-            m.stop()
-        case .unbound: return false
-        case .handBack: break
-        }
-        return true
+        return m.perform(action)
     }
 }
 
-/// What a key does in the card, decided before anything acts (PLAN 13.7a).
-public enum CardKeyAction: Equatable, CustomStringConvertible {
-    case close, attach, send, stop, kill, acknowledge, next, previous, editStep, takeStep, digit(Int)
+/// What a key does in the card or an agent window, decided before anything
+/// acts (PLAN 13.7a).
+public enum CardKeyAction: Equatable, Sendable, CustomStringConvertible {
+    case close, attach, send, reply, rename, stop, kill, acknowledge, next, previous, editStep, takeStep, herdr, digit(Int)
     /// Not a card key: left to the system.
     case unbound
     /// A key outside the hover set while the pointer lent the card the
@@ -231,48 +219,62 @@ public enum CardKeyAction: Equatable, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .close: "esc"
-        case .attach: "a"
-        case .send: "enter"
-        case .stop: "cmd-."
-        case .kill: "x"
-        case .acknowledge: "e"
-        case .next: "j"
-        case .previous: "k"
-        case .editStep: "tab"
-        case .takeStep: "right"
         case .digit(let n): "\(n)"
         case .unbound: "unbound"
         case .handBack: "hand back"
+        default: CardKeys.bound.first { $0.action == self }?.binding.id ?? "?"
         }
     }
 }
 
 public enum CardKeys {
+    /// Every single-key binding and what it does, in the order they are
+    /// tried. A surface answers the ones in its own set.
+    static let bound: [(binding: KeyBinding, action: CardKeyAction)] = [
+        (Keys.esc, .close), (Keys.kill, .kill), (Keys.acknowledge, .acknowledge), (Keys.next, .next),
+        (Keys.previous, .previous), (Keys.attach, .attach), (Keys.send, .send), (Keys.reply, .reply),
+        (Keys.rename, .rename), (Keys.editStep, .editStep), (Keys.takeStep, .takeStep), (Keys.stop, .stop),
+        (Keys.herdr, .herdr),
+    ]
+
     /// The keys a card answers when the pointer, not a click, gave it the
     /// keyboard: paging, kill (behind its confirm), acknowledge, and esc.
+    /// Rename and Reply put the cursor in a field, so they wait for a click.
     public static let hoverSet: [KeyBinding] = [Keys.next, Keys.previous, Keys.kill, Keys.acknowledge, Keys.esc]
 
-    /// Route a key: ⌘. is Stop wherever the keyboard is; nil while text is
-    /// being typed (the field takes it, a `j` stays a `j`); the hover set only while the pointer lent the
-    /// keyboard; else the card's whole vocabulary.
+    /// The inbox card's whole vocabulary.
+    public static let cardSet: [KeyBinding] = [
+        Keys.esc, Keys.kill, Keys.acknowledge, Keys.next, Keys.previous, Keys.attach, Keys.send, Keys.reply,
+        Keys.rename, Keys.editStep, Keys.takeStep, Keys.herdr,
+    ]
+
+    /// An agent window's: the card's minus paging, Acknowledge and esc (it
+    /// has no inbox entry to resolve and closes by its header).
+    public static let windowSet: [KeyBinding] = [
+        Keys.kill, Keys.attach, Keys.send, Keys.reply, Keys.rename, Keys.editStep, Keys.takeStep, Keys.herdr,
+    ]
+
+    /// A hover preview's, once a click made it the user's: no Kill, and esc closes it.
+    public static let previewSet: [KeyBinding] = [
+        Keys.esc, Keys.attach, Keys.send, Keys.reply, Keys.rename, Keys.editStep, Keys.takeStep,
+    ]
+
+    /// Route a key in the inbox card: ⌘. is Stop wherever the keyboard is;
+    /// nil while text is being typed (the field takes it, a `j` stays a `j`);
+    /// the hover set only while the pointer lent the keyboard; else the
+    /// card's whole vocabulary.
     public static func route(_ e: NSEvent, editing: Bool, pointerKeyed: Bool) -> CardKeyAction? {
+        if !editing, pointerKeyed, !Keys.stop.matches(e), !hoverSet.contains(where: { $0.matches(e) }) { return .handBack }
+        return route(e, editing: editing, among: cardSet)
+    }
+
+    /// Route a key among `set`, the same way: ⌘. first, nothing while
+    /// editing, then 1–9 and the set's keys.
+    public static func route(_ e: NSEvent, editing: Bool, among set: [KeyBinding]) -> CardKeyAction? {
         // ⌘. is never text, and the field would take it as esc.
         if Keys.stop.matches(e) { return .stop }
         if editing { return nil }
-        if pointerKeyed, !hoverSet.contains(where: { $0.matches(e) }) { return .handBack }
-        switch true {
-        case Keys.esc.matches(e): return .close
-        case Keys.kill.matches(e): return .kill
-        case Keys.acknowledge.matches(e): return .acknowledge
-        case Keys.next.matches(e): return .next
-        case Keys.previous.matches(e): return .previous
-        case Keys.attach.matches(e): return .attach
-        case Keys.send.matches(e): return .send
-        case Keys.editStep.matches(e): return .editStep
-        case Keys.takeStep.matches(e): return .takeStep
-        default: break
-        }
+        if let hit = bound.first(where: { b in b.binding.matches(e) && set.contains(b.binding) }) { return hit.action }
         if let n = Keys.digit(e) { return .digit(n) }
         return .unbound
     }

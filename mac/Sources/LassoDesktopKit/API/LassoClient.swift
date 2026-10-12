@@ -120,14 +120,29 @@ public final class LassoClient: @unchecked Sendable {
         if !query.isEmpty { c.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) } }
         var r = URLRequest(url: c.url!)
         r.httpMethod = method
-        for (k, v) in headers { r.setValue(v, forHTTPHeaderField: k) }
-        if let b = basicAuth { r.setValue("Basic " + Data(b.utf8).base64EncodedString(), forHTTPHeaderField: "Authorization") }
-        auth?.apply(&r)
+        authorize(&r)
         if let body {
             r.httpBody = body
             r.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         return r
+    }
+
+    /// A request for `pathAndQuery` exactly as spelled (a trailing slash, an
+    /// encoded query), on this lasso with its credentials.
+    func request(raw pathAndQuery: String) -> URLRequest {
+        let base = baseURL.absoluteString.hasSuffix("/") ? String(baseURL.absoluteString.dropLast()) : baseURL.absoluteString
+        var r = URLRequest(url: URL(string: base + pathAndQuery) ?? baseURL)
+        authorize(&r)
+        return r
+    }
+
+    /// What every request to this lasso carries: the fixed headers (an Access
+    /// service token among them), UI_AUTH's Basic, and the signed-in token.
+    func authorize(_ r: inout URLRequest) {
+        for (k, v) in headers { r.setValue(v, forHTTPHeaderField: k) }
+        if let b = basicAuth { r.setValue("Basic " + Data(b.utf8).base64EncodedString(), forHTTPHeaderField: "Authorization") }
+        auth?.apply(&r)
     }
 
     public func get<T: Decodable>(_ path: String, query: [String: String] = [:], as: T.Type = T.self) async throws -> T {
@@ -159,6 +174,15 @@ public final class LassoClient: @unchecked Sendable {
     public func raw(_ r: URLRequest) async throws -> (Data, Int) {
         let (data, resp) = try await perform(r) { try await self.session.data(for: $0) }
         return (data, (resp as? HTTPURLResponse)?.statusCode ?? 0)
+    }
+
+    /// A request's whole answer, its status and headers too. With
+    /// `redirects` false a 3xx is the answer rather than followed.
+    func response(_ r: URLRequest, redirects: Bool = true) async throws -> (Data, HTTPURLResponse?) {
+        let (data, resp) = try await perform(r) { req in
+            redirects ? try await self.session.data(for: req) : try await self.session.data(for: req, delegate: NoRedirect())
+        }
+        return (data, resp as? HTTPURLResponse)
     }
 
     /// Send with the freshest token; a 401 refreshes once and retries, and a
@@ -202,6 +226,13 @@ public final class LassoClient: @unchecked Sendable {
         r.timeoutInterval = 90
         return r
     }
+}
+
+/// Answers a redirect with itself instead of following it.
+private final class NoRedirect: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest
+    ) async -> URLRequest? { nil }
 }
 
 /// A signed-in lasso's tokens: on every request, refreshed when stale, and

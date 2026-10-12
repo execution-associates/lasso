@@ -83,6 +83,7 @@ public struct CardView: View {
                     .padding(.top, Theme.Layout.card.number("identity_gap"))
                 Group {
                     conversation
+                        .killingDim(model, failure: true)
                 }
                 .id(pane.key)
                 .transition(
@@ -132,6 +133,12 @@ public struct CardView: View {
             AgentTitle(model: model, anchor: "card.title")
                 .padding(.leading, Theme.Card.titleX.pt - contentX)
             Spacer(minLength: 8)
+            if model.canShowInHerdr {
+                RoundButton(symbol: "terminal", label: "Show \(pane.displayName) in herdr (T)") { model.showInHerdr() }
+                    .keyHint(Keys.herdr)
+                    .help("Show \(pane.displayName) in herdr")
+                    .parityAnchor("card.herdr")
+            }
             RoundButton(symbol: "xmark", label: "Close (esc)") { model.onClose() }
                 .keyHint(Keys.esc)
                 .parityAnchor("card.close")
@@ -248,16 +255,19 @@ public struct CardView: View {
                 Spacer(minLength: 8)
                 if !model.isBot {
                     PillButton(
-                        title: model.killArmed ? "Confirm kill" : "Kill agent", textColor: Theme.dangerText.color,
-                        label: model.killArmed ? "Confirm kill agent (X)" : "Kill agent (X)"
+                        title: model.killing ? "Killing…" : model.killArmed ? "Confirm kill" : "Kill agent",
+                        textColor: Theme.dangerText.color, enabled: !model.killing, busy: model.killing,
+                        label: model.killing
+                            ? "Killing \(model.current.displayName)"
+                            : model.killArmed ? "Confirm kill agent (X)" : "Kill agent (X)"
                     ) { model.kill() }
-                    .keyHint(Keys.kill)
+                    .keyHint(Keys.kill, active: !model.killing)
                     .parityAnchor("action.kill")
                 }
                 if model.actions.canAcknowledge {
                     PillButton(
                         title: "Acknowledge", primary: true, enabled: model.canAcknowledgeNow,
-                        hint: "Send or clear your reply first", label: "Acknowledge (E)"
+                        hint: "Send or clear your reply first", label: "Acknowledge (\(Keys.acknowledge.legend))"
                     ) { model.acknowledge() }
                     .keyHint(Keys.acknowledge, active: model.canAcknowledgeNow)
                     .parityAnchor("action.acknowledge")
@@ -313,7 +323,21 @@ public struct CardView: View {
                         }
                     }
                 }
+                .opacity(model.killing ? Theme.Card.killing.number("dim") : 1)
                 .parityAnchor("card.steps")
+            }
+            // With choices or the answer fields on screen, the line above that
+            // carries notices is not drawn, so an answer, send or stop that
+            // failed would leave no trace. Say it under them.
+            if !(steps.isEmpty && !model.blockedWithoutChoices && !model.allowsCustom), let n = model.notice {
+                Text(n)
+                    .font(Theme.Fonts.small.font)
+                    .foregroundStyle(Theme.Text.secondary.color)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, Theme.Card.titleX.pt - contentX)
+                    .accessibilityLabel(n)
+                    .parityAnchor("card.notice")
             }
         }
         .parityAnchor("card.footer")

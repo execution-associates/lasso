@@ -117,28 +117,16 @@ final class AgentPreviewController {
         }
     }
 
+    /// A window's keys (CardKeys.previewSet) once a click made it the
+    /// user's: no Kill, and esc closes it.
     private func handle(_ e: NSEvent) -> Bool {
-        guard let m = holder.model else { return false }
-        if Keys.stop.matches(e), m.isWorking {
-            m.stop()
-            return true
-        }
-        guard !m.composerFocused, !panel.editingText else { return false }
-        if Keys.esc.matches(e) {
+        guard let m = holder.model,
+              let a = CardKeys.route(e, editing: m.composerFocused || panel.editingText, among: CardKeys.previewSet)
+        else { return false }
+        if a == .close {
             close()
             return true
         }
-        if let n = Keys.digit(e) {
-            m.highlight(n)
-            return true
-        }
-        switch true {
-        case Keys.send.matches(e): if m.composer.isEmpty { m.focusComposer() } else { m.send() }
-        case Keys.takeStep.matches(e): m.takeStep()
-        case Keys.editStep.matches(e): m.editStep()
-        case Keys.attach.matches(e): m.attachFile()
-        default: return false
-        }
-        return true
+        return m.perform(a)
     }
 }

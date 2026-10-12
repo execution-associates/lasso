@@ -471,6 +471,8 @@ mac/Scripts/dev.sh parity [states]   # sync → build → kickstart the …Lasso
 mac/Scripts/dev.sh logs       # tail ~/Library/Logs/Lasso.log (never holds secrets or transcripts)
 ```
 
+`src/lasso-desktop/mac` is the default folder on the Mac, and `publish.sh` always builds releases there. `LASSO_MAC_DIR=<folder under ~>` gives a run another one (`LASSO_MAC_DIR=src/lasso-desktop-keys/mac mac/Scripts/dev.sh test`): sync is an `rsync --delete`, so two worktrees, or a worktree and a release, sharing one folder overwrite each other's tree mid-build.
+
 **LaunchAgent plist**
 - `ProgramArguments` = the bundle's `Contents/MacOS/Lasso`
 - `LimitLoadToSessionType` = `Aqua`
@@ -736,21 +738,27 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 | Key | Action |
 |---|---|
 | `j` / `k` | Next / previous item, in Inbox order (wrapping). The card lands on it, the unread bar shows where you are, and it is marked seen. |
-| `x` | Kill, behind its confirm: a first `x` arms it ("Press X again"), a second kills, and any other key disarms. A bot has none. |
-| `e` | Acknowledge (S1): writes the entry's own key, and nothing to the agent. It returns when the item has something new. Off while the reply composer holds a draft: the button is greyed with the hint "Send or clear your reply first", `e` does nothing and shows no keycap, and a focused composer types it. |
+| `x` | Kill, behind its confirm: a first `x` arms it ("Press X again"), a second kills, and any other key disarms. A bot has none. Until lasso answers (`/api/agent/close` can take seconds), the button reads "Killing…" with a spinner and is off, the conversation and the choices dim (`card.killing`) under "Killing <agent>…", and every key but `j`, `k` and `esc` waits (`CardModel.killingKey`, so paging away shows the other card as it is). A failure clears the wait and says why in the same place. Parity state `card-killing`. |
+| `a` | Acknowledge (S1): writes the entry's own key, and nothing to the agent. It returns when the item has something new. Off while the reply composer holds a draft: the button is greyed with the hint "Send or clear your reply first", `a` does nothing and shows no keycap, and a focused composer types it. |
+| `r` | Rename the agent in place, as a click on its name does (§17): ⏎ or a click away keeps the name, esc keeps the old one. A bot has none. |
+| `l` | Put the cursor in the reply composer, draft or not. Every key is then text until esc leaves the field. |
+| `1`–`9`, `→`, `↳` | Pick a choice, answer with it, or edit it into your own words. |
+| `⏎` | To the composer when it is empty, else send what it holds. |
+| `u` | Attach a file (the paperclip; U for upload, since `a` is Acknowledge). |
+| `t` | Show the agent in herdr: focus its pane and bring the terminal window forward (§22). Not in the hover-lent set, since the terminal takes the keyboard. |
+| `⌘.` | Stop: interrupts the agent's turn (one Escape through `/api/chat/stop`, or an omp bot's `chat/stop`). It works while the agent is working or starting, even with the composer focused, since a text field would take `⌘.` as esc. |
+| `esc` | Close. |
+
+The keys are `KeyBinding`s in `Theme/Keys.swift`; `CardKeys` (`Card/CardController.swift`) routes a key to a `CardKeyAction` among a surface's set (`cardSet`, `hoverSet`, `windowSet`, `previewSet`), and `CardModel.perform` does it, so the card, the agent window and the preview cannot drift apart.
 
 **A resolved entry moves the card on.** Kill and Acknowledge share one path (`CardModel.resolved`). Once the action succeeds:
 - The entry leaves the inbox at once, without waiting for a poll. A killed pane is in `FleetModel.killed`, hidden from the whole fleet until a poll stops listing it. An acknowledged entry is in `FleetModel.acknowledged` with the mark it had, hidden until ui_state catches up or something new gives it another mark. So a stale poll cannot bring either back.
 - The card shows the next entry in the Inbox order taken when the key was pressed, or the previous one when it was the last. With none left, it gives way to the empty inbox (`onInboxEmpty`).
 - A kill from an agent window closes that window.
-| `1`–`9`, `→`, `↳` | Pick a choice, answer with it, or edit it into your own words. |
-| `⏎`, `a` | To the composer (or send); attach a file. |
-| `⌘.` | Stop: interrupts the agent's turn (one Escape through `/api/chat/stop`, or an omp bot's `chat/stop`). It works while the agent is working or starting, even with the composer focused, since a text field would take `⌘.` as esc. |
-| `esc` | Close. |
 
 **How the card gets the keyboard:**
 - **By click or keyboard:** the inbox shortcut, the summon key, or a click on the inbox button gives the card the keyboard in the same press. Opening never puts the cursor in the composer, so the next `j` pages.
-- **By hover:** an inbox opened by hover is shown without the keyboard (§16). **While the pointer is over the inbox (the rail or its card)**, the card lends itself the keyboard for `j`, `k`, `x`, `e` and `esc` only. So `j`/`k` work the moment the inbox opens under the pointer, with no move onto the card.
+- **By hover:** an inbox opened by hover is shown without the keyboard (§16). **While the pointer is over the inbox (the rail or its card)**, the card lends itself the keyboard for `j`, `k`, `x`, `a` and `esc` only. `r` and `l` put the cursor in a field, so they wait for a click. So `j`/`k` work the moment the inbox opens under the pointer, with no move onto the card.
   - Any other key hands the keyboard straight back. That key is lost, since a key cannot be re-sent to another app without Accessibility, and the card keeps it back until the pointer leaves and returns.
   - The keyboard is lent **once per pointer visit**. If it goes away (a click in another app), the card does not take it again until the pointer leaves and comes back.
   - When the pointer leaves the card, the keyboard goes back to your app. A click on the card makes it fully yours.
@@ -760,8 +768,8 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
     - Typing meant for another app is cut off at its first key outside the set. The worst a stray word does is page the card or acknowledge one item.
 - **A key shows on hover.** While the card has the keyboard, a control's keycap appears when the pointer is on that control. The user found every key at once too noisy. One app-wide value says which control is hovered (`HoveredKey`). The keycaps:
   - `K`/`J` beside the paging chevrons, and `esc` on close
-  - `A` on the paperclip, and `⏎` on send or `⌘.` on Stop
-  - `X` on Kill and `E` on Acknowledge
+  - `R` on the agent's name, `L` on the message box, `U` on the paperclip, and `⏎` on send or `⌘.` on Stop
+  - `X` on Kill and `A` on Acknowledge
   - the choice numbers, plus `↳` and `→` on the selected choice
 
   A lent keyboard shows only the five keys that work then; a full one shows any live key (`CardModel.shownKeys`). Holding ⌘ shows every key at once.
@@ -890,14 +898,14 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
 
 A message you send shows at once, faded, under **Sending…**, until it appears in the transcript.
 
-**Renaming an agent:** click the agent's name in the inbox card or either agent window (the hover preview and the window), where the pointer becomes a pointing hand, or right-click it there or on a row of the agents list and choose **Rename…**. A click on a list row still opens the agent. The name becomes a field: it holds the agent's label, or is empty with the shown name as its placeholder when there is none, so a click away with nothing typed changes nothing. herdr's agent names are identifiers (a lowercase letter first, then lowercase letters, digits, `-` and `_`, at most 32), so what is typed becomes one: "Check HN page" is `check-hn-page` (`AgentName`, the same rule as lasso's `agentName`). ⏎ or a click anywhere else (or another app taking the keyboard) keeps the new name, as Finder does; esc keeps the old one; an empty name clears the label so the tab's name shows again. It is herdr's custom agent label, set through lasso's `POST /api/agent/rename`. A bot has no Rename, because lasso finds a bot by that name; bots are renamed in their own settings.
+**Renaming an agent:** click the agent's name in the inbox card or either agent window (the hover preview and the window), where the pointer becomes a pointing hand, or right-click it there or on a row of the agents list and choose **Rename…**, or press R in the inbox card or either window. A click on a list row still opens the agent. The name becomes a field: it holds the agent's label, or is empty with the shown name as its placeholder when there is none, so a click away with nothing typed changes nothing. herdr's agent names are identifiers (a lowercase letter first, then lowercase letters, digits, `-` and `_`, at most 32), so what is typed becomes one: "Check HN page" is `check-hn-page` (`AgentName`, the same rule as lasso's `agentName`). ⏎ or a click anywhere else (or another app taking the keyboard) keeps the new name, as Finder does; esc keeps the old one; an empty name clears the label so the tab's name shows again. It is herdr's custom agent label, set through lasso's `POST /api/agent/rename`. A bot has no Rename, because lasso finds a bot by that name; bots are renamed in their own settings.
 
 ## 20. Launching agents (the web app's ⌘O and ⌘⇧O)
 
 The Mac launches agents the way lasso's web New dialog does (`src/web/src/components/NewDialog.tsx`), over the same routes:
 - `GET /api/agent-config?host=` returns the harnesses, the default or last agent and the last repository.
 - `GET /api/repos?host=` lists the repositories, and `GET /api/repo-branches?path=&host=` their branches.
-- `POST /api/create-agent` creates the agent. It answers as soon as the record, workspace and root pane exist, and the agent boots afterwards. So the new agent's **own window** (§19) opens right away on that pane, and its conversation fills in as it starts.
+- `POST /api/create-agent` creates the agent. It answers as soon as the record, workspace and root pane exist, and the agent boots afterwards. So the new agent's **own window** (§19) opens right away on that pane, and its conversation fills in as it starts. The form gives up the keyboard as it closes, and the window takes it with the cursor in its composer (as L does), so you can write to the agent at once, while it shows "Starting <harness>".
 
 **The form:**
 - In a repository (a Git agent: repository plus base branch, picked with a filter, since titan has 183 repositories and 502 branches in lasso), or Scratch.
@@ -912,7 +920,7 @@ The Mac launches agents the way lasso's web New dialog does (`src/web/src/compon
 - **⌥⇧O** for an agent in a repository and **⌃⇧O** for a scratch agent, from any app. The user's rule is at most three keys, never four.
 - Shift keeps ⌃O for terminals (Claude Code's transcript view, nano's save, vim's jump back, the shell) and ⌥O for typing "ø". ⌥⇧O no longer types "Ø" while it is set.
 - **⌘O and ⌘⇧O** do the same while a Lasso window has the keyboard, as in the web app. They are never system-wide, because ⌘O is every app's File › Open.
-- The rail has a **+** button above the ellipsis, and the agents list a **New agent** button. The **+** opens the form on a click only: hovering lights it but does not open it, because the form takes the keyboard.
+- The rail has a **+** button above the terminal (§22) and the ellipsis, and the agents list a **New agent** button. The **+** opens the form on a click only: hovering lights it but does not open it, because the form takes the keyboard.
 - Each chip opens its menu inside the form, toward the side with room (a system popover from a floating panel can land half off screen). Long lists (repositories, branches, a big fleet) and the model have a filter that takes the typing, like the web app's combobox; ↑/↓ move and ⏎ picks. The model's suggestions are a hint, as in the web's EditableCombobox: a typed name no suggestion has is offered first as Use “<name>”.
 
 All three system-wide shortcuts (inbox, new agent, new scratch agent) are `ShortcutSlot`s, each stored on its own and recorded the same way.
@@ -1003,8 +1011,8 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
   - Anything else is a chip that opens the file.
   - The bytes come through `/api/file` (`download=1`) from the host that served the transcript. They are cached in `~/Library/Caches/Lasso/Media` per path and showing, since an agent may overwrite a file in place.
 - **Choices need a confirm.** A click (or 1–9) only selects a choice; the selected one shows **Answer**, and that button (or →) sends it. An answer cannot be taken back, and the preview appears under a moving pointer.
-- **No header menu:** the window's header is minimize and close. **Kill** is a red pill at the trailing end of the folder/model row (`AgentKill`; a bot has none, and neither does a hover preview), behind the inbox's confirm: X or a click arms it ("Confirm kill"), a second kills. Its accessibility label is "Kill <agent>". Once the kill goes through, the window closes and the agent's inbox entry goes with it (§13.7a).
-- The composer's paperclip (A) attaches any files: each goes through `/api/paste-file` to the agent's machine and its path into the message.
+- **No header menu:** the window's header is minimize and close. **Kill** is a red pill at the trailing end of the folder/model row (`AgentKill`; a bot has none, and neither does a hover preview), behind the inbox's confirm: X or a click arms it ("Confirm kill"), a second kills. Its accessibility label is "Kill <agent>". While lasso closes the pane it reads "Killing…" with a spinner and the window waits as the card does (§13.7a); a failure clears it and the notice line says why. Once the kill goes through, the window closes and the agent's inbox entry goes with it (§13.7a).
+- The composer's paperclip (U) attaches any files: each goes through `/api/paste-file` to the agent's machine and its path into the message.
 - **Paste and drop attach too** (`Platform/Attachments.swift`), in every composer (inbox card, agent window and preview, bot chat) and the New Agent prompt.
   - The composer's NSTextField uses its own field editor (`ComposerCell` → `AttachingTextView`), so ⌘V and Edit › Paste reach it. A drop works on the field and on its editor alike.
   - `Attachments.plan` decides from the pasteboard: **file URLs first**, then image data (PNG before TIFF, any other image read as TIFF), then text. Screenshot tools like BetterShot and Finder's Copy put the file next to its path or name as text and an icon as an image, and the file is what goes. Image data beats text only when the text is a lone URL or path (a browser's Copy Image); words with a rendering (Word, Excel) paste as text.
@@ -1013,7 +1021,7 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
   - Refused before any upload: folders, empty files (lasso refuses an empty body), and anything over lasso's `maxUpload` (1 GiB, `src/main.go`).
   - The New Agent prompt has no agent yet, so its files go to the chosen host through the same route, and Create waits for them.
 - One window per agent; a second click brings it forward. Where each agent's window was is kept in UserDefaults `agentWindowFrames`.
-- Keys while it has the keyboard: 1–9, →, ↳, ⏎, A (attach), ⌘. (Stop), and X X to kill. A focused composer keeps every key as text except ⌘. (§13.7a).
+- Keys while it has the keyboard (`CardKeys.windowSet`): 1–9, →, ↳, ⏎ (to the composer, or send), L (to the composer), R (rename), U (attach), ⌘. (Stop), and X X to kill. They are the inbox card's, with the same letters, minus paging, esc and Acknowledge: a window has no inbox entry to resolve. A clicked hover preview has the same minus Kill, and esc closes it. A focused composer keeps every key as text except ⌘. (§13.7a).
 - **Stop** (the web chat's rule). While the agent is working or starting and the composer is empty, the send button is Stop, a filled square with the label "Stop <agent>". A draft brings Send back.
   - It is in every composer: the inbox card, the agent window and preview, and the bot chat.
   - A press sends one Escape (`CardActions.stop`: `/api/chat/stop?host=` with `{pane_id}`, or an omp bot's `chat/stop`). The button then stays dimmed until a poll shows the turn over, or `live.stop_wait` (10 s) passes.
@@ -1021,3 +1029,44 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
   - The `agent-window-markdown` parity state renders it.
 
 **Parity states:** `list-hover-preview`, `agent-window` and `agent-window-collapsed`, from the `card-open` fixture.
+
+## 22. lasso's herdr in a window
+
+**The rail's terminal button** (between the **+** and the ellipsis, `rail.terminal`) opens lasso's herdr in a window of its own. Like the **+**, it opens on a click only, because the terminal takes the keyboard. **Every agent's header** has a terminal button too: the agent window's (beside minimize, `agent.herdr`) and the inbox card's (beside close, `card.herdr`), with **T** as its key. It focuses that agent's pane and shows the window. A blocked agent's **Focus in herdr** opens the window the same way. There is one window: a second open brings it forward.
+
+**The window is lasso's own web terminal**, ttyd's document under `/terminal/<slug>/`, the page the web app frames. It runs in a WKWebView whose page never reaches the network itself (`Terminal/TerminalBridge.swift`):
+- **Its document and its `token` fetch** come through the `lasso-terminal:` URL scheme. The app answers each one with a request through its `LassoClient`, carrying the same credentials as every API call.
+- **Its WebSocket** is a stand-in, injected before ttyd's script, that hands every frame to a native `URLSessionWebSocketTask`. That task carries the same headers on its upgrade.
+- **Both are confined to the one terminal** the window shows. Any other path is refused, so the page cannot reach `/api/file` with this Mac's sign-in.
+
+**Why this approach.** It works for every lasso the app can reach, including a remote one behind Cloudflare Access, with the sign-in the app already has and no new secret.
+- A WKWebView cannot put an `Authorization` header on a websocket. Access would then want its own cookie, which means a second sign-in inside the web view, and Google refuses embedded sign-ins.
+- lasso's local guard refuses a websocket upgrade whose `Origin` is not lasso's own. A page on another origin cannot open `/terminal/…/ws` directly, but a native task sends no `Origin`.
+- A native terminal emulator (SwiftTerm) would be third-party code (§0).
+- `ssh <host> herdr` in Terminal.app works only where the Mac has ssh to lasso's machine.
+
+**Checked from titan** (2026-10-12):
+- `lasso.orangecountyai.com` answers a credential-less websocket upgrade to `/terminal/local/ws` exactly as it answers `/api/version`: a 401 with Access's Managed OAuth `Bearer` challenge. So the bearer token that gets the app past Access on `/api` gets it past on `/terminal` too.
+- On loopback, an upgrade with no `Origin` and `Sec-WebSocket-Protocol: tty` gets `101` from lasso's proxy and ttyd. The same upgrade with `Origin: lasso-terminal://…` gets `403`.
+- ttyd starts its herdr client only on the first frame, so the handshake alone started nothing.
+
+**Hosts.** The window shows one host's herdr at a time.
+- Showing an agent first focuses its pane: `POST /api/focus?host=<pane host>` with `{pane_id, reveal: true}`. herdr's focus is one per herdr, so every client of that herdr moves with it, as the web app's explicit focus does.
+- If the window shows another host (or none), it then attaches the pane's host (`POST /api/host`, as a web tab moving onto a host does), reads its `host_slug` from `/api/active?host=`, and loads that terminal. A fresh herdr client opens on the focused pane.
+- `reattach` in the focus answer (the client showed a saved machine) reloads the page, which starts the client again on Local.
+- The document's palette is read off lasso's redirect (it is not followed), so the page's own URL carries `theme=`, where ttyd reads it.
+
+**The shared size.** Every client of one herdr shares its size, and herdr reflows every pane on each change. So the window takes part in lasso's term claim as a web tab does (`lib/term-claim.ts`).
+- It holds its own event stream on its host, as client `lasso-desktop-term-…`. That stream also keeps a remote host's terminal from being retired as idle. Its `active` frames say who holds the size.
+- A key, a pointer or the window taking focus claims the size (`/api/term-claim`), renewed at most every `live.term_claim` (15 s).
+- While another client holds the size, the page's resize frames are held and the last one goes when the size is free or ours. A size taken before layout settles (under 20×4) is never sent.
+
+**The page script also** opens terminal links in the browser, puts herdr's OSC 52 copies on the clipboard, and sends Shift/Ctrl+Enter as a Kitty CSI-u key (as the web app's `lib/terminal.ts` does). ⌘W closes the window. Closing it closes the socket, and with it that herdr client. The window remembers its frame (`LassoHerdrTerminal`), and switching to another lasso closes it.
+
+**Parity:** `rail-hover-terminal`, plus `rail.terminal`, `card.herdr` and `agent.herdr` rows in `rail-expanded`, `card-open` and `agent-window`. The window itself has no parity state, since its page comes from a live lasso.
+
+**Not yet verified live** (it needs an install on a Mac, and minime's app belongs to another session):
+- The page loading through the scheme handler, including ttyd's `fetch` of `token` over a custom scheme.
+- The native socket's upgrade through Access with the app's bearer token.
+- Typing, paste, resize and the claim handover with a browser tab open on the same herdr.
+- A remote host's terminal (`herdr --remote`).
