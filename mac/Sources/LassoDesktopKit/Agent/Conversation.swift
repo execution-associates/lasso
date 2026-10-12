@@ -207,7 +207,7 @@ struct ConversationWindowView<M: Conversation>: View {
         }
     }
 
-    /// The corner to resize by.
+    /// The corner to resize by; a double-click puts the default size back.
     private var grip: some View {
         Image(systemName: "line.diagonal")
             .font(.system(size: Theme.icon.number("control")))
@@ -218,7 +218,12 @@ struct ConversationWindowView<M: Conversation>: View {
                 DragGesture(minimumDistance: 0, coordinateSpace: .global)
                     .onChanged { _ in chrome.onResize(false) }
                     .onEnded { _ in chrome.onResize(true) })
-            .accessibilityHidden(true)
+            .simultaneousGesture(TapGesture(count: 2).onEnded { chrome.onDefaultSize() })
+            .accessibilityElement()
+            .accessibilityLabel("Resize")
+            .accessibilityHint("Drag to resize; double-click for the default size")
+            .accessibilityAction(named: "Default size") { chrome.onDefaultSize() }
+            .help("Drag to resize; double-click for the default size")
     }
 }
 
@@ -267,6 +272,7 @@ final class AgentWindowChrome: ObservableObject {
     var onClose: () -> Void = {}
     var onDrag: (_ ended: Bool) -> Void = { _ in }
     var onResize: (_ ended: Bool) -> Void = { _ in }
+    var onDefaultSize: () -> Void = {}
 }
 
 /// A plain glyph button in the window's header (no circle, as the
@@ -375,9 +381,35 @@ final class ConversationWindowController<M: Conversation> {
         chrome.onClose = { [weak self] in self?.close() }
         chrome.onDrag = { [weak self] ended in self?.drag(ended, resize: false) }
         chrome.onResize = { [weak self] ended in self?.drag(ended, resize: true) }
+        chrome.onDefaultSize = { [weak self] in self?.defaultSize() }
     }
 
     var collapsed: Bool { chrome.collapsed }
+
+    /// The grip's double-click: back to the size a fresh window opens at
+    /// (`agent.window.size`), its top-left kept as a resize keeps it, and
+    /// kept on its screen. The remembered frame is forgotten, so the next
+    /// open is the default too. `animate` false in tests.
+    func defaultSize(animate: Bool = true) {
+        guard !chrome.collapsed else { return }
+        let size = Theme.Agent.window.size2("size")
+        let f = panel.frame
+        let vis = Screens.visibleFrame(for: f)
+        var r = NSRect(x: f.minX, y: f.maxY - size.height, width: size.width, height: size.height)
+        r.origin.x = max(vis.minX, min(r.minX, vis.maxX - r.width))
+        r.origin.y = max(vis.minY, min(r.minY, vis.maxY - r.height))
+        expandedFrame = r
+        panel.setFrame(r, display: true, animate: animate)
+        var frames = UserDefaults.standard.dictionary(forKey: M.framesKey) ?? [:]
+        frames[model.windowKey] = nil
+        UserDefaults.standard.set(frames, forKey: M.framesKey)
+        forgotten = true
+    }
+
+    /// The frame was forgotten (`defaultSize`) and not moved since: a close
+    /// remembers nothing, so the next open is a fresh window's.
+    private var forgotten = false
+    private var dragMoved = false
 
     /// Bring it forward with the keyboard. `focusReply` puts the cursor in
     /// the composer, as L does: a window opened on a new agent is for
@@ -415,6 +447,10 @@ final class ConversationWindowController<M: Conversation> {
     private func drag(_ ended: Bool, resize: Bool) {
         let p = NSEvent.mouseLocation
         if ended {
+            // A real move or resize is remembered again; a click (a
+            // double-click's) is not.
+            if dragMoved { forgotten = false }
+            dragMoved = false
             dragFrom = nil
             if !chrome.collapsed { expandedFrame = panel.frame }
             remember()
@@ -424,6 +460,8 @@ final class ConversationWindowController<M: Conversation> {
         guard let from = dragFrom else { return }
         let dx = p.x - from.pointer.x
         let dy = p.y - from.pointer.y
+        guard dx != 0 || dy != 0 || dragMoved else { return }
+        dragMoved = true
         if resize, !chrome.collapsed {
             let min = Theme.Agent.window.size2("min")
             let width = max(min.width, from.frame.width + dx)
@@ -435,6 +473,7 @@ final class ConversationWindowController<M: Conversation> {
     }
 
     private func remember() {
+        guard !forgotten else { return }
         var frames = UserDefaults.standard.dictionary(forKey: M.framesKey) ?? [:]
         frames[model.windowKey] = NSStringFromRect(chrome.collapsed ? expandedFrame : panel.frame)
         UserDefaults.standard.set(frames, forKey: M.framesKey)

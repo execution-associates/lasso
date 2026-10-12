@@ -156,3 +156,50 @@ private func commandW() -> NSEvent {
     #expect(app.bots.previews.handle(key("\u{1b}", 53)))
     #expect(!app.bots.previewOpen)
 }
+
+/// A double-click on the resize corner puts a window back to the size a
+/// fresh one opens at, top-left kept, on its screen (one dragged small at
+/// the screen's right edge comes back whole), and forgets the remembered
+/// frame: closing it then remembers nothing, so the next open is a fresh
+/// window's. An agent's and a bot's alike.
+@MainActor @Test func theGripsDoubleClickRestoresTheDefaultSize() throws {
+    let fleet = FleetModel()
+    let p = pane("w1:p1")
+    fleet.apply(panes: AllPanes(panes: [p]))
+    fleet.apply(bots: BotsPayload(bots: [running]))
+    let vis = try #require(NSScreen.screens.first?.visibleFrame)
+    let size = Theme.Agent.window.size2("size")
+    let small = NSRect(x: vis.maxX - 380, y: vis.maxY - 360, width: 370, height: 330)
+    let near = NSRect(x: vis.midX, y: vis.midY, width: 10, height: 10)
+
+    func check<M: Conversation>(_ w: ConversationWindowController<M>) {
+        defer {
+            w.model.stopPolling()
+            w.panel.orderOut(nil)
+        }
+        #expect(w.panel.frame.size == small.size, "the remembered frame opened")
+        w.defaultSize(animate: false)
+        let f = w.panel.frame
+        #expect(f.size == size)
+        #expect(vis.contains(f), "\(f) on \(vis)")
+        #expect(f.maxY == small.maxY, "the top edge stays")
+        #expect(UserDefaults.standard.dictionary(forKey: M.framesKey)?[w.model.windowKey] == nil)
+        w.close()
+        #expect(UserDefaults.standard.dictionary(forKey: M.framesKey)?[w.model.windowKey] == nil, "a close after it remembers nothing")
+    }
+
+    let card = CardModel(pane: p, fleet: fleet, actions: FixtureCardActions(chats: [:], canAcknowledge: true))
+    UserDefaults.standard.set([card.windowKey: NSStringFromRect(small)], forKey: CardModel.framesKey)
+    let a = AgentWindowController(model: card, near: near, media: nil)
+    a.show()
+    check(a)
+    // The next open is a fresh window's: the default size.
+    let again = AgentWindowController(model: card, near: near, media: nil)
+    #expect(again.panel.frame.size == size)
+
+    let bot = botModel(running, fleet: fleet)
+    UserDefaults.standard.set([bot.windowKey: NSStringFromRect(small)], forKey: BotWindowModel.framesKey)
+    let b = BotWindowController(model: bot, near: near, media: nil)
+    b.show()
+    check(b)
+}
