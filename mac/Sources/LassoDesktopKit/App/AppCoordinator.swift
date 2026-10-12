@@ -256,6 +256,8 @@ public final class AppCoordinator {
             return true
         }
         settingsModel.onClose = { [weak self] in self?.settings.close() }
+        settingsModel.isRailCentred = { [weak self] in self?.rail.isCentred ?? true }
+        settingsModel.centreRail = { [weak self] in self?.rail.centre() }
         if client != nil {
             let connector = LassoConnector.live { [weak self] in self?.settings.panel }
             wire(connector)

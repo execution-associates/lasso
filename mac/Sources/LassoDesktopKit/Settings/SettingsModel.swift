@@ -260,6 +260,19 @@ public final class SettingsModel: ObservableObject {
     public func refresh() {
         tick += 1
         refreshLoginItem()
+        railCentred = isRailCentred()
+    }
+
+    /// Whether the rail is in the vertical middle of its screen, and the
+    /// move that puts it there (the coordinator's rail).
+    public var isRailCentred: () -> Bool = { true }
+    public var centreRail: () -> Void = {}
+    @Published public private(set) var railCentred = true
+
+    /// Rail position's Center vertically.
+    public func centreRailNow() {
+        centreRail()
+        railCentred = isRailCentred()
     }
 
     /// Set only when the user has just picked a shortcut that needs

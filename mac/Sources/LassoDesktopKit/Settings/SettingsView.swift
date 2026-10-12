@@ -414,6 +414,14 @@ public struct SettingsView: View {
             row("Show in the menu bar", detail: "The monogram, with the inbox's count.") {
                 toggle(model.inMenuBar, "Show in the menu bar") { model.setMenuBar(!model.inMenuBar) }
             }
+            row(
+                "Rail position",
+                detail: model.railCentred ? "In the middle of the screen's edge." : "Where you dragged it along the edge."
+            ) {
+                PillButton(title: "Center vertically", enabled: !model.railCentred, hint: "The rail is already centered",
+                           label: "Move the rail to the middle of the screen's edge") { model.centreRailNow() }
+                    .parityAnchor("settings.rail_centre")
+            }
             startAtLogin
         }
         group(nil) {
