@@ -37,11 +37,30 @@ public final class AppPresence: NSObject {
 
     // MARK: the menu-bar icon
 
+    /// The EXA monogram as a template (Resources/Brand/monogram-template*,
+    /// cut from the app icon), so the menu bar tints it for light and dark.
+    /// Its letters fill the whole square, so it is drawn at the count's
+    /// cap height (icon.menubar), not a full 18 pt icon.
+    static let monogram: NSImage? = {
+        guard let dir = Bundle.main.resourceURL?.appendingPathComponent("Brand") else { return nil }
+        let side = Theme.icon.number("menubar")
+        let image = NSImage(size: NSSize(width: side, height: side))
+        for name in ["monogram-template.png", "monogram-template@2x.png", "monogram-template@3x.png"] {
+            if let rep = NSImageRep(contentsOf: dir.appendingPathComponent(name)) {
+                rep.size = image.size
+                image.addRepresentation(rep)
+            }
+        }
+        guard !image.representations.isEmpty else { return nil }
+        image.isTemplate = true
+        image.accessibilityDescription = "Lasso"
+        return image
+    }()
+
     private func showItem() {
         guard item == nil else { return }
         let i = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        i.button?.image = NSImage(systemSymbolName: "lasso", accessibilityDescription: "Lasso")
-            ?? NSImage(systemSymbolName: "tray", accessibilityDescription: "Lasso")
+        i.button?.image = Self.monogram
         i.button?.imagePosition = .imageLeading
         i.menu = statusMenu()
         item = i
@@ -61,7 +80,12 @@ public final class AppPresence: NSObject {
 
     private func refreshCount() {
         let n = fleet.inbox.count + fleet.notices.count
-        item?.button?.title = n > 0 ? " \(n > 99 ? "99+" : String(n))" : ""
+        // The count in the menu bar's own size, medium, with steady-width
+        // digits: it sits beside the monogram as a pair, not a caption.
+        let text = n > 0 ? " \(n > 99 ? "99+" : String(n))" : ""
+        item?.button?.attributedTitle = NSAttributedString(
+            string: text,
+            attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: Theme.icon.number("menubar_text"), weight: .medium)])
         item?.button?.setAccessibilityLabel(n > 0 ? "Lasso, \(n) in the inbox" : "Lasso")
     }
 

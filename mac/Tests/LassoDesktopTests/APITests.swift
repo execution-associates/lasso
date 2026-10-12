@@ -78,6 +78,14 @@ private func golden<T: Decodable>(_ name: String, _ type: T.Type) throws -> T {
     #expect(LassoChoice(url: "https://lasso.example.com", version: nil).detail == "Not answering · lasso.example.com")
 }
 
+/// Advanced Settings opens the web app at its root with ?open=settings,
+/// whatever path or query the stored address carries.
+@Test func advancedSettingsOpensTheWebAppsSettings() {
+    #expect(SettingsModel.advancedSettingsURL("https://lasso.example.com")?.absoluteString == "https://lasso.example.com/?open=settings")
+    #expect(SettingsModel.advancedSettingsURL("http://127.0.0.1:18090/m?host=x#y")?.absoluteString == "http://127.0.0.1:18090/?open=settings")
+    #expect(SettingsModel.advancedSettingsURL("not a url") == nil)
+}
+
 /// Agents are named by their herdr label, else their tab, never the
 /// workspace: one workspace ("Agents") holds several of them.
 @Test func agentsAreNamedByLabelThenTab() {

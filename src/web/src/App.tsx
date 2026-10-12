@@ -44,7 +44,11 @@ import {
 import { OnboardingTour, type TourPrepare } from "@/components/OnboardingTour"
 import { PluginTab } from "@/components/PluginTab"
 import { ScratchTab } from "@/components/ScratchTab"
-import { SettingsTab, ShortcutsDialog } from "@/components/SettingsTab"
+import {
+  SettingsTab,
+  ShortcutsDialog,
+  showGeneralSettings,
+} from "@/components/SettingsTab"
 import { SignedOutBar } from "@/components/SignedOutBar"
 import { TerminalFrame } from "@/components/TerminalFrame"
 import { UsageFooter } from "@/components/UsageFooter"
@@ -100,7 +104,12 @@ import {
   openHerdrGoto,
   toggleHerdrSidebar,
 } from "@/lib/terminal"
-import { patchUIState, uiStateNow, useUIState } from "@/lib/ui-state"
+import {
+  patchUIState,
+  uiStateNow,
+  uiStateSettled,
+  useUIState,
+} from "@/lib/ui-state"
 import {
   getQueryParam,
   isPluginView,
@@ -650,6 +659,14 @@ function Shell() {
     expandSidebar()
   }, [expandSidebar])
 
+  // ⌘, and the desktop app's Advanced Settings: the sidebar on Settings ›
+  // General, opened with intent like ⌘⇧F (a human asked for it).
+  const openGeneralSettings = React.useCallback(() => {
+    showGeneralSettings()
+    selectRightView("settings")
+    if (rightPanel.current?.isCollapsed()) openSidebar()
+  }, [openSidebar, selectRightView])
+
   // A link clicked in a terminal (lib/sidebar-browser.ts): show it in the
   // Browser tab. BrowserTab loads the URL itself; this only reveals it.
   React.useEffect(
@@ -879,7 +896,7 @@ function Shell() {
 
   // ⌘K → herdr's own pane search, ⌘O/⌘⇧O → a Git/Scratch agent and ⌘I → a
   // terminal in the New dialog, ⌘;/⌘J/⌘E/⌘./⌘B → the left column's views and sidebar, ⌘\ and ⌘⇧F/S/B →
-  // the right sidebar, ⌘/ → toggles the keyboard-shortcuts reference. Bound to the Cmd key only (not Ctrl) so it
+  // the right sidebar, ⌘/ → toggles the keyboard-shortcuts reference, ⌘, → Settings › General. Bound to the Cmd key only (not Ctrl) so it
   // never clobbers terminal control keys like Ctrl-H (backspace). The
   // herdr/shell terminal iframes re-dispatch Cmd-shortcuts to this document, so
   // these work even while a terminal holds focus. (See SHORTCUTS, the reference
@@ -936,6 +953,9 @@ function Shell() {
       } else if (k === "/") {
         e.preventDefault()
         setShortcutsOpen((o) => !o)
+      } else if (k === ",") {
+        e.preventDefault()
+        openGeneralSettings()
       } else if (k === "j") {
         e.preventDefault()
         toggleLeftView()
@@ -971,6 +991,7 @@ function Shell() {
     toggleLeftSidebar,
     noLeftSidebar,
     openSearch,
+    openGeneralSettings,
   ])
 
   // Apply the synced sidebar layout continuously — including changes arriving
@@ -992,6 +1013,24 @@ function Shell() {
       if (Math.abs(cur - ui.sidebar_pct) > 1) p.resize(`${ui.sidebar_pct}%`)
     }
   }, [ui.sidebar_collapsed, ui.sidebar_pct, collapseSidebar, expandSidebar])
+
+  // ?open=settings is the desktop app's way in (Settings › Info › Advanced
+  // Settings). It is an instruction, not state, so it is read once and
+  // dropped from the URL: a reload or a shared link must not reopen it. It
+  // acts once the synced layout has arrived (and the effect above applied
+  // it), or a stored collapsed sidebar would close it again.
+  const openOnLoad = React.useRef(getQueryParam("open") === "settings")
+  React.useEffect(() => {
+    if (openOnLoad.current) setQueryParams({ open: null })
+  }, [])
+  // Read in render: Shell re-renders when the ui_state query settles, a
+  // failed fetch included (which leaves `ui` the same defaults object).
+  const uiSettled = uiStateSettled()
+  React.useEffect(() => {
+    if (!openOnLoad.current || !uiSettled) return
+    openOnLoad.current = false
+    openGeneralSettings()
+  }, [uiSettled, openGeneralSettings])
 
   // Debounced persist of the sidebar layout: onResize fires for every frame of
   // a drag (and for programmatic applies), so wait for it to settle, then write

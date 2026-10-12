@@ -461,6 +461,9 @@ struct FilterField: NSViewRepresentable {
 struct Switch: View {
     let on: Bool
     let label: String
+    /// Draw the label beside the switch (a settings row shows its own).
+    var showsLabel = true
+    var anchor = "new.plan"
     let toggle: () -> Void
 
     var body: some View {
@@ -476,14 +479,14 @@ struct Switch: View {
                         .padding(Theme.space("2xs"))
                 }
                 .animation(.easeOut(duration: Theme.Motion.cardOpen.number("duration")), value: on)
-                Text(label).font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.primary.color)
+                if showsLabel { Text(label).font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.primary.color) }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityValue(on ? "on" : "off")
-        .parityAnchor("new.plan")
+        .parityAnchor(anchor)
     }
 }
 

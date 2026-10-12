@@ -88,6 +88,7 @@ Every app shortcut uses the `⌘` key only, never `Ctrl`, so none of them collid
 | `⌘⇧O` | New Scratch agent |
 | `⌘I` | New terminal (from Chat, returns to the terminal first) |
 | `⌘/` | Toggle the keyboard shortcut reference |
+| `⌘,` | Open the sidebar on Settings › General |
 
 ### Views
 

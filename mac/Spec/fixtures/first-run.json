@@ -1,0 +1,12 @@
+{
+  "about": "The first-run panel's first step, on a Mac whose configured lasso does not answer: the app's mark, one address field with the keyboard, Connect (⏎), and three kinds of place a lasso runs, each a tappable example address.",
+  "state": "first-run",
+  "extends": "settings",
+  "ui": {
+    "rail": "collapsed",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "first_run": "connect"
+  }
+}

@@ -23,6 +23,13 @@ public final class FleetSync: ObservableObject {
     private var events: EventStream?
     private var loops: [Task<Void, Never>] = []
     private var revs = ActiveFrame()
+    /// Failed fleet reads in a row, and whether this lasso has answered
+    /// since the sync started on it: one miss after an answer is a blip,
+    /// two are an outage, and a lasso that never answered is offline at once.
+    private var misses = 0
+    private var answered = false
+    /// Remembers that this Mac has reached a lasso (FirstRunModel).
+    public var defaults = UserDefaults.standard
     private let clientID = "lasso-desktop-" + UUID().uuidString.prefix(8).lowercased()
 
     public init(client: LassoClient, fleet: FleetModel) {
@@ -68,6 +75,9 @@ public final class FleetSync: ObservableObject {
         version = nil
         lastError = nil
         stream = .connecting
+        misses = 0
+        answered = false
+        fleet.offline = false
         start()
     }
 
@@ -117,7 +127,25 @@ public final class FleetSync: ObservableObject {
         do {
             fleet.apply(panes: try await client.get("/api/all-panes", as: AllPanes.self))
             lastError = nil
-        } catch { note(error, "all-panes") }
+            heard(true)
+        } catch {
+            note(error, "all-panes")
+            heard(false)
+        }
+    }
+
+    /// Whether lasso answered the fleet read: the rail's offline mark.
+    func heard(_ ok: Bool) {
+        if ok {
+            misses = 0
+            answered = true
+            if fleet.offline { fleet.offline = false }
+            if !defaults.bool(forKey: FirstRunModel.connectedKey) { defaults.set(true, forKey: FirstRunModel.connectedKey) }
+        } else {
+            misses += 1
+            let off = !answered || misses >= 2
+            if off != fleet.offline { fleet.offline = off }
+        }
     }
 
     public func refreshBots() async {
@@ -132,5 +160,17 @@ public final class FleetSync: ObservableObject {
 
     public func refreshVersion() async {
         do { version = try await client.get("/api/version", as: VersionInfo.self) } catch { note(error, "version") }
+    }
+
+    /// Whether the lasso in use answers this Mac now, credentials and all.
+    public func answers() async -> Bool {
+        do {
+            version = try await client.get("/api/version", as: VersionInfo.self)
+        } catch {
+            note(error, "version")
+            return false
+        }
+        await refreshPanes()
+        return true
     }
 }

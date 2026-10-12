@@ -324,6 +324,16 @@ function SettingsGroup({
 // screen.
 type SettingsSub = "general" | "themes"
 const SUB_KEY = "lasso-settings-sub"
+const SHOW_GENERAL_EVENT = "lasso:settings-general"
+
+// showGeneralSettings turns the Settings tab to its General pane: ⌘, and the
+// desktop app's Advanced Settings link (?open=settings) land there, whichever
+// pane was last showing. Stored first, so a tab not yet mounted opens on it.
+export function showGeneralSettings() {
+  lsSet(SUB_KEY, "general")
+  window.dispatchEvent(new Event(SHOW_GENERAL_EVENT))
+}
+
 export function SettingsTab({ active }: { active: boolean }) {
   // Which pane is showing, remembered per browser like the right-hand view
   // itself: someone iterating on a theme should not have to re-find it.
@@ -333,6 +343,11 @@ export function SettingsTab({ active }: { active: boolean }) {
   React.useEffect(() => {
     lsSet(SUB_KEY, sub)
   }, [sub])
+  React.useEffect(() => {
+    const show = () => setSub("general")
+    window.addEventListener(SHOW_GENERAL_EVENT, show)
+    return () => window.removeEventListener(SHOW_GENERAL_EVENT, show)
+  }, [])
 
   // Which host's settings to edit — each host stores them in its own lasso.db.
   // The picker lists the local machine plus every reachable, compatible remote

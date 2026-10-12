@@ -188,6 +188,17 @@ public enum Theme {
             proposed: true)
     }
 
+    /// The first-run panel (Onboarding/).
+    public enum Onboarding {
+        public static let layout = Token(
+            "onboarding.layout",
+            ["size": [460, 560], "pad": 28, "icon": 64, "badge": 22, "badge_glyph": 11, "glow": 0.3, "glow_radius": 56,
+             "title_gap": 14, "section_gap": 22, "field_h": 40, "button_h": 34, "radius": 12, "row_icon": 30,
+             "row_icon_radius": 8, "key_h": 22, "lit": 0.55, "tint": 0.12, "footer_pad": 16],
+            .inferred("the first-run panel: the app's mark over a soft glow, one heading, then the step (an address with examples, or tips) in Settings' grouped cards, one primary action"),
+            proposed: true)
+    }
+
     public enum Panel {
         public static let surface = Token(
             "panel.surface", "#1B0A2C", .measured("EXA: isb web/src/index.css :root.ea --background (ink)"))
@@ -269,6 +280,10 @@ public enum Theme {
     }
 
     public enum Fonts {
+        public static let display = Token(
+            "font.display", ["family": "Archivo", "size": 22, "weight": "semibold", "width": 112],
+            .inferred("font.title's face (Archivo at isb .font-display font-stretch 112%), larger, for the first-run panel's one heading"),
+            proposed: true)
         public static let title = Token("font.title", ["family": "Archivo", "size": 16, "weight": "semibold", "width": 112], .measured("ref a2 size; EXA display face, Archivo at isb .font-display font-stretch 112%"))
         public static let body = Token("font.body", ["family": "Geist", "size": 14, "weight": "regular"], .measured("ref a2: 34 px leading"))
         public static let chat = Token("font.chat", ["family": "Geist", "size": 15, "weight": "regular"], .measured("ref a5: 37 px leading"))
@@ -343,7 +358,7 @@ public enum Theme {
         .unmeasured("symbol avatar with a state dot on its corner"), proposed: true)
 
     public static let icon = Token(
-        "icon", ["round_ratio": 0.42, "control": 14, "step": 11, "pin": 10],
+        "icon", ["round_ratio": 0.42, "control": 14, "step": 11, "pin": 10, "menubar": 16, "menubar_text": 13],
         .measured("ref a2: control glyphs about 28 px; the rest proposed"))
 
     public static let focusRing = Token(
@@ -405,6 +420,7 @@ public enum Theme {
         Rail.panelMargin, Rail.badgeSize, Rail.badgeRing, Rail.badgeCenter, Rail.peek, Rail.peekFill, Rail.drag, Rail.hover, Rail.hoverFill, Rail.pressed,
         State.done, State.working, State.blocked, State.idle,
         Settings.footer, Agent.window, Agent.collapsed, Agent.preview, Agent.media, Agent.picker, NewAgent.layout,
+        Onboarding.layout,
         Panel.surface, Panel.border, Panel.radius, Panel.inset, Panel.inner, Panel.divider, Panel.shadow,
         Control.round, Control.composer, Control.pill, Control.pillPrimary,
         Card.size, Card.titleX, Card.contentX, Card.unreadSegment, Card.unreadDot, Card.unreadGap, Card.keycapFill,
@@ -412,7 +428,7 @@ public enum Theme {
         Card.placement,
         Text.primary, Text.secondary, Text.placeholder, accent, dangerText,
         Row.hover, Row.selected, Row.radius,
-        Fonts.title, Fonts.body, Fonts.chat, Fonts.name, Fonts.label, Fonts.header, Fonts.small, Fonts.terminal,
+        Fonts.display, Fonts.title, Fonts.body, Fonts.chat, Fonts.name, Fonts.label, Fonts.header, Fonts.small, Fonts.terminal,
         List.size, List.row, Chat.bubble, focusRing,
         spaceScale, Layout.card, Layout.chat,
         avatar, icon,

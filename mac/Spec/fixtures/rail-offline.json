@@ -1,0 +1,12 @@
+{
+  "about": "The rail while no lasso answers this Mac: the inbox's badge is a grey \"!\" instead of a count, and a click or a rest on the inbox opens the first-run panel.",
+  "state": "rail-offline",
+  "extends": "rail-expanded",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "offline": true
+  }
+}
