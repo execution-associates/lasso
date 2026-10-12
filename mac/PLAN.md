@@ -471,6 +471,8 @@ mac/Scripts/dev.sh parity [states]   # sync → build → kickstart the …Lasso
 mac/Scripts/dev.sh logs       # tail ~/Library/Logs/Lasso.log (never holds secrets or transcripts)
 ```
 
+`src/lasso-desktop/mac` is the default folder on the Mac, and `publish.sh` always builds releases there. `LASSO_MAC_DIR=<folder under ~>` gives a run another one (`LASSO_MAC_DIR=src/lasso-desktop-keys/mac mac/Scripts/dev.sh test`): sync is an `rsync --delete`, so two worktrees, or a worktree and a release, sharing one folder overwrite each other's tree mid-build.
+
 **LaunchAgent plist**
 - `ProgramArguments` = the bundle's `Contents/MacOS/Lasso`
 - `LimitLoadToSessionType` = `Aqua`

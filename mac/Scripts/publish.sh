@@ -28,7 +28,7 @@ if [ "$UPLOAD" = 1 ]; then
   gh release view "v$VERSION" --repo "$REPO" >/dev/null || { echo "no release v$VERSION on $REPO yet" >&2; exit 1; }
 fi
 
-"$HERE/Scripts/dev.sh" sync
+LASSO_MAC_DIR="$REMOTE" "$HERE/Scripts/dev.sh" sync
 # fnox decrypts with the Mac's ssh key (as Recap's runner does); gh and fnox are Homebrew's.
 ssh "$MAC" "export PATH=/opt/homebrew/bin:\$HOME/.local/share/mise/shims:\$PATH FNOX_AGE_KEY_FILE=\$HOME/.ssh/id_ed25519; cd $REMOTE && Scripts/release.sh $VERSION"
 
