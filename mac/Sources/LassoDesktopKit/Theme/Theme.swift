@@ -228,6 +228,19 @@ public enum Theme {
         public static let composer = Token(
             "control.composer",
             ["height": 32, "fill": "#2D1D3C", "gap": 8, "send_disabled": "#210E33", "field_pad_l": 14, "field_pad_r": 12, "mic_w": 20], .measured("ref a2 size; EXA --secondary, --card"))
+        /// The composer's field grows a line at a time as the message does,
+        /// from one line (the row's height) to `max_lines`, then scrolls.
+        public static let composerGrow = Token(
+            "control.composer.grow", ["max_lines": 6, "text_pad": 2],
+            .inferred("a message box that grows with its message and scrolls past a few lines; the text inset AppKit's field had"),
+            proposed: true)
+        /// An attachment's preview over the field: an image's thumbnail, or a
+        /// file's icon and name, with an x in the corner that takes it out.
+        public static let composerAttachment = Token(
+            "control.composer.attachment",
+            ["size": 48, "radius": 8, "gap": 8, "file_w": 140, "remove": 18, "remove_inset": 3, "pending": 0.5],
+            .inferred("a thumbnail small enough to keep the conversation in view; the radius of a row"),
+            proposed: true)
         public static let pill = Token(
             "control.pill", ["height": 22, "pad_h": 12, "fill": "#2D1D3C"], .measured("ref a2 size; EXA --secondary"))
         public static let pillPrimary = Token(
@@ -477,7 +490,7 @@ public enum Theme {
         List.hover, Settings.footer, Agent.window, Agent.collapsed, Agent.preview, Agent.media, Agent.picker, NewAgent.layout,
         Onboarding.layout,
         Panel.surface, Panel.border, Panel.radius, Panel.inset, Panel.inner, Panel.divider, Panel.shadow,
-        Control.round, Control.composer, Control.pill, Control.pillPrimary,
+        Control.round, Control.composer, Control.composerGrow, Control.composerAttachment, Control.pill, Control.pillPrimary,
         Card.size, Card.titleX, Card.contentX, Card.unreadSegment, Card.unreadDot, Card.unreadGap,
         Card.toolRow, Card.machineChip,
         Card.placement, Card.killing,

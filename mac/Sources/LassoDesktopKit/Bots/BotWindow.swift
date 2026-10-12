@@ -264,6 +264,10 @@ extension BotWindowModel: Conversation {
         get { chat.composer }
         set { chat.composer = newValue }
     }
+    public var attachments: [ComposerAttachment] {
+        get { chat.attachments }
+        set { chat.attachments = newValue }
+    }
     public var composerFocused: Bool {
         get { chat.composerFocused }
         set { chat.composerFocused = newValue }
@@ -273,7 +277,7 @@ extension BotWindowModel: Conversation {
     public var showsStop: Bool { chat.showsStop }
     public var stopping: Bool { chat.stopping }
     public var stopLabel: String { chat.stopLabel }
-    public var hasDraft: Bool { !chat.composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    public var hasDraft: Bool { !chat.composerIsEmpty }
     public var composerHasKeys: Bool { chat.composerHasKeys }
     public func send() { chat.send() }
     public func stop() { chat.stop() }
@@ -307,7 +311,7 @@ extension BotWindowModel: Conversation {
             m.stop()
         case .digit(let n): m.highlight(n)
         case .attach: m.attachFile()
-        case .send: if m.composer.isEmpty { m.focusComposer() } else { m.send() }
+        case .send: if m.composerIsEmpty { m.focusComposer() } else { m.send() }
         case .reply: m.focusComposer()
         case .editStep: m.editStep()
         case .takeStep: m.takeStep()

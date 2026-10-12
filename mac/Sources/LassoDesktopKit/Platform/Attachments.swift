@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ImageIO
 import UniformTypeIdentifiers
 
 /// What a paste or a drop into a message box carries, read off the pasteboard.
@@ -198,14 +199,110 @@ extension Attachments {
     public static func progress(_ files: [URL]) -> String {
         files.count == 1 ? "Attaching \(files[0].lastPathComponent)…" : "Attaching \(files.count) files…"
     }
+
+    /// Upload each file that may go as an attachment of the model's message
+    /// (`list`), never into its text: each shows at once as a preview while
+    /// it uploads, and takes its path on the agent's machine as it lands.
+    /// One taken out (its x) while uploading stays out. A failure drops that
+    /// file and the ones after it and keeps the ones that landed. Answers the
+    /// notice to show, as `upload(_:at:into:of:_:)` does.
+    @MainActor
+    public static func upload<M: AnyObject>(
+        _ files: [URL], into list: ReferenceWritableKeyPath<M, [ComposerAttachment]>, of model: M,
+        _ send: (URL) async throws -> String
+    ) async throws -> String {
+        defer { files.forEach(discardIfScratch) }
+        var queued: [(file: URL, id: UUID)] = []
+        var refused: [String] = []
+        let side = Theme.Control.composerAttachment.number("size") * thumbnailScale
+        for f in files {
+            if let why = refusal(f) {
+                refused.append(why)
+                continue
+            }
+            // The thumbnail is made now: a pasted image's file goes once it is uploaded.
+            let a = ComposerAttachment(name: f.lastPathComponent, thumbnail: thumbnail(f, side: side))
+            model[keyPath: list].append(a)
+            queued.append((f, a.id))
+        }
+        var done: [String] = []
+        for (n, q) in queued.enumerated() {
+            let path: String
+            do { path = try await send(q.file) } catch {
+                let unsent = Set(queued[n...].map(\.id))
+                model[keyPath: list].removeAll { unsent.contains($0.id) }
+                throw Failed(name: q.file.lastPathComponent, error: error)
+            }
+            guard let i = model[keyPath: list].firstIndex(where: { $0.id == q.id }) else { continue }
+            model[keyPath: list][i].path = path
+            done.append(q.file.lastPathComponent)
+        }
+        let attached = done.isEmpty ? [] : [done.count == 1 ? "Attached \(done[0])" : "Attached \(done.count) files"]
+        return (attached + refused).joined(separator: "; ")
+    }
+
+    /// What a send delivers: the words typed, then each landed attachment's
+    /// path on the agent's machine, set off by a space as a pasted path was.
+    public static func message(_ text: String, _ attachments: [ComposerAttachment]) -> String {
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ([words] + attachments.compactMap(\.path)).filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// Thumbnails are made at twice their size in points, for a Retina screen.
+    static let thumbnailScale: CGFloat = 2
+
+    /// A small rendering of an image file, nil for anything else (or an
+    /// image ImageIO cannot read).
+    public static func thumbnail(_ file: URL, side: CGFloat) -> NSImage? {
+        guard let type = UTType(filenameExtension: file.pathExtension), type.conforms(to: .image),
+              let src = CGImageSourceCreateWithURL(file as CFURL, nil)
+        else { return nil }
+        let opts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, Int(side.rounded(.up))),
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { return nil }
+        return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+    }
+}
+
+/// A file attached to a message being written. The composer shows it as a
+/// preview over its field, never in the text; `path` is where it landed on
+/// the agent's machine (nil while it uploads), and a send puts that path in
+/// the message (`Attachments.message`).
+public struct ComposerAttachment: Identifiable, Equatable {
+    public let id: UUID
+    /// Its name on this Mac (a pasted image's is `pasted-<time>.png`).
+    public let name: String
+    public var path: String?
+    /// An image's rendering, made before upload; nil for any other file.
+    public let thumbnail: NSImage?
+
+    public init(id: UUID = UUID(), name: String, path: String? = nil, thumbnail: NSImage? = nil) {
+        self.id = id
+        self.name = name
+        self.path = path
+        self.thumbnail = thumbnail
+    }
+
+    public static func == (a: Self, b: Self) -> Bool { a.id == b.id && a.name == b.name && a.path == b.path }
+}
+
+/// A composer's unsent message, kept for its agent when its card or
+/// preview goes: the words and the attachments that landed.
+public struct ComposerDraft: Equatable {
+    public var text: String
+    public var attachments: [ComposerAttachment]
 }
 
 /// A model whose message box takes uploaded files: the paperclip's open
 /// panel, a paste and a drop all end in `attach(_:at:)`.
 @MainActor
 public protocol AttachingModel: AnyObject {
-    /// Upload `files` to the agent's machine and insert their paths at the
-    /// UTF-16 offset `caret` of the message (its end when nil).
+    /// Upload `files` to the agent's machine for the message: a composer
+    /// shows them as attachments; the New Agent prompt inserts their paths at
+    /// the UTF-16 offset `caret` of its text (its end when nil).
     func attach(_ files: [URL], at caret: Int?)
     func say(_ s: String?)
 }
@@ -233,9 +330,9 @@ enum AttachmentInput {
     }
 }
 
-/// A text view (a field's editor, or the New Agent prompt) that uploads what
+/// A text view (the composer's, or the New Agent prompt) that uploads what
 /// is pasted or dropped on it when that is files or an image.
-final class AttachingTextView: NSTextView {
+class AttachingTextView: NSTextView {
     weak var attachTarget: AttachingModel?
 
     private var caret: Int { selectedRange().location + selectedRange().length }

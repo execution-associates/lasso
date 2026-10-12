@@ -565,3 +565,18 @@ public final class FixtureNewAgentSource: NewAgentSource {
         return try terminalAnswer.get()
     }
 }
+
+/// The New form's prompt, typed and not yet sent: closing the form keeps it,
+/// the next form (after a relaunch or an update too) starts with it, and
+/// creating the agent or terminal clears it. One per Mac, like the web's
+/// drafts are per browser.
+@MainActor
+public enum NewAgentDraft {
+    static let key = "newAgentDraft"
+    static var defaults = UserDefaults.standard
+
+    public static var text: String {
+        get { defaults.string(forKey: key) ?? "" }
+        set { newValue.isEmpty ? defaults.removeObject(forKey: key) : defaults.set(newValue, forKey: key) }
+    }
+}

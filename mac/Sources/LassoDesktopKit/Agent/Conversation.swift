@@ -546,7 +546,7 @@ final class ConversationPreviewController<M: Conversation> {
     /// The model for a row's key, nil when the row is gone.
     var make: (String) -> M? = { _ in nil }
     /// Unsent replies by row, kept when the preview goes or moves on.
-    private var drafts: [String: String] = [:]
+    private var drafts: [String: ComposerDraft] = [:]
 
     init(media: MediaSource?) {
         let size = Theme.Agent.preview.size2("size")
@@ -569,7 +569,7 @@ final class ConversationPreviewController<M: Conversation> {
             keepDraft()
             holder.model?.stopPolling()
             guard let m = make(key) else { return }
-            m.composer = drafts[key] ?? ""
+            m.draft = drafts[key]
             holder.model = m
             self.key = key
         }
@@ -617,7 +617,7 @@ final class ConversationPreviewController<M: Conversation> {
 
     private func keepDraft() {
         guard let m = holder.model, let key else { return }
-        drafts[key] = m.hasDraft ? m.composer : nil
+        drafts[key] = m.draft
     }
 
     /// Its keys (`M.previewKeys`) once a click made it the user's: a

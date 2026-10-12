@@ -149,7 +149,7 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 | Card send (`⏎`) | POST `/api/chat/send?host=` | `{pane_id, text}` | `{outcome: confirmed\|refused\|uncertain, detail}`. Can take about 8 s; never auto-retry `uncertain` | `src/chatview.go:2091` |
 | Answer a question | POST `/api/chat/answer?host=` | `{pane_id, expect, labels, answers:[{selected,multi,options}]}` | `{outcome: sent\|refused}` | `src/chatview.go:2323` |
 | Stop | POST `/api/chat/stop?host=` | `{pane_id}` | `{outcome}` | `src/chatview.go:2128` |
-| Attach a file (paperclip, paste, drop) | POST `/api/paste-file?host=&name=` | the raw file, `Content-Type` its MIME type; at most 1 GiB, never empty | `{path}`, which the client puts into the message text | `src/main.go` `servePasteFile` |
+| Attach a file (paperclip, paste, drop) | POST `/api/paste-file?host=&name=` | the raw file, `Content-Type` its MIME type; at most 1 GiB, never empty | `{path}`, which the client adds to the message when it is sent | `src/main.go` `servePasteFile` |
 | Bots list | GET `/api/bots` | – | `{bots:[botView]}`: `botRecord` + `state, waiting_for, last_text, last_kind, last_at, live_model, error, …` | `src/botsapi.go:47`, `src/botruntime.go:215` |
 | Create assistant bot | POST `/api/bots` | `{name, runtime:"omp", start:true, instructions}` (host defaults to local; omp must be local) | `{bot, note?, error?}`; **a 200 can still carry `error`**; 409 on a duplicate | `src/botsapi.go:152`, rules `src/bots.go:178` |
 | Bot detail | GET `/api/bots/<name>` | – | `{bot, dir_path, …}` | `src/botsapi.go:233` |
@@ -878,6 +878,12 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
 
 **Hover comes from polling, not tracking areas.** The steward asked for `NSTrackingArea` with `.activeAlways`. The app instead polls `NSEvent.mouseLocation` at 20 Hz against `RailMetrics.itemFrames`, the same frames the rail draws (a test checks them against the rendered anchors). It does so because a non-activating panel of a background app gets no hover events from SwiftUI, and polling also drives the reveal, the drag and the glance close from one loop.
 
+**The agents column filters as you type**, as the web's agents grid and chat sidebar do. The field sits left of New.
+- **Every word typed must appear somewhere in the row** (`ListModel.matches`, the web's `agentMatches`), so "norm codex" finds codex agents on norm. A row is searched by its name and labels, harness, cwd, repo, machine and the prompt it started with. The web grid also searches transcripts; the column has no conversations loaded until a row is previewed, so it does not.
+- **A typed key goes to the field from anywhere in the column** that has the keyboard (opened with its shortcut, or the field clicked): plain characters, and delete while there is a filter. Keys with ⌘, ⌃ or ⌥ stay shortcuts, and ↑/↓/⏎ keep moving and opening rows from inside the field.
+- **The first match is lit**, so ⏎ opens it; a row the keyboard picked stays picked while it still matches. Pins and groups both narrow, the field shows matches/total, and an empty result says "No agents match".
+- **esc clears the filter before it closes the column**, and a column that closes drops its filter, so the next one opens on the whole fleet.
+
 **A column's hover is one map and one highlight** (`ColumnHover`, the agents and the Bots column alike).
 - **Its rows hold still while it is open** (`FrozenOrder`). Opening records the order drawn; a fleet update meanwhile changes what a row says (its dot, its last line), never where it is, so the row under a resting pointer stays the one it was. An agent or bot that appears goes after the rest in its section, one that goes is dropped, and the next open shows the live order (most urgent first, the agents newest first within a state).
 - Each tick maps the pointer to a row through AppKit: the pointer goes into the column's scroll view's document (`NSView.convert`), where each row reported the frame it is laid out at (`ColumnRowFrames`, in the scrolled content's own space). Those frames do not move when the column scrolls, so nothing waits on SwiftUI to report geometry again after a scroll.
@@ -959,6 +965,7 @@ The Mac launches agents and terminals the way lasso's web New dialog does (`src/
 - The machine, when lasso drives more than one. Every machine shows by its name: lasso's own machine is "local" on the wire, but by its hostname on screen, because it is rarely the Mac the app runs on. Cards and agent windows always name the machine for the same reason.
 - Plan first, where the harness has it.
 - ⌘⏎ creates and esc cancels. A failed create says why and keeps the form.
+- **An unsent prompt is kept** (UserDefaults `newAgentDraft`, saved as it is typed): closing the form, a relaunch or an update leaves it there for the next form, in every mode. Creating the agent or running the terminal clears it.
 - Dragging the header moves the form. It opens where it was last left (UserDefaults `newAgentOrigin`), or centred high on the screen when that spot is off every screen.
 
 **Terminal mode** is the web's Terminal tab (`NewTerminalForm.tsx`) over `POST /api/create-terminal`:
@@ -1072,14 +1079,15 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
   - The bytes come through `/api/file` (`download=1`) from the host that served the transcript. They are cached in `~/Library/Caches/Lasso/Media` per path and showing, since an agent may overwrite a file in place.
 - **Choices need a confirm.** A click (or 1–9) only selects a choice; the selected one shows **Answer**, and that button (or →) sends it. An answer cannot be taken back, and the preview appears under a moving pointer.
 - **No header menu:** the window's header is minimize and close. **Kill** is a red pill at the trailing end of the folder/model row (`AgentKill`; a bot has none, and neither does a hover preview), behind the inbox's confirm: X or a click arms it ("Confirm kill"), a second kills. Its accessibility label is "Kill <agent>". While lasso closes the pane it reads "Killing…" with a spinner and the window waits as the card does (§13.7a); a failure clears it and the notice line says why. Once the kill goes through, the window closes and the agent's inbox entry goes with it (§13.7a).
-- The composer's paperclip (U) attaches any files: each goes through `/api/paste-file` to the agent's machine and its path into the message.
+- **The composer is a plain-text NSTextView** (`ComposerTextField`, an `AttachingTextView`) that grows with its message a line at a time up to `control.composer.grow.max_lines`, then scrolls. Return sends, Shift- or Option-Return starts a new line, and pasted text keeps its newlines. A typed answer to a question's Other row is still one line: lasso refuses a newline there, and the notice says why.
+- **Files from the paperclip (U), a paste or a drop are attachments, never text.** Each goes through `/api/paste-file` to the agent's machine and shows over the field (an image's thumbnail, or a file's icon and name, `control.composer.attachment`), with an x that takes it out of the message. Send waits for uploads, then delivers the words followed by each attachment's path, and an unsent draft keeps its attachments.
 - **Paste and drop attach too** (`Platform/Attachments.swift`), in every composer (inbox card, agent window and preview, bot chat) and the New Agent prompt.
-  - The composer's NSTextField uses its own field editor (`ComposerCell` → `AttachingTextView`), so ⌘V and Edit › Paste reach it. A drop works on the field and on its editor alike.
+  - ⌘V and Edit › Paste reach the composer's text view, and a drop works anywhere on it.
   - `Attachments.plan` decides from the pasteboard: **file URLs first**, then image data (PNG before TIFF, any other image read as TIFF), then text. Screenshot tools like BetterShot and Finder's Copy put the file next to its path or name as text and an icon as an image, and the file is what goes. Image data beats text only when the text is a lone URL or path (a browser's Copy Image); words with a rendering (Word, Excel) paste as text.
   - Raw image data is written to `$TMPDIR/LassoPaste/<uuid>/pasted-<time>.png`, uploaded, then deleted.
-  - Each uploaded path is inserted at the caret (the drop point, or the end for the paperclip), set off by spaces. Uploads go one by one, so a failure keeps the paths that already landed. The notice names the file and the reason.
+  - Uploads go one by one, so a failure keeps the attachments that already landed. The notice names the file and the reason.
   - Refused before any upload: folders, empty files (lasso refuses an empty body), and anything over lasso's `maxUpload` (1 GiB, `src/main.go`).
-  - The New Agent prompt has no agent yet, so its files go to the chosen host through the same route, and Create waits for them.
+  - The New Agent prompt has no agent yet, so its files go to the chosen host through the same route, their paths are inserted at the caret, and Create waits for them.
 - One window per agent; a second click brings it forward. Where each agent's window was is kept in UserDefaults `agentWindowFrames`.
 - Keys while it has the keyboard (`CardKeys.windowSet`): 1–9, →, ↳, ⏎ (to the composer, or send), L (to the composer), R (rename), U (attach), ⌘. (Stop), and X X to kill. They are the inbox card's, with the same letters, minus paging, esc and Acknowledge: a window has no inbox entry to resolve. A clicked hover preview has the same minus Kill, and esc closes it. A focused composer keeps every key as text except ⌘. (§13.7a).
 - **Stop** (the web chat's rule). While the agent is working or starting and the composer is empty, the send button is Stop, a filled square with the label "Stop <agent>". A draft brings Send back.
@@ -1169,7 +1177,7 @@ lasso's bots get a place of their own on the rail, following the web app's Bots 
 - **Header:** the picture, the name, "state · harness bot · N jobs", the terminal button, minimize and close.
   - **The terminal button** (and **T**) shows the bot's herdr pane in herdr's window, as an agent's does (`/api/focus?host=` with `{pane_id, reveal}`). An omp bot's `mise run` and a claude bot's run in a pane alike: the pane is the fleet's row for lasso's `pane_id`, else the pane on the bot's host carrying its name (`BotWindowModel.pane`). A stopped bot has none, so the button is dimmed and says "<name> isn't running: start it to see its terminal".
 - **Conversation:** as an agent window renders it. An open request's options are listed with Answer (`chat/answer`).
-- **Composer:** paste and drop upload, ⏎ sends, and ⌘. stops the turn.
+- **Composer:** paste and drop attach (previews, never text), ⏎ sends, ⇧⏎ / ⌥⏎ start a new line, and ⌘. stops the turn.
 - **Footer,** in an agent footer's place: the model (an omp bot's is a menu: `POST /api/bots/<name>/model`, which switches a running bot at once and otherwise says the change takes effect after a restart; a long name truncates), Conversations (New conversation, `sessions/new`; a pick resumes with `sessions/resume`), Stop bot or Start bot (`stop`, `start`), and ⋯ with Restart, Jobs ↗, Settings ↗ (`/bots/<name>/settings`) and Manage bots ↗. A preview's footer is the folder and the model, as an agent preview's.
 - **Refusals are said.** lasso refuses a conversation switch mid-turn with a 409, and its reason shows in the window ("Not now: …"). Every other failure is named too.
 - **A stopped bot** shows "<name> isn't running." with **Start <name>** above its last conversation, and the composer is greyed until it starts.
