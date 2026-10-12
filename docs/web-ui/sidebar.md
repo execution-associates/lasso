@@ -20,7 +20,7 @@ The built-in tabs, in their default order:
 
 Enabled [plugins](../plugins/index.md) add their own tabs to the same strip.
 
-`⌘⇧F`, `⌘⇧S` and `⌘⇧B` open the sidebar straight onto Files, Scratch and Browser.
+`⌘⇧F`, `⌘⇧S` and `⌘⇧B` open the sidebar straight onto Files, Scratch and Browser, and `⌘,` onto Settings › General. A link to lasso with `?open=settings` does the same once on load (the desktop app's **Advanced Settings**).
 
 ## Files
 
