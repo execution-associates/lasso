@@ -39,9 +39,16 @@ public final class LiveCardActions: CardActions {
         "/api/bots/\(b.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? b.name)/\(tail)"
     }
 
-    public func chat(_ pane: HostPane) async throws -> ChatPayload {
+    public func chat(_ pane: HostPane) async throws -> ChatPayload { try await chat(pane, incoming: false) }
+
+    /// `incoming` adds the messages Claude Code channels delivered (mail,
+    /// texts, a bot's scheduled loops) as `incoming` rows: a bot's chat
+    /// reads them, as the web's Bots view does (`?incoming=1`).
+    public func chat(_ pane: HostPane, incoming: Bool) async throws -> ChatPayload {
         if let b = ompBot(pane) { return try await client.get(botPath(b, "chat")) }
-        return try await client.get("/api/chat", query: ["pane": pane.pane_id, "host": pane.host])
+        var q = ["pane": pane.pane_id, "host": pane.host]
+        if incoming { q["incoming"] = "1" }
+        return try await client.get("/api/chat", query: q)
     }
 
     struct SendBody: Encodable {

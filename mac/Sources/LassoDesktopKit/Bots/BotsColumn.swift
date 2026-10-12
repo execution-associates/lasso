@@ -40,6 +40,7 @@ public struct BotsListView: View {
                             .padding(row.number("pad_h"))
                     }
                 }
+                .coordinateSpace(name: ColumnRows.space)
             }
             Rectangle().fill(Theme.Panel.divider.color).frame(height: Theme.space("hair"))
             HStack {
@@ -55,7 +56,7 @@ public struct BotsListView: View {
                 .parityAnchor("bots.manage")
             }
         }
-        .onPreferenceChange(BotRowFrames.self) { frames in MainActor.assumeIsolated { model.rowFrames = frames } }
+        .onPreferenceChange(ColumnRowFrames.self) { frames in MainActor.assumeIsolated { model.rowFrames = frames } }
         .panelChrome(Theme.List.size.size, anchor: "bots")
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Bots")
@@ -72,8 +73,7 @@ public struct BotsListView: View {
     }
 
     private func rowView(_ b: BotView) -> some View {
-        let selected = model.selected == b.name
-        let hovered = model.hovered == b.name
+        let lit = model.keyboardLit ? model.selected == b.name : model.hovered == b.name
         return Button { model.open(b) } label: {
             HStack(alignment: .top, spacing: Theme.space("l")) {
                 BotAvatarView(name: b.name, image: avatars[b.name], standing: b.standing)
@@ -92,63 +92,18 @@ public struct BotsListView: View {
             .padding(.vertical, Theme.space("m"))
             .background(
                 RoundedRectangle(cornerRadius: Theme.Row.radius.pt)
-                    .fill(selected ? Theme.Row.selected.color : (hovered ? Theme.Row.hover.color : .clear))
+                    .fill(lit ? (model.keyboardLit ? Theme.Row.selected.color : Theme.Row.hover.color) : .clear)
                     .padding(.horizontal, Theme.space("m")))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(GeometryReader { g in Color.clear.preference(key: BotRowFrames.self, value: [b.name: g.frame(in: .global)]) })
+        .columnRow(b.name)
         .accessibilityLabel("\(b.name), \(b.standing.label), \(b.runtime)\(b.lastLine.map { ": \($0)" } ?? "")")
         .parityAnchor("bots.row[\(b.name)]")
     }
 }
 
 private func parseISO(_ s: String) -> Date? { ISO8601DateFormatter().date(from: s) }
-
-/// The rows' frames in the window, for the column's hover poll.
-struct BotRowFrames: PreferenceKey {
-    static let defaultValue: [String: CGRect] = [:]
-    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
-        value.merge(nextValue()) { $1 }
-    }
-}
-
-/// The hover preview of a bot's latest exchange, left of the column.
-struct BotPreviewView: View {
-    @ObservedObject var model: ChatModel
-    var avatar: NSImage?
-
-    var body: some View {
-        let b = model.bot
-        let w = Theme.Agent.window
-        VStack(spacing: 0) {
-            HStack(spacing: Theme.space("l")) {
-                BotAvatarView(name: b.name, image: avatar, standing: b.standing, size: w.number("avatar"))
-                VStack(alignment: .leading, spacing: Theme.space("2xs")) {
-                    Text(b.name).font(Theme.Fonts.title.font).foregroundStyle(Theme.Text.primary.color).lineLimit(1)
-                    Text([b.standing.label, b.runtime, b.modelName].compactMap { $0 }.joined(separator: " · "))
-                        .font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color).lineLimit(1)
-                }
-                Spacer()
-            }
-            .padding(.horizontal, Theme.Panel.inset.pt)
-            .frame(height: w.number("header_h"))
-            Rectangle().fill(Theme.Panel.divider.color).frame(height: Theme.space("hair"))
-            AgentConversation(
-                entries: AgentPreviewView.latestTurn(model.chat?.items ?? [], cwd: model.chat?.cwd), pending: model.pending,
-                phase: model.chat == nil ? .loading : .idle, host: b.host)
-            BotChoices(model: model)
-        }
-        .panelChrome(Theme.Agent.preview.size2("size"), anchor: "bots.preview")
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(b.name), preview")
-    }
-}
-
-@MainActor
-final class BotPreviewHolder: ObservableObject {
-    @Published var model: ChatModel?
-}
 
 struct BotsHost: View {
     @ObservedObject var presence: CardPresence
@@ -160,24 +115,6 @@ struct BotsHost: View {
             .opacity(presence.shown ? 1 : 0)
             .offset(x: presence.shown ? 0 : Theme.Motion.cardOpen.number("slide"))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-struct BotPreviewHost: View {
-    @ObservedObject var presence: CardPresence
-    @ObservedObject var holder: BotPreviewHolder
-    @ObservedObject var avatars: BotAvatars
-    let media: MediaSource?
-
-    var body: some View {
-        Group {
-            if let m = holder.model {
-                BotPreviewView(model: m, avatar: avatars.images[m.bot.name]).environment(\.mediaSource, media)
-            }
-        }
-        .opacity(presence.shown ? 1 : 0)
-        .offset(x: presence.shown ? 0 : Theme.Motion.cardOpen.number("slide"))
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
@@ -204,61 +141,65 @@ public final class BotAvatars: ObservableObject {
 }
 
 /// The Bots column's panel beside the rail, and its row preview: the
-/// agents column's pattern (a 20 Hz pointer poll, `PreviewHover`).
+/// agents column's hover (`ColumnHover`) and the agents' preview, drawn for
+/// a bot (`ConversationPreviewView`), which takes typing once clicked.
 @MainActor
 public final class BotsController {
     let panel: RailPanel
-    let preview: RailPanel
+    let previews: BotPreviewController
+    var preview: RailPanel { previews.panel }
     public let model: BotsListModel
     private let presence = CardPresence()
-    private let previewPresence = CardPresence()
-    private let previewHolder = BotPreviewHolder()
     var railFrame: () -> NSRect = { .zero }
-    /// A ChatModel for a previewed bot.
-    var makeChat: (BotView) -> ChatModel
-    private var hoverTimer: Timer?
-    private var hover = PreviewHover()
+    let hover: ColumnHover
 
-    init(model: BotsListModel, avatars: BotAvatars, media: MediaSource?, makeChat: @escaping (BotView) -> ChatModel) {
+    /// A bot's model for its preview (the coordinator's, as for its window).
+    var makePreview: (BotView) -> BotWindowModel? = { _ in nil }
+
+    init(model: BotsListModel, avatars: BotAvatars, media: MediaSource?) {
         self.model = model
-        self.makeChat = makeChat
         let size = Theme.List.size.size
         let host = NSHostingView(rootView: BotsHost(presence: presence, avatars: avatars, model: model))
         host.frame = NSRect(origin: .zero, size: size)
         panel = RailPanel(content: host, size: size)
         panel.hasShadow = true
-        let psize = Theme.Agent.preview.size2("size")
-        let phost = NSHostingView(rootView: BotPreviewHost(presence: previewPresence, holder: previewHolder, avatars: avatars, media: media))
-        phost.frame = NSRect(origin: .zero, size: psize)
-        preview = RailPanel(content: phost, size: psize)
-        preview.hasShadow = true
+        previews = BotPreviewController(media: media)
+        hover = ColumnHover(panel: panel, column: model)
+        previews.make = { [weak self] name in
+            guard let self, let b = self.model.bots.first(where: { $0.name == name }) else { return nil }
+            return self.makePreview(b)
+        }
         panel.onKey = { [weak self] e in self?.handle(e) ?? false }
         model.onClose = { [weak self] in self?.close() }
+        hover.showing = { [weak self] in self?.previews.showing }
+        hover.holds = { [weak self] in
+            guard let self, self.previews.isOpen else { return false }
+            return self.preview.frame.contains(self.hover.pointer())
+        }
+        hover.onShow = { [weak self] name, row in
+            guard let self else { return }
+            self.previews.show(name, beside: self.panel.frame, row: row)
+        }
+        hover.onHide = { [weak self] in self?.previews.close() }
     }
 
     public var isOpen: Bool { presence.shown }
-    var previewOpen: Bool { previewPresence.shown }
+    var previewOpen: Bool { previews.isOpen }
     var isKey: Bool { panel.isKeyWindow }
 
     func open(takeKey: Bool) {
         panel.setFrameOrigin(originBesideRail(railFrame(), size: Theme.List.size.size))
         if takeKey { panel.makeKeyAndOrderFront(nil) } else { panel.orderFrontRegardless() }
         withAnimationToken(Theme.Motion.cardOpen) { presence.shown = true }
-        hoverTimer?.invalidate()
-        hoverTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 20, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.pollHover() }
-        }
+        hover.start()
     }
 
     func takeKey() { panel.makeKeyAndOrderFront(nil) }
 
     func close() {
         if panel.isKeyWindow { panel.resignKey() }
-        hoverTimer?.invalidate()
-        hoverTimer = nil
+        hover.stop()
         hidePreview()
-        hover = PreviewHover()
-        model.hovered = nil
         withAnimationToken(Theme.Motion.cardClose) { presence.shown = false }
         let delay = Theme.Motion.cardClose.value["duration"]?.double ?? 0
         Task { @MainActor [weak self] in
@@ -270,60 +211,7 @@ public final class BotsController {
 
     func follow() { if isOpen { panel.setFrameOrigin(originBesideRail(railFrame(), size: Theme.List.size.size)) } }
 
-    private func rowUnderPointer() -> (key: String, rect: NSRect)? {
-        let f = panel.frame
-        let m = NSEvent.mouseLocation
-        guard f.contains(m) else { return nil }
-        let p = CGPoint(x: m.x - f.minX, y: f.maxY - m.y)
-        guard let (name, r) = model.rowFrames.first(where: { $0.value.contains(p) }) else { return nil }
-        return (name, NSRect(x: f.minX + r.minX, y: f.maxY - r.maxY, width: r.width, height: r.height))
-    }
-
-    private func pollHover() {
-        let h = Theme.Rail.hover
-        let row = rowUnderPointer()
-        if model.hovered != row?.key { model.hovered = row?.key }
-        let showing = previewOpen ? previewHolder.model?.bot.name : nil
-        let action = hover.tick(
-            row: row?.key, showing: showing, holds: previewOpen && preview.frame.contains(NSEvent.mouseLocation), now: Date(),
-            openAfter: h.number("item_open_ms") / 1000, closeAfter: h.number("panel_close_ms") / 1000)
-        switch action {
-        case .none: break
-        case .hide: hidePreview()
-        case .show(let name):
-            guard let row, let bot = model.bots.first(where: { $0.name == name }) else { return }
-            showPreview(bot, row: row.rect)
-        }
-    }
-
-    private func showPreview(_ bot: BotView, row: NSRect) {
-        if previewHolder.model?.bot.name != bot.name {
-            previewHolder.model?.stopPolling()
-            let m = makeChat(bot)
-            previewHolder.model = m
-            m.startPolling()
-        }
-        let size = Theme.Agent.preview.size2("size")
-        let vis = NSScreen.main?.visibleFrame ?? .zero
-        let x = max(vis.minX, panel.frame.minX - Theme.Agent.preview.number("gap") - size.width)
-        let y = min(max(vis.minY, row.maxY - size.height), vis.maxY - size.height)
-        preview.setFrameOrigin(NSPoint(x: x.rounded(), y: y.rounded()))
-        preview.orderFrontRegardless()
-        if !previewPresence.shown { withAnimationToken(Theme.Motion.cardOpen) { previewPresence.shown = true } }
-    }
-
-    func hidePreview() {
-        guard previewPresence.shown else { return }
-        previewHolder.model?.stopPolling()
-        withAnimationToken(Theme.Motion.cardClose) { previewPresence.shown = false }
-        let delay = Theme.Motion.cardClose.value["duration"]?.double ?? 0
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1e9) + 20_000_000)
-            guard let self, !self.previewPresence.shown else { return }
-            self.preview.orderOut(nil)
-            self.previewHolder.model = nil
-        }
-    }
+    func hidePreview() { previews.close() }
 
     /// J/K or ↑/↓ move, ⏎ opens, esc closes.
     private func handle(_ e: NSEvent) -> Bool {
@@ -331,12 +219,17 @@ public final class BotsController {
         guard mods.isEmpty else { return false }
         switch e.keyCode {
         case KeyCode.escape: close()
-        case KeyCode.up: model.move(-1)
-        case KeyCode.down: model.move(1)
+        case KeyCode.up: move(-1)
+        case KeyCode.down: move(1)
         case KeyCode.returnKey, KeyCode.keypadEnter: model.openSelected()
         default:
-            if Keys.next.matches(e) { model.move(1) } else if Keys.previous.matches(e) { model.move(-1) } else { return false }
+            if Keys.next.matches(e) { move(1) } else if Keys.previous.matches(e) { move(-1) } else { return false }
         }
         return true
+    }
+
+    private func move(_ d: Int) {
+        model.move(d)
+        hover.keyboardMoved()
     }
 }

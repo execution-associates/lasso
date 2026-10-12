@@ -11,7 +11,7 @@ public final class ParityRunner {
     /// States whose surfaces exist. The rest report as pending until their
     /// milestone lands (PLAN 6).
     public static let implemented: Set<String> = [
-        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "rail-hover-terminal", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "settings-shortcuts", "new-agent", "new-agent-menu", "new-terminal", "bots-column", "bot-window", "bot-window-stopped", "agent-window-markdown",
+        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "rail-hover-terminal", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "settings-shortcuts", "new-agent", "new-agent-menu", "new-terminal", "bots-column", "bot-window", "bot-window-stopped", "bot-preview", "agent-window-markdown",
         "card-killing", "first-run", "first-run-connected", "rail-offline",
     ]
 
@@ -213,13 +213,27 @@ public final class ParityRunner {
             chat.show(chat: fixture.chats["bot:\(name)"])
             let m = BotWindowModel(chat: chat, actions: FixtureBotActions(), fleet: fleet)
             m.suggestions = { _ in ["deepseek-v4-flash", "claude-opus-5-5"] }
+            // The app's bot windows can show their bot's pane in herdr.
+            m.onShowInHerdr = { _ in }
             await m.load()
-            bindings = chat.activeBindings
+            bindings = m.activeBindings
             surface = CardKeys.botWindowSet
             let make: @MainActor () async throws -> Capture = {
                 try await Capturer.capture(
-                    BotWindowView(model: m, chrome: AgentWindowChrome()).environment(\.mediaSource, self.media),
+                    ConversationWindowView(model: m, chrome: AgentWindowChrome()).environment(\.mediaSource, self.media),
                     size: Theme.Agent.window.size2("size"))
+            }
+            cap = try await make()
+        } else if let name = fixture.ui.bot_preview, let bot = fixture.server.bots.bots.first(where: { $0.name == name }) {
+            let chat = ChatModel(bot: bot, actions: FixtureBotChatActions(payload: fixture.chats["bot:\(name)"]))
+            chat.show(chat: fixture.chats["bot:\(name)"])
+            let m = BotWindowModel(chat: chat, actions: FixtureBotActions(), fleet: fleet)
+            m.composer = "Move it to Thursday"
+            bindings = m.activeBindings.subtracting([Keys.herdr])
+            surface = CardKeys.botPreviewSet
+            let make: @MainActor () async throws -> Capture = {
+                try await Capturer.capture(
+                    ConversationPreviewView(model: m).environment(\.mediaSource, self.media), size: Theme.Agent.preview.size2("size"))
             }
             cap = try await make()
         } else if fixture.ui.bots == true {
@@ -251,7 +265,7 @@ public final class ParityRunner {
             surface = CardKeys.previewSet
             let make: @MainActor () async throws -> Capture = {
                 try await Capturer.capture(
-                    AgentPreviewView(model: c).environment(\.mediaSource, self.media), size: Theme.Agent.preview.size2("size"))
+                    ConversationPreviewView(model: c).environment(\.mediaSource, self.media), size: Theme.Agent.preview.size2("size"))
             }
             cap = try await make()
         } else if let key = fixture.ui.window {
@@ -262,7 +276,7 @@ public final class ParityRunner {
             surface = CardKeys.windowSet
             let size = chrome.collapsed ? Theme.Agent.collapsed.size2("size") : Theme.Agent.window.size2("size")
             let make: @MainActor () async throws -> Capture = {
-                try await Capturer.capture(AgentWindowView(model: c, chrome: chrome).environment(\.mediaSource, self.media), size: size)
+                try await Capturer.capture(ConversationWindowView(model: c, chrome: chrome).environment(\.mediaSource, self.media), size: size)
             }
             cap = try await make()
         } else if let key = fixture.ui.card {

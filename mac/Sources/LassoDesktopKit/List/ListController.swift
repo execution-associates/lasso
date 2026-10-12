@@ -22,17 +22,8 @@ public final class ListController {
     public let model: ListModel
     private let presence = CardPresence()
     var railFrame: () -> NSRect = { .zero }
-    /// Resting on a row asks for its preview (nil: put it away), with the
-    /// list's and the row's screen rects.
-    var onPreview: (HostPane?, NSRect, NSRect) -> Void = { _, _, _ in }
-    /// The preview is under the pointer, or a click made it the user's.
-    var previewHolds: () -> Bool = { false }
-    /// The agent the preview shows now, nil when it is put away: read on
-    /// every poll, since esc, a click on the row (its window opens) or a
-    /// click elsewhere close it without the list knowing.
-    var previewShowing: () -> String? = { nil }
-    private var hoverTimer: Timer?
-    private var hover = PreviewHover()
+    /// The pointer's row, the highlight and the preview (`ColumnHover`).
+    let hover: ColumnHover
 
     public init(model: ListModel) {
         self.model = model
@@ -41,6 +32,9 @@ public final class ListController {
         host.frame = NSRect(origin: .zero, size: size)
         panel = RailPanel(content: host, size: size)
         panel.hasShadow = true
+        hover = ColumnHover(panel: panel, column: model)
+        // A pinned copy of a row previews its agent.
+        hover.keyFor = { id in id.hasPrefix("pinned:") ? String(id.dropFirst(7)) : id }
         panel.onKey = { [weak self] e in self?.handle(e) ?? false }
         model.onClose = { [weak self] in self?.close() }
     }
@@ -54,10 +48,7 @@ public final class ListController {
         place()
         if takeKey { panel.makeKeyAndOrderFront(nil) } else { panel.orderFrontRegardless() }
         withAnimationToken(Theme.Motion.cardOpen) { presence.shown = true }
-        hoverTimer?.invalidate()
-        hoverTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 20, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.pollHover() }
-        }
+        hover.start()
     }
 
     public func close() {
@@ -65,11 +56,7 @@ public final class ListController {
         // keyboard goes back to the app that had it.
         if model.renaming != nil { model.commitRename() }
         if panel.isKeyWindow { panel.resignKey() }
-        hoverTimer?.invalidate()
-        hoverTimer = nil
-        if previewShowing() != nil { onPreview(nil, .zero, .zero) }
-        hover = PreviewHover()
-        model.hovered = nil
+        hover.stop()
         withAnimationToken(Theme.Motion.cardClose) { presence.shown = false }
         model.confirmEnd = nil
         let delay = Theme.Motion.cardClose.value["duration"]?.double ?? 0
@@ -77,36 +64,6 @@ public final class ListController {
             try? await Task.sleep(nanoseconds: UInt64(delay * 1e9) + 20_000_000)
             guard let self, !self.presence.shown else { return }
             self.panel.orderOut(nil)
-        }
-    }
-
-    /// The row under the pointer, from the frames the rows report (a
-    /// background app's panel gets no hover events, so the pointer is polled).
-    private func rowUnderPointer() -> (key: String, rect: NSRect)? {
-        let f = panel.frame
-        let m = NSEvent.mouseLocation
-        guard f.contains(m) else { return nil }
-        let p = CGPoint(x: m.x - f.minX, y: f.maxY - m.y)
-        guard let (id, r) = model.rowFrames.first(where: { $0.value.contains(p) }) else { return nil }
-        let key = id.hasPrefix("pinned:") ? String(id.dropFirst(7)) : id
-        return (key, NSRect(x: f.minX + r.minX, y: f.maxY - r.maxY, width: r.width, height: r.height))
-    }
-
-    /// Resting on a row for rail.hover's item_open_ms previews it; once the
-    /// pointer has left the row and the preview for panel_close_ms, it goes.
-    private func pollHover() {
-        let h = Theme.Rail.hover
-        let row = rowUnderPointer()
-        if model.hovered != row?.key { model.hovered = row?.key }
-        let action = hover.tick(
-            row: row?.key, showing: previewShowing(), holds: previewHolds(), now: Date(),
-            openAfter: h.number("item_open_ms") / 1000, closeAfter: h.number("panel_close_ms") / 1000)
-        switch action {
-        case .none: break
-        case .hide: onPreview(nil, .zero, .zero)
-        case .show(let key):
-            guard let row, let pane = model.fleet.agents.first(where: { $0.key == key }) else { return }
-            onPreview(pane, panel.frame, row.rect)
         }
     }
 
@@ -132,64 +89,16 @@ public final class ListController {
         switch e.keyCode {
         case KeyCode.escape:
             if model.confirmEnd != nil { model.confirmEnd = nil } else { close() }
-        case KeyCode.up: model.move(-1)
-        case KeyCode.down: model.move(1)
+        case KeyCode.up:
+            model.move(-1)
+            hover.keyboardMoved()
+        case KeyCode.down:
+            model.move(1)
+            hover.keyboardMoved()
         case KeyCode.returnKey, KeyCode.keypadEnter: model.openSelected()
         default: return false
         }
         return true
-    }
-}
-
-/// When the agents list's hover preview opens, moves and goes, from the row
-/// under the pointer and what the preview shows now (PLAN 16). Every row the
-/// pointer rests on for `openAfter` previews, moving to another row swaps
-/// it after the same rest, and the rest is timed per row key, so a fleet
-/// poll redrawing the rows does not restart it.
-struct PreviewHover {
-    enum Action: Equatable {
-        case none
-        case show(String)
-        case hide
-    }
-
-    private(set) var resting: (key: String, since: Date)?
-    private var away: Date?
-    /// The row the list last previewed.
-    private var asked: String?
-    /// A row whose preview something else put away (esc, a click) while the
-    /// pointer stayed on it: not again until the pointer leaves that row.
-    private(set) var spent: String?
-
-    mutating func tick(
-        row: String?, showing: String?, holds: Bool, now: Date, openAfter: Double, closeAfter: Double
-    ) -> Action {
-        if let a = asked, showing != a {
-            // Put away (or replaced) from elsewhere.
-            if showing == nil, row == a { spent = a }
-            asked = showing
-        }
-        guard let row else {
-            resting = nil
-            spent = nil
-            guard showing != nil, !holds else {
-                away = nil
-                return .none
-            }
-            if away == nil { away = now }
-            guard now.timeIntervalSince(away!) >= closeAfter else { return .none }
-            away = nil
-            asked = nil
-            return .hide
-        }
-        away = nil
-        if spent != row { spent = nil }
-        if resting?.key != row { resting = (row, now) }
-        guard showing != row, spent != row, let since = resting?.since, now.timeIntervalSince(since) >= openAfter else {
-            return .none
-        }
-        asked = row
-        return .show(row)
     }
 }
 

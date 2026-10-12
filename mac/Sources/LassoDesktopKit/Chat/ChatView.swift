@@ -95,7 +95,9 @@ public struct ChatView: View {
 
     @ViewBuilder private func message(_ item: ChatItem) -> some View {
         let b = Theme.Chat.bubble
-        if item.kind == "user" {
+        if item.kind == "user", let note = TaskNotification.parse(item.text ?? "") {
+            TaskNotificationRow(id: item.id, note: note)
+        } else if item.kind == "user" {
             Text(item.text ?? "")
                 .font(Theme.Fonts.chat.font)
                     .foregroundStyle(Theme.Text.primary.color)

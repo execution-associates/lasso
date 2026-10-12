@@ -65,34 +65,3 @@ import Testing
     h = PreviewHover()
     #expect(rest("c", 0.3) == [.show("c")])
 }
-
-/// The rows' frames, which the list's poll maps the pointer through, follow
-/// the column as it scrolls: a row scrolled up reports its new place.
-@MainActor @Test func rowFramesFollowTheScroll() async throws {
-    let fleet = FleetModel()
-    let panes = (1...30).map { i in
-        HostPane(
-            host: "local", host_label: "titan", pane_id: "w1:p\(i)", workspace_id: "w1", workspace_label: "Agents",
-            tab_id: "w1:t\(i)", tab_label: "agent\(i)", cwd: "/", agent: "claude", agent_status: "idle", has_agent: true,
-            focused: false)
-    }
-    fleet.apply(panes: AllPanes(panes: panes))
-    let model = ListModel(fleet: fleet, actions: FixtureFleetActions())
-    let c = ListController(model: model)
-    c.open(takeKey: false)
-    defer { c.close() }
-    await settle { model.rowFrames.count >= 30 }
-    let key = panes[20].key
-    let before = try #require(model.rowFrames[key])
-    func scrollView(_ v: NSView) -> NSScrollView? {
-        if let s = v as? NSScrollView { return s }
-        for sub in v.subviews { if let s = scrollView(sub) { return s } }
-        return nil
-    }
-    let s = try #require(scrollView(c.panel.contentView!))
-    s.contentView.scroll(to: NSPoint(x: 0, y: 300))
-    s.reflectScrolledClipView(s.contentView)
-    await settle { model.rowFrames[key]?.minY != before.minY }
-    let after = try #require(model.rowFrames[key])
-    #expect(abs((before.minY - after.minY) - 300) < 1, "\(before.minY) → \(after.minY)")
-}

@@ -234,7 +234,7 @@ public final class LiveBotChatActions: BotChatActions {
 
     public func chat(_ bot: BotView) async throws -> ChatPayload {
         if bot.runtime == "omp" { return try await client.get(path(bot, "chat")) }
-        return try await card.chat(pane(bot))
+        return try await card.chat(pane(bot), incoming: true)
     }
 
     struct Send: Encodable { var text: String }

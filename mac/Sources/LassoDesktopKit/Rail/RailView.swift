@@ -53,9 +53,9 @@ enum RailMetrics {
             out.append((.bots, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
             y += e + gap
         }
-        out.append((.newAgent, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
-        y += e + gap
         out.append((.terminal, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
+        y += e + gap
+        out.append((.newAgent, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
         y += e + gap
         out.append((.settings, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
         return out
@@ -177,8 +177,8 @@ public struct RailView: View {
                 VStack(spacing: RailMetrics.gap) {
                     if !slots.isEmpty { agents(slots) }
                     if model.hasBots { bots }
-                    plus
                     terminal
+                    plus
                     ellipsis
                 }
                 .padding(.top, RailMetrics.gap)
@@ -323,7 +323,7 @@ public struct RailView: View {
         return Button { model.activate(.bots) } label: {
             ZStack {
                 GroupBackground(hovered: model.hovered == .bots)
-                RailIcon(symbol: "face.smiling")
+                RailIcon(symbol: "bubble.left.and.text.bubble.right")
             }
             .frame(width: e, height: e)
             .contentShape(Circle())

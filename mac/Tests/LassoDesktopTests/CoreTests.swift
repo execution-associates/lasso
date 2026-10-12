@@ -309,7 +309,7 @@ func key(_ c: String, _ code: UInt16) -> NSEvent {
         return []
     }
     // The cursor is in the composer while the agent is still starting.
-    try #require(w.panel.editingText && w.model.focusRequest == 1)
+    try #require(w.panel.editingText && w.model.focusRequest == 1, "editing \(w.panel.editingText) focus \(w.model.focusRequest) key \(w.panel.isKeyWindow) responder \(String(describing: w.panel.firstResponder)) chat \(w.model.chat != nil)")
     guard case .starting = w.model.phase else {
         Issue.record("the new agent's window is not starting: \(w.model.phase)")
         return

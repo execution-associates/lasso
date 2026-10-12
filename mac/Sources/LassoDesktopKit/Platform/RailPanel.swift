@@ -55,13 +55,49 @@ public enum KeyCode {
     public static let down: UInt16 = 125
 }
 
+/// Which screen a window goes on: the one its anchor (the rail, the column,
+/// the pointer) is on. Never `NSScreen.main`, which follows the key window:
+/// with none key (the herdr window just closed, out of full screen or not,
+/// in an app that is otherwise all non-activating panels) it is nil, and
+/// every pop-out placed against `.zero` landed below the screen, out of
+/// sight but open: the rail stayed out for them and nothing showed.
+enum Screens {
+    /// Of `screens` (frame, visible frame), the visible frame of the one
+    /// holding `rect`'s centre, else the one most of it overlaps, else the
+    /// nearest; nil only with no screens at all.
+    nonisolated static func visibleFrame(for rect: NSRect, in screens: [(frame: NSRect, visible: NSRect)]) -> NSRect? {
+        let c = NSPoint(x: rect.midX, y: rect.midY)
+        if let s = screens.first(where: { $0.frame.contains(c) }) { return s.visible }
+        func overlap(_ f: NSRect) -> CGFloat {
+            let i = f.intersection(rect)
+            return i.isNull ? 0 : i.width * i.height
+        }
+        if let s = screens.max(by: { overlap($0.frame) < overlap($1.frame) }), overlap(s.frame) > 0 { return s.visible }
+        func distance(_ f: NSRect) -> CGFloat { hypot(f.midX - c.x, f.midY - c.y) }
+        return screens.min { distance($0.frame) < distance($1.frame) }?.visible
+    }
+
+    /// The visible frame of the screen `rect` is on, now.
+    @MainActor static func visibleFrame(for rect: NSRect) -> NSRect {
+        visibleFrame(for: rect, in: NSScreen.screens.map { ($0.frame, $0.visibleFrame) })
+            ?? .zero
+    }
+
+    /// The visible frame of the screen under the pointer.
+    @MainActor static var underPointer: NSRect { visibleFrame(for: NSRect(origin: NSEvent.mouseLocation, size: .zero)) }
+}
+
 /// Where a panel beside the rail goes: on the rail's leading side, top-aligned
-/// with it, kept on screen (Theme.Card.placement).
+/// with it, kept on the rail's screen (Theme.Card.placement).
 @MainActor
 func originBesideRail(_ rail: NSRect, size: NSSize) -> NSPoint {
+    originBesideRail(rail, size: size, visible: Screens.visibleFrame(for: rail))
+}
+
+@MainActor
+func originBesideRail(_ rail: NSRect, size: NSSize, visible vis: NSRect) -> NSPoint {
     let gap = Theme.Card.placement.number("gap")
     let margin = Theme.Rail.panelMargin.pt
-    let vis = NSScreen.main?.visibleFrame ?? .zero
     let x = max(vis.minX, rail.minX + margin - gap - size.width)
     let y = min(max(vis.minY, rail.maxY - margin - size.height), vis.maxY - size.height)
     return NSPoint(x: x.rounded(), y: y.rounded())
@@ -131,8 +167,11 @@ public final class RailController {
         panel.makeKeyAndOrderFront(nil)
     }
 
+    /// The visible frame of the screen the rail is on.
+    private var screen: NSRect { Screens.visibleFrame(for: panel.frame) }
+
     private func place() {
-        guard let v = NSScreen.main?.visibleFrame else { return }
+        let v = screen
         let f = panel.frame
         let stored = UserDefaults.standard.object(forKey: Self.positionKey) as? Double ?? 0.5
         panel.setFrameOrigin(NSPoint(x: (v.maxX - f.width).rounded(), y: Self.y(stored, visible: v, height: f.height)))
@@ -152,7 +191,7 @@ public final class RailController {
 
     /// The rail is in the vertical middle of its screen.
     public var isCentred: Bool {
-        guard let v = NSScreen.main?.visibleFrame else { return true }
+        let v = screen
         return Self.isCentred(panel.frame.minY, visible: v, height: panel.frame.height)
     }
 
@@ -161,7 +200,7 @@ public final class RailController {
     /// beside it follows.
     public func centre() {
         UserDefaults.standard.removeObject(forKey: Self.positionKey)
-        guard let v = NSScreen.main?.visibleFrame else { return }
+        let v = screen
         var f = panel.frame
         f.origin = NSPoint(x: (v.maxX - f.width).rounded(), y: Self.y(0.5, visible: v, height: f.height))
         panel.setFrame(f, display: true, animate: true)
@@ -172,7 +211,7 @@ public final class RailController {
     /// Move the rail to `y` (the panel's origin), kept so the revealed rail
     /// fits on screen, and remember where it is.
     private func move(toY y: CGFloat) {
-        guard let v = NSScreen.main?.visibleFrame else { return }
+        let v = screen
         let f = panel.frame
         let clamped = min(max(v.minY, y), v.maxY - f.height)
         panel.setFrameOrigin(NSPoint(x: f.minX, y: clamped.rounded()))

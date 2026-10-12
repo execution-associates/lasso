@@ -256,6 +256,9 @@
           "updated_at": "2026-10-11T18:00:00Z",
           "state": "idle",
           "pane_id": "w9:p1",
+          "live_model": {
+            "id": "openrouter/anthropic/claude-sonnet-4.5-20250929-thinking"
+          },
           "last_kind": "agent",
           "last_text": "Done. The tunnel unit is linked.",
           "last_at": "2026-10-11T18:58:00Z"

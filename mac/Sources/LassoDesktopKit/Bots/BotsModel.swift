@@ -190,11 +190,13 @@ public final class FixtureBotActions: BotActions {
 /// The Bots column's state: the bots in standing order, the selected and
 /// hovered rows, and the rows' frames for the hover poll.
 @MainActor
-public final class BotsListModel: ObservableObject {
+public final class BotsListModel: ObservableObject, HoverColumn {
     public let fleet: FleetModel
     @Published public var selected: String?
     @Published public var hovered: String?
-    /// Each row's frame in the panel (top-left origin), by bot name.
+    /// The keyboard moved last: `selected` has the highlight, not the pointer.
+    @Published public var keyboardLit = false
+    /// Each row's frame in the scrolled rows (`ColumnRows.space`), by bot name.
     public var rowFrames: [String: CGRect] = [:]
     public var onOpen: (BotView) -> Void = { _ in }
     public var onManage: () -> Void = {}

@@ -32,42 +32,6 @@ func agentStatusLine(_ p: HostPane) -> String {
     return parts.filter { !$0.isEmpty }.joined(separator: " · ")
 }
 
-/// The header: avatar, name, status line, and whatever the caller puts at
-/// the end (the window's buttons, the preview's state dot).
-struct AgentHeader<Trailing: View>: View {
-    let pane: HostPane
-    /// The agent's model, for renaming from the title.
-    var model: CardModel?
-    @ViewBuilder var trailing: () -> Trailing
-
-    var body: some View {
-        let w = Theme.Agent.window
-        HStack(spacing: Theme.space("l")) {
-            AgentAvatar(agent: pane.agent, state: pane.state, size: w.number("avatar"))
-            VStack(alignment: .leading, spacing: Theme.space("2xs")) {
-                if let model {
-                    AgentTitle(model: model)
-                } else {
-                    Text(pane.displayName)
-                        .font(Theme.Fonts.title.font)
-                        .foregroundStyle(Theme.Text.primary.color)
-                        .lineLimit(1)
-                        .parityAnchor("agent.title")
-                }
-                Text(agentStatusLine(pane))
-                    .font(Theme.Fonts.small.font)
-                    .foregroundStyle(Theme.Text.secondary.color)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: Theme.space("m"))
-            trailing()
-        }
-        .padding(.horizontal, Theme.Panel.inset.pt)
-        .frame(height: w.number("header_h"))
-        .accessibilityElement(children: .contain)
-    }
-}
-
 /// A run of tool calls folded into one line: "⚙ Read · Bash · swift build".
 struct ToolRunRow: View {
     let tools: [ChatTool]
@@ -194,6 +158,10 @@ func messageTime(_ at: String?) -> String? {
 /// One thing in the conversation, after folding.
 enum ConversationEntry: Identifiable {
     case message(ChatItem, text: String, mine: Bool)
+    /// A background task's result: the harness, on the human's side (Envelope.swift).
+    case task(ChatItem, TaskNotification)
+    /// A message a Claude Code channel delivered, labelled with its source.
+    case incoming(ChatItem, ChannelMessage)
     case tools(id: String, [ChatTool])
     case ask(ChatItem, ChatTool.Ask)
     case marker(ChatItem)
@@ -203,7 +171,7 @@ enum ConversationEntry: Identifiable {
 
     var id: String {
         switch self {
-        case .message(let i, _, _), .ask(let i, _), .marker(let i): i.id
+        case .message(let i, _, _), .ask(let i, _), .marker(let i), .task(let i, _), .incoming(let i, _): i.id
         case .tools(let id, _), .media(let id, _, _): id
         }
     }
@@ -235,7 +203,13 @@ enum ConversationEntry: Identifiable {
             }
             flush()
             switch item.kind {
-            case "user", "incoming": out.append(.message(item, text: item.text ?? "", mine: true))
+            case "user":
+                if let note = TaskNotification.parse(item.text ?? "") {
+                    out.append(.task(item, note))
+                } else {
+                    out.append(.message(item, text: item.text ?? "", mine: true))
+                }
+            case "incoming": out.append(.incoming(item, ChannelMessage.parse(item.text ?? "", source: item.source)))
             case "marker": out.append(.marker(item))
             default:
                 guard item.thinking != true, let raw = item.text, !raw.isEmpty else { break }
@@ -314,6 +288,8 @@ struct AgentConversation: View {
             }
             .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
         case .tools(_, let tools): ToolRunRow(tools: tools)
+        case .task(let item, let note): TaskNotificationRow(id: item.id, note: note)
+        case .incoming(let item, let msg): ChannelCard(id: item.id, msg: msg)
         case .media(_, let version, let files): SharedFilesView(files: files, host: host, version: version)
         case .ask(_, let ask): AskRow(ask: ask, font: Theme.Fonts.chat.font)
         case .marker(let item):
@@ -476,30 +452,5 @@ extension View {
                 }
                 .padding(Theme.Panel.inner.number("pad"))
             }
-    }
-}
-
-/// The composer and footer at the bottom of a window or preview.
-struct AgentComposer: View {
-    @ObservedObject var model: CardModel
-    /// The window shows Kill in its footer; a hover preview does not.
-    var showsKill = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.space("m")) {
-            if let n = model.notice {
-                Text(n)
-                    .font(Theme.Fonts.small.font)
-                    .foregroundStyle(Theme.Text.secondary.color)
-                    .lineLimit(1)
-                    .padding(.horizontal, Theme.Panel.inset.pt)
-            }
-            ComposerRow(model: model) { model.attachFile() }
-                .padding(.horizontal, Theme.Panel.inset.pt)
-            AgentFooter(pane: model.current, model: model.chat?.model, card: showsKill ? model : nil)
-        }
-        .padding(.top, Theme.space("l"))
-        .padding(.bottom, Theme.space("2xl"))
-        .background(alignment: .top) { Rectangle().fill(Theme.Panel.divider.color).frame(height: Theme.space("hair")) }
     }
 }
