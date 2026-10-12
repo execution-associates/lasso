@@ -16,7 +16,7 @@ public final class FleetModel: ObservableObject {
     /// lists is `inboxNotices`, the ones nobody has acknowledged.
     @Published public var notices: [InboxNotice] = []
     /// lasso's notification kinds and this Mac's choices; nil when lasso has
-    /// none (an older lasso), and then every arrival sounds.
+    /// none (an older lasso), and then every arrival sounds and notifies.
     @Published public var notify: NotifyPayload?
     /// Finished turns count from here (unix ms): lasso's shared
     /// ui_state.inbox_since, so every device lists the same turns. A lasso
@@ -33,6 +33,15 @@ public final class FleetModel: ObservableObject {
     @Published public var offline = false
 
     public init() {}
+
+    /// The reads FleetSync has made of this lasso (a failed bots, ui_state
+    /// or notices read counts: an older lasso may not answer it). Until all
+    /// four are in, the inbox is not yet what lasso holds, so nothing in it
+    /// is an arrival: the first reading after that is the baseline.
+    public enum Part: Sendable { case panes, bots, uiState, notices }
+    public private(set) var heard: Set<Part> = []
+    public func markHeard(_ part: Part) { heard.insert(part) }
+    public var ready: Bool { heard.isSuperset(of: [.panes, .bots, .uiState, .notices]) }
 
     /// Agents killed from this Mac, by pane key: gone from the fleet at
     /// once, and kept gone while a poll still lists the dying pane.
@@ -81,6 +90,7 @@ public final class FleetModel: ObservableObject {
         killed = []
         acknowledged = [:]
         notices = []
+        heard = []
     }
 
     /// Agents only (a pane without one is not a fleet member, as in the web

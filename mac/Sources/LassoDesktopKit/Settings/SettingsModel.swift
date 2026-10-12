@@ -79,6 +79,28 @@ public final class SettingsModel: ObservableObject {
     public var notify: () -> NotifyPayload? = { nil }
     /// Choose whether a kind may interrupt this Mac.
     public var chooseNotify: ((String, Bool) async throws -> Void)?
+    /// macOS's notifications for this app; nil where none are posted (the
+    /// parity harness), and then Settings does not mention them.
+    public var notifier: Notifier? { didSet { refreshNotifications() } }
+    /// What macOS allows, as last read.
+    @Published public private(set) var notifications: PermissionState?
+
+    public func refreshNotifications() {
+        guard let notifier else {
+            notifications = nil
+            return
+        }
+        Task { notifications = await notifier.authorization() }
+    }
+
+    /// Not asked yet: ask now (macOS's one prompt).
+    public func allowNotifications() {
+        guard let notifier else { return }
+        Task { notifications = await notifier.requestAuthorization() }
+    }
+
+    /// Turned off: System Settings › Notifications › Lasso.
+    public func openNotificationSettings() { notifier?.openSettings() }
     /// Connecting to another lasso (Change…) and signing in again: the
     /// connector the first-run panel uses too (nil in the parity harness).
     public var connector: LassoConnector?
@@ -260,6 +282,7 @@ public final class SettingsModel: ObservableObject {
     public func refresh() {
         tick += 1
         refreshLoginItem()
+        refreshNotifications()
         railCentred = isRailCentred()
     }
 

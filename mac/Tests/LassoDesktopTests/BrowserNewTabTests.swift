@@ -130,17 +130,14 @@ final class DistStub: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
-/// A click at `point` (the web view's own, top-left origin) as AppKit hands
-/// it to the window: a press and a release.
-@MainActor private func click(_ web: WKWebView, at point: NSPoint) {
-    guard let w = web.window else { return }
-    let at = web.convert(NSPoint(x: point.x, y: web.isFlipped ? point.y : web.bounds.height - point.y), to: nil)
-    for t in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-        let e = NSEvent.mouseEvent(
-            with: t, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: w.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
-        w.sendEvent(e)
-    }
+/// A real click at `point` (the web view's own, top-left origin), through
+/// the window server, and that the page's web view is what it lands on (a
+/// view over the page that takes the press keeps the release from WebKit,
+/// and the page never sees a click).
+@MainActor private func click(_ web: WKWebView, at point: NSPoint) async {
+    let hit = hitView(web, at: point)
+    #expect(hit.map { $0 === web || $0.isDescendant(of: web) } == true, "the click lands on \(hit.map { String(describing: type(of: $0)) } ?? "nothing")")
+    await realClick(web, at: point)
 }
 
 /// The centre of the page's element `selector`, in the web view.
@@ -150,13 +147,14 @@ final class DistStub: URLProtocol, @unchecked Sendable {
     return NSPoint(x: r[0], y: r[1])
 }
 
-/// The strip's "+" asks the browser for a new page with the window not yet
-/// holding the keyboard (the click that makes it key is the one that acts),
-/// the page it makes shows in the strip, selected, and a browser that
-/// refuses says so in the page. lasso's real page, so it needs the build
-/// beside the package; without it this checks nothing.
+/// The strip's "+", clicked for real, asks the browser for a new page with
+/// the window not yet holding the keyboard (the click that makes it key is
+/// the one that acts), the page it makes shows in the strip, selected, and a
+/// browser that refuses says so in the page. lasso's real page, so it needs
+/// the build beside the package, and real clicks; without either this checks
+/// nothing.
 @MainActor @Test func theStripsPlusOpensANewPage() async throws {
-    guard let dist = webDist() else { return }
+    guard let dist = webDist(), canPostClicks() else { return }
     let cdp = try StandInCDP()
     defer { cdp.stop() }
     await until(2) { cdp.port != 0 }
@@ -169,6 +167,7 @@ final class DistStub: URLProtocol, @unchecked Sendable {
     c.open()
     defer { c.close() }
     let w = c.hostWindow
+    w.setFrame(NSRect(x: 500, y: 400, width: 900, height: 600), display: true)
     let web = try #require(c.pageView)
     // A test process's windows never hear they are on screen (it is not a
     // launched app), and the page connects only while it is visible.
@@ -186,7 +185,7 @@ final class DistStub: URLProtocol, @unchecked Sendable {
 
     if w.isKeyWindow { w.resignKey() }
     let plus = try #require(await centre(web, "[aria-label='new tab']"))
-    click(web, at: plus)
+    await click(web, at: plus)
     await until(5) { await js(tabs) == "https://example.com/ *about:blank" }
     #expect(cdp.methods.contains("Target.createTarget"), "cdp: \(cdp.methods)")
     #expect(await js(tabs) == "https://example.com/ *about:blank")
@@ -194,7 +193,7 @@ final class DistStub: URLProtocol, @unchecked Sendable {
 
     // A browser that will not open one: the page says why.
     cdp.refuseCreate("Not allowed")
-    click(web, at: try #require(await centre(web, "[aria-label='new tab']")))
+    await click(web, at: try #require(await centre(web, "[aria-label='new tab']")))
     await until(5) { await js("document.querySelector('.text-destructive')?.textContent ?? ''") != "" }
     #expect(await js("document.querySelector('.text-destructive')?.textContent ?? ''") == "Target.createTarget: Not allowed")
 }
@@ -214,6 +213,9 @@ final class ButtonPageStub: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         let url = request.url!
         let html = url.path == "/desktop-browser.html"
+        // As lasso's page does, it takes a moment: the window's status
+        // ("Opening …") is up over the page first, and hidden once it is live.
+        if html { Thread.sleep(forTimeInterval: 0.5) }
         let resp = HTTPURLResponse(
             url: url, statusCode: html ? 200 : 404, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": html ? "text/html" : "text/plain"])!
         client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
@@ -223,14 +225,18 @@ final class ButtonPageStub: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
-/// A lasso page's controls act on the click that brings their window the
-/// keyboard: WebKit's own rule spends that click on making the window key.
+/// A lasso page's controls act on a real click, the one that brings their
+/// window the keyboard included: WebKit's own rule spends that click on
+/// making the window key, and the status that covered the page while it
+/// opened, hidden since, must not take it.
 @MainActor @Test func aPagesFirstClickActs() async throws {
+    guard canPostClicks() else { return }
     let client = LassoClient(baseURL: URL(string: "http://127.0.0.1:9")!, protocolClasses: [ButtonPageStub.self])
     let c = BrowserWindowController(source: FixtureBrowserSource(BrowserStatusPayload(profiles: [])), client: client)
     c.open()
     defer { c.close() }
     let w = c.hostWindow
+    w.setFrame(NSRect(x: 600, y: 450, width: 700, height: 500), display: true)
     let web = try #require(c.pageView)
     await until(10) {
         guard c.model.phase == .live else { return false }
@@ -238,7 +244,7 @@ final class ButtonPageStub: URLProtocol, @unchecked Sendable {
     }
     if w.isKeyWindow { w.resignKey() }
     #expect(web.acceptsFirstMouse(for: nil))
-    click(web, at: try #require(await centre(web, "#b")))
+    await click(web, at: try #require(await centre(web, "#b")))
     await until(3) { ((try? await web.evaluateJavaScript("__log.join(' ')")) as? String) == "click" }
     #expect(((try? await web.evaluateJavaScript("__log.join(' ')")) as? String) == "click")
 }

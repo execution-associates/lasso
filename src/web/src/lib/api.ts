@@ -7,6 +7,7 @@
 // holds no active host any more, so a handler learns which one to run against
 // from the request itself.
 
+import { clientID } from "./client-id"
 import { hostFetch } from "./host"
 
 export interface ActiveState {
@@ -35,6 +36,9 @@ export interface ActiveState {
   // its MCP child starting or dying) so every open tab refetches /api/plugins.
   // Server-level, like ui_state_rev: absent on an older server.
   plugins_rev?: number
+  // Bumps on every change to any chat's "Up next" queue, so every open tab
+  // re-reads the chat it shows. Server-level; absent on an older server.
+  chat_queue_rev?: number
 }
 
 // One ssh-config host as a herdr target. Selectable in the footer switcher only
@@ -369,6 +373,9 @@ export interface ChatPayload {
   // tool, or an approval (a select of Approve/Deny). Answered with
   // api.bots.chatAnswer.
   pending_ui?: BotPendingUI[]
+  // The pane's "Up next" queue, held and delivered by lasso (chatqueue.go).
+  // Absent when nothing waits.
+  queue?: ChatQueue
   unavailable?: {
     reason:
       | "no_session"
@@ -379,6 +386,32 @@ export interface ChatPayload {
     checked?: string[]
     unanswered?: string[]
   }
+}
+
+// One message in a pane's "Up next" queue. `sending` is being typed now;
+// `sent` went out and waits for its turn to show in the transcript (the
+// conversation draws it as an echo until then, or until the transcript's
+// newest user turn is no longer `after`); `failed` may have landed and is
+// never resent by itself.
+export interface ChatQueueItem {
+  id: number
+  text: string
+  state: "queued" | "sending" | "sent" | "failed"
+  created_at: number
+  created_by?: string
+  sent_at?: number
+  after?: string
+  detail?: string
+}
+
+// A pane's queue as every device sees it. `note` (with `tone`: "bad" nothing
+// was typed, "warn" something may have been) says why lasso paused it; a
+// paused queue with no note is a Stop's or a human's.
+export interface ChatQueue {
+  paused: boolean
+  note?: string
+  tone?: "bad" | "warn"
+  items: ChatQueueItem[]
 }
 
 // What became of a submitted message. `uncertain` means bytes may have reached
@@ -1095,7 +1128,7 @@ function botURL(name: string, rest = ""): string {
 }
 
 async function sendJSON<T>(
-  method: "PUT" | "DELETE",
+  method: "PUT" | "PATCH" | "DELETE",
   url: string,
   body?: unknown
 ): Promise<T> {
@@ -2051,6 +2084,40 @@ export const api = {
       pane_id: pane,
       text,
     }),
+
+  // The pane's "Up next" queue (chatqueue.go): lasso holds these messages and
+  // types each into the pane once the agent is idle, whether or not this tab
+  // is still open. Addressed to host and pane like chatSend. `session` is the
+  // transcript on screen, which the queue is bound to; `client` names the tab.
+  chatQueue: {
+    add: (host: string, pane: string, text: string, session?: string) =>
+      postJSON<ChatQueue>(withHost("/api/chat/queue", host), {
+        pane_id: pane,
+        text,
+        session: session ?? "",
+        client: clientID(),
+      }),
+    edit: (host: string, pane: string, id: number, text: string) =>
+      sendJSON<ChatQueue>("PUT", withHost(`/api/chat/queue/${id}`, host), {
+        pane_id: pane,
+        text,
+      }),
+    remove: (host: string, pane: string, id: number) =>
+      sendJSON<ChatQueue>(
+        "DELETE",
+        withHost(`/api/chat/queue/${id}?pane=${encodeURIComponent(pane)}`, host)
+      ),
+    // Pause or resume, and/or put the named waiting messages first in order.
+    update: (
+      host: string,
+      pane: string,
+      change: { paused?: boolean; order?: number[] }
+    ) =>
+      sendJSON<ChatQueue>("PATCH", withHost("/api/chat/queue", host), {
+        pane_id: pane,
+        ...change,
+      }),
+  },
 
   // Answer the ask the chat is showing by typing the keystrokes a human would
   // into its dialog — the options are picked on the card, and the dialog is

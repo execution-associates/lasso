@@ -38,6 +38,8 @@ import (
 //	            "self" and "fleet" (groups.go)
 //	push_subscriptions
 //	            the devices registered for Web Push notifications (webpush.go)
+//	chat_queue, chat_queues
+//	            each pane's "Up next" messages and its pause (chatqueue.go)
 //
 // modernc.org/sqlite is pure Go, so the binary stays CGO-free and portable.
 
@@ -145,7 +147,7 @@ func openDB() error {
 			return fmt.Errorf("%s: %w", pragma, err)
 		}
 	}
-	if _, err := h.Exec(dbSchema + oauthSchema + groupsSchema + pushSchema + notifyDeviceSchema + agentMsgSchema + botsSchema + botOAuthSchema + botJobsSchema + botMessageMetaSchema); err != nil {
+	if _, err := h.Exec(dbSchema + oauthSchema + groupsSchema + pushSchema + notifyDeviceSchema + agentMsgSchema + botsSchema + botOAuthSchema + botJobsSchema + botMessageMetaSchema + chatQueueSchema); err != nil {
 		h.Close()
 		return fmt.Errorf("create schema: %w", err)
 	}
