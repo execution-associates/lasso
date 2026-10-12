@@ -20,7 +20,7 @@ public final class AppCoordinator {
     /// The arrival sound and macOS's notifications (PLAN 17).
     let alerts: InboxAlerts
     private let settingsModel: SettingsModel
-    private let settings: SidePanel
+    let settings: SidePanel
     private var chat: (model: ChatModel, panel: SidePanel)?
     private var subs: Set<AnyCancellable> = []
     private var hotKey: HotKey?
@@ -749,8 +749,10 @@ public final class AppCoordinator {
     /// Resting on a rail control opens it, without the keyboard: the user may
     /// be typing in another app, and the card's keys are single letters. A
     /// click gives the panel the keyboard. The plus only lights up: the form
-    /// takes the keyboard, so it opens on a click. So does the terminal, for
-    /// the same reason.
+    /// takes the keyboard, so it opens on a click. So do the terminal and the
+    /// browser, for the same reason. Resting on one of those still moves on
+    /// from what was open: the columns, the inbox, the previews and a
+    /// hover's Settings close, as they do when another control opens.
     func hoverOpen(_ item: RailModel.Item) {
         switch item {
         case .inbox:
@@ -768,9 +770,29 @@ public final class AppCoordinator {
             settingsGlance = true
             settingsAway = nil
             return
-        case .newAgent, .terminal, .browser: return
+        case .newAgent, .terminal, .browser:
+            moveOffPopOuts()
+            return
         }
         if glance?.byShortcut != true { glance = Glance() }
+    }
+
+    /// The pointer rested on a control with nothing to show on hover: the
+    /// pop-outs it left close. Settings stays when it was clicked open (the
+    /// user works in it); the windows the user opened stay.
+    private func moveOffPopOuts() {
+        preview.close()
+        bots.hidePreview()
+        card.close()
+        list.close()
+        bots.close()
+        inbox.close()
+        chat?.panel.close()
+        if settingsGlance {
+            settings.close()
+            hideSettingsGlance()
+        }
+        glance = nil
     }
 
     private func hideSettingsGlance() {

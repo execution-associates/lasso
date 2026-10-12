@@ -45,6 +45,7 @@ public final class ListController {
 
     /// `takeKey` false (a hover) shows the list without taking the keyboard.
     public func open(takeKey: Bool = true) {
+        if !presence.shown { model.freezeOrder() }
         place()
         front(takeKey)
         withAnimationToken(Theme.Motion.cardOpen) { presence.shown = true }
@@ -64,6 +65,7 @@ public final class ListController {
             try? await Task.sleep(nanoseconds: UInt64(delay * 1e9) + 20_000_000)
             guard let self, !self.presence.shown else { return }
             self.panel.orderOut(nil)
+            self.model.thawOrder()
         }
     }
 
