@@ -35,6 +35,8 @@ public struct Fixture: Decodable, Sendable {
         public var bots: Bool?
         /// A bot's own window, by the bot's name.
         public var bot_window: String?
+        /// A bot's hover preview (the Bots column's), clicked: its composer has text.
+        public var bot_preview: String?
         public var inbox: Bool?
         /// The first-run panel, at a step (FirstRunModel.Step: "connect", "connected").
         public var first_run: String?

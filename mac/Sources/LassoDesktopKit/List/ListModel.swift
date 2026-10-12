@@ -24,12 +24,22 @@ public struct FleetGroup: Identifiable, Equatable {
 /// workspace (and machine, when there is more than one), each agent named by
 /// its label or tab and listed most urgent first.
 @MainActor
-public final class ListModel: ObservableObject {
+public final class ListModel: ObservableObject, HoverColumn {
+    /// The keyboard's row (J/K, ↑/↓, the row last opened): what ⏎ opens.
     @Published public var selected: String?
+    /// The row id under the pointer (a pinned copy is `pinned:<key>`).
     @Published public var hovered: String?
-    /// Each row's frame in the panel (top-left origin), by row id: what the
-    /// pointer is over. Not published: the controller reads it as it polls.
+    /// The keyboard moved last: `selected` has the highlight, not the pointer.
+    @Published public var keyboardLit = false
+    /// Each row's frame in the scrolled rows (`ColumnRows.space`), by row id:
+    /// what the pointer is over. Not published: the hover reads it as it polls.
     public var rowFrames: [String: CGRect] = [:]
+
+    /// The one highlighted row: the pointer's, or the keyboard's while it
+    /// leads. Never both, so two rows are never lit at once.
+    public func isLit(_ id: String, key: String) -> Bool {
+        keyboardLit ? selected == key : hovered == id
+    }
     /// The agent whose End is waiting for a confirm.
     @Published public var confirmEnd: String?
     @Published public private(set) var notice: String?

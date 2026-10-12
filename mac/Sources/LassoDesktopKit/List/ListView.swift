@@ -20,7 +20,7 @@ public struct ListView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack {
                         Spacer()
-                        PillButton(title: "New agent", primary: true, label: "New agent (⌘O)") { model.onNew() }
+                        PillButton(title: "New", primary: true, label: "New: an agent or a terminal") { model.onNew() }
                             .parityAnchor("list.new")
                     }
                     .padding(.horizontal, row.number("pad_h"))
@@ -48,12 +48,13 @@ public struct ListView: View {
                     }
                 }
                 .padding(.vertical, Theme.space("m"))
+                .coordinateSpace(name: ColumnRows.space)
             }
             .onChange(of: model.selected) { _, key in
                 if let key { proxy.scrollTo(key) }
             }
         }
-        .onPreferenceChange(RowFrames.self) { frames in MainActor.assumeIsolated { model.rowFrames = frames } }
+        .onPreferenceChange(ColumnRowFrames.self) { frames in MainActor.assumeIsolated { model.rowFrames = frames } }
         .panelChrome(Theme.List.size.size, anchor: "list")
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Fleet")
@@ -73,8 +74,8 @@ public struct ListView: View {
 
     private func rowView(_ p: HostPane, pinnedSection: Bool) -> some View {
         let key = p.key
-        let selected = model.selected == key
-        let hovered = model.hovered == key
+        let id = pinnedSection ? "pinned:\(key)" : key
+        let lit = model.isLit(id, key: key)
         let pinned = model.pinnedKeys.contains(key)
         return Group {
             if model.confirmEnd == key {
@@ -91,6 +92,7 @@ public struct ListView: View {
                 }
                 .padding(.horizontal, row.number("pad_h"))
                 .frame(height: row.number("height"))
+                .columnRow(id)
             } else {
                 HStack(spacing: 0) {
                     Button { model.open(p) } label: {
@@ -146,13 +148,10 @@ public struct ListView: View {
                 .frame(height: row.number("height"))
                 .background(
                     RoundedRectangle(cornerRadius: Theme.Row.radius.pt)
-                        .fill(selected ? Theme.Row.selected.color : (hovered ? Theme.Row.hover.color : .clear))
+                        .fill(lit ? (model.keyboardLit ? Theme.Row.selected.color : Theme.Row.hover.color) : .clear)
                         .padding(.horizontal, Theme.space("m"))
                 )
-                .background(
-                    GeometryReader { g in
-                        Color.clear.preference(key: RowFrames.self, value: [pinnedSection ? "pinned:\(key)" : key: g.frame(in: .global)])
-                    })
+                .columnRow(id)
                 .contextMenu {
                     Button(pinned ? "Unpin" : "Pin") { model.togglePin(p) }
                     // A bot is found by its herdr name: it is renamed in its settings.
@@ -168,13 +167,5 @@ public struct ListView: View {
         }
         .id(pinnedSection ? "pinned:\(key)" : key)
         .parityAnchor(pinnedSection ? "list.row.pinned[\(key)]" : "list.row[\(key)]")
-    }
-}
-
-/// The rows' frames in the window, for the controller's hover polling.
-struct RowFrames: PreferenceKey {
-    static let defaultValue: [String: CGRect] = [:]
-    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
-        value.merge(nextValue()) { $1 }
     }
 }

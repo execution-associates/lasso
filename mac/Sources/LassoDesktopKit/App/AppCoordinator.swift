@@ -76,10 +76,7 @@ public final class AppCoordinator {
         rail = RailController(model: RailModel(fleet: fleet))
         botActions2 = client.map { LiveBotActions(client: $0) } ?? FixtureBotActions()
         avatars = BotAvatars(actions: botActions2)
-        let chats = botActions
-        bots = BotsController(
-            model: BotsListModel(fleet: fleet), avatars: avatars, media: client.map { LiveMediaSource(client: $0) },
-            makeChat: { ChatModel(bot: $0, actions: chats) })
+        bots = BotsController(model: BotsListModel(fleet: fleet), avatars: avatars, media: client.map { LiveMediaSource(client: $0) })
         card = CardController(fleet: fleet, actions: cardActions)
         list = ListController(model: ListModel(fleet: fleet, actions: fleetActions))
         inboxModel = InboxModel(fleet: fleet)
@@ -93,13 +90,7 @@ public final class AppCoordinator {
             permissions: permissions, baseURL: { [weak client] in (client?.baseURL ?? baseURL).absoluteString },
             version: { [weak sync] in sync?.version }, usableHosts: { nil })
         settings = SidePanel(size: Theme.Card.size.size, content: SettingsView(model: settingsModel))
-        let live = client != nil
-        preview = AgentPreviewController(media: media) { [weak self, fleet, cardActions] p in
-            let m = CardModel(pane: p, fleet: fleet, actions: cardActions)
-            // Its Focus in herdr opens the herdr window on the pane.
-            if live { m.onShowInHerdr = { [weak self] p in self?.showInHerdr(p) } }
-            return m
-        }
+        preview = AgentPreviewController(media: media)
         wire()
     }
 
@@ -249,6 +240,11 @@ public final class AppCoordinator {
         rail.model.onBots = { [weak self] in self?.railActivated(.bots) }
         bots.railFrame = railFrame
         bots.model.onOpen = { [weak self] b in self?.openBotWindow(b) }
+        bots.makePreview = { [weak self] b in self?.botModel(b) }
+        preview.make = { [weak self] key in
+            guard let self, let p = self.fleet.agents.first(where: { $0.key == key }) else { return nil }
+            return self.cardModel(p)
+        }
         bots.model.onManage = { [weak self] in self?.openWeb("/bots/manage") }
         fleet.$bots.sink { [weak self] b in self?.avatars.refresh(b) }.store(in: &subs)
         rail.model.onSettings = { [weak self] in self?.openSettings() }
@@ -257,17 +253,15 @@ public final class AppCoordinator {
         if client != nil { card.showInHerdr = { [weak self] p in self?.showInHerdr(p) } }
 
         list.model.onOpen = { [weak self] p in self?.openWindow(p) }
-        list.onPreview = { [weak self] p, listFrame, row in
+        list.hover.onShow = { [weak self] key, row in
             guard let self else { return }
-            if let p { self.preview.show(p, beside: listFrame, row: row) } else { self.preview.close() }
+            self.preview.show(key, beside: self.list.panel.frame, row: row)
         }
-        list.previewShowing = { [weak self] in
-            guard let self, self.preview.isOpen else { return nil }
-            return self.preview.pane?.key
-        }
-        list.previewHolds = { [weak self] in
+        list.hover.onHide = { [weak self] in self?.preview.close() }
+        list.hover.showing = { [weak self] in self?.preview.showing }
+        list.hover.holds = { [weak self] in
             guard let self, self.preview.isOpen else { return false }
-            return self.preview.panel.frame.contains(NSEvent.mouseLocation)
+            return self.preview.panel.frame.contains(self.list.hover.pointer())
         }
         inboxModel.onOpen = { [weak self] p in self?.openCard(p) }
         inboxModel.onClose = { [weak self] in self?.inbox.close() }
@@ -424,7 +418,18 @@ public final class AppCoordinator {
             w.show()
             return
         }
+        let w = BotWindowController(model: botModel(b), near: bots.isOpen ? bots.panel.frame : rail.panel.frame, media: media)
+        w.onClosed = { [weak self] in self?.botWindows[b.name] = nil }
+        botWindows[b.name] = w
+        w.show()
+        Trace.event("bot window opened")
+    }
+
+    /// A bot as its window and its preview draw it: its chat, its routes,
+    /// its picture as the column has it, and its pane in herdr's window.
+    func botModel(_ b: BotView) -> BotWindowModel {
         let m = BotWindowModel(chat: ChatModel(bot: b, actions: botActions), actions: botActions2, fleet: fleet)
+        m.avatar = avatars.images[b.name]
         m.openWeb = { [weak self] path in self?.openWeb(path) }
         if let client {
             m.suggestions = { bot in
@@ -432,12 +437,27 @@ public final class AppCoordinator {
                 return cfg?.harnesses?.first { $0.id == bot.runtime }?.model_suggestions ?? []
             }
         }
-        let w = BotWindowController(model: m, near: bots.isOpen ? bots.panel.frame : rail.panel.frame, media: media)
-        w.onClosed = { [weak self] in self?.botWindows[b.name] = nil }
-        botWindows[b.name] = w
-        w.show()
-        Trace.event("bot window opened")
+        if herdrWindows { m.onShowInHerdr = { [weak self] p in self?.showInHerdr(p) } }
+        return m
     }
+
+    /// An agent as its window and its preview draw it.
+    func cardModel(_ p: HostPane) -> CardModel {
+        let m = CardModel(pane: p, fleet: fleet, actions: cardActions)
+        // Its terminal button (and T) opens the herdr window on its pane.
+        if herdrWindows { m.onShowInHerdr = { [weak self] p in self?.showInHerdr(p) } }
+        return m
+    }
+
+    /// Whether there is a herdr window to show a pane in: a live lasso's
+    /// (tests turn it on to see what the button asks for).
+    var herdrWindows: Bool {
+        get { herdrWindowsOverride ?? (client != nil) }
+        set { herdrWindowsOverride = newValue }
+    }
+    private var herdrWindowsOverride: Bool?
+    /// What the terminal buttons asked herdr's window for (tests).
+    private(set) var herdrShown: [HostPane] = []
 
     /// A bot's window, if open (tests).
     func botWindow(_ name: String) -> BotWindowController? { botWindows[name] }
@@ -708,8 +728,7 @@ public final class AppCoordinator {
             w.show(focusReply: focusReply)
             return
         }
-        let model = CardModel(pane: p, fleet: fleet, actions: cardActions)
-        if client != nil { model.onShowInHerdr = { [weak self] p in self?.showInHerdr(p) } }
+        let model = cardModel(p)
         let w = AgentWindowController(
             model: model, near: anchor ?? (list.isOpen ? list.panel.frame : rail.panel.frame), media: media)
         w.onClosed = { [weak self] in self?.windows[p.key] = nil }
@@ -736,6 +755,7 @@ public final class AppCoordinator {
 
     /// An agent's header button, or T: herdr's window focused on its pane.
     func showInHerdr(_ p: HostPane, note: String? = nil) {
+        herdrShown.append(p)
         closeRailPanels()
         herdrWindow()?.show(p, note: note)
     }

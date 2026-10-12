@@ -1,5 +1,5 @@
 {
-  "about": "A click on homie's row opened its window: header (state, runtime, its model to switch, its jobs), the conversation with the approval it waits on as choices to answer, the composer, and New conversation, Conversations, Stop bot and the more menu.",
+  "about": "A click on homie's row opened its window, drawn by the agents' window: header (picture, name, state, harness and jobs; the terminal button, minimize and close), the conversation with the approval it waits on as choices to answer, the composer, and the footer: its model to switch (a long one truncates), Conversations, Stop bot and the more menu.",
   "state": "bot-window",
   "extends": "chat-open",
   "ui": {

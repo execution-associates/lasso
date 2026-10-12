@@ -1,0 +1,12 @@
+{
+  "about": "Resting on homie's row in the Bots column previews its latest exchange beside the column, drawn by the agents' preview: the header with its state dot, the approval it waits on as choices, and the composer, clicked and holding a reply (a bot's preview takes typing as an agent's does), over its folder and model.",
+  "state": "bot-preview",
+  "extends": "chat-open",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "bot_preview": "homie"
+  }
+}

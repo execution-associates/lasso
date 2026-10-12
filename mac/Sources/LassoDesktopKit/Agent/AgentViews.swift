@@ -32,42 +32,6 @@ func agentStatusLine(_ p: HostPane) -> String {
     return parts.filter { !$0.isEmpty }.joined(separator: " · ")
 }
 
-/// The header: avatar, name, status line, and whatever the caller puts at
-/// the end (the window's buttons, the preview's state dot).
-struct AgentHeader<Trailing: View>: View {
-    let pane: HostPane
-    /// The agent's model, for renaming from the title.
-    var model: CardModel?
-    @ViewBuilder var trailing: () -> Trailing
-
-    var body: some View {
-        let w = Theme.Agent.window
-        HStack(spacing: Theme.space("l")) {
-            AgentAvatar(agent: pane.agent, state: pane.state, size: w.number("avatar"))
-            VStack(alignment: .leading, spacing: Theme.space("2xs")) {
-                if let model {
-                    AgentTitle(model: model)
-                } else {
-                    Text(pane.displayName)
-                        .font(Theme.Fonts.title.font)
-                        .foregroundStyle(Theme.Text.primary.color)
-                        .lineLimit(1)
-                        .parityAnchor("agent.title")
-                }
-                Text(agentStatusLine(pane))
-                    .font(Theme.Fonts.small.font)
-                    .foregroundStyle(Theme.Text.secondary.color)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: Theme.space("m"))
-            trailing()
-        }
-        .padding(.horizontal, Theme.Panel.inset.pt)
-        .frame(height: w.number("header_h"))
-        .accessibilityElement(children: .contain)
-    }
-}
-
 /// A run of tool calls folded into one line: "⚙ Read · Bash · swift build".
 struct ToolRunRow: View {
     let tools: [ChatTool]
@@ -476,30 +440,5 @@ extension View {
                 }
                 .padding(Theme.Panel.inner.number("pad"))
             }
-    }
-}
-
-/// The composer and footer at the bottom of a window or preview.
-struct AgentComposer: View {
-    @ObservedObject var model: CardModel
-    /// The window shows Kill in its footer; a hover preview does not.
-    var showsKill = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.space("m")) {
-            if let n = model.notice {
-                Text(n)
-                    .font(Theme.Fonts.small.font)
-                    .foregroundStyle(Theme.Text.secondary.color)
-                    .lineLimit(1)
-                    .padding(.horizontal, Theme.Panel.inset.pt)
-            }
-            ComposerRow(model: model) { model.attachFile() }
-                .padding(.horizontal, Theme.Panel.inset.pt)
-            AgentFooter(pane: model.current, model: model.chat?.model, card: showsKill ? model : nil)
-        }
-        .padding(.top, Theme.space("l"))
-        .padding(.bottom, Theme.space("2xl"))
-        .background(alignment: .top) { Rectangle().fill(Theme.Panel.divider.color).frame(height: Theme.space("hair")) }
     }
 }

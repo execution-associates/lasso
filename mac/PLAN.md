@@ -859,6 +859,12 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
 
 **Hover comes from polling, not tracking areas.** The steward asked for `NSTrackingArea` with `.activeAlways`. The app instead polls `NSEvent.mouseLocation` at 20 Hz against `RailMetrics.itemFrames`, the same frames the rail draws (a test checks them against the rendered anchors). It does so because a non-activating panel of a background app gets no hover events from SwiftUI, and polling also drives the reveal, the drag and the glance close from one loop.
 
+**A column's hover is one map and one highlight** (`ColumnHover`, the agents and the Bots column alike).
+- Each tick maps the pointer to a row through AppKit: the pointer goes into the column's scroll view's document (`NSView.convert`), where each row reported the frame it is laid out at (`ColumnRowFrames`, in the scrolled content's own space). Those frames do not move when the column scrolls, so nothing waits on SwiftUI to report geometry again after a scroll.
+- The row it finds is both the highlight and what the preview follows. A row is lit when it is under the pointer, or, after ↑/↓ (J/K in the Bots column), when it is the keyboard's, until the pointer moves. Never both: a row clicked open is selected for ⏎ but not lit once the pointer moves on.
+- **Why:** the earlier map read each row's window-space frame, which SwiftUI reports again only after a scroll has settled into a layout pass. A momentum or elastic scroll can end without one, so the map lagged the drawn rows and named the row next to the one under the pointer. That row was lit and previewed, the row under the pointer was lit too as the selection a click had left, and a click on the row (which puts the preview away) marked the wrong row as dismissed, so no preview came back: two rows lit and none previewed.
+- The timer runs in the common run-loop modes, so a scroll or an open menu does not stop it.
+
 **Parity states** `rail-hover-inbox` and `rail-hover-agents` check the overlay on the hovered control and the untouched neighbour. The motion pass checks the 117 ms and 67 ms curves.
 
 ## 17. Shortcut, sound and brand
@@ -1004,12 +1010,16 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
   - the composer
   - the folder and the model
 - It appears `rail.hover.item_open_ms` after the pointer rests on the row. It goes `panel_close_ms` after the pointer has left both the row and the preview, clicked or not (§16). It is ordered front without the keyboard.
-  - **Every row, every time** (`PreviewHover`, ticked by the list's 20 Hz poll). The rest is timed per row key, so a fleet poll redrawing the rows does not restart it, and moving to another row swaps the preview after the same rest. The row under the pointer is read through the rows' reported frames, which follow the column's scroll.
+  - **Every row, every time** (`PreviewHover`, ticked by the list's 20 Hz poll). The rest is timed per row key, so a fleet poll redrawing the rows does not restart it, and moving to another row swaps the preview after the same rest. The row under the pointer is read through AppKit's scroll view into the rows' laid-out frames (§16, `ColumnHover`), and it is also the row lit.
   - **What the preview shows is read each tick**, not remembered. Esc, a click on the row (its window opens) and a click elsewhere put the preview away without the list knowing. A preview put away while the pointer stays on its row does not pop back. It opens again once the pointer has left that row.
-- Rows report their frames through a preference key, and the list's controller polls the pointer at 20 Hz, for the same reason the rail does.
+- Rows report their frames through a preference key, and the column's `ColumnHover` polls the pointer at 20 Hz, for the same reason the rail does.
+- **Once clicked it takes typing**: the click makes its panel key and the composer takes the keys, an agent's and a bot's preview alike.
+
+**One component draws an agent's and a bot's window and preview** (`Agent/Conversation.swift`). An agent's `CardModel` and a bot's `BotWindowModel` conform to `Conversation`: the title, status line and dot, the transcript, the phase, the composer (a bot's forwards to its `ChatModel`), the terminal button, the keys, and five slots for what only one has: the avatar (an agent's harness glyph, a bot's picture), the title (an agent's renames in place), what sits above the conversation (a stopped bot's Start), the choices, and the footer (an agent's folder, model and Kill; a bot's model, Conversations, Start or Stop and ⋯). `ConversationWindowView`, `ConversationPreviewView`, `ConversationWindowController` and `ConversationPreviewController` are generic over it, so the header, the conversation, the composer with paste and drop, ⌘. and ⌘W, the move, resize and collapse, and the preview's click-to-type are the same code for both.
 
 **Clicking a row opens the agent's own window** (`agent.window`: 488 × 632 pt, 60 pt header, 18 pt corners). Bots open one too, since a bot's pane chats through the bot's routes.
-- The header has minimize and close, as plain glyphs (no menu; X X kills from the keyboard).
+- The header has the terminal button, minimize and close, as plain glyphs (no menu; X X kills from the keyboard). The buttons are laid out first, so a long title or status line truncates and never pushes them out of the window.
+- **⌘W** closes it, whatever has the keyboard inside it, menu bar or not (`AgentWindowPanel` takes it as a key equivalent and as a key-down: a borderless panel has no close button for AppKit's own ⌘W, and an accessory app no Window menu).
 - Below it are the whole conversation (the last 160 items), the choices, the composer and the footer.
 - It is a non-activating panel at the floating level, on every Space, and over full-screen apps (`.canJoinAllSpaces`, `.fullScreenAuxiliary`). So it stays put while the user switches desktops or maximizes other windows.
 - It moves by dragging its header and resizes by its corner (at least 360 × 320). **Minimize collapses it to its header** (`agent.window.collapsed`, 416 × 60 pt) with ⤢ to expand. The top edge stays fixed both ways.
@@ -1101,13 +1111,16 @@ lasso's bots get a place of their own on the rail, following the web app's Bots 
 - **Keys:** J/K and ↑/↓ move, ⏎ opens, and esc closes. No keycaps are drawn.
 - **Manage bots ↗** opens the web app's `/bots/manage` at this lasso's address.
 
+**A bot's window and preview are an agent's** (§19, `Conversation`): the same header, conversation, composer and keys, drawn by the same views. Resting on a row previews it with the agents' preview, which takes typing once clicked, as an agent's does (`CardKeys.botPreviewSet`: esc closes it).
+
 **A row's click opens the bot's window** (`Bots/BotWindow.swift`). It is an agent window's panel with an agent window's behaviour: it persists, floats over full-screen apps, follows across Spaces, moves by its header, resizes by its corner and collapses to its header. Its frame is kept per bot (UserDefaults `botWindowFrames`). The chat is the bot chat's own `ChatModel`, on the bot's routes (`chat`, `chat/send`, `chat/answer`, `chat/stop`; a claude bot's pane chat).
-- **Header:** the picture, the name, the state and runtime. An omp bot has its model as a menu: `POST /api/bots/<name>/model`, which switches a running bot at once and otherwise says the change takes effect after a restart. The jobs count opens the bot's settings in the web app.
+- **Header:** the picture, the name, "state · harness bot · N jobs", the terminal button, minimize and close.
+  - **The terminal button** (and **T**) shows the bot's herdr pane in herdr's window, as an agent's does (`/api/focus?host=` with `{pane_id, reveal}`). An omp bot's `mise run` and a claude bot's run in a pane alike: the pane is the fleet's row for lasso's `pane_id`, else the pane on the bot's host carrying its name (`BotWindowModel.pane`). A stopped bot has none, so the button is dimmed and says "<name> isn't running: start it to see its terminal".
 - **Conversation:** as an agent window renders it. An open request's options are listed with Answer (`chat/answer`).
 - **Composer:** paste and drop upload, ⏎ sends, and ⌘. stops the turn.
-- **Footer:** New conversation (`sessions/new`), Conversations (`sessions`, a pick resumes with `sessions/resume`), Stop bot or Start bot (`stop`, `start`), and ⋯ with Restart, Jobs ↗, Settings ↗ (`/bots/<name>/settings`) and Manage bots ↗.
+- **Footer,** in an agent footer's place: the model (an omp bot's is a menu: `POST /api/bots/<name>/model`, which switches a running bot at once and otherwise says the change takes effect after a restart; a long name truncates), Conversations (New conversation, `sessions/new`; a pick resumes with `sessions/resume`), Stop bot or Start bot (`stop`, `start`), and ⋯ with Restart, Jobs ↗, Settings ↗ (`/bots/<name>/settings`) and Manage bots ↗. A preview's footer is the folder and the model, as an agent preview's.
 - **Refusals are said.** lasso refuses a conversation switch mid-turn with a 409, and its reason shows in the window ("Not now: …"). Every other failure is named too.
 - **A stopped bot** shows "<name> isn't running." with **Start <name>** above its last conversation, and the composer is greyed until it starts.
 
-**Parity states:** `bots-column`, `bot-window` (an omp bot holding an approval) and `bot-window-stopped`. `rail-expanded`'s fixture has an asking, a working, an idle and a stopped bot, so the rail draws the Bots button with a red dot.
+**Parity states:** `bots-column`, `bot-window` (an omp bot holding an approval, with a long model name: close stays 16 pt from the edge, the terminal button 80), `bot-window-stopped` (the terminal button drawn, dimmed) and `bot-preview` (clicked, holding a reply). `rail-expanded`'s fixture has an asking, a working, an idle and a stopped bot, so the rail draws the Bots button with a red dot.
 
