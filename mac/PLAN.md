@@ -699,11 +699,11 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 **What counts as seeing an item:**
 - An item is seen when the card lands on it: opened from the rail, or paged to with `J`/`K`.
 
-**The badge means "new since you looked":**
-- It shows when at least one item that is not acknowledged is unseen.
-- Its colour is the most urgent such item's state.
-- The peek's dot follows the same rule.
-- Seen items stay listed until they are answered, acknowledged, or no longer qualify. Seeing an item only takes it out of the badge.
+**The badge counts the inbox:**
+- It shows the number of messages the inbox holds: entries plus notices, "99+" past 99. It is hidden when the inbox is empty.
+- It is red while one of them waits on the human, and green when only finished turns and notices are left.
+- **The peek's dot means "new since you looked":** it shows when at least one item that is not acknowledged is unseen, in the colour of the most urgent such item.
+- Seen items stay listed until they are answered, acknowledged, or no longer qualify. Seeing an item only takes it out of the peek's dot.
 
 **Empty state:** "Nothing waiting on you." with a second line: "Questions, finished turns and notices from your claude and omp agents land here." An empty Inbox is the normal state, not an error, so it has no illustration and no call to action.
 
@@ -796,9 +796,7 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 
 ## 14. Connecting to a dev lasso
 
-The app can talk to any lasso this Mac reaches, and switches between them in place.
-
-- **Settings lists every lasso that answers** `/api/version`: the candidates are `lassoCandidates` in UserDefaults (on minime, the tunnel's 18090 and 18190–18199), else production's 8090 and the 8190–8199 a `mise run dev` lasso binds. Each row says production or dev (`/api/version`'s `dev`), its version, and for a dev lasso the address it bound. **Use** switches.
+A Mac uses one lasso. Settings shows that one (its version and address) and an address field for moving to another (§18). It never offers a list. Connecting to a dev lasso is a development tool, done from titan:
 - **Switching is in place.** Every live action shares one `LassoClient`. `FleetSync.retarget` repoints it, empties the fleet, restarts the event stream and refills from the new lasso, and the choice is remembered. Open panels close, since they belonged to the old lasso.
 - **From titan:** `mac/Scripts/dev.sh use dev` finds the `mise run dev` backend (this worktree's, else the first on 8190–8199), checks it answers through the tunnel and relaunches the app on it. `use prod` goes back, and `use PORT` picks one.
 - **The tunnel** (`lasso-desktop-tunnel.service`) forwards minime's 18190–18199 to titan's 8190–8199, so a dev lasso that bumped past 8190 is still reachable.
@@ -874,7 +872,7 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
 
 A message you send shows at once, faded, under **Sending…**, until it appears in the transcript.
 
-**Renaming an agent:** right-click a row in the agents list, then **Rename…**. The name becomes a field holding the current name. ⏎ keeps the new name, esc keeps the old one, and an empty name clears the label so the tab's name shows again. It is herdr's custom agent label, set through lasso's `POST /api/agent/rename`. A bot's row has no Rename, because lasso finds a bot by that name; bots are renamed in their own settings.
+**Renaming an agent:** right-click the agent's name, in a row of the agents list, the inbox card's title, or either agent window's title (the hover preview and the window), then **Rename…**. The name becomes a field holding the current name. ⏎ keeps the new name, esc keeps the old one, and an empty name clears the label so the tab's name shows again. It is herdr's custom agent label, set through lasso's `POST /api/agent/rename`. A bot has no Rename, because lasso finds a bot by that name; bots are renamed in their own settings.
 
 ## 20. Launching agents (the web app's ⌘O and ⌘⇧O)
 

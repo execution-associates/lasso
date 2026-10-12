@@ -22,6 +22,8 @@ public protocol CardActions: AnyObject {
     func attach(_ file: URL, to pane: HostPane) async throws -> String
     /// Whether the server keeps shared acknowledgements (S1).
     var canAcknowledge: Bool { get }
+    /// herdr's custom agent label; "" clears it.
+    func rename(_ pane: HostPane, to name: String) async throws
 }
 
 /// lasso's answer to a send/answer/stop: confirmed | sent | refused | uncertain.
@@ -61,6 +63,9 @@ public final class CardModel: ComposerModel {
     @Published public private(set) var notice: String?
     /// Your message, sent and not yet in the transcript: shown at once, faded.
     @Published public private(set) var outgoing: String?
+    /// The title is a field: the agent is being renamed.
+    @Published public private(set) var renaming = false
+    @Published public var renameDraft = ""
     @Published public private(set) var killArmed = false
     /// Whether the card has the keyboard, and how (PLAN 13.7a): it decides
     /// which keys the card shows and answers.
@@ -135,6 +140,32 @@ public final class CardModel: ComposerModel {
 
     /// A bot's pane: lasso keeps it running, so the card offers no Kill.
     public var isBot: Bool { fleet.bot(for: current) != nil }
+
+    // MARK: renaming
+
+    /// A bot is found by its herdr name, so it is renamed in its settings.
+    public var canRename: Bool { !isBot }
+
+    public func startRename() {
+        guard canRename else { return }
+        renameDraft = current.agent_label ?? current.displayName
+        renaming = true
+    }
+
+    public func cancelRename() { renaming = false }
+
+    /// Keep the typed name (herdr's agent label); empty clears it.
+    public func commitRename() {
+        guard renaming else { return }
+        renaming = false
+        let p = current
+        let name = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name != (p.agent_label ?? "") else { return }
+        run("Rename") { [self] in
+            try await actions.rename(p, to: name)
+            return nil
+        }
+    }
 
     /// What an omp bot waits on: its first open request.
     public var pending: ChatPayload.PendingUI? { chat?.pending_ui?.first }

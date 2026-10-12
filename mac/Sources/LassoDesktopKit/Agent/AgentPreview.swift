@@ -12,7 +12,7 @@ struct AgentPreviewView: View {
     var body: some View {
         let p = model.current
         VStack(spacing: 0) {
-            AgentHeader(pane: p) {
+            AgentHeader(pane: p, model: model) {
                 Circle()
                     .fill(StateStyle.color(p.state))
                     .frame(width: Theme.space("l"), height: Theme.space("l"))

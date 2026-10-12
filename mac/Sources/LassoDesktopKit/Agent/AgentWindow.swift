@@ -32,7 +32,7 @@ struct AgentWindowView: View {
     var body: some View {
         let w = Theme.Agent.window
         VStack(spacing: 0) {
-            AgentHeader(pane: model.current) { buttons }
+            AgentHeader(pane: model.current, model: model) { buttons }
                 .contentShape(Rectangle())
                 .gesture(
                     DragGesture(minimumDistance: Theme.Rail.drag.number("min_distance"), coordinateSpace: .global)

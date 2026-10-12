@@ -237,21 +237,30 @@ public struct RailView: View {
         .overlay(alignment: .topLeading) { badge }
         .modifier(FocusRing(on: focused(.inbox)))
         .accessibilityLabel("Inbox")
-        .accessibilityValue(fleet.attentionCount > 0 ? "\(fleet.attentionCount) waiting on you" : "nothing waiting")
+        .accessibilityValue(inboxCount > 0 ? "\(inboxCount) in the inbox" : "nothing in the inbox")
         .help("Inbox: what waits on you")
     }
 
+    private var inboxCount: Int { fleet.inbox.count + fleet.notices.count }
+
+    /// How many messages the inbox holds: red while one waits on the human,
+    /// green when only finished turns and notices are left; none when empty.
     @ViewBuilder private var badge: some View {
-        if let state = fleet.attention {
-            let size = Theme.Rail.badgeSize.pt
+        let count = inboxCount
+        if count > 0 {
+            let b = Theme.Rail.badgeSize
             let ring = Theme.Rail.badgeRing
             let c = Theme.Rail.badgeCenter.size
-            Circle()
-                .fill(StateStyle.color(state))
-                .frame(width: size, height: size)
+            let state: AgentState = fleet.inbox.contains { $0.kind == .waiting } ? .blocked : .done
+            Text(count > 99 ? "99+" : "\(count)")
+                .font(.system(size: b.number("font"), weight: .semibold).monospacedDigit())
+                .foregroundStyle(Theme.Text.primary.color)
+                .padding(.horizontal, b.number("pad_h"))
+                .frame(minWidth: b.number("height"), minHeight: b.number("height"), maxHeight: b.number("height"))
+                .background(Capsule().fill(StateStyle.color(state)))
                 .parityAnchor("rail.badge")
                 .padding(ring.number("width"))
-                .background(Circle().fill(ring.color("color")))
+                .background(Capsule().fill(ring.color("color")))
                 // position, not offset: offset would leave the anchor's
                 // reported frame behind.
                 .position(x: c.width, y: c.height)

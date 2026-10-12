@@ -199,13 +199,17 @@ struct ComposerRow<Model: ComposerModel>: View {
 }
 
 /// A one-line text field that takes the cursor as it appears, with its text
-/// selected (a rename in place). The panel's key handler owns ⏎ and esc.
+/// selected (a rename in place). ⏎ submits and esc cancels, unless the
+/// panel's own key handler takes them first.
 struct InlineField: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
     let label: String
+    var font: NSFont = Theme.Fonts.name.nsFont
+    var onSubmit: () -> Void = {}
+    var onCancel: () -> Void = {}
 
-    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text, submit: onSubmit, cancel: onCancel) }
 
     func makeNSView(context: Context) -> NSTextField {
         let f = NSTextField(string: text)
@@ -213,10 +217,10 @@ struct InlineField: NSViewRepresentable {
         f.isBezeled = false
         f.drawsBackground = false
         f.focusRingType = .none
-        f.font = Theme.Fonts.name.nsFont
+        f.font = font
         f.textColor = Theme.Text.primary.nsColor
         f.placeholderAttributedString = NSAttributedString(
-            string: placeholder, attributes: [.foregroundColor: Theme.Text.placeholder.nsColor, .font: Theme.Fonts.name.nsFont])
+            string: placeholder, attributes: [.foregroundColor: Theme.Text.placeholder.nsColor, .font: font])
         f.delegate = context.coordinator
         f.setAccessibilityLabel(label)
         DispatchQueue.main.async {
@@ -234,9 +238,54 @@ struct InlineField: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var text: Binding<String>
-        init(text: Binding<String>) { self.text = text }
+        let submit: () -> Void
+        let cancel: () -> Void
+        init(text: Binding<String>, submit: @escaping () -> Void, cancel: @escaping () -> Void) {
+            self.text = text
+            self.submit = submit
+            self.cancel = cancel
+        }
         func controlTextDidChange(_ n: Notification) {
             if let f = n.object as? NSTextField { text.wrappedValue = f.stringValue }
+        }
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            switch selector {
+            case #selector(NSResponder.insertNewline(_:)): submit()
+            case #selector(NSResponder.cancelOperation(_:)): cancel()
+            default: return false
+            }
+            return true
+        }
+    }
+}
+
+/// An agent's name, as a window or card shows it: right-click for Rename…,
+/// which turns it into a field (⏎ keeps, esc cancels, empty clears the label).
+struct AgentTitle: View {
+    @ObservedObject var model: CardModel
+    var font: Token = Theme.Fonts.title
+    var anchor = "agent.title"
+
+    var body: some View {
+        let p = model.current
+        if model.renaming {
+            InlineField(
+                text: $model.renameDraft, placeholder: p.tab_label, label: "New name for \(p.displayName)", font: font.nsFont,
+                onSubmit: { model.commitRename() }, onCancel: { model.cancelRename() }
+            )
+            .padding(.horizontal, Theme.space("s"))
+            .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).strokeBorder(Theme.accent.color, lineWidth: 1))
+            .parityAnchor(anchor)
+        } else {
+            Text(p.displayName)
+                .font(font.font)
+                .foregroundStyle(Theme.Text.primary.color)
+                .lineLimit(1)
+                .contextMenu {
+                    if model.canRename { Button("Rename…") { model.startRename() } }
+                }
+                .accessibilityAction(named: "Rename") { model.startRename() }
+                .parityAnchor(anchor)
         }
     }
 }

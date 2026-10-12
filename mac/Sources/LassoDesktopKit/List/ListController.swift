@@ -182,16 +182,7 @@ public final class LiveFleetActions: FleetActions {
 
     public func end(_ pane: HostPane) async throws -> String { try await card.kill(pane) }
 
-    struct Rename: Encodable {
-        var pane_id: String
-        var name: String
-    }
-    struct Renamed: Decodable { var ok: Bool? }
-
-    public func rename(_ pane: HostPane, to name: String) async throws {
-        let _: Renamed = try await client.post("/api/agent/rename", query: ["host": pane.host], json: Rename(pane_id: pane.pane_id, name: name))
-        fleet.relabel(pane.key, name.isEmpty ? nil : name)
-    }
+    public func rename(_ pane: HostPane, to name: String) async throws { try await card.rename(pane, to: name) }
 }
 
 /// The fixtures' list actions: recorded no-ops.

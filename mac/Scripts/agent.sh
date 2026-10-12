@@ -46,9 +46,7 @@ case "${1:-}" in
     if [ -n "${LASSO_BASE_URL:-}" ] || ! defaults read "$LABEL" baseURL >/dev/null 2>&1; then
       defaults write "$LABEL" baseURL "${LASSO_BASE_URL:-http://127.0.0.1:18090}"
     fi
-    # What Settings offers: this Mac's tunnel ports (lasso-desktop-tunnel.service).
-    defaults write "$LABEL" lassoCandidates -array http://127.0.0.1:18090 \
-      $(for p in $(seq 18190 18199); do printf 'http://127.0.0.1:%s ' "$p"; done)
+    defaults delete "$LABEL" lassoCandidates 2>/dev/null || true
     plist "$LABEL" true true "$LOG" "$INSTALLED/Contents/MacOS/LassoDesktop" >"$PLIST.new"
     if ! cmp -s "$PLIST.new" "$PLIST" 2>/dev/null; then
       mv "$PLIST.new" "$PLIST"

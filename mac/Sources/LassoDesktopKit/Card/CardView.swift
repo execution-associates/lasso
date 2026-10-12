@@ -129,11 +129,7 @@ public struct CardView: View {
 
     private func header(_ pane: HostPane) -> some View {
         HStack(spacing: Theme.space("m")) {
-            Text(pane.displayName)
-                .font(Theme.Fonts.title.font)
-                .foregroundStyle(Theme.Text.primary.color)
-                .lineLimit(1)
-                .parityAnchor("card.title")
+            AgentTitle(model: model, anchor: "card.title")
                 .padding(.leading, Theme.Card.titleX.pt - contentX)
             Spacer(minLength: 8)
             RoundButton(symbol: "xmark", label: "Close (esc)") { model.onClose() }

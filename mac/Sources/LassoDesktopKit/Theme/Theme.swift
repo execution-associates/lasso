@@ -125,7 +125,10 @@ public enum Theme {
         public static let edgeInset = Token("rail.edge_inset", 8, .measured("ref a2: 17 px from the screen edge"))
         public static let panelMargin = Token(
             "rail.panel.margin", 10, .inferred("room for the badge and the focus ring"), proposed: true)
-        public static let badgeSize = Token("rail.badge.size", 10, .measured("ref a2: 20 px dot"))
+        public static let badgeSize = Token(
+            "rail.badge.size", ["height": 16, "pad_h": 4, "font": 10],
+            .inferred("a count, not a dot (the user asked for the number of messages): plan 2.2's 16 pt badge with a 10 pt semibold count"),
+            proposed: true)
         public static let badgeRing = Token(
             "rail.badge.ring", ["width": 2, "color": "#12071F"], .measured("ref a2 ring; EXA ink-deep"))
         public static let badgeCenter = Token(

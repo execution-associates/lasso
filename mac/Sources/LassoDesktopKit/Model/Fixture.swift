@@ -50,7 +50,6 @@ public struct Fixture: Decodable, Sendable {
     /// Chat payloads by pane key (host NUL pane_id), for the card and chat states.
     public var chats: [String: ChatPayload]
     /// What Settings' lasso picker found (the settings state).
-    public var lassos: [LassoChoice]?
     /// lasso's notification kinds and this Mac's choices (the settings state).
     public var notify: NotifyPayload?
 
@@ -63,7 +62,6 @@ public struct Fixture: Decodable, Sendable {
         var server: Server?
         var expect: Expect?
         var chats: [String: ChatPayload]?
-        var lassos: [LassoChoice]?
         var notify: NotifyPayload?
     }
 
@@ -83,7 +81,6 @@ public struct Fixture: Decodable, Sendable {
         var fx = Fixture(
             state: raw.state, now: now, ui: ui, permissions: raw.permissions ?? base?.permissions ?? [:],
             server: server, expect: raw.expect ?? base?.expect, chats: (base?.chats ?? [:]).merging(raw.chats ?? [:]) { $1 })
-        fx.lassos = raw.lassos ?? base?.lassos
         fx.notify = raw.notify ?? base?.notify
         return fx
     }

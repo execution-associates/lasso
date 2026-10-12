@@ -36,6 +36,8 @@ func agentStatusLine(_ p: HostPane) -> String {
 /// the end (the window's buttons, the preview's state dot).
 struct AgentHeader<Trailing: View>: View {
     let pane: HostPane
+    /// The agent's model, for renaming from the title.
+    var model: CardModel?
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
@@ -43,11 +45,15 @@ struct AgentHeader<Trailing: View>: View {
         HStack(spacing: Theme.space("l")) {
             AgentAvatar(agent: pane.agent, state: pane.state, size: w.number("avatar"))
             VStack(alignment: .leading, spacing: Theme.space("2xs")) {
-                Text(pane.displayName)
-                    .font(Theme.Fonts.title.font)
-                    .foregroundStyle(Theme.Text.primary.color)
-                    .lineLimit(1)
-                    .parityAnchor("agent.title")
+                if let model {
+                    AgentTitle(model: model)
+                } else {
+                    Text(pane.displayName)
+                        .font(Theme.Fonts.title.font)
+                        .foregroundStyle(Theme.Text.primary.color)
+                        .lineLimit(1)
+                        .parityAnchor("agent.title")
+                }
                 Text(agentStatusLine(pane))
                     .font(Theme.Fonts.small.font)
                     .foregroundStyle(Theme.Text.secondary.color)

@@ -109,8 +109,7 @@ public struct SettingsView: View {
             }
             .parityAnchor("settings.signin_again")
         }
-        let list = model.lassos.isEmpty ? [LassoChoice(url: current, version: model.version())] : model.lassos
-        ForEach(list) { c in lassoRow(c, inUse: c.url == current) }
+        lassoRow(LassoChoice(url: current, version: model.version()))
         if let h = model.usableHosts() { line("\(h.usable) of \(h.total) machines usable", secondary: true) }
         if model.version() == nil { line("Not answering yet. Is the tunnel up?", secondary: true) }
         HStack(spacing: Theme.space("m")) {
@@ -144,8 +143,8 @@ public struct SettingsView: View {
         }
     }
 
-    /// One lasso: what it is, where, and Use for the ones not in use.
-    private func lassoRow(_ c: LassoChoice, inUse: Bool) -> some View {
+    /// The lasso: what it is and where.
+    private func lassoRow(_ c: LassoChoice) -> some View {
         HStack(alignment: .top, spacing: Theme.space("m")) {
             Circle()
                 .fill(c.version == nil ? Theme.State.blocked.color : Theme.State.done.color)
@@ -155,17 +154,13 @@ public struct SettingsView: View {
             VStack(alignment: .leading, spacing: Theme.space("hair")) {
                 HStack(spacing: Theme.space("s")) {
                     Text(c.title).font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
-                    if inUse { Text("In use").font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color) }
                 }
                 Text(c.detail).font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color)
             }
             Spacer()
-            if !inUse, c.version != nil {
-                PillButton(title: "Use", label: "Use \(c.title) at \(c.detail)") { model.use(c) }
-            }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(c.title), \(c.detail)\(inUse ? ", in use" : "")")
+        .accessibilityLabel("\(c.title), \(c.detail)")
     }
 
     @ViewBuilder private var inboxSection: some View {

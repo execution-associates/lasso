@@ -10,10 +10,6 @@ import Foundation
 public final class LassoClient: @unchecked Sendable {
     public static let defaultBaseURL = URL(string: "http://127.0.0.1:8090")!
     public static let baseURLDefaultsKey = "baseURL"
-    /// The lassos Settings offers: UserDefaults `lassoCandidates` (dev.sh sets
-    /// a Mac's tunnel ports), else lasso's own defaults, production's 8090 and
-    /// the 8190-8199 a `mise run dev` lasso binds.
-    public static let candidatesDefaultsKey = "lassoCandidates"
 
     private let lock = NSLock()
     private var url: URL
@@ -72,13 +68,6 @@ public final class LassoClient: @unchecked Sendable {
         // LASSO_BASE_URL (scripts, smoke) beats the stored setting.
         (ProcessInfo.processInfo.environment["LASSO_BASE_URL"] ?? UserDefaults.standard.string(forKey: baseURLDefaultsKey))
             .flatMap(URL.init(string:)) ?? defaultBaseURL
-    }
-
-    public static var candidates: [URL] {
-        if let list = UserDefaults.standard.stringArray(forKey: candidatesDefaultsKey) {
-            return list.compactMap(URL.init(string:))
-        }
-        return ([8090] + Array(8190...8199)).map { URL(string: "http://127.0.0.1:\($0)")! }
     }
 
     /// Point this client, and so everything holding it, at another lasso,

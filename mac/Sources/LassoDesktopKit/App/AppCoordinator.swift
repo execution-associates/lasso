@@ -73,7 +73,6 @@ public final class AppCoordinator {
             permissions: permissions, baseURL: { [weak client] in (client?.baseURL ?? baseURL).absoluteString },
             version: { [weak sync] in sync?.version }, usableHosts: { nil })
         if let client {
-            settingsModel.probe = { url in try? await client.probe(url).get("/api/version", as: VersionInfo.self) }
         }
         settings = SidePanel(size: Theme.Card.size.size, content: SettingsView(model: settingsModel))
         preview = AgentPreviewController(media: media) { [fleet, cardActions] p in CardModel(pane: p, fleet: fleet, actions: cardActions) }
