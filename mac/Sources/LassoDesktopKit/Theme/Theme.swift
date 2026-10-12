@@ -237,13 +237,6 @@ public enum Theme {
         public static let unreadDot = Token(
             "card.unread_dot", ["size": 6, "color": "#B7ADBB"], .measured("ref a2 size; EXA --muted-foreground"))
         public static let unreadGap = Token("card.unread_gap", 7, .measured("ref a2: 14 px"))
-        public static let keycapFill = Token(
-            "card.keycap.fill", "#3D2D4E", .inferred("EXA ink, oklch(0.33 0.06 306), above the controls"))
-        public static let keycapFont = Token(
-            "card.keycap.font", ["family": "Geist", "size": 10, "weight": "semibold"], .measured("brief A.2"))
-        public static let keycapMinSize = Token("card.keycap.min_size", [18, 18], .unmeasured("keycap"), proposed: true)
-        public static let keycapRadius = Token("card.keycap.radius", 4, .unmeasured("keycap"), proposed: true)
-        public static let keycapPadH = Token("card.keycap.pad_h", 4, .unmeasured("keycap"), proposed: true)
         public static let toolRow = Token(
             "card.tool_row", ["height": 24, "radius": 6, "fill": "rgba(253,246,250,0.05)", "dot": 6, "pad_h": 8], .unmeasured("one-line tool card, EXA white 5%"), proposed: true)
         public static let machineChip = Token(
@@ -393,10 +386,11 @@ public enum Theme {
         public static let pollBots = Token("live.poll.bots", 3, .inferred("src/web/src/lib/bots.ts"), proposed: true)
         public static let pollChat = Token(
             "live.poll.chat_open", 2, .inferred("src/web/src/components/ChatView.tsx"), proposed: true)
-        public static let revealKeys = Token(
-            "live.poll.reveal_keys", 0.2,
-            .unmeasured("keycaps re-read ⌘ while they show: a release while another app has the keys sends Lasso no event"),
-            proposed: true)
+        /// A composer just asked for the cursor gets the keys typed before it
+        /// has it, for this long.
+        public static let focusGrace = Token(
+            "live.focus_grace", 0.3,
+            .unmeasured("one run-loop turn for the field to take the cursor, with room for a slow frame"), proposed: true)
         public static let stopWait = Token(
             "live.stop_wait", 10, .unmeasured("Stop's button stays down at most this long when no poll shows the turn end"),
             proposed: true)
@@ -421,6 +415,11 @@ public enum Theme {
             "terminal.window", ["size": [1040, 680], "min": [560, 360]],
             .inferred("ttyd's 14 pt terminal face: about 120 columns by 38 rows, room for herdr's sidebar beside a pane"),
             proposed: true)
+        /// The window's text size (⌘= ⌘- ⌘0), in xterm's px (PLAN 22).
+        public static let zoom = Token(
+            "terminal.zoom", ["default": 14, "step": 1, "min": 8, "max": 32],
+            .inferred("lasso's ttyd launch (src/main.go -t fontSize=14) and the web app's terminal size range (lib/terminal-text.ts)"),
+            proposed: true)
     }
 
     public static let summonKey = Token(
@@ -430,9 +429,6 @@ public enum Theme {
     public static let inboxDoubleTap = Token(
         "keys.inbox_double_tap", ["tap_ms": 300, "gap_ms": 400],
         .inferred("a deliberate double tap, not a held modifier or a chord"), proposed: true)
-    /// Keycaps stay hidden (the references show none) until this is held.
-    public static let revealKeys = Token(
-        "keys.reveal", "command", .unmeasured("hold to show keycaps"), proposed: true)
 
     /// Every token, for the parity harness's static check. A token missing
     /// here, or present here and not in tokens.json, fails that check.
@@ -446,8 +442,8 @@ public enum Theme {
         Onboarding.layout,
         Panel.surface, Panel.border, Panel.radius, Panel.inset, Panel.inner, Panel.divider, Panel.shadow,
         Control.round, Control.composer, Control.pill, Control.pillPrimary,
-        Card.size, Card.titleX, Card.contentX, Card.unreadSegment, Card.unreadDot, Card.unreadGap, Card.keycapFill,
-        Card.keycapFont, Card.keycapMinSize, Card.keycapRadius, Card.keycapPadH, Card.toolRow, Card.machineChip,
+        Card.size, Card.titleX, Card.contentX, Card.unreadSegment, Card.unreadDot, Card.unreadGap,
+        Card.toolRow, Card.machineChip,
         Card.placement, Card.killing,
         Text.primary, Text.secondary, Text.placeholder, accent, dangerText,
         Row.hover, Row.selected, Row.radius,
@@ -456,9 +452,9 @@ public enum Theme {
         spaceScale, Layout.card, Layout.chat,
         avatar, icon,
         Motion.railExpand, Motion.railCollapse, Motion.cardOpen, Motion.cardClose, Motion.toastIn, Motion.cardPaging,
-        Live.pollAllPanes, Live.pollBots, Live.pollChat, Live.revealKeys, Live.stopWait, Live.sseWatchdog, Live.backoff, Live.arrivalSound,
-        Live.termClaim, Terminal.window,
-        summonKey, inboxDoubleTap, revealKeys,
+        Live.pollAllPanes, Live.pollBots, Live.pollChat, Live.focusGrace, Live.stopWait, Live.sseWatchdog, Live.backoff, Live.arrivalSound,
+        Live.termClaim, Terminal.window, Terminal.zoom,
+        summonKey, inboxDoubleTap,
     ]
 }
 

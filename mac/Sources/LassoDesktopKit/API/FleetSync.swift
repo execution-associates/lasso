@@ -35,6 +35,7 @@ public final class FleetSync: ObservableObject {
     public init(client: LassoClient, fleet: FleetModel) {
         self.client = client
         self.fleet = fleet
+        fleet.writeAcknowledgement = { [weak self] key, at in await self?.acknowledge(key, at: at) }
     }
 
     public func start() {
@@ -48,6 +49,7 @@ public final class FleetSync: ObservableObject {
             every(Theme.Live.pollAllPanes.seconds) { await $0.refreshPanes() },
             every(Theme.Live.pollBots.seconds) { await $0.refreshBots() },
             every(30) { await $0.refreshUIState() },
+            every(30) { await $0.refreshNotices() },
             // Not once: a first read that loses a race with sign-in would
             // leave Settings saying "Not answering" while the fleet loads,
             // and a lasso updated under the app reports its new release.
@@ -111,7 +113,7 @@ public final class FleetSync: ObservableObject {
             guard let n = try? JSONDecoder().decode(LiveNotification.self, from: Data(e.data.utf8)),
                   n.kind == NotifyKinds.lassoNotice || n.kind == NotifyKinds.agentMessage
             else { return }
-            fleet.add(notice: InboxNotice(id: n.id, at: n.at, level: n.level ?? "info", title: n.title, detail: n.body, kind: n.kind))
+            fleet.add(notice: InboxNotice(live: n))
         case "bot-chat":
             struct B: Decodable { var bot: String }
             Task { await refreshBots() }
@@ -158,6 +160,28 @@ public final class FleetSync: ObservableObject {
     public func refreshUIState() async {
         do { fleet.apply(uiState: try await client.get("/api/ui-state", as: UIStateSlice.self)) } catch {
             note(error, "ui-state")
+        }
+    }
+
+    /// The notices lasso keeps for the inbox. An older lasso has none to
+    /// give: the ones heard live stay.
+    public func refreshNotices() async {
+        guard let p = try? await client.get("/api/notices", as: NoticesPayload.self) else { return }
+        fleet.apply(notices: p)
+    }
+
+    struct AckWrite: Encodable {
+        var client_id: String
+        var card_dismiss: [String: Int64]
+    }
+
+    /// Acknowledge on every device: ui_state.card_dismiss {key: at}.
+    public func acknowledge(_ key: String, at: Int64) async {
+        do {
+            let _: UIStateSlice = try await client.post("/api/ui-state", json: AckWrite(client_id: clientID, card_dismiss: [key: at]))
+            await refreshUIState()
+        } catch {
+            note(error, "acknowledge")
         }
     }
 

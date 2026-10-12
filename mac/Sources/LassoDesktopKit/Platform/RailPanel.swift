@@ -135,9 +135,38 @@ public final class RailController {
         guard let v = NSScreen.main?.visibleFrame else { return }
         let f = panel.frame
         let stored = UserDefaults.standard.object(forKey: Self.positionKey) as? Double ?? 0.5
-        let travel = max(0, v.height - f.height)
-        let y = v.maxY - f.height - travel * CGFloat(min(max(stored, 0), 1))
-        panel.setFrameOrigin(NSPoint(x: (v.maxX - f.width).rounded(), y: y.rounded()))
+        panel.setFrameOrigin(NSPoint(x: (v.maxX - f.width).rounded(), y: Self.y(stored, visible: v, height: f.height)))
+    }
+
+    /// The panel's origin y at `fraction` of the travel down `visible`'s
+    /// edge (0 the top, 0.5 the middle, a fresh install's place, 1 the bottom).
+    nonisolated static func y(_ fraction: Double, visible v: NSRect, height: CGFloat) -> CGFloat {
+        let travel = max(0, v.height - height)
+        return (v.maxY - height - travel * CGFloat(min(max(fraction, 0), 1))).rounded()
+    }
+
+    /// Whether a rail at `y` is in the vertical middle of `visible`, within a point.
+    nonisolated static func isCentred(_ y: CGFloat, visible: NSRect, height: CGFloat) -> Bool {
+        abs(y - Self.y(0.5, visible: visible, height: height)) <= 1
+    }
+
+    /// The rail is in the vertical middle of its screen.
+    public var isCentred: Bool {
+        guard let v = NSScreen.main?.visibleFrame else { return true }
+        return Self.isCentred(panel.frame.minY, visible: v, height: panel.frame.height)
+    }
+
+    /// Settings › Info's Center vertically: back to the middle of the edge,
+    /// where a fresh install puts it (nothing stored), and what is open
+    /// beside it follows.
+    public func centre() {
+        UserDefaults.standard.removeObject(forKey: Self.positionKey)
+        guard let v = NSScreen.main?.visibleFrame else { return }
+        var f = panel.frame
+        f.origin = NSPoint(x: (v.maxX - f.width).rounded(), y: Self.y(0.5, visible: v, height: f.height))
+        panel.setFrame(f, display: true, animate: true)
+        onMoved()
+        Trace.event("rail centred")
     }
 
     /// Move the rail to `y` (the panel's origin), kept so the revealed rail
@@ -185,7 +214,7 @@ public final class RailController {
         let f = panel.frame
         let m = NSEvent.mouseLocation
         let p = CGPoint(x: m.x - f.minX, y: f.maxY - m.y)
-        return RailMetrics.itemFrames(model.slots.count).first { $0.1.contains(p) }?.0
+        return RailMetrics.itemFrames(model.slots.count, bots: model.hasBots).first { $0.1.contains(p) }?.0
     }
 
     /// Resting on a control for `item_open_ms` opens it.

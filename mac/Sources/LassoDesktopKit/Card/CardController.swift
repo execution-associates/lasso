@@ -31,7 +31,7 @@ final class CardHolder: ObservableObject {
 }
 
 /// The card's panel: beside the rail, keyboard-driven, through the A.3
-/// keycap vocabulary.
+/// key vocabulary.
 @MainActor
 public final class CardController {
     let panel: RailPanel
@@ -47,6 +47,9 @@ public final class CardController {
     var onInboxEmpty: () -> Void = {}
     /// The herdr window, focused on an agent (T, the header's button).
     var showInHerdr: ((HostPane) -> Void)?
+    /// Unsent replies by agent: a card put away (a click elsewhere, esc)
+    /// keeps its draft for that agent's next card.
+    private(set) var drafts: [String: String] = [:]
 
     public init(fleet: FleetModel, actions: CardActions) {
         self.fleet = fleet
@@ -84,11 +87,19 @@ public final class CardController {
     /// keys act only once a click or the summon key has made it key.
     public func open(_ pane: HostPane, takeKey: Bool = true) {
         if let m = holder.model, m.pane.key == pane.key {
+            // Still fading out from a close: it comes back as it was.
+            if !presence.shown {
+                m.startPolling()
+                place()
+                withAnimationToken(Theme.Motion.cardOpen) { presence.shown = true }
+            }
             front(takeKey)
             return
         }
+        keepDraft()
         holder.model?.stopPolling()
         let model = CardModel(pane: pane, fleet: fleet, actions: actions)
+        model.composer = drafts[pane.key] ?? ""
         model.inbox = inbox
         inbox?.markSeen(pane)
         model.keyMode = !panel.isKeyWindow ? .none : (pointerKeyed ? .lent : .full)
@@ -168,6 +179,11 @@ public final class CardController {
         pointerKeyed = false
         lentThisVisit = false
         heldBack = false
+        // A rename in progress is kept, as a click away keeps it; the reply
+        // stays as a draft; the keyboard goes back to the app that had it.
+        if holder.model?.renaming == true { holder.model?.commitRename() }
+        keepDraft()
+        if panel.isKeyWindow { panel.resignKey() }
         holder.model?.stopPolling()
         withAnimationToken(Theme.Motion.cardClose) { presence.shown = false }
         let delay = Theme.Motion.cardClose.value["duration"]?.double ?? 0
@@ -181,12 +197,21 @@ public final class CardController {
 
     private func place() { panel.setFrameOrigin(originBesideRail(railFrame(), size: Theme.Card.size.size)) }
 
+    /// Keep the card's unsent reply under its agent (or drop a sent one).
+    private func keepDraft() {
+        guard let m = holder.model else { return }
+        drafts[m.pane.key] = m.hasDraft ? m.composer : nil
+    }
+
+    /// The card's model (tests).
+    var model: CardModel? { holder.model }
+
     /// The rail moved: stay beside it.
     func follow() { if isOpen { place() } }
 
     private func handle(_ e: NSEvent) -> Bool {
         guard let m = holder.model else { return false }
-        let action = CardKeys.route(e, editing: m.composerFocused || panel.editingText, pointerKeyed: pointerKeyed)
+        let action = CardKeys.route(e, editing: m.composerHasKeys || panel.editingText, pointerKeyed: pointerKeyed)
         guard let action else {
             // A focused composer's key: the field types it.
             return false
@@ -196,6 +221,19 @@ public final class CardController {
             heldBack = true
             releasePointerKey()
             return true
+        }
+        if pointerKeyed, CardKeys.takesKeyboard.contains(action) {
+            // R or L under a lending pointer: they put the cursor in a field,
+            // so the keyboard becomes the card's, as a click would make it,
+            // and the pointer leaving no longer takes it back.
+            if action == .rename, !m.canRename {
+                heldBack = true
+                releasePointerKey()
+                return true
+            }
+            Trace.event("card key \(action) under the pointer: the keyboard is the card's")
+            pointerKeyed = false
+            syncKeyMode()
         }
         Trace.event("card key \(action)")
         if case .close = action {
@@ -238,9 +276,16 @@ public enum CardKeys {
     ]
 
     /// The keys a card answers when the pointer, not a click, gave it the
-    /// keyboard: paging, kill (behind its confirm), acknowledge, and esc.
-    /// Rename and Reply put the cursor in a field, so they wait for a click.
-    public static let hoverSet: [KeyBinding] = [Keys.next, Keys.previous, Keys.kill, Keys.acknowledge, Keys.esc]
+    /// keyboard: paging, kill (behind its confirm), acknowledge, esc, and
+    /// rename and reply, which take the keyboard for good (`takesKeyboard`).
+    public static let hoverSet: [KeyBinding] = [
+        Keys.next, Keys.previous, Keys.kill, Keys.acknowledge, Keys.esc, Keys.rename, Keys.reply,
+    ]
+
+    /// Hover-set keys that put the cursor in a field (the name, the reply):
+    /// pressed under a lending pointer, they make the keyboard the card's,
+    /// as a click on it would, before they act.
+    public static let takesKeyboard: [CardKeyAction] = [.rename, .reply]
 
     /// The inbox card's whole vocabulary.
     public static let cardSet: [KeyBinding] = [
@@ -253,6 +298,14 @@ public enum CardKeys {
     public static let windowSet: [KeyBinding] = [
         Keys.kill, Keys.attach, Keys.send, Keys.reply, Keys.rename, Keys.editStep, Keys.takeStep, Keys.herdr,
     ]
+
+    /// A bot's chat: no agent to kill, rename or page to.
+    public static let chatSet: [KeyBinding] = [
+        Keys.esc, Keys.attach, Keys.send, Keys.reply, Keys.editStep, Keys.takeStep,
+    ]
+
+    /// A bot's window: the chat's keys, without esc (it closes by its header).
+    public static let botWindowSet: [KeyBinding] = [Keys.attach, Keys.send, Keys.reply, Keys.editStep, Keys.takeStep]
 
     /// A hover preview's, once a click made it the user's: no Kill, and esc closes it.
     public static let previewSet: [KeyBinding] = [

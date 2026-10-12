@@ -119,7 +119,7 @@ public struct FirstRunView: View {
                         label: "lasso's address") { model.connect() }
                 }
                 .parityAnchor("onboarding.address")
-                ActionButton(title: model.busy ? "Connecting…" : "Connect", keys: "⏎", primary: true, busy: model.busy,
+                ActionButton(title: model.busy ? "Connecting…" : "Connect", primary: true, busy: model.busy,
                              enabled: !model.address.trimmingCharacters(in: .whitespaces).isEmpty || model.busy,
                              label: "Connect to the lasso at this address (⏎)") { model.connect() }
                     .parityAnchor("onboarding.connect")
@@ -294,7 +294,7 @@ public struct FirstRunView: View {
             buttons {
                 ActionButton(title: "Back", label: "Back to the address") { model.back() }
                 Spacer()
-                ActionButton(title: model.busy ? "Signing in…" : "Sign in", keys: "⏎", primary: true, busy: model.busy,
+                ActionButton(title: model.busy ? "Signing in…" : "Sign in", primary: true, busy: model.busy,
                              label: "Sign in with this user and password (⏎)") { model.submitPassword() }
             }
         case .signingIn:
@@ -307,7 +307,7 @@ public struct FirstRunView: View {
                 ActionButton(title: "Open Settings", label: "Open Settings") { model.openSettings() }
                     .parityAnchor("onboarding.settings")
                 Spacer()
-                ActionButton(title: "Done", keys: "⏎", primary: true, label: "Done (⏎)") { model.done() }
+                ActionButton(title: "Done", primary: true, label: "Done (⏎)") { model.done() }
                     .parityAnchor("onboarding.done")
             }
         }
@@ -412,17 +412,15 @@ struct RailTile: View {
     }
 }
 
-/// A shortcut's keys, as a keycap.
+/// A shortcut as set now, named in the tip as plain text (no keycap).
 struct KeyLabel: View {
     let keys: String
 
     var body: some View {
         Text(keys)
-            .font(Theme.Card.keycapFont.font)
-            .foregroundStyle(Theme.Text.primary.color)
-            .padding(.horizontal, Theme.space("s"))
+            .font(Theme.Fonts.small.font)
+            .foregroundStyle(Theme.Text.secondary.color)
             .frame(minHeight: Theme.Onboarding.layout.number("key_h"))
-            .background(RoundedRectangle(cornerRadius: Theme.Card.keycapRadius.pt).fill(Theme.Card.keycapFill.color))
             .accessibilityLabel("Shortcut \(keys)")
     }
 }
@@ -447,10 +445,9 @@ struct NoteBanner: View {
     }
 }
 
-/// A footer button: primary (solid, with its key set inside) or quiet.
+/// A footer button: primary (solid) or quiet.
 struct ActionButton: View {
     let title: String
-    var keys: String?
     var primary = false
     var busy = false
     var enabled = true
@@ -464,13 +461,6 @@ struct ActionButton: View {
             HStack(spacing: Theme.space("m")) {
                 if busy { ProgressView().controlSize(.small).tint(ink) }
                 Text(title).font(Theme.Fonts.label.font)
-                if let keys, !busy {
-                    Text(keys)
-                        .font(Theme.Card.keycapFont.font)
-                        .padding(.horizontal, Theme.space("xs"))
-                        .padding(.vertical, Theme.space("2xs"))
-                        .background(RoundedRectangle(cornerRadius: Theme.Card.keycapRadius.pt).fill(ink.opacity(o.number("tint"))))
-                }
             }
             .foregroundStyle(ink)
             .padding(.horizontal, Theme.space("2xl"))

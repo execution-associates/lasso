@@ -55,12 +55,6 @@ struct AgentAvatar: View {
 }
 
 public struct CardView: View {
-    @ObservedObject private var hover = HoveredKey.shared
-    private var hoveredStep: Int? {
-        guard let id = hover.id, id.hasPrefix("step:") else { return nil }
-        return Int(id.dropFirst(5))
-    }
-
     @ObservedObject var model: CardModel
     @ObservedObject var fleet: FleetModel
 
@@ -109,11 +103,9 @@ public struct CardView: View {
                 RoundButton(symbol: "chevron.up", enabled: pages.count > 1 && index > 0, label: "Previous card (K)") {
                     model.page(-1)
                 }
-                .keyHint(Keys.previous, .trailing)
                 RoundButton(
                     symbol: "chevron.down", enabled: pages.count > 1 && index < pages.count - 1, label: "Next card (J)"
                 ) { model.page(1) }
-                .keyHint(Keys.next, .trailing)
                 unreadBar(pages)
                     .padding(.top, Theme.Layout.card.number("unread_top"))
             }
@@ -121,7 +113,6 @@ public struct CardView: View {
             .padding(.top, Theme.Layout.card.number("top"))
         }
         .panelChrome(Theme.Card.size.size, anchor: "card")
-        .environment(\.shownKeys, model.shownKeys)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(pane.displayName), \(pane.state.label)")
     }
@@ -135,12 +126,10 @@ public struct CardView: View {
             Spacer(minLength: 8)
             if model.canShowInHerdr {
                 RoundButton(symbol: "terminal", label: "Show \(pane.displayName) in herdr (T)") { model.showInHerdr() }
-                    .keyHint(Keys.herdr)
                     .help("Show \(pane.displayName) in herdr")
                     .parityAnchor("card.herdr")
             }
             RoundButton(symbol: "xmark", label: "Close (esc)") { model.onClose() }
-                .keyHint(Keys.esc)
                 .parityAnchor("card.close")
         }
         .frame(height: Theme.Control.round.number("size"))
@@ -261,7 +250,6 @@ public struct CardView: View {
                             ? "Killing \(model.current.displayName)"
                             : model.killArmed ? "Confirm kill agent (X)" : "Kill agent (X)"
                     ) { model.kill() }
-                    .keyHint(Keys.kill, active: !model.killing)
                     .parityAnchor("action.kill")
                 }
                 if model.actions.canAcknowledge {
@@ -269,7 +257,6 @@ public struct CardView: View {
                         title: "Acknowledge", primary: true, enabled: model.canAcknowledgeNow,
                         hint: "Send or clear your reply first", label: "Acknowledge (\(Keys.acknowledge.legend))"
                     ) { model.acknowledge() }
-                    .keyHint(Keys.acknowledge, active: model.canAcknowledgeNow)
                     .parityAnchor("action.acknowledge")
                 }
             }
@@ -302,8 +289,6 @@ public struct CardView: View {
                                 Spacer(minLength: 8)
                                 if on {
                                     // The selected choice: → answers with it, ↳ edits it.
-                                    InlineKey(binding: Keys.editStep, hovering: hoveredStep == step.index)
-                                    InlineKey(binding: Keys.takeStep, hovering: hoveredStep == step.index)
                                     Image(systemName: "arrow.right")
                                         .font(.system(size: Theme.icon.number("step"), weight: .semibold))
                                         .foregroundStyle(Theme.Text.secondary.color)
@@ -318,9 +303,6 @@ public struct CardView: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel("Step \(step.index + 1): \(step.label)")
                         .accessibilityHint("Right arrow answers with it; tab edits it first")
-                        .onHover { inside in
-                            if inside { hover.id = "step:\(step.index)" } else if hover.id == "step:\(step.index)" { hover.id = nil }
-                        }
                     }
                 }
                 .opacity(model.killing ? Theme.Card.killing.number("dim") : 1)

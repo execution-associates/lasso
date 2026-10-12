@@ -79,7 +79,7 @@ public final class AppPresence: NSObject {
     }
 
     private func refreshCount() {
-        let n = fleet.inbox.count + fleet.notices.count
+        let n = fleet.badgeCount
         // The count in the menu bar's own size, medium, with steady-width
         // digits: it sits beside the monogram as a pair, not a caption.
         let text = n > 0 ? " \(n > 99 ? "99+" : String(n))" : ""
@@ -92,7 +92,7 @@ public final class AppPresence: NSObject {
     private func statusMenu() -> NSMenu {
         let m = NSMenu()
         m.addItem(action("Open Inbox", #selector(doOpenInbox)))
-        m.addItem(action("New Agent…", #selector(doNewAgent)))
+        m.addItem(action("New…", #selector(doNewAgent)))
         m.addItem(action("Settings…", #selector(doOpenSettings)))
         m.addItem(.separator())
         m.addItem(NSMenuItem(title: "Quit Lasso", action: #selector(NSApplication.terminate(_:)), keyEquivalent: ""))
@@ -116,7 +116,18 @@ public final class AppPresence: NSObject {
         ] {
             edit.addItem(NSMenuItem(title: title, action: sel, keyEquivalent: key))
         }
-        for menu in [app, edit] {
+        // The herdr window's text size. The items go to whatever has the
+        // keyboard, so they are live only while that window is key; its own
+        // key handling takes the keys first, menu bar or not.
+        let view = NSMenu(title: "View")
+        for (title, sel, key) in [
+            ("Zoom In", #selector(TerminalWebView.terminalZoomIn(_:)), "+"),
+            ("Zoom Out", #selector(TerminalWebView.terminalZoomOut(_:)), "-"),
+            ("Actual Size", #selector(TerminalWebView.terminalActualSize(_:)), "0"),
+        ] {
+            view.addItem(NSMenuItem(title: title, action: sel, keyEquivalent: key))
+        }
+        for menu in [app, edit, view] {
             let holder = NSMenuItem()
             holder.submenu = menu
             main.addItem(holder)

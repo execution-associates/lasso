@@ -21,7 +21,6 @@ public struct SettingsView: View {
                     .foregroundStyle(Theme.Text.primary.color)
                 Spacer()
                 RoundButton(symbol: "xmark", label: "Close settings (esc)") { model.close() }
-                    .keyHint(Keys.esc)
             }
             .padding(.horizontal, pad)
             .padding(.top, Theme.Layout.card.number("top"))
@@ -280,14 +279,15 @@ public struct SettingsView: View {
             }
         }
         group(
-            "New agents",
+            "New",
             footnote: model.recordingSlot.map { $0 != .inbox } == true
                 ? "Press the combination, with ⌘, ⌥ or ⌃. esc cancels."
-                : "From any app. While a Lasso window has the keyboard, ⌘O and ⇧⌘O do the same."
+                : "From any app. While a Lasso window has the keyboard, ⌘O, ⇧⌘O and ⌘I do the same."
         ) {
-            ForEach(Array([ShortcutSlot.newAgent, .newScratch].enumerated()), id: \.element) { i, slot in
+            let slots: [ShortcutSlot] = [.newAgent, .newScratch, .newTerminal]
+            ForEach(Array(slots.enumerated()), id: \.element) { i, slot in
                 let s = model.shortcuts[slot] ?? slot.fallback
-                row(slot.title, last: i == 1) {
+                row(slot.title, last: i == slots.count - 1) {
                     HStack(spacing: Theme.space("s")) {
                         choice(model.recordingSlot == slot ? "Press keys…" : (s == .off ? "Record…" : s.label), on: model.recordingSlot == slot,
                                label: "\(slot.title): \(s == .off ? "no shortcut" : s.label). Record another") {
@@ -414,6 +414,14 @@ public struct SettingsView: View {
             }
             row("Show in the menu bar", detail: "The monogram, with the inbox's count.") {
                 toggle(model.inMenuBar, "Show in the menu bar") { model.setMenuBar(!model.inMenuBar) }
+            }
+            row(
+                "Rail position",
+                detail: model.railCentred ? "In the middle of the screen's edge." : "Where you dragged it along the edge."
+            ) {
+                PillButton(title: "Center vertically", enabled: !model.railCentred, hint: "The rail is already centered",
+                           label: "Move the rail to the middle of the screen's edge") { model.centreRailNow() }
+                    .parityAnchor("settings.rail_centre")
             }
             startAtLogin
         }

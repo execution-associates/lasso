@@ -33,7 +33,8 @@ public struct InboxEntry: Identifiable, Equatable, Sendable {
     public var id: String { pane.key }
 }
 
-/// A one-shot notice lasso raised (SSE `notice`), kept on this Mac.
+/// A notice lasso raised: one it keeps for the inbox (/api/notices), or an
+/// older lasso's SSE `notice`. Acknowledge is shared, as `notice:<id>`.
 public struct InboxNotice: Codable, Identifiable, Equatable, Sendable {
     public var id: String
     public var at: Int64
@@ -42,6 +43,13 @@ public struct InboxNotice: Codable, Identifiable, Equatable, Sendable {
     public var detail: String?
     /// lasso_notice, or agent_message for an agent's own ping (NotifyKinds).
     public var kind: String = NotifyKinds.lassoNotice
+
+    /// Its Acknowledge key in ui_state.card_dismiss.
+    public static func ackKey(_ id: String) -> String { "notice:\(id)" }
+
+    public init(live n: LiveNotification) {
+        self.init(id: n.id, at: n.at, level: n.level ?? "info", title: n.title, detail: n.body, kind: n.kind)
+    }
 
     public init(id: String, at: Int64, level: String, title: String, detail: String?, kind: String) {
         self.id = id
@@ -70,8 +78,12 @@ extension FleetModel {
     static let inboxHarnesses: Set<String> = ["claude", "omp"]
 
     /// The inbox, in order: waiting on you, then finished turns, newest
-    /// first in each. A finished turn counts from `inboxSince` (unix ms), so
-    /// the first launch starts with what is waiting, not with history.
+    /// first in each (ties by pane key). Everything it reads is lasso's, never
+    /// this Mac's: the fleet, the bots, ui_state's acknowledgements and its
+    /// baseline (`inboxSince`, ui_state.inbox_since), so the phone's simple
+    /// app (src/web/src/simple/inbox-rule.ts) lists the same entries. Both are
+    /// pinned by mac/Spec/inbox/rules.json. A finished turn counts after the
+    /// baseline, so a lasso starts with what is waiting, not with history.
     public var inbox: [InboxEntry] {
         let acked = uiState.dismissed_cards ?? [:]
         var waiting: [InboxEntry] = []
@@ -114,11 +126,25 @@ extension FleetModel {
         return waiting.filter(shown).sorted(by: newest) + finished.filter(shown).sorted(by: newest)
     }
 
+    /// lasso's notices nobody has acknowledged, on any device: newest last.
+    public var inboxNotices: [InboxNotice] {
+        let acked = uiState.dismissed_cards ?? [:]
+        return notices.filter { n in
+            let key = InboxNotice.ackKey(n.id)
+            return acked[key] == nil && acknowledged[key] == nil
+        }
+    }
+
+    /// The rail's badge: every entry and notice the inbox holds. The same
+    /// number as the phone's Inbox count, since both read only lasso's state.
+    public var badgeCount: Int { inbox.count + inboxNotices.count }
+
     /// What is new since this Mac looked: entries whose mark is not the one
-    /// seen, and notices not yet seen. This is the badge (PLAN 13.7).
+    /// seen, and notices not yet seen. The peek's dot (PLAN 13.7); seen is
+    /// this Mac's and never changes what the inbox holds.
     public var unseen: [InboxEntry] { inbox.filter { seen[$0.id] != $0.mark } }
 
-    public var unseenNotices: [InboxNotice] { notices.filter { seen["notice:\($0.id)"] == nil } }
+    public var unseenNotices: [InboxNotice] { inboxNotices.filter { seen["notice:\($0.id)"] == nil } }
 
     /// The badge's colour: blocked when something new waits on you, done
     /// when only finished turns or notices are new, nil when nothing is new.
@@ -138,25 +164,25 @@ extension FleetModel {
     }
 }
 
-/// The inbox's state on this Mac: what has been seen (by entry, its mark),
-/// and since when finished turns count. A viewer convenience, so it lives in
-/// UserDefaults; what is shared (Acknowledge) lives in lasso's ui_state.
+/// The inbox's state on this Mac: what has been seen (by entry, its mark).
+/// A viewer convenience that never changes what the inbox holds, so it lives
+/// in UserDefaults; what decides membership (Acknowledge, the baseline) is
+/// lasso's ui_state.
 @MainActor
 public enum InboxMemory {
     static let seenKey = "inboxSeen"
-    static let sinceKey = "inboxSince"
 
-    /// Load into the fleet; a first launch sets `since` to now.
     public static func load(into fleet: FleetModel) {
         let d = UserDefaults.standard
-        if d.object(forKey: sinceKey) == nil { d.set(Int64(Date().timeIntervalSince1970 * 1000), forKey: sinceKey) }
-        fleet.inboxSince = (d.object(forKey: sinceKey) as? NSNumber)?.int64Value ?? 0
+        // This Mac's own baseline, from before lasso kept one for everybody.
+        d.removeObject(forKey: "inboxSince")
+        fleet.fallbackSince = Int64(Date().timeIntervalSince1970 * 1000)
         fleet.seen = d.dictionary(forKey: seenKey) as? [String: String] ?? [:]
     }
 
     static func save(_ fleet: FleetModel) {
         // Keep it bounded: only what is still in the inbox (or a notice) matters.
-        let live = Set(fleet.inbox.map(\.id)).union(fleet.notices.map { "notice:\($0.id)" })
+        let live = Set(fleet.inbox.map(\.id)).union(fleet.inboxNotices.map { "notice:\($0.id)" })
         UserDefaults.standard.set(fleet.seen.filter { live.contains($0.key) }, forKey: seenKey)
     }
 }
@@ -192,14 +218,20 @@ public final class InboxModel: ObservableObject {
     /// The panel showed the notices.
     public func markNoticesSeen() {
         var changed = false
-        for n in fleet.notices where fleet.seen["notice:\(n.id)"] == nil {
+        for n in fleet.inboxNotices where fleet.seen["notice:\(n.id)"] == nil {
             fleet.seen["notice:\(n.id)"] = "seen"
             changed = true
         }
         if changed, persist { InboxMemory.save(fleet) }
     }
 
-    public func acknowledge(_ n: InboxNotice) { fleet.notices.removeAll { $0.id == n.id } }
+    /// Acknowledge a notice on every device (ui_state.card_dismiss
+    /// `notice:<id>`); it leaves this inbox at once.
+    public func acknowledge(_ n: InboxNotice) {
+        fleet.markAcknowledged(n)
+        guard let write = fleet.writeAcknowledgement else { return }
+        Task { await write(InboxNotice.ackKey(n.id), n.at) }
+    }
 
     /// What arrived, for the arrival sound: an entry with a new mark, or a
     /// notice, each with the kinds that announce it (this Mac may want none).
@@ -220,7 +252,7 @@ public final class InboxModel: ObservableObject {
             }
             out["\(e.id)@\(e.mark)"] = kinds
         }
-        for n in fleet.notices { out["notice:\(n.id)"] = [n.kind] }
+        for n in fleet.inboxNotices { out["notice:\(n.id)"] = [n.kind] }
         return out
     }
 }

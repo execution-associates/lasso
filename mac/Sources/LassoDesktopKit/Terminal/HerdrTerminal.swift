@@ -132,15 +132,36 @@ struct HerdrTerminalStatus: View {
 }
 
 /// The page's web view: ⌘W closes the window (the app's menu has no Window
-/// menu to do it).
+/// menu to do it), and ⌘= ⌘- ⌘0 size its text. The window takes these before
+/// the page sees them, so neither xterm nor the shell gets them; they work
+/// with no menu bar, and the View menu's items reach them through the
+/// responder chain while this window is key.
 final class TerminalWebView: WKWebView {
+    var onZoom: (TerminalZoom.Step) -> Void = { _ in }
+
     override func performKeyEquivalent(with e: NSEvent) -> Bool {
         if e.modifierFlags.intersection([.command, .shift, .option, .control]) == .command, e.charactersIgnoringModifiers == "w" {
             window?.performClose(nil)
             return true
         }
+        if let step = TerminalZoom.step(e) {
+            onZoom(step)
+            return true
+        }
         return super.performKeyEquivalent(with: e)
     }
+
+    /// WebKit's own menu (Reload, Inspect Element, Copy) never opens: herdr
+    /// takes right-clicks itself. The page cancels the menu's event; this
+    /// empties it for a click the page did not see (one before it loaded).
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        menu.removeAllItems()
+        super.willOpenMenu(menu, with: event)
+    }
+
+    @objc func terminalZoomIn(_ sender: Any?) { onZoom(.bigger) }
+    @objc func terminalZoomOut(_ sender: Any?) { onZoom(.smaller) }
+    @objc func terminalActualSize(_ sender: Any?) { onZoom(.actual) }
 }
 
 /// The part of an `active` frame the window reads.
@@ -158,6 +179,10 @@ public final class HerdrTerminalController: NSObject {
     private let clientID = "lasso-desktop-term-" + UUID().uuidString.prefix(8).lowercased()
     private var claim: TermClaim
     private var claiming = false
+    /// The text size (TerminalZoom), one for the app.
+    private var fontSize = TerminalZoom.stored()
+    /// The page loaded last: a reload starts it again at today's size.
+    private var page: (slug: String, query: String)?
     private var window: NSWindow?
     private var web: TerminalWebView?
     private var bridge: TerminalBridge?
@@ -195,7 +220,7 @@ public final class HerdrTerminalController: NSObject {
 
     /// An agent's header button, or T: focus its pane in its host's herdr
     /// (every client's focus moves: herdr has one), then show that herdr.
-    public func show(_ pane: HostPane) {
+    public func show(_ pane: HostPane, note: String? = nil) {
         present()
         let name = pane.displayName
         model.notice = "Focusing \(name)"
@@ -204,7 +229,7 @@ public final class HerdrTerminalController: NSObject {
             var reattach = false
             do {
                 reattach = try await source.focus(pane)
-                model.notice = "Showing \(name)"
+                model.notice = note ?? "Showing \(name)"
             } catch {
                 model.notice = "Could not focus \(name): \(error)"
             }
@@ -259,6 +284,7 @@ public final class HerdrTerminalController: NSObject {
             NSPasteboard.general.setString(text, forType: .string)
         }
         bridge.onDocumentFailed = { [weak self] why in self?.model.phase = .failed(why) }
+        bridge.setFontSize(fontSize)
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
         config.setURLSchemeHandler(bridge, forURLScheme: HerdrTerminal.scheme)
@@ -271,6 +297,7 @@ public final class HerdrTerminalController: NSObject {
         web.underPageBackgroundColor = Theme.Panel.surface.nsColor
         web.autoresizingMask = [.width, .height]
         web.setAccessibilityLabel("herdr terminal")
+        web.onZoom = { [weak self] in self?.zoom($0) }
         bridge.webView = web
 
         let status = NSHostingView(rootView: HerdrTerminalStatus(model: model))
@@ -318,7 +345,8 @@ public final class HerdrTerminalController: NSObject {
                 guard !Task.isCancelled, model.host == host, let bridge, let web else { return }
                 bridge.closeAll()
                 bridge.slug = slug
-                web.load(URLRequest(url: HerdrTerminal.pageURL(slug: slug, query: query)))
+                page = (slug, query)
+                web.load(URLRequest(url: pageURL(slug, query)))
             } catch is CancellationError {
             } catch {
                 guard model.host == host else { return }
@@ -331,7 +359,32 @@ public final class HerdrTerminalController: NSObject {
     private func reload() {
         bridge?.closeAll()
         model.phase = .connecting
-        web?.reload()
+        if let page, page.slug == bridge?.slug {
+            web?.load(URLRequest(url: pageURL(page.slug, page.query)))
+        } else {
+            web?.reload()
+        }
+    }
+
+    /// The page at the window's text size: ttyd applies it from the query
+    /// as it connects, so a load refits once, not twice.
+    private func pageURL(_ slug: String, _ query: String) -> URL {
+        HerdrTerminal.pageURL(slug: slug, query: TerminalZoom.query(query, fontSize: fontSize))
+    }
+
+    /// ⌘= ⌘- ⌘0: a new size refits the terminal, and herdr reflows every
+    /// client of its session on the new columns and rows. That is a human
+    /// resizing, so it claims the size first, as a key does: a resize while
+    /// another client holds it waits for the claim.
+    func zoom(_ step: TerminalZoom.Step) {
+        let scale = TerminalZoom.Scale()
+        let next = scale.apply(step, to: fontSize)
+        guard next != fontSize else { return }
+        fontSize = next
+        TerminalZoom.store(next, scale: scale)
+        humanActed()
+        bridge?.setFontSize(next)
+        Trace.event("herdr window text \(next)")
     }
 
     /// The host as the app names it elsewhere: its label (lasso's own
@@ -423,6 +476,7 @@ extension HerdrTerminalController: WKNavigationDelegate {
         guard bridge?.slug != nil else { return }
         model.phase = .live
         bridge?.pushGate()
+        bridge?.pushZoom()
     }
 
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {

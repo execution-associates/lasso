@@ -70,6 +70,8 @@ final class AgentPreviewController {
     private let presence = CardPresence()
     private let holder = PreviewHolder()
     private let make: (HostPane) -> CardModel
+    /// Unsent replies by agent, kept when the preview goes or moves on.
+    private var drafts: [String: String] = [:]
 
     init(media: MediaSource?, make: @escaping (HostPane) -> CardModel) {
         self.make = make
@@ -83,14 +85,14 @@ final class AgentPreviewController {
 
     var isOpen: Bool { presence.shown }
     var pane: HostPane? { holder.model?.pane }
-    /// A click in it made it the user's: it no longer closes when the pointer leaves.
-    var engaged: Bool { panel.isKeyWindow }
 
     /// Show `pane`'s preview beside `list`, top level with `row` (screen rects).
     func show(_ pane: HostPane, beside list: NSRect, row: NSRect) {
         if holder.model?.pane.key != pane.key {
+            keepDraft()
             holder.model?.stopPolling()
             let m = make(pane)
+            m.composer = drafts[pane.key] ?? ""
             holder.model = m
             m.startPolling()
         }
@@ -106,6 +108,9 @@ final class AgentPreviewController {
 
     func close() {
         guard presence.shown else { return }
+        if holder.model?.renaming == true { holder.model?.commitRename() }
+        keepDraft()
+        if panel.isKeyWindow { panel.resignKey() }
         holder.model?.stopPolling()
         withAnimationToken(Theme.Motion.cardClose) { presence.shown = false }
         let delay = Theme.Motion.cardClose.value["duration"]?.double ?? 0
@@ -117,11 +122,16 @@ final class AgentPreviewController {
         }
     }
 
+    private func keepDraft() {
+        guard let m = holder.model else { return }
+        drafts[m.pane.key] = m.hasDraft ? m.composer : nil
+    }
+
     /// A window's keys (CardKeys.previewSet) once a click made it the
     /// user's: no Kill, and esc closes it.
     private func handle(_ e: NSEvent) -> Bool {
         guard let m = holder.model,
-              let a = CardKeys.route(e, editing: m.composerFocused || panel.editingText, among: CardKeys.previewSet)
+              let a = CardKeys.route(e, editing: m.composerHasKeys || panel.editingText, among: CardKeys.previewSet)
         else { return false }
         if a == .close {
             close()

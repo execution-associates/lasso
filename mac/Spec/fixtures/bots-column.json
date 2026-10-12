@@ -1,0 +1,13 @@
+{
+  "about": "The Bots column, opened by resting on the rail's Bots button: a row per bot, the one asking first, then working, idle and stopped; each with its picture (here its initial), state and last line; Manage bots ↗ at the foot.",
+  "state": "bots-column",
+  "extends": "rail-expanded",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "bots": true,
+    "hovered": "homie"
+  }
+}

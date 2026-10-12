@@ -13,7 +13,7 @@ public protocol BotChatActions: AnyObject {
     func attach(_ file: URL, to bot: BotView) async throws -> String
 }
 
-/// The chat with a lasso bot: the same composer and keycaps as a card.
+/// The chat with a lasso bot: the same composer and keys as a card.
 @MainActor
 public final class ChatModel: ComposerModel {
     @Published public private(set) var bot: BotView
@@ -186,7 +186,21 @@ public final class ChatModel: ComposerModel {
         }
     }
 
-    public func focusComposer() { focusRequest += 1 }
+    public func focusComposer() {
+        focusRequest += 1
+        focusAskedAt = Date()
+    }
+
+    /// When the composer was last asked for the cursor. The field takes it on
+    /// the next turn of the run loop, so a key typed in between (the first
+    /// letter of a reply in a window that just opened on it) is its text too.
+    private var focusAskedAt: Date?
+
+    /// Keys are the composer's text: it has the cursor, or was just asked to
+    /// take it (`live.focus_grace`).
+    public var composerHasKeys: Bool {
+        composerFocused || focusAskedAt.map { Date().timeIntervalSince($0) < Theme.Live.focusGrace.seconds } == true
+    }
     public func say(_ s: String?) { notice = s }
 }
 

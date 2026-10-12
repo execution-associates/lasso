@@ -93,19 +93,10 @@ public final class CardModel: ComposerModel {
     @Published public private(set) var killFailure: (key: String, reason: String)?
     public var killFailed: String? { killFailure?.key == pane.key ? killFailure?.reason : nil }
     /// Whether the card has the keyboard, and how (PLAN 13.7a): it decides
-    /// which keys the card shows and answers.
+    /// which keys the card answers.
     @Published public var keyMode: KeyMode = .none
 
     public enum KeyMode: Sendable { case none, lent, full }
-
-    /// The keys the card shows as keycaps on its controls right now.
-    public var shownKeys: Set<String>? {
-        switch keyMode {
-        case .none: nil
-        case .lent: Set(CardKeys.hoverSet.map(\.id))
-        case .full: Set(activeBindings.map(\.id))
-        }
-    }
     @Published public var highlighted: Int?
     /// The open question as it was when drawn (PLAN 13.4): an answer is
     /// built from this, never from the chat re-read at send time, so one
@@ -233,9 +224,8 @@ public final class CardModel: ComposerModel {
         }
     }
 
-    /// The bindings live in this card's current state: what the keycaps on
-    /// screen may show (the parity harness checks every rendered keycap is
-    /// in here).
+    /// The bindings live in this card's current state (the parity harness
+    /// checks each is routed by the surface's key handler).
     public var activeBindings: Set<KeyBinding> {
         var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.send, Keys.reply, Keys.next, Keys.previous]
         if !isBot, !killing { b.insert(Keys.kill) }
@@ -597,7 +587,21 @@ public final class CardModel: ComposerModel {
         }
     }
 
-    public func focusComposer() { focusRequest += 1 }
+    public func focusComposer() {
+        focusRequest += 1
+        focusAskedAt = Date()
+    }
+
+    /// When the composer was last asked for the cursor. The field takes it on
+    /// the next turn of the run loop, so a key typed in between (the first
+    /// letter of a reply in a window that just opened on it) is its text too.
+    private var focusAskedAt: Date?
+
+    /// Keys are the composer's text: it has the cursor, or was just asked to
+    /// take it (`live.focus_grace`).
+    public var composerHasKeys: Bool {
+        composerFocused || focusAskedAt.map { Date().timeIntervalSince($0) < Theme.Live.focusGrace.seconds } == true
+    }
 
     /// Do what a routed key asks, in the inbox card or an agent window
     /// (CardKeys). Any key but X disarms a kill; while a kill is in flight

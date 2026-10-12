@@ -193,3 +193,201 @@ private func query(_ r: URLRequest) -> [URLQueryItem]? { URLComponents(url: r.ur
     #expect(CardKeys.route(t, editing: false, pointerKeyed: false) == .herdr)
     #expect(CardKeys.route(t, editing: true, pointerKeyed: false) == nil)
 }
+
+// MARK: text size (⌘= ⌘- ⌘0)
+
+/// A step is the token's, within its bounds; Actual Size is lasso's own 14
+/// (ttyd's launch), which the web app's terminal text also starts from.
+@Test func terminalZoomStepsWithinItsBounds() {
+    let s = TerminalZoom.Scale()
+    #expect(s == TerminalZoom.Scale(min: 8, max: 32, step: 1, standard: 14))
+    #expect(s.apply(.bigger, to: 14) == 15)
+    #expect(s.apply(.smaller, to: 14) == 13)
+    #expect(s.apply(.bigger, to: 32) == 32)
+    #expect(s.apply(.smaller, to: 8) == 8)
+    #expect(s.apply(.actual, to: 27) == 14)
+    #expect(s.apply(.bigger, to: 40) == 32)
+    let wide = TerminalZoom.Scale(min: 10, max: 20, step: 4, standard: 12)
+    #expect(wide.apply(.bigger, to: 18) == 20)
+    #expect(wide.apply(.smaller, to: 12) == 10)
+}
+
+/// The size is kept across windows and launches; lasso's own is kept as no
+/// choice at all, and a stored size out of bounds comes back in them.
+@Test func terminalZoomIsRemembered() throws {
+    let name = "lasso-zoom-test-\(UUID().uuidString)"
+    let d = try #require(UserDefaults(suiteName: name))
+    defer { d.removePersistentDomain(forName: name) }
+    #expect(TerminalZoom.stored(d) == 14)
+    TerminalZoom.store(17, d)
+    #expect(TerminalZoom.stored(d) == 17)
+    TerminalZoom.store(14, d)
+    #expect(d.object(forKey: TerminalZoom.defaultsKey) == nil)
+    d.set(99, forKey: TerminalZoom.defaultsKey)
+    #expect(TerminalZoom.stored(d) == 32)
+    d.set("big", forKey: TerminalZoom.defaultsKey)
+    #expect(TerminalZoom.stored(d) == 14)
+}
+
+/// ⌘= and ⌘+ (⌘⇧= on a US layout) are bigger, ⌘- smaller, ⌘0 lasso's own;
+/// Option or Control make them the terminal's, and a bare key is typing.
+@Test func terminalZoomKeys() {
+    func key(_ c: String, _ f: NSEvent.ModifierFlags) -> TerminalZoom.Step? {
+        let e = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: f, timestamp: 0, windowNumber: 0, context: nil,
+            characters: c, charactersIgnoringModifiers: c, isARepeat: false, keyCode: 0)!
+        return TerminalZoom.step(e)
+    }
+    #expect(key("=", .command) == .bigger)
+    #expect(key("+", [.command, .shift]) == .bigger)
+    #expect(key("+", [.command, .numericPad]) == .bigger)
+    #expect(key("-", .command) == .smaller)
+    #expect(key("0", .command) == .actual)
+    #expect(key("=", [.command, .capsLock]) == .bigger)
+    for (c, f) in [
+        ("=", NSEvent.ModifierFlags()), ("-", []), ("0", .shift), ("=", [.command, .option]), ("-", [.command, .control]),
+        ("_", [.command, .shift]), ("w", .command), ("1", .command),
+    ] as [(String, NSEvent.ModifierFlags)] {
+        #expect(key(c, f) == nil, "\(c) \(f)")
+    }
+}
+
+/// The page's query carries the size for ttyd, beside lasso's palette,
+/// replacing the one a page already had.
+@Test func terminalZoomRidesInThePagesQuery() {
+    let palette = "rendererType=canvas&theme=%7B%22background%22%3A%22%231b0a2c%22%7D"
+    #expect(TerminalZoom.query(palette, fontSize: 16) == palette + "&fontSize=16")
+    #expect(TerminalZoom.query(palette + "&fontSize=16", fontSize: 18) == palette + "&fontSize=18")
+    #expect(TerminalZoom.query("", fontSize: 12) == "fontSize=12")
+    let url = HerdrTerminal.pageURL(slug: "local", query: TerminalZoom.query(palette, fontSize: 16))
+    #expect(HerdrTerminal.lassoPath(url, slug: "local") == "/terminal/local/?" + palette + "&fontSize=16")
+}
+
+/// The page script in a bare JavaScript context, with just enough of a
+/// browser (and a stand-in for ttyd's xterm as window.term) to run it.
+/// Listeners it adds on the window are in `listeners`.
+private func pageContext(_ problem: @escaping (String) -> Void) -> JSContext {
+    let ctx = JSContext()!
+    ctx.exceptionHandler = { _, e in problem(e?.toString() ?? "?") }
+    ctx.evaluateScript(#"""
+    var window = globalThis;
+    globalThis.posted = [];
+    window.webkit = { messageHandlers: { lassoTerm: { postMessage: (m) => posted.push(m) } } };
+    globalThis.EventTarget = class { dispatchEvent() {} };
+    globalThis.Event = class { constructor(t) { this.type = t; } };
+    globalThis.CloseEvent = class extends Event { constructor(t, i) { super(t); Object.assign(this, i); } };
+    globalThis.MessageEvent = class extends Event { constructor(t, i) { super(t); this.data = i.data; } };
+    globalThis.Blob = class {};
+    globalThis.DOMException = class extends Error {};
+    globalThis.TextEncoder = class { encode(s) { return new Uint8Array([...s].map((c) => c.charCodeAt(0))); } };
+    globalThis.TextDecoder = class { decode(u) { return String.fromCharCode(...u); } };
+    const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    globalThis.atob = (s) => {
+      let o = "", buf = 0, bits = 0;
+      for (const ch of s.replace(/=+$/, "")) {
+        buf = (buf << 6) | B64.indexOf(ch);
+        bits += 6;
+        if (bits >= 8) { bits -= 8; o += String.fromCharCode((buf >> bits) & 255); }
+      }
+      return o;
+    };
+    globalThis.URL = class {
+      constructor(h) {
+        const i = h.indexOf("?");
+        this.base = i < 0 ? h : h.slice(0, i);
+        this.search = i < 0 ? "" : h.slice(i);
+        this.pathname = (this.base.match(/^[a-z-]+:\/\/[^\/]*(\/.*)?$/) || [])[1] || "/";
+        const p = new Map(this.search.slice(1).split("&").filter(Boolean).map((kv) => kv.split("=")));
+        this.p = p;
+        this.searchParams = { get: (k) => (p.has(k) ? p.get(k) : null), set: (k, v) => p.set(k, v) };
+      }
+      get href() {
+        const q = [...this.p].map(([k, v]) => k + "=" + v).join("&");
+        return this.base + (q ? "?" + q : "");
+      }
+    };
+    globalThis.location = { href: "lasso-terminal://lasso/terminal/local/?theme=x&fontSize=14" };
+    globalThis.history = { state: null, replaceState: (s, t, u) => { location.href = u; } };
+    globalThis.listeners = {};
+    globalThis.addEventListener = (t, f) => (listeners[t] = listeners[t] || []).push(f);
+    globalThis.MouseEvent = class extends Event { constructor(t, i) { super(t); Object.assign(this, i); } };
+    globalThis.dispatchEvent = () => {};
+    globalThis.setTimeout = () => {};
+    globalThis.requestAnimationFrame = (f) => f();
+    globalThis.fits = 0;
+    window.term = {
+      options: { fontSize: 14 },
+      fit: () => { fits++; },
+      parser: { registerOscHandler: () => {} },
+      attachCustomKeyEventHandler: () => {},
+    };
+    """#)
+    ctx.evaluateScript(TerminalBridge.script)
+    return ctx
+}
+
+/// In the page: a zoom sets xterm's fontSize and refits through ttyd's fit,
+/// keeps the size in the page's query, and sets it again when ttyd's
+/// preferences (sent on every connect) put lasso's back.
+@Test func thePageAppliesTheTextSize() throws {
+    var problem: String?
+    let ctx = pageContext { problem = $0 }
+    ctx.evaluateScript("__lassoTerm.zoom(16)")
+    #expect(problem == nil, "\(problem ?? "")")
+    #expect(ctx.evaluateScript("term.options.fontSize").toInt32() == 16)
+    #expect(ctx.evaluateScript("fits").toInt32() == 2)
+    #expect(ctx.evaluateScript("location.href").toString() == "lasso-terminal://lasso/terminal/local/?theme=x&fontSize=16")
+    // The same size again changes nothing, and refits nothing.
+    ctx.evaluateScript("__lassoTerm.zoom(16)")
+    #expect(ctx.evaluateScript("fits").toInt32() == 2)
+
+    // ttyd connects again and applies lasso's options: the size comes back.
+    ctx.evaluateScript(#"""
+    const ws = new WebSocket("lasso-terminal://lasso/terminal/local/ws");
+    ws.binaryType = "arraybuffer";
+    ws.onmessage = (e) => { if (new Uint8Array(e.data)[0] === 0x32) term.options.fontSize = 14; };
+    __lassoTerm.opened(1, "tty");
+    """#)
+    let prefs = Data("2{\"fontSize\":14}".utf8).base64EncodedString()
+    ctx.evaluateScript("__lassoTerm.message(1, '\(prefs)', false)")
+    #expect(problem == nil, "\(problem ?? "")")
+    #expect(ctx.evaluateScript("term.options.fontSize").toInt32() == 16)
+    // Output is only output.
+    ctx.evaluateScript("term.options.fontSize = 13")
+    ctx.evaluateScript("__lassoTerm.message(1, '\(Data("0hi".utf8).base64EncodedString())', false)")
+    #expect(ctx.evaluateScript("term.options.fontSize").toInt32() == 13)
+    #expect(ctx.evaluateScript("posted[0].op").toString() == "open")
+}
+
+/// Right-clicks are herdr's: WebKit's menu is cancelled while the press and
+/// release go on to xterm untouched, and a Control-click reaches xterm as
+/// the right button's press and release.
+@Test func rightClicksAreHerdrs() {
+    var problem: String?
+    let ctx = pageContext { problem = $0 }
+    ctx.evaluateScript(#"""
+    globalThis.fire = (type, init) => {
+      const e = Object.assign({ isTrusted: true, prevented: false, stopped: false }, init);
+      e.preventDefault = () => { e.prevented = true; };
+      e.stopImmediatePropagation = () => { e.stopped = true; };
+      for (const f of listeners[type] || []) f(e);
+      return e;
+    };
+    globalThis.sent = [];
+    globalThis.target = { dispatchEvent: (e) => sent.push(e) };
+    """#)
+    #expect(ctx.evaluateScript("fire('contextmenu', { button: 2, target }).prevented").toBool())
+    let right = ctx.evaluateScript("const r = fire('mousedown', { button: 2, target }); [r.prevented, r.stopped]").toArray() as? [Bool]
+    #expect(right == [false, false])
+    #expect(ctx.evaluateScript("sent.length").toInt32() == 0)
+
+    let ctrl = ctx.evaluateScript("const c = fire('mousedown', { button: 0, ctrlKey: true, clientX: 7, target }); [c.prevented, c.stopped]").toArray() as? [Bool]
+    #expect(ctrl == [true, true])
+    ctx.evaluateScript("fire('mouseup', { button: 0, ctrlKey: true, clientX: 7, target })")
+    #expect(ctx.evaluateScript("sent.map((e) => e.type + ':' + e.button + ':' + e.buttons + ':' + e.clientX).join(' ')").toString()
+        == "mousedown:2:2:7 mouseup:2:0:7")
+    // The page's own synthetic events, and plain clicks, pass untouched.
+    #expect(!ctx.evaluateScript("fire('mousedown', { button: 0, target }).stopped").toBool())
+    #expect(!ctx.evaluateScript("fire('mousedown', { button: 0, ctrlKey: true, isTrusted: false, target }).stopped").toBool())
+    #expect(problem == nil, "\(problem ?? "")")
+}

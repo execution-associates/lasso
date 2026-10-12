@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
-	"time"
 )
 
 // liveChannel is the notifTransport (notify.go) for clients that are open
@@ -42,9 +40,18 @@ func (liveChannel) deliver(_ context.Context, n notification) error {
 	if srvHub == nil {
 		return errors.New("no hub")
 	}
-	ev := liveNotification{
-		ID:    fmt.Sprintf("%s-%d", noticeBoot, noticeSeq.Add(1)),
-		At:    time.Now().UnixMilli(),
+	if srvHub.broadcast("notification", liveNotificationOf(stampNotification(n))) == 0 {
+		return errors.New("no open client took it")
+	}
+	return nil
+}
+
+// liveNotificationOf is n as a client receives it; n is already stamped
+// (stampNotification), so the event and the Inbox's kept notice share an id.
+func liveNotificationOf(n notification) liveNotification {
+	return liveNotification{
+		ID:    n.ID,
+		At:    n.At,
 		Kind:  string(n.Kind),
 		Level: n.Level,
 		Bot:   n.Bot,
@@ -55,8 +62,4 @@ func (liveChannel) deliver(_ context.Context, n notification) error {
 		URL:   n.URL,
 		Icon:  n.Icon,
 	}
-	if srvHub.broadcast("notification", ev) == 0 {
-		return errors.New("no open client took it")
-	}
-	return nil
 }

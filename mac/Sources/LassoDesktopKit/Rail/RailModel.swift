@@ -7,7 +7,7 @@ import SwiftUI
 @MainActor
 public final class RailModel: ObservableObject {
     public enum Item: Hashable, Sendable {
-        case inbox, agents, newAgent, terminal, settings
+        case inbox, agents, bots, newAgent, terminal, settings
     }
 
     @Published public var expanded = false
@@ -26,6 +26,8 @@ public final class RailModel: ObservableObject {
     public var onInbox: () -> Void = {}
     /// The agents capsule: the fleet.
     public var onAgents: () -> Void = {}
+    /// The Bots button: lasso's bots.
+    public var onBots: () -> Void = {}
     /// The plus: the New Agent form.
     public var onNewAgent: () -> Void = {}
     /// The terminal: lasso's herdr in a window of its own.
@@ -44,10 +46,15 @@ public final class RailModel: ObservableObject {
 
     public var slots: [RailSlot] { fleet.railSlots(maxSlots: Theme.Rail.maxSlots.int) }
 
+    /// The Bots button shows while lasso has bots.
+    public var hasBots: Bool { !fleet.bots.isEmpty }
+
     public var items: [Item] {
         guard expanded else { return [.inbox] }
-        return slots.isEmpty
-            ? [.inbox, .newAgent, .terminal, .settings] : [.inbox, .agents, .newAgent, .terminal, .settings]
+        var out: [Item] = [.inbox]
+        if !slots.isEmpty { out.append(.agents) }
+        if hasBots { out.append(.bots) }
+        return out + [.newAgent, .terminal, .settings]
     }
 
     public func setExpanded(_ on: Bool, animated: Bool = true) {
@@ -58,7 +65,7 @@ public final class RailModel: ObservableObject {
             if let probe = animationProbe {
                 animation = Animation(
                     ProbedAnimation(
-                        base: animation, probe: probe, travel: Double(RailMetrics.revealHeight(slots.count))))
+                        base: animation, probe: probe, travel: Double(RailMetrics.revealHeight(slots.count, bots: hasBots))))
             }
             withAnimation(animation) { expanded = on }
         } else {
@@ -78,6 +85,7 @@ public final class RailModel: ObservableObject {
         switch item {
         case .inbox: onInbox()
         case .agents: onAgents()
+        case .bots: onBots()
         case .newAgent: onNewAgent()
         case .terminal: onTerminal()
         case .settings: onSettings()

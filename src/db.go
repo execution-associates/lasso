@@ -432,6 +432,13 @@ type uiState struct {
 	// the reason pins are: a stale copy would undo another device's dismissal.
 	// Capped at maxDismissedCards, smallest transcript_at dropped first.
 	DismissedCards map[string]int64 `json:"dismissed_cards"`
+	// InboxSince (unix ms) is where finished turns start counting for the
+	// Inbox, on every device: a turn at or before it is history, not
+	// something waiting. Server-owned and set once (seedInboxSince, at boot
+	// or by the first read that finds none), so the Mac app and the phone's
+	// simple app list the same things however long each has been installed;
+	// POST /api/ui-state discards whatever a body says about it.
+	InboxSince int64 `json:"inbox_since"`
 	// DesktopSound describes the inbox arrival sound uploaded for the Mac app
 	// (desktopsound.go), absent when none is. Server-owned: only PUT and
 	// DELETE /api/desktop/sound change it, and POST /api/ui-state discards it,
@@ -746,6 +753,21 @@ func getUIState() (uiState, error) {
 		us.DesktopSound = nil // a hand-edited blob: no sound rather than a broken one
 	}
 	return us, nil
+}
+
+// seedInboxSince answers the stored UI prefs with InboxSince set, setting it
+// to now (and saving it) when nothing has yet: a fresh lasso, or a blob an
+// older lasso rewrote without the field. Run at boot and by a GET of
+// /api/ui-state that finds none. Takes uiStateMu.
+func seedInboxSince() (uiState, error) {
+	uiStateMu.Lock()
+	defer uiStateMu.Unlock()
+	us, err := getUIState()
+	if err != nil || us.InboxSince > 0 {
+		return us, err
+	}
+	us.InboxSince = time.Now().UnixMilli()
+	return us, saveUIState(us)
 }
 
 // saveUIState overwrites the persisted UI prefs with us (serveUIState has

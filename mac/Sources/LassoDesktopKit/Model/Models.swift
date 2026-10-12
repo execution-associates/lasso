@@ -134,6 +134,9 @@ public struct HostsPayload: Codable, Sendable, Equatable {
 public struct UIStateSlice: Codable, Sendable, Equatable {
     public var pinned_agents: [String]?
     public var dismissed_cards: [String: Int64]?
+    /// Where the inbox's finished turns start counting (unix ms), the same
+    /// on every device; set once by lasso. Absent from an older lasso.
+    public var inbox_since: Int64?
     /// The uploaded arrival sound, if any (src/desktopsound.go).
     public var desktop_sound: DesktopSound?
 }
@@ -162,6 +165,8 @@ public struct BotView: Codable, Sendable, Equatable, Identifiable {
     /// A claude bot's herdr pane, while it runs (its chat is that pane's).
     public var pane_id: String?
     public var dir_path: String?
+    /// Its picture's file name (with a revision after "?"), when it has one.
+    public var avatar_image: String?
     public var live_model: LiveModel?
     /// What a blocked omp bot waits on, the same list its chat carries.
     public var pending_ui: [ChatPayload.PendingUI]?

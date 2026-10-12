@@ -23,7 +23,6 @@ public struct ChatView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Close the chat (esc)")
-                .keyHint(Keys.esc)
             }
             .padding(.top, Theme.Layout.chat.number("top"))
             .padding(.trailing, inset)
@@ -132,7 +131,6 @@ public struct ChatView: View {
                                 Image(systemName: "arrow.right")
                                     .font(.system(size: Theme.icon.number("step"), weight: .semibold))
                                     .foregroundStyle(Theme.Text.secondary.color)
-                                    .keyHint(Keys.takeStep)
                             }
                         }
                         .font(Theme.Fonts.chat.font)
@@ -143,7 +141,6 @@ public struct ChatView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Option \(i + 1): \(label)")
-                    .keyHint(Keys.editStep, .topTrailing)
                 }
             }
             .padding(.horizontal, textX - 6)

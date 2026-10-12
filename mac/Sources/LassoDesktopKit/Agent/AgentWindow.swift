@@ -72,7 +72,6 @@ struct AgentWindowView: View {
         HStack(spacing: Theme.space("xs")) {
             if model.canShowInHerdr {
                 WindowButton(symbol: "terminal", label: "Show \(model.current.displayName) in herdr") { model.showInHerdr() }
-                    .keyHint(Keys.herdr, active: !chrome.collapsed)
                     .parityAnchor("agent.herdr")
             }
             WindowButton(symbol: chrome.collapsed ? "arrow.up.left.and.arrow.down.right" : "minus",
@@ -225,7 +224,7 @@ final class AgentWindowController {
     /// 1–9 highlight a choice, → takes it, ↳ edits it, ⏎ to the composer (or
     /// send), L to the composer, R renames, U attaches, ⌘. stops, X X kills.
     func handle(_ e: NSEvent) -> Bool {
-        guard let a = CardKeys.route(e, editing: model.composerFocused || panel.editingText, among: CardKeys.windowSet)
+        guard let a = CardKeys.route(e, editing: model.composerHasKeys || panel.editingText, among: CardKeys.windowSet)
         else { return false }
         return model.perform(a)
     }

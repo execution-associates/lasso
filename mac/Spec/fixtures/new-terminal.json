@@ -1,0 +1,13 @@
+{
+  "about": "The New form as a terminal (⌥⇧I from anywhere, ⌘I in a Lasso window): the command, the machine and the working directory, and Run (⌘⏎). The web New dialog's Terminal tab.",
+  "state": "new-terminal",
+  "extends": "rail-expanded",
+  "ui": {
+    "rail": "collapsed",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "new_agent": true,
+    "new_agent_kind": "terminal"
+  }
+}

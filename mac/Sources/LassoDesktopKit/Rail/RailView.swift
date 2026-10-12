@@ -30,16 +30,18 @@ enum RailMetrics {
     }
 
     /// Height of everything below the inbox: the travel of expand/collapse.
-    static func revealHeight(_ slots: Int) -> CGFloat {
+    /// The Bots button shows while lasso has bots.
+    static func revealHeight(_ slots: Int, bots: Bool = false) -> CGFloat {
         let agents = slots > 0 ? gap + agentsHeight(slots) : 0
-        return agents + 3 * (gap + Theme.Rail.ellipsisOuter.pt)
+        return agents + CGFloat(bots ? 4 : 3) * (gap + Theme.Rail.ellipsisOuter.pt)
     }
 
-    static func expandedHeight(_ slots: Int) -> CGFloat { outer + revealHeight(slots) }
+    /// The panel's height holds the tallest rail: every slot and the Bots button.
+    static func expandedHeight(_ slots: Int, bots: Bool = true) -> CGFloat { outer + revealHeight(slots, bots: bots) }
 
     /// Each revealed control's frame in the panel, top-left origin: what the
     /// pointer is over (hover opens it) without asking the view.
-    static func itemFrames(_ slots: Int) -> [(RailModel.Item, CGRect)] {
+    static func itemFrames(_ slots: Int, bots: Bool = false) -> [(RailModel.Item, CGRect)] {
         var out: [(RailModel.Item, CGRect)] = [(.inbox, CGRect(x: margin, y: margin, width: outer, height: outer))]
         var y = margin + outer + gap
         if slots > 0 {
@@ -47,6 +49,10 @@ enum RailMetrics {
             y += agentsHeight(slots) + gap
         }
         let e = Theme.Rail.ellipsisOuter.pt
+        if bots {
+            out.append((.bots, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
+            y += e + gap
+        }
         out.append((.newAgent, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
         y += e + gap
         out.append((.terminal, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
@@ -170,14 +176,16 @@ public struct RailView: View {
                 inbox
                 VStack(spacing: RailMetrics.gap) {
                     if !slots.isEmpty { agents(slots) }
+                    if model.hasBots { bots }
                     plus
                     terminal
                     ellipsis
                 }
                 .padding(.top, RailMetrics.gap)
-                .frame(height: RailMetrics.revealHeight(slots.count), alignment: .top)
+                .frame(height: RailMetrics.revealHeight(slots.count, bots: model.hasBots), alignment: .top)
                 .modifier(
-                    RevealHeight(height: model.expanded ? RailMetrics.revealHeight(slots.count) : 0, probe: probe))
+                    RevealHeight(
+                        height: model.expanded ? RailMetrics.revealHeight(slots.count, bots: model.hasBots) : 0, probe: probe))
                 .accessibilityHidden(!model.expanded)
             }
             .frame(width: RailMetrics.outer, alignment: .top)
@@ -245,7 +253,7 @@ public struct RailView: View {
         .help(fleet.offline ? "No lasso answers: connect to one" : "Inbox: what waits on you")
     }
 
-    private var inboxCount: Int { fleet.inbox.count + fleet.notices.count }
+    private var inboxCount: Int { fleet.badgeCount }
 
     /// How many messages the inbox holds: red while one waits on the human,
     /// green when only finished turns and notices are left; none when empty.
@@ -307,6 +315,36 @@ public struct RailView: View {
         .help("Agents")
     }
 
+    /// lasso's bots: its dot is the most urgent one's state.
+    private var bots: some View {
+        let dot = BotStanding.railDot(fleet.bots)
+        let e = Theme.Rail.ellipsisOuter.pt
+        let a = Theme.avatar
+        return Button { model.activate(.bots) } label: {
+            ZStack {
+                GroupBackground(hovered: model.hovered == .bots)
+                RailIcon(symbol: "face.smiling")
+            }
+            .frame(width: e, height: e)
+            .contentShape(Circle())
+            .overlay(alignment: .bottomTrailing) {
+                if let dot {
+                    Circle()
+                        .fill(StateStyle.color(dot))
+                        .overlay(Circle().strokeBorder(Theme.Rail.badgeRing.color("color"), lineWidth: a.number("ring")))
+                        .frame(width: e * a.number("dot"), height: e * a.number("dot"))
+                        .parityAnchor("rail.bots.dot")
+                }
+            }
+        }
+        .buttonStyle(RailPress())
+        .parityAnchor("rail.bots")
+        .modifier(FocusRing(on: focused(.bots)))
+        .accessibilityLabel("Bots")
+        .accessibilityValue(dot == .blocked ? "one is asking or failed" : dot == .working ? "one is working" : "\(fleet.bots.count) bots")
+        .help("Bots")
+    }
+
     private var plus: some View {
         Button { model.activate(.newAgent) } label: {
             ZStack {
@@ -319,8 +357,8 @@ public struct RailView: View {
         .buttonStyle(RailPress())
         .parityAnchor("rail.new")
         .modifier(FocusRing(on: focused(.newAgent)))
-        .accessibilityLabel("New agent")
-        .help("New agent")
+        .accessibilityLabel("New…")
+        .help("New agent or terminal")
     }
 
     /// lasso's herdr in a terminal window. Like the plus it opens on a click

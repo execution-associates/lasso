@@ -55,7 +55,7 @@ private let specDir = packageDir.appendingPathComponent("Spec")
     let fleet = FleetModel()
     fleet.apply(panes: fx.server.all_panes)
     fleet.apply(bots: fx.server.bots)
-    fleet.inboxSince = Int64((fx.now.timeIntervalSince1970 - 3600) * 1000)
+    fleet.fallbackSince = Int64((fx.now.timeIntervalSince1970 - 3600) * 1000)
     #expect(fleet.attentionCount == fx.expect?.badge)
     #expect(fleet.railSlots(maxSlots: Theme.Rail.maxSlots.int).map(\.id) == fx.expect?.rail_slots)
 }
@@ -115,9 +115,11 @@ private let specDir = packageDir.appendingPathComponent("Spec")
     let cap = try await Capturer.capture(RailView(model: model), size: CGSize(
         width: RailMetrics.panelWidth, height: RailMetrics.expandedHeight(Theme.Rail.maxSlots.int) + 2 * RailMetrics.margin))
     let anchors: [RailModel.Item: String] = [
-        .inbox: "rail.inbox", .agents: "rail.agents.capsule", .newAgent: "rail.new", .terminal: "rail.terminal", .settings: "rail.ellipsis",
+        .inbox: "rail.inbox", .agents: "rail.agents.capsule", .bots: "rail.bots", .newAgent: "rail.new", .terminal: "rail.terminal",
+        .settings: "rail.ellipsis",
     ]
-    for (item, frame) in RailMetrics.itemFrames(model.slots.count) {
+    #expect(model.hasBots)
+    for (item, frame) in RailMetrics.itemFrames(model.slots.count, bots: model.hasBots) {
         let drawn = try #require(cap.frames[anchors[item]!])
         #expect(abs(drawn.minY - frame.minY) <= 1 && abs(drawn.height - frame.height) <= 1, "\(item): \(drawn) vs \(frame)")
     }
@@ -301,8 +303,13 @@ func key(_ c: String, _ code: UInt16) -> NSEvent {
     spin(until: { w.panel.editingText && w.model.chat != nil })
     #expect(!form.panel.isKeyWindow && !form.panel.isVisible)
     #expect(w.panel.canBecomeKey && w.panel.isKeyWindow)
+    // Never a real file picker in a test: it is modal and would wait forever.
+    w.model.chooseFiles = {
+        Issue.record("the window opened a file picker")
+        return []
+    }
     // The cursor is in the composer while the agent is still starting.
-    #expect(w.panel.editingText && w.model.focusRequest == 1)
+    try #require(w.panel.editingText && w.model.focusRequest == 1)
     guard case .starting = w.model.phase else {
         Issue.record("the new agent's window is not starting: \(w.model.phase)")
         return
@@ -362,7 +369,7 @@ func key(_ c: String, _ code: UInt16) -> NSEvent {
 /// terminals ⌃O, and none is ⌘O, which every app's File › Open already is.
 @Test func shortcutDefaultsLeaveTerminalsTheirKeys() {
     let expected: [ShortcutSlot: NSEvent.ModifierFlags] = [
-        .inbox: .option, .newAgent: [.option, .shift], .newScratch: [.control, .shift],
+        .inbox: .option, .newAgent: [.option, .shift], .newScratch: [.control, .shift], .newTerminal: [.option, .shift],
     ]
     for slot in ShortcutSlot.allCases {
         guard case .combo(let k, let m, _) = slot.fallback else { Issue.record("\(slot) has no combination"); continue }

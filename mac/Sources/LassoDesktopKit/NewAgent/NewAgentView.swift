@@ -1,11 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// The New Agent composer: the prompt is the page, everything else is a chip
-/// beneath it. A header with the kind (in a repository, or scratch), the
-/// prompt with a preview of the name its first line gives the agent, one row
-/// of chips (repository, branch, agent, model, thinking, machine), and a
-/// footer with plan-first and Create (⌘⏎).
+/// The New form: the prompt is the page, everything else is a chip beneath
+/// it. A header with the mode (an agent in a repository, a scratch agent, or
+/// a terminal), the prompt with a preview of the name its first line gives
+/// the agent, the chips (repository, branch, agent, model, thinking,
+/// machine), and a footer with plan-first and Create (⌘⏎). As a terminal, the
+/// prompt is the command, the chips are the machine and the working
+/// directory, and the button is Run.
 public struct NewAgentView: View {
     @ObservedObject var model: NewAgentModel
 
@@ -34,14 +36,14 @@ public struct NewAgentView: View {
         .overlayPreferenceValue(ChipAnchors.self) { menuLayer($0) }
         .panelChrome(Theme.NewAgent.layout.size2("size"), anchor: "new")
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("New agent")
+        .accessibilityLabel("New")
     }
 
     // MARK: header
 
     private var header: some View {
         HStack(alignment: .center, spacing: Theme.space("l")) {
-            Text("New agent")
+            Text("New")
                 .font(Theme.Fonts.title.font)
                 .foregroundStyle(Theme.Text.primary.color)
             Spacer()
@@ -67,7 +69,7 @@ public struct NewAgentView: View {
         return ZStack(alignment: .topLeading) {
             PromptEditor(text: $model.prompt, focused: $model.promptFocused, reclaim: model.openChip == nil, attach: model)
             if model.prompt.isEmpty {
-                Text(model.kind == .git ? "What should it do in this repository?" : "What should it explore?")
+                Text(placeholder)
                     .font(Theme.Fonts.chat.font)
                     .foregroundStyle(Theme.Text.placeholder.color)
                     .padding(.leading, n.number("prompt_inset") + Theme.space("2xs"))
@@ -85,13 +87,27 @@ public struct NewAgentView: View {
         .parityAnchor("new.prompt")
     }
 
+    private var placeholder: String {
+        switch model.kind {
+        case .git: "What should it do in this repository?"
+        case .scratch: "What should it explore?"
+        case .terminal: "A command to run, or nothing for a shell"
+        }
+    }
+
     /// What the agent will be called: the prompt's first line. A paste or a
     /// drop's progress, or why a file was refused, takes the line until you type.
+    /// A terminal's line says how its command runs.
     private var namePreview: some View {
         HStack(spacing: Theme.space("s")) {
-            Image(systemName: model.notice == nil ? "tag" : "paperclip").font(.system(size: Theme.icon.number("pin")))
+            Image(systemName: model.notice != nil ? "paperclip" : model.kind == .terminal ? "terminal" : "tag")
+                .font(.system(size: Theme.icon.number("pin")))
             if let notice = model.notice {
                 Text(notice).lineLimit(1).truncationMode(.middle)
+            } else if model.kind == .terminal {
+                Text(model.commandFits
+                    ? "Several lines run as one script, in a new tab of herdr."
+                    : "At most \(NewAgentModel.maxCommand) characters").lineLimit(1)
             } else if model.title.isEmpty {
                 Text("Its first line becomes the agent's name")
             } else {
@@ -106,7 +122,36 @@ public struct NewAgentView: View {
 
     // MARK: chips
 
-    private var chips: some View {
+    @ViewBuilder private var chips: some View {
+        if model.kind == .terminal { terminalChips } else { agentChips }
+    }
+
+    /// A terminal's: the machine and the directory its shell starts in.
+    private var terminalChips: some View {
+        HStack(spacing: Theme.space("s")) {
+            if model.hosts.count > 1 {
+                Chip(id: "host", icon: "desktopcomputer", value: model.hostName, label: "Machine", model: model)
+            }
+            HStack(spacing: Theme.space("s")) {
+                Image(systemName: "folder").font(.system(size: Theme.icon.number("pin"), weight: .medium))
+                    .foregroundStyle(Theme.Text.secondary.color)
+                TextField("", text: $model.cwd, prompt: Text("Working directory (optional)").foregroundColor(Theme.Text.placeholder.color))
+                    .textFieldStyle(.plain)
+                    .font(Theme.Fonts.small.font)
+                    .foregroundStyle(Theme.Text.primary.color)
+                    .onSubmit { model.create() }
+                    .accessibilityLabel("Working directory, optional: an absolute path or ~/… on \(model.hostName)")
+            }
+            .padding(.horizontal, Theme.space("l"))
+            .frame(height: n.number("chip_h"))
+            .background(Capsule().fill(Theme.Control.round.color("fill")))
+            .overlay(Capsule().strokeBorder(Theme.Panel.divider.color, lineWidth: 1))
+            .parityAnchor("new.cwd")
+        }
+        .parityAnchor("new.chips")
+    }
+
+    private var agentChips: some View {
         VStack(alignment: .leading, spacing: Theme.space("s")) {
             // Where it runs.
             HStack(spacing: Theme.space("s")) {
@@ -176,7 +221,7 @@ public struct NewAgentView: View {
 
     private var footer: some View {
         HStack(spacing: Theme.space("l")) {
-            if model.harness?.supports_plan_mode == true {
+            if model.kind != .terminal, model.harness?.supports_plan_mode == true {
                 Switch(on: model.planMode, label: "Plan first") { model.planMode.toggle() }
             }
             Spacer()
@@ -188,7 +233,7 @@ public struct NewAgentView: View {
             }
             .buttonStyle(RailPress())
             .accessibilityLabel("Cancel (esc)")
-            CreateButton(enabled: model.canCreate, busy: model.busy) { model.create() }
+            CreateButton(terminal: model.kind == .terminal, enabled: model.canCreate, busy: model.busy) { model.create() }
                 .parityAnchor("new.create")
         }
         .padding(.horizontal, n.number("pad"))
@@ -493,8 +538,9 @@ struct Switch: View {
     }
 }
 
-/// Create: the primary button, its shortcut set inside it.
+/// Create, or a terminal's Run: the primary button (⌘⏎, said in its label).
 struct CreateButton: View {
+    var terminal = false
     let enabled: Bool
     let busy: Bool
     let action: () -> Void
@@ -507,12 +553,7 @@ struct CreateButton: View {
                 if busy {
                     ProgressView().controlSize(.small).tint(ink)
                 }
-                Text(busy ? "Creating…" : "Create agent").font(Theme.Fonts.label.font)
-                Text("⌘⏎")
-                    .font(Theme.Card.keycapFont.font)
-                    .padding(.horizontal, Theme.space("xs"))
-                    .padding(.vertical, Theme.space("2xs"))
-                    .background(RoundedRectangle(cornerRadius: Theme.Card.keycapRadius.pt).fill(ink.opacity(n.number("tint"))))
+                Text(busy ? (terminal ? "Starting…" : "Creating…") : (terminal ? "Run" : "Create agent")).font(Theme.Fonts.label.font)
             }
             .foregroundStyle(ink)
             .padding(.horizontal, Theme.space("xl"))
@@ -523,7 +564,8 @@ struct CreateButton: View {
         }
         .buttonStyle(RailPress())
         .disabled(!enabled)
-        .accessibilityLabel(busy ? "Creating the agent" : "Create the agent (⌘⏎)")
+        .accessibilityLabel(
+            terminal ? (busy ? "Starting the terminal" : "Run it in a new terminal (⌘⏎)") : (busy ? "Creating the agent" : "Create the agent (⌘⏎)"))
     }
 }
 

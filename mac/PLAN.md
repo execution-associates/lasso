@@ -72,7 +72,6 @@ Proposed additions are tagged `proposed`.
   - tools capsule: 3 glyphs, no spacing
 - **Card (A.2)**
   - 500×500 pt, radius 14 pt, surface `#110F0D`, footer `#0F0F0C`
-  - keycap `#333130`, legend 10 pt semibold
   - text `#F1EEED` / `#949290`, accent `#3877F4`, danger `#EB6E62` on `#23211F`
   - row hover 6 % white, selection 12 % white (both **unmeasured**)
   - row radius 8 pt, padding 6 pt vertical × 8 pt horizontal
@@ -100,7 +99,6 @@ Proposed additions are tagged `proposed`.
   - header 36 pt
   - footer 44 pt
   - composer field 32 pt, fill white 6 %, radius 8
-  - keycap minimum 18×18 pt, radius 4, padding 4 pt horizontal
   - tool row 24 pt with radius 6, fill white 4 %
   - machine chip: radius 4, fill `#333130`, 11 pt
 - **Unread bar**: 4 pt gap between segments; read segments are white 12 %.
@@ -127,7 +125,7 @@ Proposed additions are tagged `proposed`.
    - The overshoot does check out: e^(−ζπ/√(1−ζ²)) × 330 = 0.00152 × 330 = **0.50 pt**.
 3. **The state red conflicts.** A.1 needs-you is `#AB362F`, A.2 danger is `#EB6E62`, and A.5 says one hue per state. The plan uses `#AB362F` for the blocked/failed *state* everywhere, and `#EB6E62` only for *destructive actions* (Kill).
 4. **`failed` does not exist in the fleet payload.** `agent_status` is working, blocked, done, idle or unknown (`src/hostpanes.go:263`). `failed` is used only for a bot `error`. `unknown` maps to idle grey.
-5. **`↳` / `→` keycaps are ambiguous.** The proposal: `→` takes the highlighted step (sends it), `↳` (bound to Tab) puts it into the composer to edit, `1`–`9` highlight a step. **Open question Q1.**
+5. **`↳` / `→` keys are ambiguous.** The proposal: `→` takes the highlighted step (sends it), `↳` (bound to Tab) puts it into the composer to edit, `1`–`9` highlight a step. **Open question Q1.**
 6. **The tolerances are coarse in places.**
    - ±1 px overshoot equals the whole spec value (0.5 pt = 1 px), so it passes anything up to 2 px.
    - ±10 ms on a 70 ms ease is finer than one 60 Hz frame (16.7 ms), so it can't be screenshot-measured. §5.4 measures it another way.
@@ -298,7 +296,7 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 - **Static**: every `Theme` token is compared with `tokens.json`: value, provenance and `proposed`, both ways (a token missing from either side fails).
 - **Fixture**: the state's `expect` (badge count, rail slot order) against the models.
 - **Accessibility**: the harness walks its own process through the accessibility client API (`AXUIElementCreateApplication(getpid())`), as VoiceOver would. SwiftUI builds its tree only for a client, so `NSView.accessibilityChildren` shows nothing; reading one's own process needs no Accessibility permission. Every `AXButton` must have a description, and the walk must find at least one.
-- **Keycaps** (from M4): each rendered keycap is a `KeyBinding` value from a single registry, not a string; the check asserts it is registered in the active key handler for that state.
+- **Keys** (from M4): keys work but are not drawn. Each key is a `KeyBinding` value from a single registry; the check presses every key the state has live and asserts the surface's router (`CardKeys.route` among its set) sends it to that key's action.
 
 ### 5.4 Motion
 
@@ -318,7 +316,7 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 | Animation duration (app vs reference spring; SwiftUI vs closed form) | ±10 ms |
 | Spring overshoot | ±1 px |
 | Drawn frames end at rest | ±0.5 pt |
-| Accessibility labels, keycap/binding agreement | exact |
+| Accessibility labels, key routing | exact |
 
 `parity-check.sh` prints a table of `state | check | token | spec | measured | Δ | result` and exits non-zero on any failure. States not built yet report `pending`, which is not a failure; each milestone names the states it must turn green.
 
@@ -403,7 +401,7 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 **M8: Inbox** (§13; built alongside M4's card, on M1, M2 and S1)
 - Membership and order (§13.2): asks, then blocked with no choices, then finished turns, then notices, newest first in each; claude and omp only.
 - Asks drawn from `chatAsk` and an omp bot's `pending_ui`, answered in place with the draw-time capture (§13.3, §13.4).
-- Kill (panes, behind a confirm) and Acknowledge (no write to the agent; S1 for panes and bots, local for notices) (§13.6).
+- Kill (panes, behind a confirm) and Acknowledge (no write to the agent; S1 for panes, bots and notices) (§13.6).
 - Blocked with no choices: status plus Focus in herdr (§13.5).
 - Per-item seen state, the badge as "new since you looked", `J`/`K` marking seen, the empty state (§13.7).
 - S4 on the server, if the user takes it (§13.4).
@@ -539,10 +537,8 @@ The user supplied reference screenshots of the intended look (kept out of git). 
 - **The unread bar** is a 6×18 accent pill for the open card and 6 pt grey dots for the others.
 - **The list** has group headers, then rows of dot, avatar, name, microphone and ×.
 - **The chat** puts your messages in `#1D1C1E` bubbles, with a "Talking to …" line over the composer.
-- **Keycaps are hidden**, since the references show none, and appear over their controls while ⌘ is held. Parity renders each state a second time with ⌘ held (`<state>-keys.png`) and checks every legend against its live binding.
-  - A local `flagsChanged` monitor shows them at once. Hiding them does not wait for the release: the inbox and agent windows are non-activating panels, so Lasso often has the keys without being the active app, and a ⌘ let go while another app or a screenshot overlay has the keyboard sends it no event.
-  - So while they show, a timer reads `NSEvent.modifierFlags` (the hardware state, which needs no focus or Accessibility) every `live.poll.reveal_keys` (0.2 s) and hides them once ⌘ is up. No timer runs while they are hidden. The activation observers stay as well.
-- **Parity covers all seven states: 211 checks pass.** New checks include colour patches read along a gradient, `x`/`right_inset` measures, the peek's visible width, and the ⌘-held keycap pass.
+- **Keys are not drawn.** No keycap appears on any surface, hovered, clicked or with ⌘ held. Labels name the key ("Acknowledge (A)"), and parity checks every live key is routed.
+- **Parity covers all seven states: 211 checks pass.** New checks include colour patches read along a gradient, `x`/`right_inset` measures and the peek's visible width.
 - **The app traces state changes to its log** (`dev.sh logs`): events only, never typed or spoken text. The hover reveal was verified live on minime by moving the pointer onto the peek from inside the Aqua session.
 
 ## 11. Execution Associates palette (2026-10-11)
@@ -580,17 +576,17 @@ The Inbox is the surface this app exists for: **the latest messages across lasso
 ### 13.1 Scope
 
 **claude and omp only**: claude and omp panes (`hostPane.agent` is `claude` or `omp`), plus omp bots. No other harness enters the Inbox, even when herdr reports it blocked, and nothing here is designed for one.
-- A claude-runtime bot runs in a claude pane, so it enters as that pane, through the pane chat routes.
-- A pane that is an omp bot's (by `pane_id` or herdr label, `FleetModel.bot(for:)`) enters once, as the bot.
+- A bot of either runtime enters on the pane it runs in (by `pane_id` or herdr label, `FleetModel.bot(for:)`), once. Its finished turn is its last reply (`last_at`), not its pane's `transcript_at`. A claude-runtime bot is read and answered through the pane chat routes, an omp bot through its own.
+- **One rule, lasso's state only.** The Mac (`FleetModel.inbox`) and the phone's simple app (`src/web/src/simple/inbox-rule.ts`) compute membership from what lasso serves and nothing a device keeps: the fleet, the bots, ui_state's `dismissed_cards` and `inbox_since`, and `/api/notices`. So both list the same entries and the rail's badge equals the phone's count. Both run the same cases, `mac/Spec/inbox/rules.json` (the phone reads a copy, kept equal by the Go test `TestInboxRulesCopyInSync`).
 
 ### 13.2 Membership and order
 
 | Group | An item when | Read from |
 |---|---|---|
-| **1. Waiting on you: ask** | A pane has `agent_status == "blocked"` and its chat's newest tool item carries an open `ask` (no `selected`, no `custom`). Or an omp bot has `state == "blocked"` and its chat carries `pending_ui`. | `GET /api/all-panes` (`src/hostpanes.go:923`; status from `src/panestatus.go`), then `GET /api/chat?pane=&host=` (`src/chatview.go:1823`, `ask` on `chatTool`, `:100-175`). Bots: `GET /api/bots`, then `GET /api/bots/<name>/chat` (`src/botsapi.go:578`), `pending_ui` (`src/botomp.go:125`). |
+| **1. Waiting on you: ask** | A pane has `agent_status == "blocked"` and its chat's newest tool item carries an open `ask` (no `selected`, no `custom`). Or an omp bot's pane is listed and the bot has `pending_ui`. | `GET /api/all-panes` (`src/hostpanes.go:923`; status from `src/panestatus.go`), then `GET /api/chat?pane=&host=` (`src/chatview.go:1823`, `ask` on `chatTool`, `:100-175`). Bots: `GET /api/bots`, then `GET /api/bots/<name>/chat` (`src/botsapi.go:578`), `pending_ui` (`src/botomp.go:125`). |
 | **1. Waiting on you: no choices** | A pane is blocked and its chat has no open ask (§13.5). | The same reads. |
-| **2. Finished turn** | A pane is `done` or `idle` and its `transcript_at` is newer than this Mac's seen mark for it. Or an omp bot's `last_kind == "agent"` and its `last_at` is newer than the seen mark. | `transcript_at` on the pane row; `last_at` on the bot view. |
-| **3. Notice** | The server raised one. | SSE `notice {level, title, detail}` (`hub.notify`, `src/main.go:2620`). |
+| **2. Finished turn** | A pane is not working (`done`, `idle`, or a status herdr does not name) and its `transcript_at` is newer than lasso's `inbox_since`. For a bot's pane: the bot's `last_kind == "agent"` and its `last_at` is newer than `inbox_since`. Either way, not acknowledged at or past it. | `transcript_at` on the pane row; `last_at` on the bot view; `inbox_since` in `GET /api/ui-state`. |
+| **3. Notice** | lasso keeps it and nobody has acknowledged it. | `GET /api/notices` (`src/inboxnotices.go`), and the SSE `notification` event for a new one (same `id`). |
 
 **Order:** group 1, then 2, then 3. Inside each group, newest first: by `transcript_at`, or by `last_at` for a bot, or by arrival for a notice.
 
@@ -604,12 +600,12 @@ The Inbox is the surface this app exists for: **the latest messages across lasso
 - It is re-read only when its `transcript_at`, its `last_at` or its `pending_ui` changes, or on a `bot-chat` nudge for that bot.
 - Reads are cached per (item, `transcript_at`), with at most 4 in flight.
 
-**Notices** are sent once, each with an `id` and an `at` (unix ms) from the server.
-- The app dedupes them by `id`, orders them by `at`, and keeps the last 50 in memory.
-- A relaunch loses them, as a browser tab loses its toasts.
-- They are this Mac's only. Nothing about them is shared.
+**Notices** are lasso's own notices and agents' messages (`lasso_notice`, `agent_message`), each with an `id` and an `at` (unix ms).
+- lasso keeps the last 50 in memory (`GET /api/notices`, oldest first), whether or not a client was open when one was raised. A lasso restart starts the list empty.
+- The app reads the list every 30 s and adds one heard live (the `notification` event) at once, deduped by `id`.
+- Acknowledge is shared: `notice:<id>` in `dismissed_cards`.
 
-**First launch:** the seen store is seeded with every current pane's `transcript_at` and every bot's `last_at`, so the Inbox starts with what is waiting, not with history. After that, a pane seen for the first time enters with its first finished turn.
+**The baseline is lasso's:** `ui_state.inbox_since` (unix ms), set once by lasso (at boot, or by the first read that finds none) and never by a client. A finished turn counts only after it, so a new lasso starts with what is waiting, not with history, and every device starts from the same moment. Against a lasso too old to have one, the app counts from its own launch.
 
 ### 13.3 Addressing: the agent's own choices
 
@@ -682,7 +678,7 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 | Pane (ask, no choices, finished turn) | paneKey `host\u0000pane_id` | its `transcript_at` | `transcript_at` moves past the value: a new question, or a new turn |
 | omp bot ask | `bot:<name>#<pending_ui id>` | `0` | a different question opens (a new id, so a new key) |
 | omp bot finished turn | `bot:<name>` | `last_at` in unix ms | `last_at` moves past it |
-| Notice | none: removed from this Mac's memory | | never; a notice is one-shot |
+| Notice | `notice:<id>` | its `at` | never; a notice is one-shot |
 
 - The server takes any key of 1–300 bytes (`mergeDismissedCards`, `src/hostpanes.go:711`), so bot keys need no server change.
 - The 256-entry cap drops the smallest value first, so bot-ask keys (value `0`) go first. Losing one only brings its item back.
@@ -704,7 +700,7 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 - An item is seen when the card lands on it: opened from the rail, or paged to with `J`/`K`.
 
 **The badge counts the inbox:**
-- It shows the number of messages the inbox holds: entries plus notices, "99+" past 99. It is hidden when the inbox is empty.
+- It shows the number of messages the inbox holds: entries plus notices (`FleetModel.badgeCount`), "99+" past 99. It is hidden when the inbox is empty. It is the phone's Inbox count for the same lasso: seen marks never change it.
 - It is red while one of them waits on the human, and green when only finished turns and notices are left.
 - **The peek's dot means "new since you looked":** it shows when at least one item that is not acknowledged is unseen, in the colour of the most urgent such item.
 - Seen items stay listed until they are answered, acknowledged, or no longer qualify. Seeing an item only takes it out of the peek's dot.
@@ -739,7 +735,7 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 |---|---|
 | `j` / `k` | Next / previous item, in Inbox order (wrapping). The card lands on it, the unread bar shows where you are, and it is marked seen. |
 | `x` | Kill, behind its confirm: a first `x` arms it ("Press X again"), a second kills, and any other key disarms. A bot has none. Until lasso answers (`/api/agent/close` can take seconds), the button reads "Killing…" with a spinner and is off, the conversation and the choices dim (`card.killing`) under "Killing <agent>…", and every key but `j`, `k` and `esc` waits (`CardModel.killingKey`, so paging away shows the other card as it is). A failure clears the wait and says why in the same place. Parity state `card-killing`. |
-| `a` | Acknowledge (S1): writes the entry's own key, and nothing to the agent. It returns when the item has something new. Off while the reply composer holds a draft: the button is greyed with the hint "Send or clear your reply first", `a` does nothing and shows no keycap, and a focused composer types it. |
+| `a` | Acknowledge (S1): writes the entry's own key, and nothing to the agent. It returns when the item has something new. Off while the reply composer holds a draft: the button is greyed with the hint "Send or clear your reply first", `a` does nothing, and a focused composer types it. |
 | `r` | Rename the agent in place, as a click on its name does (§17): ⏎ or a click away keeps the name, esc keeps the old one. A bot has none. |
 | `l` | Put the cursor in the reply composer, draft or not. Every key is then text until esc leaves the field. |
 | `1`–`9`, `→`, `↳` | Pick a choice, answer with it, or edit it into your own words. |
@@ -757,36 +753,31 @@ The keys are `KeyBinding`s in `Theme/Keys.swift`; `CardKeys` (`Card/CardControll
 - A kill from an agent window closes that window.
 
 **How the card gets the keyboard:**
-- **By click or keyboard:** the inbox shortcut, the summon key, or a click on the inbox button gives the card the keyboard in the same press. Opening never puts the cursor in the composer, so the next `j` pages.
-- **By hover:** an inbox opened by hover is shown without the keyboard (§16). **While the pointer is over the inbox (the rail or its card)**, the card lends itself the keyboard for `j`, `k`, `x`, `a` and `esc` only. `r` and `l` put the cursor in a field, so they wait for a click. So `j`/`k` work the moment the inbox opens under the pointer, with no move onto the card.
+- **By click or keyboard:** the inbox shortcut, ⏎ on the summoned rail's inbox button, or a click on the inbox button gives the card the keyboard in the same press. Opening never puts the cursor in the composer, so the next `j` pages. None of these pins the card: when the pointer leaves it closes (§16), and a shortcut's card first waits for the pointer to come (or esc, or a click elsewhere).
+- **By hover:** an inbox opened by hover is shown without the keyboard (§16). **While the pointer is over the inbox (the rail or its card)**, the card lends itself the keyboard for `j`, `k`, `x`, `a`, `esc`, `r` and `l` only. So `j`/`k` work the moment the inbox opens under the pointer, with no move onto the card.
+  - **`r` and `l` take the keyboard** (`CardKeys.takesKeyboard`). They put the cursor in a field (the name, the reply), so the card first becomes the user's as a click would make it (`keyMode` full, nothing lent), then acts. The pointer drifting off the card onto the rail keeps it. The pointer leaving the rail and the card closes the card as ever: a rename in progress is committed, as a click away commits it, the reply stays as a draft for that agent's next card, and the keyboard goes back to your app. A bot's card has no rename, so its `r` hands the keyboard back like any key outside the set.
   - Any other key hands the keyboard straight back. That key is lost, since a key cannot be re-sent to another app without Accessibility, and the card keeps it back until the pointer leaves and returns.
   - The keyboard is lent **once per pointer visit**. If it goes away (a click in another app), the card does not take it again until the pointer leaves and comes back.
-  - When the pointer leaves the card, the keyboard goes back to your app. A click on the card makes it fully yours.
+  - When the pointer leaves the card, the keyboard goes back to your app. A click on the card makes it fully yours until the pointer leaves the rail and the card, which closes it.
   - **Why this is safe:** the pointer is visibly on the card, so you are looking at it.
     - Paging and esc are harmless.
     - Acknowledge acts at once (the user chose no confirm for it): it never touches the agent, and the item comes back when it has something new. Kill needs a second press.
-    - Typing meant for another app is cut off at its first key outside the set. The worst a stray word does is page the card or acknowledge one item.
-- **A key shows on hover.** While the card has the keyboard, a control's keycap appears when the pointer is on that control. The user found every key at once too noisy. One app-wide value says which control is hovered (`HoveredKey`). The keycaps:
-  - `K`/`J` beside the paging chevrons, and `esc` on close
-  - `R` on the agent's name, `L` on the message box, `U` on the paperclip, and `⏎` on send or `⌘.` on Stop
-  - `X` on Kill and `A` on Acknowledge
-  - the choice numbers, plus `↳` and `→` on the selected choice
-
-  A lent keyboard shows only the five keys that work then; a full one shows any live key (`CardModel.shownKeys`). Holding ⌘ shows every key at once.
+    - Typing meant for another app is cut off at its first key outside the set. A stray word can page the card or acknowledge one item. A word that starts with `r` or `l` takes the keyboard into the name or the reply, so the rest of it lands there. A rename keeps it only on ⏎ or a click away. A reply is sent only on ⏎, so a line ended with ⏎ would reach the agent. The user chose this so that R and L work on a hovered inbox.
+- **Keys work but are not drawn.** The table above is the reference; no keycap shows on any control, hovered or with ⌘ held. Each button's accessibility label names its key.
 - **A focused text field wins.** A key typed into the composer stays text, `j` included, even as the first character. Text focus is read from the window's first responder, not only from the field's own "did begin editing" (which fires only after the first character).
 
 ### 13.8a As built (M8)
 
 - **One computation:** `FleetModel.inbox` serves the card, the badge, the peek's dot and the arrival sound.
   - **Waiting:** a claude or omp pane that is blocked, or an omp bot with `pending_ui`.
-  - **Finished:** a turn newer than this Mac's `inboxSince` (its first launch) and not acknowledged.
+  - **Finished:** a turn newer than lasso's `inbox_since` and not acknowledged; a bot's turn is its last reply.
   - **Order:** newest first within each group.
-- **Seen marks** are per entry and kept in UserDefaults (`inboxSeen`). The badge counts unseen entries plus unseen notices.
+- **Seen marks** are per entry and kept in UserDefaults (`inboxSeen`). They light the peek's dot only; the badge counts every entry plus every notice.
 - **Draw-time capture:** `CardModel.captured` freezes the question when it is first drawn, and an answer is built only from it.
 - **"Other: answer in your own words"** (where the dialog has an Other row) turns the composer into the answer (S4); ↳ does the same with a choice's words. An omp bot's `input`/`editor` request answers the same way.
 - **Blocked with no readable choices** shows "Waiting on you in the terminal" and Focus in herdr.
 - **Acknowledge keys:** Acknowledge writes the entry's own key (§13.6).
-- **Notices** arrive from the event stream and list in the inbox panel, each acknowledged with ×.
+- **Notices** come from lasso's list (`/api/notices`) and the event stream, and list in the inbox panel, each acknowledged with × on every device.
 - **Not yet built:**
   - Answering a multi-question ask in one request; only the first question is answered, and the dialog then shows the next.
   - The card's Other row, since the card shows three choices; ↳ covers it there.
@@ -797,11 +788,12 @@ The keys are `KeyBinding`s in `Theme/Keys.swift`; `CardKeys` (`Card/CardControll
 - **inbox-open**: the card the Inbox opens on, its newest item (a bot's question), with the unread bar over the rest. Its fixture grows to cover: a claude single-select ask with a `recommended` option and a folded `preview`, an omp multi-select ask, a blocked pane with no ask, a finished turn, an omp bot's `select`, and a notice.
 - **inbox-ask-picked**: a preview unfolded under its pick.
 - **inbox-empty**: the empty-state panel.
-- Each state gets geometry, colour and accessibility labels, and a ⌘-held keycap pass checking every legend against its live binding.
+- Each state gets geometry, colour and accessibility labels, and a check that every live key is routed to its action.
 
 **Contract:** the `chat_payload` golden already carries an `ask` (`mac/Spec/contract/chat_payload.json`). M8 adds `pending_ui` to the bot chat golden and a `notice` golden, written by `TestDesktopContract`.
 
 **Swift tests:**
+- The shared cases (`mac/Spec/inbox/rules.json`, `InboxRulesTests`), which the phone's tests run too.
 - Membership and order, including the harness filter and a bot's pane listed once.
 - The capture: the answer body equals the draw-time capture after the model has updated underneath it.
 - A changed ask drops the pick.
@@ -820,6 +812,7 @@ A Mac uses one lasso. Settings has three tabs, each laid out as macOS's grouped 
   - **On by default, once.** Onboarding's Done (or Open Settings) registers the app, since the rail is meant to be always there; macOS shows its "added a login item" notice then. UserDefaults `loginItemAutoRegistered` records that the one automatic registration happened, and any use of the switch sets it too, so turning it off sticks.
   - `.requiresApproval` keeps the switch on with **Open Login Items** (`SMAppService.openSystemSettingsLoginItems()`), and the group's footnote says to allow Lasso there. A refused change is a footnote naming macOS's reason.
   - **A dev build** (Info.plist names no update feed) never touches SMAppService. Its row reads "Started by the dev launch agent", because `Scripts/agent.sh`'s LaunchAgent starts it at login and restarts it after a crash. So minime never runs two.
+- **Rail position** has **Center vertically**. The rail can be dragged along its edge, and its place is kept as a fraction of the travel (UserDefaults `railPosition`). The button forgets it, as a fresh install has none, and moves the rail to the vertical middle of its screen's visible frame on the same edge (`RailController.centre`). Whatever is open beside the rail follows. The button is greyed while the rail is within a point of the middle (`RailController.isCentred`), and the row then says so.
 - **Quit Lasso** says what happens next: "It starts again at your next login" while Start at login is on (or in a dev build), else "Open Lasso again to bring the rail back."
 - **Switching is in place.** Every live action shares one `LassoClient`. `FleetSync.retarget` repoints it, empties the fleet, restarts the event stream and refills from the new lasso, and the choice is remembered. Open panels close, since they belonged to the old lasso.
 - **From titan:** `mac/Scripts/dev.sh use dev` finds the `mise run dev` backend (this worktree's, else the first on 8190–8199), checks it answers through the tunnel and relaunches the app on it. `use prod` goes back, and `use PORT` picks one.
@@ -833,7 +826,7 @@ The first launch shows the **first-run panel** (`Onboarding/`), never Settings. 
 - **Checking:** before showing a field it asks, quietly, the configured lasso through the live client (credentials and all), then lasso's own port on this Mac (`127.0.0.1:8090`) anonymously. One that answers is used and the panel goes straight to step 3; on a later launch it then does not show at all.
 - **Step 1, Connect:** the app's icon over a soft glow, "Connect this Mac to your lasso", one address field with the keyboard, and Connect (⏎). Under it, three kinds of place a lasso runs, each with an example address a click puts in the field: on your tailnet (no sign-in), behind Cloudflare Access (you sign in in your browser), on this Mac. A failure says why under the field and keeps the address.
 - **Step 2, only when asked:** a browser sign-in shows "Finish signing in in the window that opened" with Cancel, which closes the sign-in window. A UI_AUTH lasso shows a user and password form (⏎ in the user field moves to the password), checked before it is kept (§18).
-- **Step 3, Connected:** "Connected to <machine>" (the local pane's `host_label`, else `/api/hosts`' hostname), its release and address, then three tips: the inbox, the + (with the scratch shortcut) and the ellipsis. Each shortcut shows as a keycap read from `ShortcutSlot` as set now, and an Off shortcut shows none. **Open Settings** and **Done** (⏎) end the first run for good (UserDefaults `onboarded`).
+- **Step 3, Connected:** "Connected to <machine>" (the local pane's `host_label`, else `/api/hosts`' hostname), its release and address, then three tips: the inbox, the + (with the scratch shortcut) and the ellipsis. Each shortcut is named in plain text, read from `ShortcutSlot` as set now; an Off shortcut is not named. **Open Settings** and **Done** (⏎) end the first run for good (UserDefaults `onboarded`).
 - **esc** puts the panel away. Before step 3 that leaves `onboarded` unset; at step 3 it is Done.
 - **While no lasso answers** (`FleetModel.offline`: the fleet read failed before any answer from this lasso, or twice in a row after one), the inbox's badge is a grey "!" and the peek's dot is grey. A click or a rest on the inbox, and the inbox shortcut, open the first-run panel instead of an empty inbox.
 - **Parity states:** `first-run` (step 1), `first-run-connected` (step 3, the default shortcuts) and `rail-offline`.
@@ -851,8 +844,13 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
 **What the app takes from it**
 - **Hover fill** (`rail.hover.fill`): a control under the pointer takes a 20% white overlay, stepped in one frame with no animation (f655, f734). The whole agents capsule takes it, and its neighbours do not change. One value says what is hovered: `RailModel.hovered`.
 - **Pressed** (`rail.pressed`): the whole control drops to 0.71 opacity while pressed (f219–225, f355–361).
-- **Resting opens** (`rail.hover.item_open_ms`, 117 ms, f655→f662): the inbox, the agents capsule and settings open by hover alone. A hover-opened panel is ordered front **without the keyboard**, so typing in another app never lands on the card's one-letter keys. A click on it or on its control, or the summon key or inbox shortcut, gives it the keyboard.
-- **A hover-opened panel is a glance** (`rail.hover.panel_close_ms`, 317 ms, f707→f726): once the pointer has left both the rail and the panel for that long, it closes, unless a click made it the user's.
+- **Resting opens** (`rail.hover.item_open_ms`, 117 ms, f655→f662): the inbox, the agents capsule and settings open by hover alone. A hover-opened panel is ordered front **without the keyboard**, so typing in another app never lands on the card's one-letter keys.
+- **The rail's pop-outs live under the pointer** (`Glance`, `AppCoordinator.pointerTick`): the inbox's card or panel, the agents column, the Bots column (§23), their hover previews and a bot's chat. However one opened, it closes `rail.hover.panel_close_ms` (317 ms, f707→f726) after the pointer has left the rail and every pop-out. Moving from the rail to a panel inside that time does not flicker.
+  - **A click on a rail button pins nothing.** A click on the inbox button gives the card the keyboard (to reply, say), and one on the agents capsule gives the column the keyboard (↑/↓/⏎). Either still closes when the pointer leaves. A typed reply stays as a draft for that agent (`CardController.drafts`), a rename in progress is committed, and the keyboard goes back to the app that had it.
+  - **Persistent windows are what a click opens:** a row of the agents column opens that agent's own window (§19), and a row of the Bots column that bot's (§23), which stays, floats over full-screen apps and follows across Spaces. The herdr window, Settings and the New form are windows too.
+  - **A pop-out opened with the pointer elsewhere** (the inbox shortcut, ⏎ on the summoned rail, the Dock icon, the menu-bar icon's Open Inbox) waits for the pointer. It goes on esc, once the pointer has come onto the rail or a pop-out and left, or on a click elsewhere. A global mouse-down monitor and a local one hear that click (`ClickAwayWatch`). They run only while such a pop-out waits, and a click on the rail, on a pop-out, or on a menu over one keeps it (`ClickAway`).
+  - **Opening the herdr window** (the rail's terminal button, **T**, a header's button, a new terminal) puts the pop-outs away first, so it comes up alone.
+- **Settings** a hover opened is a glance until clicked: it closes once the pointer has left it and the rail, and a click makes it stay.
 - **The rail hides** 370 ms after the pointer leaves (`rail.hover.close_ms`, f959→f981).
 - **Panels fade in over 117 ms, ease-out, sliding 4.5 pt away from the rail**, and fade out over 67 ms (`motion.card_open`, f662–669; `motion.card_close`, f726–730). This replaces the brief's 70 ms.
 - **Not taken:**
@@ -900,14 +898,14 @@ A message you send shows at once, faded, under **Sending…**, until it appears 
 
 **Renaming an agent:** click the agent's name in the inbox card or either agent window (the hover preview and the window), where the pointer becomes a pointing hand, or right-click it there or on a row of the agents list and choose **Rename…**, or press R in the inbox card or either window. A click on a list row still opens the agent. The name becomes a field: it holds the agent's label, or is empty with the shown name as its placeholder when there is none, so a click away with nothing typed changes nothing. herdr's agent names are identifiers (a lowercase letter first, then lowercase letters, digits, `-` and `_`, at most 32), so what is typed becomes one: "Check HN page" is `check-hn-page` (`AgentName`, the same rule as lasso's `agentName`). ⏎ or a click anywhere else (or another app taking the keyboard) keeps the new name, as Finder does; esc keeps the old one; an empty name clears the label so the tab's name shows again. It is herdr's custom agent label, set through lasso's `POST /api/agent/rename`. A bot has no Rename, because lasso finds a bot by that name; bots are renamed in their own settings.
 
-## 20. Launching agents (the web app's ⌘O and ⌘⇧O)
+## 20. The New form: agents and terminals (the web app's ⌘O, ⌘⇧O and ⌘I)
 
-The Mac launches agents the way lasso's web New dialog does (`src/web/src/components/NewDialog.tsx`), over the same routes:
+The Mac launches agents and terminals the way lasso's web New dialog does (`src/web/src/components/NewDialog.tsx`), over the same routes:
 - `GET /api/agent-config?host=` returns the harnesses, the default or last agent and the last repository.
 - `GET /api/repos?host=` lists the repositories, and `GET /api/repo-branches?path=&host=` their branches.
 - `POST /api/create-agent` creates the agent. It answers as soon as the record, workspace and root pane exist, and the agent boots afterwards. So the new agent's **own window** (§19) opens right away on that pane, and its conversation fills in as it starts. The form gives up the keyboard as it closes, and the window takes it with the cursor in its composer (as L does), so you can write to the agent at once, while it shows "Starting <harness>".
 
-**The form:**
+**The form** is titled **New** and has three modes: In a repository, Scratch and Terminal. The form does not remember the last mode: each shortcut opens its own.
 - In a repository (a Git agent: repository plus base branch, picked with a filter, since titan has 183 repositories and 502 branches in lasso), or Scratch.
 - The prompt: its first line names the agent.
 - Agent, model and thinking effort.
@@ -916,14 +914,22 @@ The Mac launches agents the way lasso's web New dialog does (`src/web/src/compon
 - ⌘⏎ creates and esc cancels. A failed create says why and keeps the form.
 - Dragging the header moves the form. It opens where it was last left (UserDefaults `newAgentOrigin`), or centred high on the screen when that spot is off every screen.
 
-**Shortcuts** are configurable in Settings › New agents, like the inbox's:
-- **⌥⇧O** for an agent in a repository and **⌃⇧O** for a scratch agent, from any app. The user's rule is at most three keys, never four.
+**Terminal mode** is the web's Terminal tab (`NewTerminalForm.tsx`) over `POST /api/create-terminal`:
+- **The prompt is the command.** It is optional: blank opens an interactive shell, and several lines run as one script. It is at most 512 characters, the web form's limit.
+- **The chips** are the machine (when lasso drives more than one) and an optional working directory. Blank uses the workspace's default, as the web does.
+- **Agent, model, thinking and plan-first are not shown.** The button reads **Run**, with ⌘⏎.
+- **The body is the web's** (`NewAgentModel.terminalRequest`). The workspace is the host's `default_terminal_workspace` from `/api/agent-config`, else Scratch. It is sent by id when `/api/workspaces` lists it live and by name otherwise, and lasso finds or makes Scratch itself. A bare shell's tab is numbered after the workspace's last. A command's tab is left for lasso to name. `focus` is true.
+- **Run** closes the form and opens the herdr window on that host, on the new pane (§22's focus with `reveal`). A command or tab name lasso could not apply shows as the window's subtitle. A failed create says why in the form, and the form stays open.
+
+
+**Shortcuts** are configurable in Settings › New, like the inbox's:
+- **⌥⇧O** for an agent in a repository, **⌃⇧O** for a scratch agent and **⌥⇧I** for a terminal (the web's ⌘I), from any app. ⌘⇧I is taken in many apps (Safari's Mail This Page), and ⌥I alone is a dead key. The user's rule is at most three keys, never four.
 - Shift keeps ⌃O for terminals (Claude Code's transcript view, nano's save, vim's jump back, the shell) and ⌥O for typing "ø". ⌥⇧O no longer types "Ø" while it is set.
-- **⌘O and ⌘⇧O** do the same while a Lasso window has the keyboard, as in the web app. They are never system-wide, because ⌘O is every app's File › Open.
-- The rail has a **+** button above the terminal (§22) and the ellipsis, and the agents list a **New agent** button. The **+** opens the form on a click only: hovering lights it but does not open it, because the form takes the keyboard.
+- **⌘O, ⌘⇧O and ⌘I** do the same while a Lasso window has the keyboard, as in the web app. They are never system-wide, because ⌘O is every app's File › Open.
+- The rail has a **+** button ("New…") above the terminal (§22) and the ellipsis, and the agents list a **New agent** button. The **+** opens the form on a click only: hovering lights it but does not open it, because the form takes the keyboard.
 - Each chip opens its menu inside the form, toward the side with room (a system popover from a floating panel can land half off screen). Long lists (repositories, branches, a big fleet) and the model have a filter that takes the typing, like the web app's combobox; ↑/↓ move and ⏎ picks. The model's suggestions are a hint, as in the web's EditableCombobox: a typed name no suggestion has is offered first as Use “<name>”.
 
-All three system-wide shortcuts (inbox, new agent, new scratch agent) are `ShortcutSlot`s, each stored on its own and recorded the same way.
+All four system-wide shortcuts (inbox, new agent, new scratch agent, new terminal) are `ShortcutSlot`s, each stored on its own and recorded the same way.
 
 ## 18. Signing in to a lasso
 
@@ -997,7 +1003,9 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
   - the question's choices
   - the composer
   - the folder and the model
-- It appears `rail.hover.item_open_ms` after the pointer rests on the row. It goes `panel_close_ms` after the pointer has left both the row and the preview, unless a click made it the user's. It is ordered front without the keyboard.
+- It appears `rail.hover.item_open_ms` after the pointer rests on the row. It goes `panel_close_ms` after the pointer has left both the row and the preview, clicked or not (§16). It is ordered front without the keyboard.
+  - **Every row, every time** (`PreviewHover`, ticked by the list's 20 Hz poll). The rest is timed per row key, so a fleet poll redrawing the rows does not restart it, and moving to another row swaps the preview after the same rest. The row under the pointer is read through the rows' reported frames, which follow the column's scroll.
+  - **What the preview shows is read each tick**, not remembered. Esc, a click on the row (its window opens) and a click elsewhere put the preview away without the list knowing. A preview put away while the pointer stays on its row does not pop back. It opens again once the pointer has left that row.
 - Rows report their frames through a preference key, and the list's controller polls the pointer at 20 Hz, for the same reason the rail does.
 
 **Clicking a row opens the agent's own window** (`agent.window`: 488 × 632 pt, 60 pt header, 18 pt corners). Bots open one too, since a bot's pane chats through the bot's routes.
@@ -1061,7 +1069,17 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
 - A key, a pointer or the window taking focus claims the size (`/api/term-claim`), renewed at most every `live.term_claim` (15 s).
 - While another client holds the size, the page's resize frames are held and the last one goes when the size is free or ours. A size taken before layout settles (under 20×4) is never sent.
 
+**Right-clicks are herdr's.** WebKit's context menu (Reload, Inspect Element, Copy) never opens in the window. The page script cancels the `contextmenu` event and nothing else, so a right button's press and release reach xterm, and through its mouse reporting herdr, as in a browser tab. A Control-click is a right-click, as everywhere on the Mac: the script swallows its left-button press and release and hands xterm the right button's instead. `TerminalWebView.willOpenMenu` empties the menu for a click the page did not see (one before it loaded). ⌘C and ⌘V are key equivalents and unaffected.
+
+**A new terminal** from the New form's Terminal mode (§20) opens the window on its host and pane, as an agent's header button does.
+
 **The page script also** opens terminal links in the browser, puts herdr's OSC 52 copies on the clipboard, and sends Shift/Ctrl+Enter as a Kitty CSI-u key (as the web app's `lib/terminal.ts` does). ⌘W closes the window. Closing it closes the socket, and with it that herdr client. The window remembers its frame (`LassoHerdrTerminal`), and switching to another lasso closes it.
+
+**Text size.** **⌘=** or **⌘+** makes the text bigger and **⌘-** smaller, one step at a time within bounds, and **⌘0** returns to lasso's own size (`terminal.zoom`: 14, steps of 1, 8–32, the web app's terminal text range). The size is xterm's `fontSize`, the option the web app's Settings › Terminal text sets. It is not `WKWebView.pageZoom`: herdr reflows on xterm's columns and rows either way, and a page zoom would scale ttyd's own frame and overlays as well.
+- **The keys** are `TerminalWebView.performKeyEquivalent`'s, so they work without a menu bar (the app often runs as an accessory). The page, xterm and the shell never see them. Option or Control makes them the terminal's. The main menu's **View** menu has Zoom In, Zoom Out and Actual Size, sent through the responder chain, so they are live only while this window is key.
+- **ttyd's own handling** (checked against ttyd 1.7.7's bundle). ttyd exposes `window.term` with `term.fit()`. On every connect (`SET_PREFERENCES`) it merges lasso's `-t` options with the page's URL query and refits on any `font…` option. So the page loads with `fontSize=` in its query, and ttyd sizes it in one fit. A zoom sets `term.options.fontSize`, calls `term.fit()` now and on the next frame (the web app's nudge), and writes the size into the page's query with `history.replaceState`. The script also sets the size again after each `SET_PREFERENCES` frame, so a reconnect cannot put 14 back.
+- **The shared size.** A zoom is a human resizing, so it claims the size first, as a key does. The resulting resize frame goes through the gate above.
+- **Remembered** under UserDefaults `terminalFontSize`, one size for the app. lasso's own size is kept as no value, and a host switch or reload loads at the remembered size.
 
 **Parity:** `rail-hover-terminal`, plus `rail.terminal`, `card.herdr` and `agent.herdr` rows in `rail-expanded`, `card-open` and `agent-window`. The window itself has no parity state, since its page comes from a live lasso.
 
@@ -1070,3 +1088,26 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
 - The native socket's upgrade through Access with the app's bearer token.
 - Typing, paste, resize and the claim handover with a browser tab open on the same herdr.
 - A remote host's terminal (`herdr --remote`).
+
+## 23. Bots
+
+lasso's bots get a place of their own on the rail, following the web app's Bots view. Creating, deleting and configuring a bot (env, secrets, skills, jobs) stays in the web app. Bots still come to the Inbox when they ask or finish.
+
+**The rail's Bots button** sits between the agents and the **+** while lasso has bots (`RailModel.hasBots`). Its dot is the most urgent bot's state: red while one asks or failed, blue while one works, none otherwise (`BotStanding.railDot`). Like the agents capsule, resting on it opens its column and a click pins nothing (§16).
+
+**The Bots column** (`Bots/BotsColumn.swift`) is a rail pop-out the size of the agents column. Each bot has a row with its picture (`/api/bots/<name>/avatar`, else its initial), its name, its state and its last line: the question it asks, its last words, or why it failed.
+- **Order:** asking (blocked, or holding a `pending_ui` request), working, failed, idle, stopped, by name within each (`BotStanding`).
+- **Resting on a row** previews its latest exchange to the column's left, with the same timing as the agents column (`PreviewHover`).
+- **Keys:** J/K and ↑/↓ move, ⏎ opens, and esc closes. No keycaps are drawn.
+- **Manage bots ↗** opens the web app's `/bots/manage` at this lasso's address.
+
+**A row's click opens the bot's window** (`Bots/BotWindow.swift`). It is an agent window's panel with an agent window's behaviour: it persists, floats over full-screen apps, follows across Spaces, moves by its header, resizes by its corner and collapses to its header. Its frame is kept per bot (UserDefaults `botWindowFrames`). The chat is the bot chat's own `ChatModel`, on the bot's routes (`chat`, `chat/send`, `chat/answer`, `chat/stop`; a claude bot's pane chat).
+- **Header:** the picture, the name, the state and runtime. An omp bot has its model as a menu: `POST /api/bots/<name>/model`, which switches a running bot at once and otherwise says the change takes effect after a restart. The jobs count opens the bot's settings in the web app.
+- **Conversation:** as an agent window renders it. An open request's options are listed with Answer (`chat/answer`).
+- **Composer:** paste and drop upload, ⏎ sends, and ⌘. stops the turn.
+- **Footer:** New conversation (`sessions/new`), Conversations (`sessions`, a pick resumes with `sessions/resume`), Stop bot or Start bot (`stop`, `start`), and ⋯ with Restart, Jobs ↗, Settings ↗ (`/bots/<name>/settings`) and Manage bots ↗.
+- **Refusals are said.** lasso refuses a conversation switch mid-turn with a 409, and its reason shows in the window ("Not now: …"). Every other failure is named too.
+- **A stopped bot** shows "<name> isn't running." with **Start <name>** above its last conversation, and the composer is greyed until it starts.
+
+**Parity states:** `bots-column`, `bot-window` (an omp bot holding an approval) and `bot-window-stopped`. `rail-expanded`'s fixture has an asking, a working, an idle and a stopped bot, so the rail draws the Bots button with a red dot.
+
