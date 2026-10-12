@@ -745,6 +745,7 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 | `1`–`9`, `→`, `↳` | Pick a choice, answer with it, or edit it into your own words. |
 | `⏎` | To the composer when it is empty, else send what it holds. |
 | `u` | Attach a file (the paperclip; U for upload, since `a` is Acknowledge). |
+| `t` | Show the agent in herdr: focus its pane and bring the terminal window forward (§22). Not in the hover-lent set, since the terminal takes the keyboard. |
 | `⌘.` | Stop: interrupts the agent's turn (one Escape through `/api/chat/stop`, or an omp bot's `chat/stop`). It works while the agent is working or starting, even with the composer focused, since a text field would take `⌘.` as esc. |
 | `esc` | Close. |
 
