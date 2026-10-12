@@ -52,7 +52,7 @@ function isTransientCreateError(err: unknown): boolean {
 // with a short backoff — long enough for a restarting lasso to come back up.
 // The payload is identical each round, which is exactly what lets the server
 // resume the interrupted attempt instead of duplicating it.
-async function createAgentRetrying(payload: CreateAgentPayload) {
+export async function createAgentRetrying(payload: CreateAgentPayload) {
   const maxAttempts = 3
   for (let attempt = 1; ; attempt++) {
     try {
@@ -71,7 +71,7 @@ async function createAgentRetrying(payload: CreateAgentPayload) {
 // Fallback registry while the config query is in flight (or against an older
 // backend without `harnesses`); normally the list comes from the server's
 // compiled-in harness table via /api/agent-config.
-const FALLBACK_HARNESSES: HarnessDef[] = [
+export const FALLBACK_HARNESSES: HarnessDef[] = [
   {
     id: "claude",
     label: "Claude Code",
@@ -125,7 +125,7 @@ const FALLBACK_HARNESSES: HarnessDef[] = [
 
 // One of these is picked at random for the Prompt field's placeholder each time
 // the dialog opens — a little personality on an otherwise blank canvas.
-const PROMPT_PLACEHOLDERS = [
+export const PROMPT_PLACEHOLDERS = [
   "Let's go!",
   "What do you want?",
   "What are we doing here?",
@@ -155,7 +155,7 @@ const PROMPT_PLACEHOLDERS = [
 // mode, advisor) survive a close but not a create: a submit clears them
 // (`clearDraftParams`) while the harness itself stays picked, so one agent's
 // one-off flags never ride along on the next.
-type CreatorDraft = {
+export type CreatorDraft = {
   type: AgentType
   repo: string
   agent: string
@@ -179,7 +179,7 @@ const DRAFT_KEY = "lasso-creator-draft"
 // a preference to push to every device mid-edit.
 const HOST_KEY = "lasso-creator-host"
 
-function readDraftHost(): string {
+export function readDraftHost(): string {
   try {
     return localStorage.getItem(HOST_KEY) || ""
   } catch {
@@ -187,7 +187,7 @@ function readDraftHost(): string {
   }
 }
 
-function saveDraftHost(host: string) {
+export function saveDraftHost(host: string) {
   try {
     localStorage.setItem(HOST_KEY, host)
   } catch {
@@ -205,11 +205,11 @@ function readDrafts(): Record<string, Partial<CreatorDraft>> {
   }
 }
 
-function readDraft(host: string): Partial<CreatorDraft> {
+export function readDraft(host: string): Partial<CreatorDraft> {
   return readDrafts()[host] ?? {}
 }
 
-function saveDraft(host: string, draft: CreatorDraft) {
+export function saveDraft(host: string, draft: CreatorDraft) {
   try {
     const all = readDrafts()
     all[host] = draft
@@ -222,7 +222,7 @@ function saveDraft(host: string, draft: CreatorDraft) {
 // Drop the harness params from a host's draft after a create. Written straight
 // to storage because the dialog has already closed by then, and the save effect
 // only runs while it is open.
-function clearDraftParams(host: string) {
+export function clearDraftParams(host: string) {
   const draft = readDraft(host)
   if (!draft.agent) return
   saveDraft(host, {
@@ -239,7 +239,7 @@ function clearDraftParams(host: string) {
 // a real create writes it: a browse through the host dropdown is not a choice
 // about where work happens. Skipped when it already matches, since every write
 // bumps ui_state_rev and makes every open tab refetch.
-function rememberCreatorHost(host: string) {
+export function rememberCreatorHost(host: string) {
   if (!host || uiStateNow().creator_last_host === host) return
   patchUIState({ creator_last_host: host })
 }
@@ -256,7 +256,7 @@ function randomSuffix(): string {
   return Math.random().toString(36).slice(2, 6)
 }
 
-function generateBranchName(title: string): string {
+export function generateBranchName(title: string): string {
   const words = title.trim().split(/\s+/).slice(0, 4).join(" ")
   const slug = slugify(words)
   return slug ? `${slug}-${randomSuffix()}` : ""
@@ -268,7 +268,7 @@ const imagePathRE = /\/[\w\-/.]+\.(?:png|jpe?g|gif|webp)/gi
 // workspace label). Pasted-image paths are stripped first, so a prompt that
 // opens with a pasted screenshot still titles by the text the user typed rather
 // than the image's file path. Mirrors the backend's promptTitle.
-function promptTitle(text: string): string {
+export function promptTitle(text: string): string {
   const cleaned = text.replace(imagePathRE, " ")
   for (const line of cleaned.split("\n")) {
     const t = line.trim()
@@ -284,7 +284,7 @@ function extractImagePaths(text: string): string[] {
 // A host is selectable when it's reachable, running herdr, and protocol-
 // compatible (mirror of HostSwitcher's helper). Unusable hosts are listed
 // disabled — the footer switcher stays the place to provision/update them.
-function hostUsable(h: HostInfo): boolean {
+export function hostUsable(h: HostInfo): boolean {
   return h.reachable && h.running && h.compatible
 }
 
