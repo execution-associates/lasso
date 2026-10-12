@@ -1087,7 +1087,7 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
   - Raw image data is written to `$TMPDIR/LassoPaste/<uuid>/pasted-<time>.png`, uploaded, then deleted.
   - Uploads go one by one, so a failure keeps the attachments that already landed. The notice names the file and the reason.
   - Refused before any upload: folders, empty files (lasso refuses an empty body), and anything over lasso's `maxUpload` (1 GiB, `src/main.go`).
-  - The New Agent prompt has no agent yet, so its files go to the chosen host through the same route, their paths are inserted at the caret, and Create waits for them.
+  - The New Agent prompt has no agent yet, so its files go to the chosen host through the same route, as the same previews under the prompt, and Create waits for them. Their paths follow an agent's prompt after a blank line, so its first line still names it, and a terminal's command after a space. Picking another machine drops them, since they were uploaded to the old one.
 - One window per agent; a second click brings it forward. Where each agent's window was is kept in UserDefaults `agentWindowFrames`.
 - Keys while it has the keyboard (`CardKeys.windowSet`): 1–9, →, ↳, ⏎ (to the composer, or send), L (to the composer), R (rename), U (attach), ⌘. (Stop), and X X to kill. They are the inbox card's, with the same letters, minus paging, esc and Acknowledge: a window has no inbox entry to resolve. A clicked hover preview has the same minus Kill, and esc closes it. A focused composer keeps every key as text except ⌘. (§13.7a).
 - **Stop** (the web chat's rule). While the agent is working or starting and the composer is empty, the send button is Stop, a filled square with the label "Stop <agent>". A draft brings Send back.

@@ -67,7 +67,14 @@ public struct NewAgentView: View {
     private var prompt: some View {
         let r = n.number("radius")
         return ZStack(alignment: .topLeading) {
-            PromptEditor(text: $model.prompt, focused: $model.promptFocused, reclaim: model.openChip == nil, attach: model)
+            VStack(alignment: .leading, spacing: 0) {
+                PromptEditor(text: $model.prompt, focused: $model.promptFocused, reclaim: model.openChip == nil, attach: model)
+                if !model.attachments.isEmpty {
+                    ComposerAttachments(model: model)
+                        .padding(.horizontal, n.number("prompt_inset"))
+                        .padding(.bottom, n.number("prompt_inset"))
+                }
+            }
             if model.prompt.isEmpty {
                 Text(placeholder)
                     .font(Theme.Fonts.chat.font)

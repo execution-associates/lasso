@@ -1,14 +1,25 @@
 import AppKit
 import SwiftUI
 
+/// What holds attachments shown as previews (`ComposerAttachments`): a
+/// composer, and the New form's prompt.
+@MainActor
+public protocol AttachmentHolder: ObservableObject {
+    /// Files attached to the message: previews, never text, their paths
+    /// added to what is sent.
+    var attachments: [ComposerAttachment] { get set }
+}
+
+extension AttachmentHolder {
+    /// A preview's x: that file stays out of the message.
+    public func removeAttachment(_ id: ComposerAttachment.ID) { attachments.removeAll { $0.id == id } }
+}
+
 /// What a composer edits: the card's and the chat's models.
 @MainActor
-public protocol ComposerModel: ObservableObject, AttachingModel {
+public protocol ComposerModel: AttachmentHolder, AttachingModel {
     /// The words typed. Attachments are never in it.
     var composer: String { get set }
-    /// Files attached to the message: previews over the field, their paths
-    /// added to the message on send (`composedMessage`).
-    var attachments: [ComposerAttachment] { get set }
     var composerFocused: Bool { get set }
     var focusRequest: Int { get }
     var composerPlaceholder: String { get }
@@ -38,9 +49,6 @@ extension ComposerModel {
     public var composerIsEmpty: Bool {
         composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty
     }
-
-    /// A preview's x: that file stays out of the message.
-    public func removeAttachment(_ id: ComposerAttachment.ID) { attachments.removeAll { $0.id == id } }
 
     /// The unsent message, nil when there is none. One still uploading is
     /// not kept: its upload finishes into this model, not the draft.

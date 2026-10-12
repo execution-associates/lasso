@@ -187,7 +187,17 @@ public final class NewAgentModel: ObservableObject {
     static let scratchWorkspace = "Scratch"
 
     @Published public var kind: Kind
-    @Published public var host = "local" { didSet { if host != oldValue { Task { await loadHost() } } } }
+    @Published public var host = "local" {
+        didSet {
+            guard host != oldValue else { return }
+            // Attachments went to the old machine, where the agent will not run.
+            if !attachments.isEmpty {
+                attachments = []
+                notice = "Attachments dropped: they were on \(oldValue == "local" ? "lasso's machine" : oldValue). Attach them again."
+            }
+            Task { await loadHost() }
+        }
+    }
     @Published public var repo = "" { didSet { if repo != oldValue { Task { await loadBranches() } } } }
     @Published public var baseBranch = ""
     @Published public var agent = ""
@@ -209,6 +219,9 @@ public final class NewAgentModel: ObservableObject {
     @Published public private(set) var branches: [String] = []
     @Published public private(set) var busy = false
     @Published public private(set) var error: String?
+    /// Files pasted, dropped or attached to the prompt: previews under it,
+    /// never text. Their paths join the prompt when it is sent (`sentPrompt`).
+    @Published public var attachments: [ComposerAttachment] = []
     /// A file pasted or dropped on the prompt is uploading.
     @Published public private(set) var attaching = false
     /// How the last paste or drop went (attached, refused).
@@ -256,7 +269,7 @@ public final class NewAgentModel: ObservableObject {
     }
 
     /// The command is within the web form's limit.
-    public var commandFits: Bool { prompt.count <= Self.maxCommand }
+    public var commandFits: Bool { sentPrompt.count <= Self.maxCommand }
 
     public func load() async {
         hostChoices = await source.hosts()
@@ -392,10 +405,20 @@ public final class NewAgentModel: ObservableObject {
         openChip = nil
     }
 
+    /// The prompt as sent: an agent's attachments after a blank line, so the
+    /// first line still names it; a command's after it, as arguments.
+    public var sentPrompt: String {
+        let words = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let paths = attachments.compactMap(\.path)
+        if paths.isEmpty { return words }
+        if kind == .terminal { return Attachments.message(prompt, attachments) }
+        return words.isEmpty ? paths.joined(separator: "\n") : words + "\n\n" + paths.joined(separator: "\n")
+    }
+
     /// The body for /api/create-agent.
     public var request: CreateAgent {
         CreateAgent(
-            host: host, type: kind.rawValue, prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
+            host: host, type: kind.rawValue, prompt: sentPrompt,
             repo: kind == .git ? repo : nil, base_branch: kind == .git && !baseBranch.isEmpty ? baseBranch : nil,
             agent: agent, model: model.isEmpty ? nil : model, effort: effort.isEmpty ? nil : effort,
             plan_mode: planMode && (harness?.supports_plan_mode ?? false))
@@ -408,10 +431,11 @@ public final class NewAgentModel: ObservableObject {
     /// for lasso to name.
     public func terminalRequest(workspaces: [TerminalWorkspace]) -> CreateTerminal {
         let match = workspaces.first { $0.label == terminalWorkspace }
-        let blank = prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let command = sentPrompt
+        let blank = command.isEmpty
         let dir = cwd.trimmingCharacters(in: .whitespaces)
         return CreateTerminal(
-            host: host, command: blank ? "" : prompt, cwd: dir.isEmpty ? nil : dir, workspace_id: match?.workspace_id,
+            host: host, command: blank ? "" : command, cwd: dir.isEmpty ? nil : dir, workspace_id: match?.workspace_id,
             workspace_name: terminalWorkspace, tab_name: blank ? String((match?.tab_count ?? 0) + 1) : nil)
     }
 
@@ -476,11 +500,11 @@ public final class NewAgentModel: ObservableObject {
     }
 }
 
-extension NewAgentModel: AttachingModel {
+extension NewAgentModel: AttachingModel, AttachmentHolder {
     /// Files and images pasted or dropped on the prompt: uploaded to the
-    /// chosen machine (lasso's paste-file route, the composer's), their paths
-    /// put in the prompt at `caret`. The agent does not exist yet, so they
-    /// go where it will run; pick the machine first.
+    /// chosen machine (lasso's paste-file route, the composer's) as previews
+    /// under it. The agent does not exist yet, so they go where it will run;
+    /// pick the machine first.
     public func attach(_ files: [URL], at caret: Int?) {
         guard !files.isEmpty else { return }
         guard !attaching else {
@@ -495,7 +519,7 @@ extension NewAgentModel: AttachingModel {
         Task {
             defer { attaching = false }
             do {
-                notice = try await Attachments.upload(files, at: caret, into: \.prompt, of: self) {
+                notice = try await Attachments.upload(files, into: \.attachments, of: self) {
                     try await self.source.upload($0, host: host)
                 }
             } catch {

@@ -22,7 +22,7 @@ public struct PasteContents: Equatable, Sendable {
 
 /// What a paste or a drop does with it.
 public enum PastePlan: Equatable, Sendable {
-    /// Upload these files to the agent's machine and insert their paths.
+    /// Upload these files to the agent's machine as attachments.
     case files([URL])
     /// Write this image to a PNG, then upload it as a file.
     case image(Data, isPNG: Bool)
@@ -141,21 +141,6 @@ public enum Attachments {
         }
         return nil
     }
-
-    /// Insert `paths` into `text` at the UTF-16 offset `caret` (the end when
-    /// nil or out of range), set off by spaces from the words around them.
-    /// Answers the new text and the offset just after what was inserted.
-    public static func insert(_ paths: [String], into text: String, at caret: Int?) -> (text: String, caret: Int) {
-        let u = Array(text.utf16)
-        let at = caret.map { min(max($0, 0), u.count) } ?? u.count
-        var piece = paths.joined(separator: " ")
-        let space = " ".utf16.first!
-        let isSpace: (UInt16) -> Bool = { $0 == space || $0 == "\n".utf16.first! || $0 == "\t".utf16.first! }
-        if at > 0, !isSpace(u[at - 1]) { piece = " " + piece }
-        if at < u.count, !isSpace(u[at]) { piece += " " }
-        let out = String(decoding: Array(u[..<at]) + Array(piece.utf16) + Array(u[at...]), as: UTF16.self)
-        return (out, at + piece.utf16.count)
-    }
 }
 
 extension Attachments {
@@ -163,36 +148,6 @@ extension Attachments {
         let name: String
         let error: any Error
         var description: String { "\(name): \(error)" }
-    }
-
-    /// Upload each file that may go, inserting each path into the model's
-    /// `text` at `caret` as it lands (so a failure part way keeps the paths
-    /// already uploaded), and answer the notice to show. A file refused here
-    /// (a folder, empty, over lasso's cap) is never sent; nothing on this
-    /// Mac's disk is named in the message.
-    @MainActor
-    public static func upload<M: AnyObject>(
-        _ files: [URL], at caret: Int?, into text: ReferenceWritableKeyPath<M, String>, of model: M,
-        _ send: (URL) async throws -> String
-    ) async throws -> String {
-        defer { files.forEach(discardIfScratch) }
-        var at = caret
-        var done: [String] = []
-        var refused: [String] = []
-        for f in files {
-            if let why = refusal(f) {
-                refused.append(why)
-                continue
-            }
-            let path: String
-            do { path = try await send(f) } catch { throw Failed(name: f.lastPathComponent, error: error) }
-            let r = insert([path], into: model[keyPath: text], at: at)
-            model[keyPath: text] = r.text
-            at = r.caret
-            done.append(f.lastPathComponent)
-        }
-        let attached = done.isEmpty ? [] : [done.count == 1 ? "Attached \(done[0])" : "Attached \(done.count) files"]
-        return (attached + refused).joined(separator: "; ")
     }
 
     /// The notice while an upload runs.
@@ -205,7 +160,7 @@ extension Attachments {
     /// it uploads, and takes its path on the agent's machine as it lands.
     /// One taken out (its x) while uploading stays out. A failure drops that
     /// file and the ones after it and keeps the ones that landed. Answers the
-    /// notice to show, as `upload(_:at:into:of:_:)` does.
+    /// notice to show.
     @MainActor
     public static func upload<M: AnyObject>(
         _ files: [URL], into list: ReferenceWritableKeyPath<M, [ComposerAttachment]>, of model: M,
@@ -300,9 +255,9 @@ public struct ComposerDraft: Equatable {
 /// panel, a paste and a drop all end in `attach(_:at:)`.
 @MainActor
 public protocol AttachingModel: AnyObject {
-    /// Upload `files` to the agent's machine for the message: a composer
-    /// shows them as attachments; the New Agent prompt inserts their paths at
-    /// the UTF-16 offset `caret` of its text (its end when nil).
+    /// Upload `files` to the agent's machine for the message, as previews
+    /// beside its text (`caret` is where a drop landed; the previews do not
+    /// need it).
     func attach(_ files: [URL], at caret: Int?)
     func say(_ s: String?)
 }

@@ -130,7 +130,7 @@ struct ComposerRow<Model: ComposerModel>: View {
 /// The composer's attachments, over its field: an image as its thumbnail,
 /// any other file as its icon and name, each with an x that takes it out of
 /// the message. One still uploading is dimmed under a spinner.
-struct ComposerAttachments<Model: ComposerModel>: View {
+struct ComposerAttachments<Model: AttachmentHolder>: View {
     @ObservedObject var model: Model
 
     var body: some View {
