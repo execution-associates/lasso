@@ -796,7 +796,11 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 
 ## 14. Connecting to a dev lasso
 
-A Mac uses one lasso. Settings has four tabs: **lasso**, **Inbox**, **New agents** and **Permissions**. The lasso tab names the lasso by the machine it runs on ("titan"), with its release number (never a build's `(dev)` tag) and the address this Mac reaches it at. It also shows the app's version and Check for updates. **Change…** opens the address field for moving to another lasso (§18); it stays closed otherwise. It never offers a list. Connecting to a dev lasso is a development tool, done from titan:
+A Mac uses one lasso. Settings has four tabs:
+- **General:** the lasso, named by the machine it runs on ("titan"), with its release number (never a build's `(dev)` tag) and the address this Mac reaches it at, and sign-in. **Change…** opens the address field for moving to another lasso (§18); it stays closed otherwise.
+- **Notifications:** the arrival sound and Notify me about.
+- **Shortcuts:** opening the inbox, the new-agent shortcuts, and Accessibility, which only the double-tap shortcut needs.
+- **Info:** the app's version and Check for updates, and the lasso's version, herdr's, and how many machines it drives. It never offers a list. Connecting to a dev lasso is a development tool, done from titan:
 - **Switching is in place.** Every live action shares one `LassoClient`. `FleetSync.retarget` repoints it, empties the fleet, restarts the event stream and refills from the new lasso, and the choice is remembered. Open panels close, since they belonged to the old lasso.
 - **From titan:** `mac/Scripts/dev.sh use dev` finds the `mise run dev` backend (this worktree's, else the first on 8190–8199), checks it answers through the tunnel and relaunches the app on it. `use prod` goes back, and `use PORT` picks one.
 - **The tunnel** (`lasso-desktop-tunnel.service`) forwards minime's 18190–18199 to titan's 8190–8199, so a dev lasso that bumped past 8190 is still reachable.

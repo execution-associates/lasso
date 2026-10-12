@@ -31,10 +31,15 @@ public struct SettingsView: View {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: Theme.space("4xl")) {
                     switch model.tab {
-                    case .lasso: section("Connection") { lassoSection }
-                    case .inbox: inboxSection
-                    case .agents: section("Shortcuts") { newAgentSection }
-                    case .permissions: permissionsSection
+                    case .general: section("lasso") { lassoSection }
+                    case .notifications:
+                        section("Sound") { soundSection }
+                        section("Notify me about") { notifySection }
+                    case .shortcuts:
+                        section("Open the inbox") { inboxShortcutSection }
+                        section("New agents") { newAgentSection }
+                        section("Permissions") { permissionsSection }
+                    case .info: infoSection
                     }
                 }
                 .padding(.horizontal, pad)
@@ -150,7 +155,6 @@ public struct SettingsView: View {
                 PillButton(title: "Change…", label: "Connect this Mac to another lasso") { model.changingLasso = true }
             }
         }
-        if let h = model.usableHosts() { line("Drives \(h.usable) of \(h.total) machines", secondary: true) }
         if model.changingLasso {
             HStack(spacing: Theme.space("m")) {
             TextField("Address, e.g. lasso.example.com", text: $model.urlDraft)
@@ -179,14 +183,26 @@ public struct SettingsView: View {
             }
         }
         if let note = model.connectNote { line(note, secondary: true) }
-        Spacer().frame(height: Theme.space("2xl"))
-        Text("App").font(Theme.Fonts.header.font).foregroundStyle(Theme.Text.secondary.color)
-        HStack {
-            line("LassoDesktop \(AppUpdates.version)", secondary: true)
-            Spacer()
-            if let check = AppUpdates.checkNow {
-                PillButton(title: "Check for updates", label: "Check for a newer LassoDesktop") { check() }
+    }
+
+    /// The app's version and updates, and the lasso it talks to.
+    @ViewBuilder private var infoSection: some View {
+        section("LassoDesktop") {
+            HStack {
+                line("Version \(AppUpdates.version)")
+                Spacer()
+                if let check = AppUpdates.checkNow {
+                    PillButton(title: "Check for updates", label: "Check for a newer LassoDesktop") { check() }
+                }
             }
+            if AppUpdates.checkNow == nil { line("A development build: it does not update itself.", secondary: true) }
+        }
+        section("lasso") {
+            let c = LassoChoice(url: model.baseURL(), version: model.version(), name: model.lassoName())
+            line(c.title)
+            line(c.detail, secondary: true)
+            if let v = model.version(), let h = v.herdr_version { line("herdr \(h)", secondary: true) }
+            if let h = model.usableHosts() { line("Drives \(h.usable) of \(h.total) machines", secondary: true) }
         }
     }
 
@@ -210,10 +226,10 @@ public struct SettingsView: View {
         .accessibilityLabel("\(c.title), \(c.detail)")
     }
 
-    @ViewBuilder private var inboxSection: some View {
+    /// The shortcut that opens the inbox.
+    @ViewBuilder private var inboxShortcutSection: some View {
         let sc = model.shortcut
         VStack(alignment: .leading, spacing: Theme.space("s")) {
-            Text("Shortcut").font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
             HStack(spacing: Theme.space("s")) {
                 let fallback = InboxShortcutChoice.fallback
                 choice(fallback.label, on: sc == fallback, label: "\(fallback.label) opens the inbox") { model.choose(fallback) }
@@ -241,9 +257,12 @@ public struct SettingsView: View {
             } else if model.recording {
                 line("Press the combination, with ⌘, ⌥ or ⌃. esc cancels.", secondary: true)
             }
+        }
+    }
 
-            Text("Sound").font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
-                .padding(.top, Theme.space("s"))
+    /// What an arrival sounds like, and which kinds may interrupt this Mac.
+    @ViewBuilder private var soundSection: some View {
+        VStack(alignment: .leading, spacing: Theme.space("s")) {
             HStack(spacing: Theme.space("s")) {
                 ForEach(InboxSound.all.map { ($0.id, $0.name) } + [(InboxSound.none, "None")], id: \.0) { id, name in
                     choice(name, on: model.sound == id, label: id == InboxSound.none ? "No sound" : "Play \(name) when something arrives") {
@@ -267,16 +286,19 @@ public struct SettingsView: View {
             }
             if let n = model.soundNotice { line(n, secondary: true) }
             line("Plays when something new lands in the inbox. Picking one plays it. Your own sound is kept on lasso, so every Mac using it gets it.", secondary: true)
-            if let n = model.notify() {
-                Text("Notify me about").font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
-                    .padding(.top, Theme.space("s"))
-                ForEach(n.kinds) { k in notifyRow(k, on: n.wants(k.id)) }
-                line("On this Mac, a kind that is off makes no sound. The inbox still lists everything waiting.", secondary: true)
-            }
         }
     }
 
-    /// ⌥⌘O and ⌥⇧⌘O by default, each the user's to record anew or turn off.
+    @ViewBuilder private var notifySection: some View {
+        if let n = model.notify() {
+            ForEach(n.kinds) { k in notifyRow(k, on: n.wants(k.id)) }
+            line("On this Mac, a kind that is off makes no sound. The inbox still lists everything waiting.", secondary: true)
+        } else {
+            line("This lasso has no notification kinds yet: every arrival sounds.", secondary: true)
+        }
+    }
+
+    /// ⌥⇧O and ⌃⇧O by default, each the user's to record anew or turn off.
     @ViewBuilder private var newAgentSection: some View {
         ForEach([ShortcutSlot.newAgent, .newScratch], id: \.self) { slot in
             let sc = model.shortcuts[slot] ?? slot.fallback

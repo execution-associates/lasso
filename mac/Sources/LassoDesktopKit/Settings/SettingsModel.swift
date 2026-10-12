@@ -32,14 +32,14 @@ public struct LassoChoice: Identifiable, Equatable, Sendable, Codable {
 
 /// Settings' tabs.
 public enum SettingsTab: String, CaseIterable, Sendable {
-    case lasso, inbox, agents, permissions
+    case general, notifications, shortcuts, info
 
     public var title: String {
         switch self {
-        case .lasso: "lasso"
-        case .inbox: "Inbox"
-        case .agents: "New agents"
-        case .permissions: "Permissions"
+        case .general: "General"
+        case .notifications: "Notifications"
+        case .shortcuts: "Shortcuts"
+        case .info: "Info"
         }
     }
 }
@@ -81,7 +81,7 @@ public final class SettingsModel: ObservableObject {
     /// The window the sign-in sheet hangs from.
     public var signInAnchor: () -> NSWindow? = { nil }
 
-    @Published public var tab: SettingsTab = .lasso
+    @Published public var tab: SettingsTab = .general
     /// The address field is open (Change…, or a failed connect).
     @Published public var changingLasso = false
     /// The machine lasso runs on, for the connection row.
