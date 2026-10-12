@@ -20,6 +20,7 @@ public final class ChatModel: ComposerModel {
     @Published public private(set) var chat: ChatPayload?
     @Published public private(set) var loadError: String?
     @Published public var composer = ""
+    @Published public var attachments: [ComposerAttachment] = []
     @Published public var composerFocused = false
     @Published public private(set) var focusRequest = 0
     @Published public private(set) var busy = false
@@ -94,11 +95,15 @@ public final class ChatModel: ComposerModel {
     }
 
     public func send() {
-        let text = composer.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard canSend else { return }
+        let text = composedMessage
+        let sent = Set(attachments.map(\.id))
         run("Send") { [self] in
             let o = try await actions.send(bot, text: text)
-            if o.ok { composer = "" }
+            if o.ok {
+                composer = ""
+                attachments.removeAll { sent.contains($0.id) }
+            }
             await load()
             return o.ok ? "Sent" : "\(o.outcome.capitalized): \(o.detail ?? "")"
         }
@@ -137,7 +142,7 @@ public final class ChatModel: ComposerModel {
     }
 
     /// Stop takes Send's place while the bot works and the composer is empty.
-    public var showsStop: Bool { isWorking && composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    public var showsStop: Bool { isWorking && composerIsEmpty }
 
     public var stopLabel: String { "Stop \(bot.name)" }
 
@@ -167,8 +172,8 @@ public final class ChatModel: ComposerModel {
     public func attachFile() { attach(FilePicker.choose(), at: nil) }
 
     /// Upload files (the paperclip's, or pasted or dropped on the message box)
-    /// to the agent's machine and put their paths in the message at `caret`
-    /// (UTF-16), or at its end.
+    /// to the bot's machine as attachments: previews over the field, their
+    /// paths added to the message on send, never typed into it.
     public func attach(_ files: [URL], at caret: Int?) {
         guard !files.isEmpty else { return }
         guard !busy else {
@@ -178,7 +183,7 @@ public final class ChatModel: ComposerModel {
         }
         notice = Attachments.progress(files)
         run("Attach") { [self] in
-            let n = try await Attachments.upload(files, at: caret, into: \.composer, of: self) {
+            let n = try await Attachments.upload(files, into: \.attachments, of: self) {
                 try await actions.attach($0, to: bot)
             }
             if caret == nil { focusComposer() }
@@ -281,8 +286,12 @@ public final class FixtureBotChatActions: BotChatActions {
         payload ?? ChatPayload(pane_id: "bot:\(bot.name)", agent: bot.runtime, host: bot.host, items: [])
     }
 
+    /// The text of each send, in order.
+    public private(set) var sent: [String] = []
+
     public func send(_ bot: BotView, text: String) async throws -> Outcome {
         calls.append("send")
+        sent.append(text)
         return Outcome(outcome: "confirmed")
     }
 

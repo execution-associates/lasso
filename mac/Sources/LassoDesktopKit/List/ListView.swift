@@ -18,8 +18,8 @@ public struct ListView: View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
-                    HStack {
-                        Spacer()
+                    HStack(spacing: Theme.space("s")) {
+                        filterBar
                         PillButton(title: "New", primary: true, label: "New: an agent or a terminal") { model.onNew() }
                             .parityAnchor("list.new")
                     }
@@ -35,6 +35,11 @@ public struct ListView: View {
                     }
                     if fleet.agents.isEmpty {
                         Text("No agents running")
+                            .font(Theme.Fonts.body.font)
+                            .foregroundStyle(Theme.Text.secondary.color)
+                            .padding(row.number("pad_h"))
+                    } else if model.shown.isEmpty {
+                        Text("No agents match")
                             .font(Theme.Fonts.body.font)
                             .foregroundStyle(Theme.Text.secondary.color)
                             .padding(row.number("pad_h"))
@@ -58,6 +63,29 @@ public struct ListView: View {
         .panelChrome(Theme.List.size.size, anchor: "list")
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Fleet")
+    }
+
+    /// Filter-as-you-type, as the web's agent lists have: a typed key goes
+    /// here wherever the cursor is (`ListController`), esc clears it.
+    private var filterBar: some View {
+        HStack(spacing: Theme.space("s")) {
+            LucideIcon(.search, size: Theme.Fonts.body.number("size")).foregroundStyle(Theme.Text.secondary.color)
+            PlainField(text: $model.filter, placeholder: "Filter", label: "Filter agents", made: { model.filterField = $0 })
+            if !model.filter.isEmpty {
+                Text("\(model.shown.count)/\(fleet.agents.count)")
+                    .font(Theme.Fonts.small.font)
+                    .foregroundStyle(Theme.Text.secondary.color)
+                    .fixedSize()
+                Button { model.filter = "" } label: {
+                    LucideIcon(.x, size: Theme.icon.number("control")).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.Text.secondary.color)
+                .accessibilityLabel("Clear filter")
+            }
+        }
+        .font(Theme.Fonts.body.font)
+        .parityAnchor("list.filter")
     }
 
     private func header(_ title: String, anchor: String) -> some View {

@@ -80,7 +80,9 @@ struct PillButton: View {
 }
 
 /// The composer row (ref a2/a5): a round paperclip button, the field, and a
-/// round send button, which is Stop while the agent works and nothing is typed.
+/// round send button, which is Stop while the agent works and nothing is
+/// typed or attached. The field grows with the message, the buttons staying
+/// on its last line; attachments show over it (`ComposerAttachments`).
 struct ComposerRow<Model: ComposerModel>: View {
     @ObservedObject var model: Model
     let attach: () -> Void
@@ -88,34 +90,101 @@ struct ComposerRow<Model: ComposerModel>: View {
     var body: some View {
         let c = Theme.Control.composer
         let h = c.number("height")
-        let canSend = !model.composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        HStack(spacing: c.number("gap")) {
-            RoundButton(
-                glyph: .lucide(.paperclip), size: h, fill: c.color("fill"), label: "Attach a file (\(Keys.attach.legend))",
-                action: attach
-            )
-            ComposerField(model: model)
-                .padding(.leading, c.number("field_pad_l"))
-                .padding(.trailing, c.number("field_pad_r"))
-                .frame(height: h)
-                .background(Capsule().fill(c.color("fill")))
-                .parityAnchor("composer.field")
-            if model.showsStop {
-                // The web chat's Stop: a filled square while the agent works.
+        VStack(alignment: .leading, spacing: Theme.Control.composerAttachment.number("gap")) {
+            if !model.attachments.isEmpty {
+                ComposerAttachments(model: model)
+                    .padding(.leading, h + c.number("gap"))
+            }
+            HStack(alignment: .bottom, spacing: c.number("gap")) {
                 RoundButton(
-                    glyph: .lucide(.square, filled: true), enabled: !model.stopping, size: h, fill: c.color("fill"),
-                    label: "\(model.stopLabel) (⌘.)", action: model.stop
+                    glyph: .lucide(.paperclip), size: h, fill: c.color("fill"), label: "Attach a file (\(Keys.attach.legend))",
+                    action: attach
                 )
-                .parityAnchor("composer.stop")
-            } else {
-                RoundButton(
-                    // The phone's send: an arrow, a little bolder (ReplyBox).
-                    glyph: .lucide(.arrowUp, stroke: 2.5), enabled: canSend, size: h, fill: c.color("fill"), label: "Send (⏎)",
-                    action: model.send
-                )
+                ComposerField(model: model)
+                    .padding(.leading, c.number("field_pad_l"))
+                    .padding(.trailing, c.number("field_pad_r"))
+                    .frame(minHeight: h)
+                    // A capsule on one line, a rounded box as it grows.
+                    .background(RoundedRectangle(cornerRadius: h / 2, style: .continuous).fill(c.color("fill")))
+                    .parityAnchor("composer.field")
+                if model.showsStop {
+                    // The web chat's Stop: a filled square while the agent works.
+                    RoundButton(
+                        glyph: .lucide(.square, filled: true), enabled: !model.stopping, size: h, fill: c.color("fill"),
+                        label: "\(model.stopLabel) (⌘.)", action: model.stop
+                    )
+                    .parityAnchor("composer.stop")
+                } else {
+                    RoundButton(
+                        // The phone's send: an arrow, a little bolder (ReplyBox).
+                        glyph: .lucide(.arrowUp, stroke: 2.5), enabled: model.canSend, size: h, fill: c.color("fill"),
+                        label: "Send (⏎)", action: model.send
+                    )
+                }
             }
         }
         .parityAnchor("composer")
+    }
+}
+
+/// The composer's attachments, over its field: an image as its thumbnail,
+/// any other file as its icon and name, each with an x that takes it out of
+/// the message. One still uploading is dimmed under a spinner.
+struct ComposerAttachments<Model: ComposerModel>: View {
+    @ObservedObject var model: Model
+
+    var body: some View {
+        let t = Theme.Control.composerAttachment
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: t.number("gap")) {
+                ForEach(model.attachments) { a in tile(a) }
+            }
+        }
+        .frame(height: t.number("size"))
+    }
+
+    private func tile(_ a: ComposerAttachment) -> some View {
+        let t = Theme.Control.composerAttachment
+        let size = t.number("size")
+        let shape = RoundedRectangle(cornerRadius: t.number("radius"), style: .continuous)
+        return ZStack(alignment: .topTrailing) {
+            Group {
+                if let image = a.thumbnail {
+                    Image(nsImage: image).resizable().scaledToFill()
+                        .frame(width: size, height: size)
+                } else {
+                    HStack(spacing: Theme.space("s")) {
+                        LucideIcon(.file, size: Theme.Fonts.body.number("size"))
+                            .foregroundStyle(Theme.Text.secondary.color)
+                        Text(a.name)
+                            .font(Theme.Fonts.small.font)
+                            .foregroundStyle(Theme.Text.primary.color)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.leading, Theme.space("m"))
+                    .padding(.trailing, t.number("remove") + t.number("remove_inset"))
+                    .frame(width: t.number("file_w"), height: size)
+                }
+            }
+            .background(shape.fill(Theme.Control.composer.color("fill")))
+            .clipShape(shape)
+            .opacity(a.path == nil ? t.number("pending") : 1)
+            .overlay { if a.path == nil { ProgressView().controlSize(.small) } }
+            Button { model.removeAttachment(a.id) } label: {
+                LucideIcon(.x, size: t.number("remove") * Theme.icon.number("round_ratio"), stroke: 2.5)
+                    .foregroundStyle(Theme.Text.primary.color)
+                    .frame(width: t.number("remove"), height: t.number("remove"))
+                    .background(Circle().fill(Theme.Panel.surface.color))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(t.number("remove_inset"))
+            .accessibilityLabel("Remove \(a.name)")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(a.thumbnail != nil ? "Attached image \(a.name)" : "Attached \(a.name)")
     }
 }
 

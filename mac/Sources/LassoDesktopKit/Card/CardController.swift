@@ -51,7 +51,7 @@ public final class CardController {
     var openWindow: ((HostPane) -> Void)?
     /// Unsent replies by agent: a card put away (a click elsewhere, esc)
     /// keeps its draft for that agent's next card.
-    private(set) var drafts: [String: String] = [:]
+    private(set) var drafts: [String: ComposerDraft] = [:]
 
     public init(fleet: FleetModel, actions: CardActions) {
         self.fleet = fleet
@@ -113,7 +113,7 @@ public final class CardController {
         keepDraft()
         holder.model?.stopPolling()
         let model = CardModel(pane: pane, fleet: fleet, actions: actions)
-        model.composer = drafts[pane.key] ?? ""
+        model.draft = drafts[pane.key]
         model.inbox = inbox
         inbox?.markSeen(pane)
         model.keyMode = !panel.isKeyWindow ? .none : (pointerKeyed ? .lent : .full)
@@ -215,7 +215,7 @@ public final class CardController {
     /// Keep the card's unsent reply under its agent (or drop a sent one).
     private func keepDraft() {
         guard let m = holder.model else { return }
-        drafts[m.pane.key] = m.hasDraft ? m.composer : nil
+        drafts[m.pane.key] = m.draft
     }
 
     /// The card's model (tests).

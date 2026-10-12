@@ -108,6 +108,7 @@ public enum KeyCode {
     public static let escape: UInt16 = 53
     public static let up: UInt16 = 126
     public static let down: UInt16 = 125
+    public static let delete: UInt16 = 51
 }
 
 /// Which screen a window goes on: the one its anchor (the rail, the column,

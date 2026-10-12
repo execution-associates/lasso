@@ -134,12 +134,10 @@ public struct NewAgentView: View {
             HStack(spacing: Theme.space("s")) {
                 LucideIcon(.folder, size: Theme.icon.number("pin"))
                     .foregroundStyle(Theme.Text.secondary.color)
-                TextField("", text: $model.cwd, prompt: Text("Working directory (optional)").foregroundColor(Theme.Text.placeholder.color))
-                    .textFieldStyle(.plain)
-                    .font(Theme.Fonts.small.font)
-                    .foregroundStyle(Theme.Text.primary.color)
-                    .onSubmit { model.create() }
-                    .accessibilityLabel("Working directory, optional: an absolute path or ~/… on \(model.hostName)")
+                PlainField(
+                    text: $model.cwd, placeholder: "Working directory (optional)",
+                    label: "Working directory, optional: an absolute path or ~/… on \(model.hostName)", font: Theme.Fonts.small.nsFont,
+                    onSubmit: { model.create() })
             }
             .padding(.horizontal, Theme.space("l"))
             .frame(height: n.number("chip_h"))
@@ -399,7 +397,10 @@ struct ChipMenu: View {
             if model.searchable(id) {
                 HStack(spacing: Theme.space("s")) {
                     LucideIcon(.search, size: Theme.Fonts.body.number("size")).foregroundStyle(Theme.Text.secondary.color)
-                    FilterField(text: $model.chipFilter, placeholder: ["branch": "Filter branches", "repo": "Filter repositories", "model": "Filter or type a model"][id] ?? "Filter")
+                    PlainField(
+                        text: $model.chipFilter,
+                        placeholder: ["branch": "Filter branches", "repo": "Filter repositories", "model": "Filter or type a model"][id] ?? "Filter",
+                        takesFocus: true)
                 }
                 .font(Theme.Fonts.body.font)
                 .padding(.horizontal, Theme.space("l"))
@@ -460,40 +461,85 @@ struct ChipMenu: View {
     }
 }
 
-/// The menu's filter: it takes the cursor when the menu opens, so typing
-/// filters rather than writing into the prompt beneath.
-struct FilterField: NSViewRepresentable {
+/// A plain one-line field drawn in the theme's colours. SwiftUI's
+/// `TextField` takes the system's placeholder colour whatever its prompt
+/// asks for, which on the app's dark panels is dark grey on near-black, so
+/// every field with a placeholder is this one. The New Agent menu's filter
+/// takes the cursor when the menu opens, so typing filters rather than
+/// writing into the prompt beneath; the agents column's waits for a click
+/// or a typed key (`made` hands it over for that).
+struct PlainField: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
+    var label = "Filter"
+    var font: NSFont = Theme.Fonts.body.nsFont
+    var secure = false
+    var takesFocus = false
+    var onSubmit: (() -> Void)?
+    var made: (NSTextField) -> Void = { _ in }
 
-    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text, submit: onSubmit) }
 
     func makeNSView(context: Context) -> NSTextField {
-        let f = NSTextField()
+        let f: NSTextField
+        if secure {
+            f = NSSecureTextField()
+        } else {
+            let k = KeyTakingField()
+            k.landed = made
+            f = k
+        }
         f.isBordered = false
         f.isBezeled = false
         f.drawsBackground = false
         f.focusRingType = .none
-        f.font = Theme.Fonts.body.nsFont
+        f.font = font
         f.textColor = Theme.Text.primary.nsColor
         f.placeholderAttributedString = NSAttributedString(
-            string: placeholder, attributes: [.foregroundColor: Theme.Text.placeholder.nsColor, .font: Theme.Fonts.body.nsFont])
+            string: placeholder, attributes: [.foregroundColor: Theme.Text.placeholder.nsColor, .font: font])
         f.delegate = context.coordinator
-        f.setAccessibilityLabel("Filter")
-        DispatchQueue.main.async { f.window?.makeFirstResponder(f) }
+        f.setAccessibilityLabel(label)
+        if takesFocus { DispatchQueue.main.async { f.window?.makeFirstResponder(f) } }
         return f
+    }
+
+    /// A click in the field gives its panel the keyboard: a column the
+    /// pointer opened has none until then.
+    final class KeyTakingField: NSTextField {
+        /// Handed the field once it is in a window, where it can take keys.
+        var landed: (NSTextField) -> Void = { _ in }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window != nil { landed(self) }
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            if let w = window, !w.isKeyWindow { w.makeKey() }
+            super.mouseDown(with: event)
+        }
     }
 
     func updateNSView(_ f: NSTextField, context: Context) {
         if f.stringValue != text { f.stringValue = text }
+        context.coordinator.submit = onSubmit
     }
 
     @MainActor
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var text: Binding<String>
-        init(text: Binding<String>) { self.text = text }
+        var submit: (() -> Void)?
+        init(text: Binding<String>, submit: (() -> Void)?) {
+            self.text = text
+            self.submit = submit
+        }
         func controlTextDidChange(_ n: Notification) {
             if let f = n.object as? NSTextField { text.wrappedValue = f.stringValue }
+        }
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            guard selector == #selector(NSResponder.insertNewline(_:)), let submit else { return false }
+            submit()
+            return true
         }
     }
 }
