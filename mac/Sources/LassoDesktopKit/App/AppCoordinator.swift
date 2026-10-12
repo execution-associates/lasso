@@ -215,7 +215,7 @@ public final class AppCoordinator {
         rail.keepOpen = { [weak self] in
             guard let self else { return false }
             return self.card.isOpen || self.list.isOpen || self.inbox.isOpen || self.settings.isOpen || self.preview.isOpen
-                || self.chat?.panel.isOpen == true
+                || self.bots.isOpen || self.bots.previewOpen || self.chat?.panel.isOpen == true
         }
 
         clickAway.active = { [weak self] in (self?.railPanelOpen ?? false) && self?.glance?.byShortcut == true }

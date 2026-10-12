@@ -372,7 +372,10 @@ private let pageOffer = BrowserOpen(profile: "default", tab_id: "T1", url: "http
     app.hoverOpen(.agents)
     expectReplaced(list, by: app.list.panel, content: listContent, "the agents column")
     #expect(app.list.hover.panel === app.list.panel)
-    #expect(app.list.hover.contentPoint(NSPoint(x: app.list.panel.frame.midX, y: app.list.panel.frame.midY)) != nil)
+    // Once laid out: a first open lays the column out on the next turn.
+    let middle = NSPoint(x: app.list.panel.frame.midX, y: app.list.panel.frame.midY)
+    await settle { app.list.hover.contentPoint(middle) != nil }
+    #expect(app.list.hover.contentPoint(middle) != nil)
     app.closeRailPanels()
     await settle { !app.list.panel.isVisible }
 

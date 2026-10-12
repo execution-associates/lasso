@@ -197,7 +197,11 @@ public final class BotsListModel: ObservableObject, HoverColumn {
     /// The keyboard moved last: `selected` has the highlight, not the pointer.
     @Published public var keyboardLit = false
     /// Each row's frame in the scrolled rows (`ColumnRows.space`), by bot name.
-    public var rowFrames: [String: CGRect] = [:]
+    public var rowFrames: [String: CGRect] = [:] {
+        didSet { if rowFrames != oldValue { rowFramesChanged() } }
+    }
+    /// The hover's: a layout landed (`ColumnHover`).
+    public var rowFramesChanged: () -> Void = {}
     public var onOpen: (BotView) -> Void = { _ in }
     public var onManage: () -> Void = {}
     public var onClose: () -> Void = {}
