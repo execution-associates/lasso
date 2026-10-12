@@ -549,6 +549,11 @@ export interface UIState {
   // (lib/terminal-text.ts), merged per field like chat_text; an absent field
   // is lasso's default. Optional because an older server never sends it.
   terminal_text?: TerminalText
+  // The simple phone app's text (lib/phone-text.ts): the chat's fields a
+  // phone has, held to the chat's ranges, merged per field like chat_text;
+  // an absent field is the phone's default. Optional because an older server
+  // never sends it.
+  phone_text?: PhoneText
   // The first-run tour was finished or skipped on this lasso (any browser).
   // Optional because an older server never sends it, and absent must read as
   // done: an older lasso has no tour state to consult.
@@ -607,6 +612,15 @@ export type TerminalTextPatch = Partial<
   Record<TerminalTextField, number | null>
 >
 
+// The simple phone app's text settings (ui_state.phone_text): the chat's
+// units, without the column width or a plugin style.
+export type PhoneTextField = Exclude<ChatTextField, "width">
+
+export type PhoneText = Partial<Record<PhoneTextField, number>>
+
+// A phone_text write: null clears a field back to the default.
+export type PhoneTextPatch = Partial<Record<PhoneTextField, number | null>>
+
 // One entry of ui_state.sidebar_tabs. `id` is a built-in tab ("files",
 // "browser", …) or a plugin's `plugin:<name>:<tab>`; an id nothing currently
 // provides is kept, not dropped, so a plugin disabled for a while comes back
@@ -621,9 +635,10 @@ export interface SidebarTabPref {
 // sending the whole gallery out of a copy it fetched minutes ago would
 // resurrect a picture another browser just forgot.
 export interface UIStatePatch
-  extends Omit<Partial<UIState>, "chat_text" | "terminal_text"> {
+  extends Omit<Partial<UIState>, "chat_text" | "terminal_text" | "phone_text"> {
   chat_text?: ChatTextPatch
   terminal_text?: TerminalTextPatch
+  phone_text?: PhoneTextPatch
   remember_background?: string
   forget_background?: string
   // Pin ops on pinned_agents, per paneKey: true pins, false unpins.

@@ -67,10 +67,28 @@ To get your [bots](../web-ui/bots.md) as an app of their own, install the [Bots 
 
 A phone (a touch screen under 768 px wide) that opens lasso's address goes to `/m`, the simple app. It has four tabs:
 
-- **Inbox.** What is waiting on you across lasso's Claude Code and omp agents: questions to answer, agents blocked with nothing to pick from, finished turns, and lasso's notices. It opens on the newest card; swipe sideways or use the arrows to page through the rest. Answer a question with a tap, reply to a finished turn, or **Acknowledge** a card that needs nothing more. Acknowledge is shared by every device and by the [Mac app](./desktop.md); which cards this phone has seen, and an unsent reply, stay on this phone.
-- **Agents.** Every agent on every host, each opening as a conversation you can read and answer, with any images, audio and video it shared.
+- **Inbox.** What is waiting on you across lasso's Claude Code and omp agents: questions to answer, agents blocked with nothing to pick from, finished turns, and lasso's notices. It opens on the newest card; swipe sideways or use the arrows to page through the rest. Answer a question with a tap, reply to a finished turn, or **Acknowledge** a card that needs nothing more. While a reply to a card is half written, its Acknowledge is greyed out until you send the reply or clear it. Acknowledge is shared by every device and by the [Mac app](./desktop.md); which cards this phone has seen, and an unsent reply, stay on this phone.
+- **Agents.** Every agent on every host, each opening as a conversation you can read and answer, with any images, audio and video it shared. The round **+** at the bottom right starts a new one: Git (a branch and worktree of a repository you pick by typing part of its name, from a base branch) or Scratch (a fresh folder), the host when lasso drives more than one, the harness, model and thinking effort, and a prompt whose first line names the agent. It opens on the same choices as the full lasso's New agent in that browser, and lands you in the new agent's conversation, which shows it starting until its first message. Plan mode, extra CLI arguments, the advisor and file attachments are in the full lasso's creator.
 - **Bots.** Your [bots](../web-ui/bots.md) and their conversations.
-- **Settings.** Notifications and their kinds, appearance, the lasso this phone is connected to, and **Switch to the advanced view**.
+- **Settings.** Notifications and their kinds, appearance, **Text**, the lasso this phone is connected to, and **Switch to the advanced view**.
+
+### Text
+
+**Settings → Text** sets how the simple app shows what you read: the conversations and the Inbox's cards. Each control is a pair of − and + buttons, and the preview at the top of the section shows a reply set exactly as a conversation would set it.
+
+| Setting | Default | Range |
+| --- | --- | --- |
+| Size | 17px | 14–24px |
+| Weight | 400 | 300–700 |
+| Line height | 1.60 | 1.3–2.1 |
+| Letter spacing | 0 | −0.02–0.08em |
+| Reading panel | 70% | off–100% |
+
+Size moves everything in a conversation and on a card together, the tool rows, captions and labels around the prose included, so nothing is left behind at the old size. The reading panel is a wash of your theme's background behind a conversation; it only shows when the theme has a backdrop. **Reset to defaults** clears every field.
+
+These settings are lasso's, not this phone's: every phone using the simple app gets them. They are separate from the full lasso's **Settings → Chat text**, so a size picked for a phone held at arm's length does not resize the chat on your desktop, and the other way round. The typeface is shared: **Settings → Typography → Chat** in the full lasso sets it for both.
+
+Secondary text (captions, an agent's reasoning, a tool row's detail) is held to WCAG AA contrast, 4.5:1, against your theme's background and its cards. A theme whose muted colour already reaches that, lasso's own light and dark included, is shown as it is.
 
 Simple or advanced is remembered per device, so choosing the full UI on a phone does not change your laptop. From the full UI, **Simple view** in the view menu (and in Settings → General) goes back. A desktop browser can open `/m` too.
 

@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { ChevronLeft, ChevronRight, Power } from "lucide-react"
+import { ChevronLeft, ChevronRight, Plus, Power } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 
@@ -89,6 +89,7 @@ export function AgentsList({ go }: { go: (r: SimpleRoute) => void }) {
   return (
     <Screen
       title="Agents"
+      className="relative"
       status={
         <ConnectionLine
           error={fleet.error as Error | null}
@@ -104,7 +105,9 @@ export function AgentsList({ go }: { go: (r: SimpleRoute) => void }) {
           Agents you start in herdr, on any machine lasso drives, show up here.
         </EmptyState>
       ) : (
-        <ScrollBody>
+        // Room below the last row for the New agent button, so it never sits
+        // over a row the list cannot scroll clear of it.
+        <ScrollBody className="pb-[calc(env(safe-area-inset-bottom)+176px)]">
           {groups.map((g) => (
             <section key={g.key}>
               <GroupHeader>
@@ -132,7 +135,24 @@ export function AgentsList({ go }: { go: (r: SimpleRoute) => void }) {
           ))}
         </ScrollBody>
       )}
+      <NewAgentButton onClick={() => go({ view: "new" })} />
     </Screen>
+  )
+}
+
+// A round + floating over the list's bottom right, above the tab bar and the
+// home indicator: the creator is the one thing this screen starts.
+function NewAgentButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label="New agent"
+      title="New agent"
+      onClick={onClick}
+      className="absolute right-4 bottom-[calc(env(safe-area-inset-bottom)+96px)] z-20 flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-[0_8px_24px_rgb(0_0_0/0.32)] active:scale-95"
+    >
+      <Plus className="size-7" strokeWidth={2.25} />
+    </button>
   )
 }
 
@@ -245,7 +265,7 @@ export function AgentChat({
           </button>
         }
         placeholder={`Message ${name}…`}
-        className="min-h-0 flex-1"
+        className="phone-chat min-h-0 flex-1"
       />
       <EndAgentDialog
         open={confirmKill}

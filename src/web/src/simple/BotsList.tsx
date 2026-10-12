@@ -141,7 +141,7 @@ export function BotChat({
       title={bot.name}
       headerLead={<BackButton onClick={back} />}
       placeholder={`Message ${bot.name}…`}
-      className="min-h-0 flex-1"
+      className="phone-chat min-h-0 flex-1"
     />
   )
 }

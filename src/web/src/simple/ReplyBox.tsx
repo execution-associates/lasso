@@ -22,6 +22,7 @@ export function ReplyBox({
   host,
   send,
   disabled,
+  onDraftChange,
 }: {
   // Who the reply is for, which is what its draft is kept under.
   draftKey: string
@@ -30,6 +31,9 @@ export function ReplyBox({
   host?: string
   send: (text: string) => Promise<ChatSendResult>
   disabled?: boolean
+  // Told whether the box holds anything but whitespace: the card holds its
+  // Acknowledge back while a reply is half written.
+  onDraftChange?: (drafting: boolean) => void
 }) {
   const [text, setTextState] = React.useState(() => drafts.get(draftKey) ?? "")
   const setText = (next: string | ((t: string) => string)) =>
@@ -39,6 +43,10 @@ export function ReplyBox({
       else drafts.delete(draftKey)
       return v
     })
+  const drafting = text.trim() !== ""
+  const draftChanged = React.useRef(onDraftChange)
+  draftChanged.current = onDraftChange
+  React.useEffect(() => draftChanged.current?.(drafting), [drafting])
   const [busy, setBusy] = React.useState(false)
   const [notice, setNotice] = React.useState<string | null>(null)
   const fileRef = React.useRef<HTMLInputElement>(null)

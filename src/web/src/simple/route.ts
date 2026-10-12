@@ -5,6 +5,7 @@ import { lsGet, lsSet } from "@/lib/app-store"
 export type SimpleRoute =
   | { view: "inbox" }
   | { view: "agents" }
+  | { view: "new" }
   | { view: "agent"; host: string; pane: string }
   | { view: "bots" }
   | { view: "bot"; name: string }
@@ -24,6 +25,8 @@ export function parseSimplePath(path: string): SimpleRoute {
     .map(decodeURIComponent)
   switch (parts[0]) {
     case "agents":
+      // Two segments can only be the creator: a chat is host and pane, three.
+      if (parts.length === 2 && parts[1] === "new") return { view: "new" }
       if (parts.length >= 3)
         return { view: "agent", host: parts[1], pane: parts[2] }
       return { view: "agents" }
@@ -44,6 +47,8 @@ export function simplePath(r: SimpleRoute): string {
       return SIMPLE_BASE
     case "agents":
       return `${SIMPLE_BASE}/agents`
+    case "new":
+      return `${SIMPLE_BASE}/agents/new`
     case "agent":
       return `${SIMPLE_BASE}/agents/${e(r.host)}/${e(r.pane)}`
     case "bots":

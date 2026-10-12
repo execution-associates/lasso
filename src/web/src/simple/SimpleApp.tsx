@@ -2,6 +2,8 @@ import { Bot, Inbox, List, Settings } from "lucide-react"
 import * as React from "react"
 
 import { AskConfirmContext, ChatSubmitContext } from "@/components/ChatView"
+import { phoneTextStyle, usePhoneMuted } from "@/lib/phone-text"
+import { useUIState } from "@/lib/ui-state"
 import { AgentChat, AgentsList } from "@/simple/AgentsView"
 import { BotChat, BotsList } from "@/simple/BotsList"
 import { InboxView } from "@/simple/InboxView"
@@ -11,6 +13,7 @@ import {
   useInbox,
   useSeenMarks,
 } from "@/simple/inbox"
+import { NewAgent } from "@/simple/NewAgent"
 import { TabBar, type TabSpec } from "@/simple/parts"
 import { parseSimplePath, type SimpleRoute, simplePath } from "@/simple/route"
 import { SimpleSettings } from "@/simple/SimpleSettings"
@@ -25,6 +28,7 @@ type Tab = "inbox" | "agents" | "bots" | "settings"
 function tabOf(r: SimpleRoute): Tab {
   switch (r.view) {
     case "agent":
+    case "new":
       return "agents"
     case "bot":
       return "bots"
@@ -45,12 +49,19 @@ export function SimpleApp() {
 
   // Every move inside the app is a history entry marked as ours, so a chat's
   // Back returns to whatever opened it (the Inbox, a list) through history.
-  const go = React.useCallback((r: SimpleRoute) => {
-    const path = simplePath(r)
-    if (path !== window.location.pathname)
-      window.history.pushState({ simple: true }, "", path)
-    setRoute(r)
-  }, [])
+  // replace swaps the current entry instead, so a page that hands over to
+  // another (the creator to the agent it made) is not one Back returns to.
+  const go = React.useCallback(
+    (r: SimpleRoute, opts?: { replace?: boolean }) => {
+      const path = simplePath(r)
+      if (opts?.replace)
+        window.history.replaceState(window.history.state, "", path)
+      else if (path !== window.location.pathname)
+        window.history.pushState({ simple: true }, "", path)
+      setRoute(r)
+    },
+    []
+  )
   // Back from a chat: the previous entry when this app pushed the chat's, else
   // (opened straight from a link or a reload) the list it belongs to.
   const back = React.useCallback(
@@ -75,13 +86,22 @@ export function SimpleApp() {
     { id: "settings", label: "Settings", icon: Settings },
   ]
   // A conversation has its own composer at the bottom, so it is a page of its
-  // own with a Back, and the tab bar steps aside.
-  const inChat = route.view === "agent" || route.view === "bot"
+  // own with a Back, and the tab bar steps aside; so does the agent creator,
+  // whose Create button sits where the bar would.
+  const inChat =
+    route.view === "agent" || route.view === "bot" || route.view === "new"
+  // The phone's own text settings (Settings → Text), pinned here so they win
+  // over the desktop chat's inside this app and nowhere else.
+  const phoneText = useUIState().phone_text ?? {}
+  const muted = usePhoneMuted()
 
   return (
     <AskConfirmContext.Provider value={true}>
       <ChatSubmitContext.Provider value={noteChatSubmitted}>
-        <div className="chat-overlay fixed inset-0 flex flex-col bg-background pt-[env(safe-area-inset-top)]">
+        <div
+          className="chat-overlay chat-text phone-text fixed inset-0 flex flex-col bg-background pt-[env(safe-area-inset-top)]"
+          style={phoneTextStyle(phoneText, muted)}
+        >
           <main
             // A tablet gets a phone-width column, centred, rather than cards
             // stretched across the screen.
@@ -94,6 +114,18 @@ export function SimpleApp() {
                 host={route.host}
                 pane={route.pane}
                 onBack={() => back({ view: "agents" })}
+              />
+            )}
+            {route.view === "new" && (
+              <NewAgent
+                onBack={() => back({ view: "agents" })}
+                onCreated={(host, pane) =>
+                  // The creator's entry becomes the agent's, so Back from the
+                  // conversation returns to the list, not to a spent form.
+                  pane
+                    ? go({ view: "agent", host, pane }, { replace: true })
+                    : go({ view: "agents" }, { replace: true })
+                }
               />
             )}
             {route.view === "bots" && <BotsList go={go} />}
