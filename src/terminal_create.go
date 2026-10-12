@@ -248,7 +248,7 @@ func resolveTerminalCwd(b Backend, cwd string) (string, error) {
 // the new pane once its shell has settled, and writes the response.
 func finishCreateTerminal(w http.ResponseWriter, b Backend, out createTerminalResp, command string, aiTitle bool) {
 	if aiTitle && out.TabID != "" {
-		go terminalTitler(b, out.TabID, command)
+		go terminalTitler(b, out.TabID, out.RootPane, command)
 	}
 	if command != "" {
 		waitPaneReady(b, out.RootPane)

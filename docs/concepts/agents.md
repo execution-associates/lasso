@@ -70,10 +70,11 @@ If lasso dies mid-create (an update restart, a dropped ssh connection), the half
 
 An agent's title is the first line of its prompt (pasted image paths are skipped), or the title passed to `create_agent`, or `Untitled agent` when there is neither. The branch, the work dir and the workspace label are all named from it.
 
-A prompt's first line is written for the agent, not for a sidebar, so lasso then asks a local agent CLI to summarize the whole prompt into a few words and renames the agent to that. It tries `claude`, then `codex`, `opencode`, `omp` and `pi`, using the first one that answers (each gets up to 90 seconds before lasso moves on to the next). Auto-titling:
+A prompt's first line is written for the agent, not for a sidebar, so lasso then asks a local agent CLI to summarize the whole prompt into two names: a **title** of three to six words and a **name** of one or two words. The title goes on the herdr workspace and the record; the name goes on a scratch agent's tab and becomes the agent's herdr label, described below (`SSO loop` is `sso-loop`, with `-2`, `-3`, … when another live agent or a bot already holds it). It tries `claude`, then `codex`, `opencode`, `omp` and `pi`, using the first one that answers (each gets up to 90 seconds before lasso moves on to the next). Auto-titling:
 
 - runs on **lasso's machine**, whatever host the agent is on;
-- changes only the **display name** (the herdr workspace label and the record's title), never the branch or directory, which already exist;
+- changes only **display names** (the herdr workspace label or a scratch agent's tab, the record's title and the herdr label), never the branch or directory, which already exist, and never a worktree agent's tab;
+- leaves a herdr label that is already set alone, and waits up to five minutes for herdr to detect the agent before labelling it;
 - never overrides a title an MCP caller passed explicitly;
 - can be turned off in Settings → General → Agents → **Auto-title new agents from their prompt**.
 
