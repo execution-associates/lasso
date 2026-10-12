@@ -7,7 +7,7 @@ import SwiftUI
 @MainActor
 public final class RailModel: ObservableObject {
     public enum Item: Hashable, Sendable {
-        case inbox, agents, bots, newAgent, terminal, settings
+        case inbox, agents, bots, newAgent, terminal, browser, settings
     }
 
     @Published public var expanded = false
@@ -17,6 +17,11 @@ public final class RailModel: ObservableObject {
     /// The control under the pointer: one value, since the pointer is over
     /// one thing. Resting on it opens it (`onHoverOpen`).
     @Published public var hovered: Item?
+    /// An agent opened a page for the human: the Browser button pulses.
+    @Published public var browserPulse = false
+    /// The pulse's phase (0..<1) for the parity harness, which draws one
+    /// still frame; nil animates it.
+    public var browserPulsePhase: Double?
 
     public let fleet: FleetModel
     /// Set by the parity harness only: wraps the rail's animation so the
@@ -32,6 +37,8 @@ public final class RailModel: ObservableObject {
     public var onNewAgent: () -> Void = {}
     /// The terminal: lasso's herdr in a window of its own.
     public var onTerminal: () -> Void = {}
+    /// The globe: lasso's browsers in a window of their own.
+    public var onBrowser: () -> Void = {}
     /// The ellipsis: settings.
     public var onSettings: () -> Void = {}
     /// The pointer rested on a control: open what it opens (never toggle it
@@ -54,7 +61,7 @@ public final class RailModel: ObservableObject {
         var out: [Item] = [.inbox]
         if !slots.isEmpty { out.append(.agents) }
         if hasBots { out.append(.bots) }
-        return out + [.newAgent, .terminal, .settings]
+        return out + [.newAgent, .terminal, .browser, .settings]
     }
 
     public func setExpanded(_ on: Bool, animated: Bool = true) {
@@ -88,6 +95,7 @@ public final class RailModel: ObservableObject {
         case .bots: onBots()
         case .newAgent: onNewAgent()
         case .terminal: onTerminal()
+        case .browser: onBrowser()
         case .settings: onSettings()
         }
     }

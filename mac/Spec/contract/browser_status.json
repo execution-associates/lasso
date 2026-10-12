@@ -1,0 +1,43 @@
+{
+  "available": true,
+  "running": true,
+  "binary": "x",
+  "reason": "x",
+  "idle_minutes": 1,
+  "started_at": "x",
+  "capped": true,
+  "cpu_quota": "x",
+  "mem_high": "x",
+  "pages": [
+    {
+      "id": "x",
+      "url": "x",
+      "title": "x"
+    }
+  ],
+  "ws_path": "x",
+  "tools_available": true,
+  "tools_binary": "x",
+  "tools_reason": "x",
+  "tools_sessions": 1,
+  "profiles": [
+    {
+      "id": "x",
+      "name": "x",
+      "cdp_url": "x",
+      "default": true,
+      "running": true,
+      "started_at": "x",
+      "capped": true,
+      "reason": "x",
+      "pages": [
+        {
+          "id": "x",
+          "url": "x",
+          "title": "x"
+        }
+      ],
+      "ws_path": "x"
+    }
+  ]
+}

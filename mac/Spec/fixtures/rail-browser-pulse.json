@@ -1,0 +1,18 @@
+{
+  "about": "The rail while an agent's page waits: the Browser button (between the terminal and the ellipsis) wears the accent ring on its rim, breathing, drawn here still at its brightest.",
+  "state": "rail-browser-pulse",
+  "extends": "rail-expanded",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "browser_offer": {
+      "profile": "minime",
+      "tab_id": "B7F3A0C2D1E4",
+      "url": "https://github.com/execution-associates/lasso",
+      "from": "olivia",
+      "mode": "live"
+    }
+  }
+}

@@ -51,9 +51,9 @@ final class RightClickStub: URLProtocol, @unchecked Sendable {
     func claim(_ host: String, client: String) async throws -> String { client }
 }
 
-/// A stand-in ttyd on loopback: accepts the window's socket and keeps what
+/// A stand-in ttyd (or CDP endpoint) on loopback: accepts a page's socket and keeps what
 /// the page sends.
-private final class StandInTTYD: @unchecked Sendable {
+final class StandInSocketServer: @unchecked Sendable {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "stand-in-ttyd")
     private let lock = NSLock()
@@ -64,8 +64,9 @@ private final class StandInTTYD: @unchecked Sendable {
     init() throws {
         let ws = NWProtocolWebSocket.Options()
         ws.autoReplyPing = true
-        ws.setClientRequestHandler(DispatchQueue(label: "stand-in-ttyd-upgrade")) { _, _ in
-            NWProtocolWebSocket.Response(status: .accept, subprotocol: "tty")
+        // ttyd's "tty" when the page asks for it; a CDP client asks for none.
+        ws.setClientRequestHandler(DispatchQueue(label: "stand-in-ttyd-upgrade")) { offered, _ in
+            NWProtocolWebSocket.Response(status: .accept, subprotocol: offered.first)
         }
         let params = NWParameters.tcp
         params.defaultProtocolStack.applicationProtocols.insert(ws, at: 0)
@@ -94,7 +95,7 @@ private final class StandInTTYD: @unchecked Sendable {
     func stop() { listener.cancel() }
 }
 
-@MainActor private func until(_ seconds: Double, _ done: () async -> Bool) async {
+@MainActor func until(_ seconds: Double, _ done: () async -> Bool) async {
     let end = Date().addingTimeInterval(seconds)
     while !(await done()), Date() < end { try? await Task.sleep(nanoseconds: 30_000_000) }
 }
@@ -103,7 +104,7 @@ private final class StandInTTYD: @unchecked Sendable {
 /// press and release (so xterm reports both to herdr), WebKit's menu stays
 /// shut, and a Control-click is the same right-click.
 @MainActor @Test func rightClicksInTheHerdrWindowReachHerdr() async throws {
-    let ttyd = try StandInTTYD()
+    let ttyd = try StandInSocketServer()
     defer { ttyd.stop() }
     await until(2) { ttyd.port != 0 }
     let client = LassoClient(baseURL: URL(string: "http://127.0.0.1:\(ttyd.port)")!, protocolClasses: [RightClickStub.self])

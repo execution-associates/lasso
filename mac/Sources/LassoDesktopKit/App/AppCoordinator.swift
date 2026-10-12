@@ -36,6 +36,11 @@ public final class AppCoordinator {
     private var newAgent: NewAgentController?
     /// lasso's herdr in a window of its own; made on first use, live lassos only.
     private var terminal: HerdrTerminalController?
+    /// lasso's browsers in a window of their own; made on first use, live
+    /// lassos only. An agent's page waits in `browserAttention` (PLAN 24).
+    private var browser: BrowserWindowController?
+    let browserAttention = BrowserAttention()
+    private var banner: BrowserBanner!
     /// The first-run panel: connect, sign in, three tips.
     private var firstRun: FirstRunController?
     private var presence: AppPresence?
@@ -241,6 +246,7 @@ public final class AppCoordinator {
             self.settings.follow()
             self.chat?.panel.follow()
             self.bots.follow()
+            self.banner.follow()
         }
         rail.model.onInbox = { [weak self] in self?.railActivated(.inbox) }
         rail.model.onHoverOpen = { [weak self] item in self?.hoverOpen(item) }
@@ -254,6 +260,21 @@ public final class AppCoordinator {
         rail.model.onSettings = { [weak self] in self?.openSettings() }
         rail.model.onNewAgent = { [weak self] in self?.openNewAgent(.git) }
         rail.model.onTerminal = { [weak self] in self?.openTerminal() }
+        rail.model.onBrowser = { [weak self] in self?.openBrowser() }
+        banner = BrowserBanner(
+            attention: browserAttention, onOpen: { [weak self] in self?.openBrowser() },
+            onDismiss: { [weak self] in self?.dismissBrowserOffer() })
+        banner.railFrame = railFrame
+        browserAttention.$request
+            .map { $0 != nil }
+            .removeDuplicates()
+            .sink { [weak self] on in self?.rail.model.browserPulse = on }
+            .store(in: &subs)
+        rail.model.$expanded
+            .removeDuplicates()
+            .sink { [weak self] on in self?.browserAttention.rail(expanded: on) }
+            .store(in: &subs)
+        sync?.onBrowserOpen = { [weak self] o in self?.browserOpened(o) }
         if client != nil { card.showInHerdr = { [weak self] p in self?.showInHerdr(p) } }
 
         list.model.onOpen = { [weak self] p in self?.openWindow(p) }
@@ -621,7 +642,7 @@ public final class AppCoordinator {
             settingsGlance = true
             settingsAway = nil
             return
-        case .newAgent, .terminal: return
+        case .newAgent, .terminal, .browser: return
         }
         if glance?.byShortcut != true { glance = Glance() }
     }
@@ -693,6 +714,10 @@ public final class AppCoordinator {
         closeAll(except: settings)
         terminal?.close()
         terminal = nil
+        browser?.close()
+        browser = nil
+        browserAttention.clear()
+        banner.hide()
         chat?.model.stopPolling()
         chat = nil
         sync?.retarget(url)
@@ -732,6 +757,46 @@ public final class AppCoordinator {
     func openTerminal() {
         closeRailPanels()
         herdrWindow()?.open()
+    }
+
+    /// The Browser window, made on first use (a fixture app has none).
+    private func browserWindow() -> BrowserWindowController? {
+        if let b = browser { return b }
+        guard let client else { return nil }
+        let b = BrowserWindowController(source: LiveBrowserSource(client: client), client: client)
+        browser = b
+        return b
+    }
+
+    /// The rail's Browser button, or the banner's Open: the window, on the
+    /// page an agent offered when one waits. The rail's panels go first.
+    func openBrowser() {
+        closeRailPanels()
+        let offer = browserAttention.request
+        browserAttention.clear()
+        banner.hide()
+        if let offer { browserWindow()?.show(offer) } else { browserWindow()?.open() }
+    }
+
+    /// The banner's Dismiss: the page stays open in the browser, unshown.
+    func dismissBrowserOffer() {
+        browserAttention.clear()
+        banner.hide()
+        Trace.event("browser offer dismissed")
+    }
+
+    /// An agent opened a page for the human. With the Browser window in view
+    /// it shows the page there, as the web app's Browser tab does; otherwise
+    /// the rail's button pulses and the banner offers it. Nothing opens by
+    /// itself.
+    func browserOpened(_ o: BrowserOpen) {
+        if let b = browser, b.isOnScreen {
+            b.show(o, raise: false)
+            return
+        }
+        browserAttention.arrived(o)
+        banner.show()
+        Trace.event("browser offer from an agent")
     }
 
     /// An agent's header button, or T: herdr's window focused on its pane.

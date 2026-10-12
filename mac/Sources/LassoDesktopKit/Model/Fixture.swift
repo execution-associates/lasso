@@ -40,6 +40,12 @@ public struct Fixture: Decodable, Sendable {
         public var first_run: String?
         /// No lasso answers (FleetModel.offline): the rail's grey "!".
         public var offline: Bool?
+        /// The Browser window's own parts, opening (PLAN 24).
+        public var browser_window: Bool?
+        /// An agent's page waiting: the banner beside the rail (alone), or
+        /// with the rail, its Browser button pulsing.
+        public var browser_offer: BrowserOpen?
+        public var browser_banner: Bool?
     }
 
     public struct Server: Decodable, Sendable {
@@ -66,6 +72,8 @@ public struct Fixture: Decodable, Sendable {
     /// What Settings' lasso picker found (the settings state).
     /// lasso's notification kinds and this Mac's choices (the settings state).
     public var notify: NotifyPayload?
+    /// GET /api/browser (the Browser window's states).
+    public var browser: BrowserStatusPayload?
 
     private struct Raw: Decodable {
         var state: String
@@ -77,6 +85,7 @@ public struct Fixture: Decodable, Sendable {
         var expect: Expect?
         var chats: [String: ChatPayload]?
         var notify: NotifyPayload?
+        var browser: BrowserStatusPayload?
     }
 
     public static func load(_ name: String, from dir: URL) throws -> Fixture {
@@ -96,6 +105,7 @@ public struct Fixture: Decodable, Sendable {
             state: raw.state, now: now, ui: ui, permissions: raw.permissions ?? base?.permissions ?? [:],
             server: server, expect: raw.expect ?? base?.expect, chats: (base?.chats ?? [:]).merging(raw.chats ?? [:]) { $1 })
         fx.notify = raw.notify ?? base?.notify
+        fx.browser = raw.browser ?? base?.browser
         return fx
     }
 
