@@ -207,7 +207,7 @@ public final class CardController {
 
     private func handle(_ e: NSEvent) -> Bool {
         guard let m = holder.model else { return false }
-        let action = CardKeys.route(e, editing: m.composerFocused || panel.editingText, pointerKeyed: pointerKeyed)
+        let action = CardKeys.route(e, editing: m.composerHasKeys || panel.editingText, pointerKeyed: pointerKeyed)
         guard let action else {
             // A focused composer's key: the field types it.
             return false

@@ -131,7 +131,7 @@ final class AgentPreviewController {
     /// user's: no Kill, and esc closes it.
     private func handle(_ e: NSEvent) -> Bool {
         guard let m = holder.model,
-              let a = CardKeys.route(e, editing: m.composerFocused || panel.editingText, among: CardKeys.previewSet)
+              let a = CardKeys.route(e, editing: m.composerHasKeys || panel.editingText, among: CardKeys.previewSet)
         else { return false }
         if a == .close {
             close()

@@ -386,6 +386,11 @@ public enum Theme {
         public static let pollBots = Token("live.poll.bots", 3, .inferred("src/web/src/lib/bots.ts"), proposed: true)
         public static let pollChat = Token(
             "live.poll.chat_open", 2, .inferred("src/web/src/components/ChatView.tsx"), proposed: true)
+        /// A composer just asked for the cursor gets the keys typed before it
+        /// has it, for this long.
+        public static let focusGrace = Token(
+            "live.focus_grace", 0.3,
+            .unmeasured("one run-loop turn for the field to take the cursor, with room for a slow frame"), proposed: true)
         public static let stopWait = Token(
             "live.stop_wait", 10, .unmeasured("Stop's button stays down at most this long when no poll shows the turn end"),
             proposed: true)
@@ -447,7 +452,7 @@ public enum Theme {
         spaceScale, Layout.card, Layout.chat,
         avatar, icon,
         Motion.railExpand, Motion.railCollapse, Motion.cardOpen, Motion.cardClose, Motion.toastIn, Motion.cardPaging,
-        Live.pollAllPanes, Live.pollBots, Live.pollChat, Live.stopWait, Live.sseWatchdog, Live.backoff, Live.arrivalSound,
+        Live.pollAllPanes, Live.pollBots, Live.pollChat, Live.focusGrace, Live.stopWait, Live.sseWatchdog, Live.backoff, Live.arrivalSound,
         Live.termClaim, Terminal.window, Terminal.zoom,
         summonKey, inboxDoubleTap,
     ]

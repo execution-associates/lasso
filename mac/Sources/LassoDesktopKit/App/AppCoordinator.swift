@@ -637,7 +637,7 @@ public final class AppCoordinator {
     }
 
     private func chatKey(_ e: NSEvent, _ m: ChatModel) -> Bool {
-        let editing = m.composerFocused || chat?.panel.panel.editingText == true
+        let editing = m.composerHasKeys || chat?.panel.panel.editingText == true
         switch CardKeys.route(e, editing: editing, among: CardKeys.chatSet) {
         case .stop?:
             guard m.isWorking else { return false }

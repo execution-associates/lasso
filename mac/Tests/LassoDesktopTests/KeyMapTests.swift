@@ -239,7 +239,9 @@ private var u: NSEvent { key("u", 32) }
     #expect(c.panel.onKey?(l) == false)
     m.composerFocused = false
 
-    // A bot's card has no rename: R under the pointer hands the keyboard back.
+    // A bot's card has no rename: R under the pointer hands the keyboard back
+    // (once L's ask for the cursor has lapsed: until then keys are its text).
+    RunLoop.main.run(until: Date().addingTimeInterval(Theme.Live.focusGrace.seconds + 0.05))
     c.panel.resignKey()
     c.pointerLeft()
     c.takeKeyForPointer()
@@ -250,4 +252,30 @@ private var u: NSEvent { key("u", 32) }
     #expect(c.pointerKeyed && m.isBot)
     #expect(c.panel.onKey?(r) == true)
     #expect(!m.renaming && !c.pointerKeyed && !c.panel.isKeyWindow)
+}
+
+/// A composer just asked for the cursor takes the letters typed before the
+/// field has it: the first "u" of a reply in a window that opened on its
+/// composer is text, never the paperclip's file picker.
+@MainActor @Test func aJustFocusedComposerTakesTheFirstLetter() {
+    let fleet = FleetModel()
+    let p = agentPane()
+    fleet.apply(panes: AllPanes(panes: [p]))
+    let m = CardModel(pane: p, fleet: fleet, actions: FixtureCardActions(chats: [:], canAcknowledge: true))
+    m.chooseFiles = {
+        Issue.record("a file picker opened")
+        return []
+    }
+    let w = AgentWindowController(model: m, near: NSRect(x: 900, y: 300, width: 10, height: 10), media: nil)
+    defer {
+        m.stopPolling()
+        w.panel.orderOut(nil)
+    }
+    #expect(!m.composerHasKeys)
+    w.show(focusReply: true)
+    #expect(m.composerHasKeys)
+    for (c, code) in [("u", UInt16(32)), ("x", 7), ("r", 15), ("l", 37)] {
+        #expect(!w.handle(key(c, code)), "\(c) was taken as a window key")
+    }
+    #expect(!m.killArmed && !m.renaming)
 }

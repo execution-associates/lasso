@@ -224,7 +224,7 @@ final class AgentWindowController {
     /// 1–9 highlight a choice, → takes it, ↳ edits it, ⏎ to the composer (or
     /// send), L to the composer, R renames, U attaches, ⌘. stops, X X kills.
     func handle(_ e: NSEvent) -> Bool {
-        guard let a = CardKeys.route(e, editing: model.composerFocused || panel.editingText, among: CardKeys.windowSet)
+        guard let a = CardKeys.route(e, editing: model.composerHasKeys || panel.editingText, among: CardKeys.windowSet)
         else { return false }
         return model.perform(a)
     }
