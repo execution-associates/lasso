@@ -152,6 +152,7 @@ public final class AppCoordinator {
             if url == client.baseURL { client.signedIn(grant) } else { self.use(url) }
         }
         settingsModel.onSignOut = { [weak self] in self?.client?.signOut() }
+        settingsModel.lassoName = { [weak self] in self?.fleet.panes.first { $0.host == "local" }?.host_label }
         settingsModel.signInAnchor = { [weak self] in self?.settings.panel }
         AuthState.shared.onExpired = { [weak self] in self?.openSettings(takeKey: false) }
         settingsModel.onShortcut = { [weak self] slot, c in self?.shortcuts[slot]?.apply(c) }

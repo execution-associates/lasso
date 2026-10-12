@@ -7,23 +7,40 @@ import Foundation
 public struct LassoChoice: Identifiable, Equatable, Sendable, Codable {
     public var url: String
     public var version: VersionInfo?
+    /// The machine lasso runs on ("titan"), when known.
+    public var name: String?
     public var id: String { url }
 
-    public init(url: String, version: VersionInfo?) {
+    public init(url: String, version: VersionInfo?, name: String? = nil) {
         self.url = url
         self.version = version
+        self.name = name
     }
+
+    /// The machine it runs on, else plain "lasso".
+    public var title: String { name ?? "lasso" }
+
+    /// Its version (the release number, never a build's "(dev)" tag) and
+    /// where this Mac reaches it; "Not answering" when it did not.
+    public var detail: String {
+        let here = URL(string: url).map { u in u.host.map { h in u.port.map { "\(h):\($0)" } ?? h } ?? url } ?? url
+        guard let v = version else { return "Not answering · \(here)" }
+        let release = v.lasso_version.range(of: #"^\d+\.\d+\.\d+"#, options: .regularExpression).map { String(v.lasso_version[$0]) }
+        return "lasso \(release ?? v.lasso_version) · \(here)"
+    }
+}
+
+/// Settings' tabs.
+public enum SettingsTab: String, CaseIterable, Sendable {
+    case lasso, inbox, agents, permissions
 
     public var title: String {
-        guard let v = version else { return "Not answering" }
-        return (v.dev == true ? "Dev lasso " : "lasso ") + v.lasso_version
-    }
-
-    /// Where it is: this Mac's address, and a dev lasso's own bound one.
-    public var detail: String {
-        let here = URL(string: url).map { "\($0.host ?? ""):\($0.port.map(String.init) ?? "")" } ?? url
-        guard let listen = version?.listen, !listen.isEmpty else { return here }
-        return "\(here) → \(listen)"
+        switch self {
+        case .lasso: "lasso"
+        case .inbox: "Inbox"
+        case .agents: "New agents"
+        case .permissions: "Permissions"
+        }
     }
 }
 
@@ -64,6 +81,12 @@ public final class SettingsModel: ObservableObject {
     /// The window the sign-in sheet hangs from.
     public var signInAnchor: () -> NSWindow? = { nil }
 
+    @Published public var tab: SettingsTab = .lasso
+    /// The address field is open (Change…, or a failed connect).
+    @Published public var changingLasso = false
+    /// The machine lasso runs on, for the connection row.
+    public var lassoName: () -> String? = { nil }
+
     /// The URL field: any lasso by its address (a tailnet name, a
     /// Cloudflare hostname, a loopback port).
     @Published public var urlDraft = ""
@@ -93,6 +116,7 @@ public final class SettingsModel: ObservableObject {
                 onUse(url)
                 connectNote = "Connected. This lasso needs no sign-in from here."
                 urlDraft = ""
+                changingLasso = false
                 tick += 1
             case .signIn(let metadata):
                 await signIn(url, metadata)
@@ -128,6 +152,7 @@ public final class SettingsModel: ObservableObject {
             AuthState.shared.signedIn()
             connectNote = "Signed in."
             urlDraft = ""
+            changingLasso = false
         } catch {
             connectNote = String(describing: error)
         }

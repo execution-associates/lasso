@@ -24,22 +24,57 @@ public struct SettingsView: View {
             }
             .padding(.horizontal, pad)
             .padding(.top, Theme.Layout.card.number("top"))
+            tabs
+                .padding(.horizontal, pad)
+                .padding(.top, Theme.space("l"))
 
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: Theme.space("4xl")) {
-                    section("lasso") { lassoSection }
-                    section("Permissions") { permissionsSection }
-                    section("Inbox") { inboxSection }
-                    section("New agents") { newAgentSection }
+                    switch model.tab {
+                    case .lasso: section("Connection") { lassoSection }
+                    case .inbox: inboxSection
+                    case .agents: section("Shortcuts") { newAgentSection }
+                    case .permissions: permissionsSection
+                    }
                 }
                 .padding(.horizontal, pad)
                 .padding(.vertical, Theme.space("2xl"))
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             footer
         }
         .panelChrome(Theme.Card.size.size, anchor: "settings")
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Settings")
+    }
+
+    /// The tabs, as a segmented row: the chosen one lifted.
+    private var tabs: some View {
+        HStack(spacing: Theme.space("2xs")) {
+            ForEach(SettingsTab.allCases, id: \.self) { t in
+                let on = t == model.tab
+                Button { model.tab = t } label: {
+                    Text(t.title)
+                        .font(Theme.Fonts.small.font.weight(on ? .semibold : .regular))
+                        .foregroundStyle(on ? Theme.Text.primary.color : Theme.Text.secondary.color)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: Theme.NewAgent.layout.number("switch_h"))
+                        .background {
+                            if on {
+                                Capsule().fill(Theme.Control.round.color("fill"))
+                                    .overlay(Capsule().strokeBorder(Theme.Panel.divider.color, lineWidth: 1))
+                            }
+                        }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(t.title)
+                .accessibilityAddTraits(on ? .isSelected : [])
+                .parityAnchor("settings.tab[\(t.rawValue)]")
+            }
+        }
+        .padding(Theme.space("2xs"))
+        .background(Capsule().fill(Theme.Panel.inner.color("fill")))
     }
 
     /// Who makes it: the Execution Associates lockup, linking to the site.
@@ -109,10 +144,15 @@ public struct SettingsView: View {
             }
             .parityAnchor("settings.signin_again")
         }
-        lassoRow(LassoChoice(url: current, version: model.version()))
-        if let h = model.usableHosts() { line("\(h.usable) of \(h.total) machines usable", secondary: true) }
-        if model.version() == nil { line("Not answering yet. Is the tunnel up?", secondary: true) }
-        HStack(spacing: Theme.space("m")) {
+        HStack(alignment: .top) {
+            lassoRow(LassoChoice(url: current, version: model.version(), name: model.lassoName()))
+            if !model.changingLasso {
+                PillButton(title: "Change…", label: "Connect this Mac to another lasso") { model.changingLasso = true }
+            }
+        }
+        if let h = model.usableHosts() { line("Drives \(h.usable) of \(h.total) machines", secondary: true) }
+        if model.changingLasso {
+            HStack(spacing: Theme.space("m")) {
             TextField("Address, e.g. lasso.example.com", text: $model.urlDraft)
                 .textFieldStyle(.plain)
                 .font(Theme.Fonts.body.font)
@@ -125,6 +165,11 @@ public struct SettingsView: View {
             PillButton(title: model.connecting ? "Connecting…" : "Connect", label: "Connect to the lasso at this address") {
                 model.connect()
             }
+            PillButton(title: "Cancel", label: "Keep this lasso") {
+                model.changingLasso = false
+                model.urlDraft = ""
+            }
+            }
         }
         if model.signedIn {
             HStack {
@@ -134,6 +179,8 @@ public struct SettingsView: View {
             }
         }
         if let note = model.connectNote { line(note, secondary: true) }
+        Spacer().frame(height: Theme.space("2xl"))
+        Text("App").font(Theme.Fonts.header.font).foregroundStyle(Theme.Text.secondary.color)
         HStack {
             line("LassoDesktop \(AppUpdates.version)", secondary: true)
             Spacer()

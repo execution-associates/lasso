@@ -11,7 +11,7 @@ public final class ParityRunner {
     /// States whose surfaces exist. The rest report as pending until their
     /// milestone lands (PLAN 6).
     public static let implemented: Set<String> = [
-        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "new-agent", "new-agent-menu", "agent-window-markdown",
+        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "settings-permissions", "new-agent", "new-agent-menu", "agent-window-markdown",
     ]
 
     let spec: Spec
@@ -146,6 +146,8 @@ public final class ParityRunner {
                 permissions: FixedPermissions(fixture.permissions), baseURL: { "http://127.0.0.1:18090" },
                 version: { fixture.server.version }, usableHosts: { (usable, hosts.hosts.count + 1) })
             m.notify = { fixture.notify }
+            m.lassoName = { fixture.server.all_panes.panes.first { $0.host == "local" }?.host_label }
+            if let t = fixture.ui.settings_tab.flatMap(SettingsTab.init(rawValue:)) { m.tab = t }
             bindings = [Keys.esc]
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(SettingsView(model: m), size: Theme.Card.size.size) }
             cap = try await make()
