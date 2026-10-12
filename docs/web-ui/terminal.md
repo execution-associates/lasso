@@ -76,7 +76,7 @@ A pane running anything else, or a plain shell, shows a note instead of a conver
 - The paperclip button attaches a file: it is uploaded to the agent's host and its path goes with the message.
 - If lasso cannot tell whether a message landed, it keeps your draft rather than clearing it or sending it twice.
 - While the agent works, the send button of an empty composer becomes **Stop**, which interrupts the turn (one `Esc` in its pane).
-- A message sent while the agent works waits under **Up next** above the composer and goes out once the agent is idle, one at a time. Remove one with its ✕. **Stop** puts waiting messages on hold until you press **Send queued messages**. They are held in this browser tab only.
+- A message sent while the agent works waits under **Up next** above the composer and goes out once the agent is idle, one at a time and in order. lasso holds the queue, not the browser: it goes out with the tab closed or the phone locked, and every device shows the same one. Edit one with its pencil, move it up with its arrow, or remove it with its ✕. **Stop** puts waiting messages on hold until you press **Send queued messages**. When lasso cannot deliver one (your unsent text is in the agent's input box, or it cannot confirm the message landed), the queue pauses and says why, and nothing is resent automatically.
 
 **The header** shows the agent's name (the workspace label lasso's auto-titler wrote, else the session's own title). Click it to rename the agent. The header also has a pin (pins the agent to the top of the agent list and the Grid) and a button to close the agent's pane, which asks for confirmation first. On a phone the header carries **Show the terminal** and **Open the sidebar** buttons, since there is no footer.
 

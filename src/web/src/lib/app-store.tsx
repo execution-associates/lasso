@@ -89,6 +89,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // enabled in another browser, or its MCP child dying, re-renders this tab's
   // sidebar strip and Settings (lib/plugins.ts:usePlugins).
   const lastPluginsRev = React.useRef<number | null>(null)
+  // Last seen chat_queue_rev — a chat's "Up next" queue changed (a message
+  // queued on another device, or lasso delivering one), so the chat on screen
+  // re-reads rather than waiting for its next poll.
+  const lastChatQueueRev = React.useRef<number | null>(null)
 
   const apply = React.useCallback((a: ActiveState) => {
     // Who currently owns the shared terminal's size. Kept in a module, not in
@@ -126,6 +130,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         void queryClient.invalidateQueries({ queryKey: qk.themeCatalog })
       }
       lastPluginsRev.current = a.plugins_rev
+    }
+    if (typeof a.chat_queue_rev === "number") {
+      if (
+        lastChatQueueRev.current !== null &&
+        a.chat_queue_rev !== lastChatQueueRev.current
+      ) {
+        void queryClient.invalidateQueries({ queryKey: qk.chatAll })
+      }
+      lastChatQueueRev.current = a.chat_queue_rev
     }
     setState((prev) => ({
       activeCwd: a.cwd || prev.activeCwd,
