@@ -25,6 +25,8 @@ export const qk = {
   repoBranches: (host: string, path: string) =>
     ["repo-branches", host, path] as const,
   chat: (host: string, pane: string) => ["chat", host, pane] as const,
+  // Every chat at once: what a chat_queue_rev bump re-reads.
+  chatAll: ["chat"] as const,
   // The FLEET pane aggregation (the chat's agent list): every host's panes, keyed
   // on this tab's pane-list revision so a create, a close or a rename on the host
   // you are looking at lands on the SSE bump rather than at the next poll.

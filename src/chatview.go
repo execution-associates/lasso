@@ -278,6 +278,8 @@ type chatPayload struct {
 	// PendingUI is what an omp bot is waiting on the human for (a question or
 	// an approval), answered through /api/bots/<name>/chat/answer.
 	PendingUI []ompUIRequest `json:"pending_ui,omitempty"`
+	// Queue is the pane's "Up next" queue (chatqueue.go), absent when empty.
+	Queue *chatQueueView `json:"queue,omitempty"`
 }
 
 // chatUnavailable says why a chat has no transcript to show.
@@ -1915,7 +1917,12 @@ func serveChat(w http.ResponseWriter, r *http.Request) {
 	// ?incoming=1 adds the messages Claude Code channels delivered (mail,
 	// texts, scheduled loops): the Bots view asks for them, the terminal's chat
 	// overlay does not.
-	writeChat(w, buildChatPayload(scr.be, scr.pane, r.URL.Query().Get("before"), r.URL.Query().Get("incoming") == "1"))
+	out := buildChatPayload(scr.be, scr.pane, r.URL.Query().Get("before"), r.URL.Query().Get("incoming") == "1")
+	// The pane's server-side "Up next" queue rides every poll, so a device
+	// that missed an SSE bump (or is on the other lasso sharing this db)
+	// still converges within one poll.
+	out.Queue = chatQueueFor(out.Host, out.PaneID)
+	writeChat(w, out)
 }
 
 // buildChatPayload reads one pane's session as chat rows: the page ending at
@@ -2230,6 +2237,9 @@ func serveChatStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, status := paneAgentPresence(p)
+	// Stop holds the "Up next" queue first, so the next message does not go
+	// out the moment the interrupted agent reads idle (chatqueue.go).
+	pauseChatQueueForStop(be.Name(), p.PaneID)
 	outcome, detail := chatStop(be, p, status)
 	writeJSON(w, map[string]any{"outcome": outcome, "detail": detail})
 }

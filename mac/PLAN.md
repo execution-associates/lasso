@@ -185,6 +185,10 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 - Both dialogs have that row (`chatAskQuestion.custom` is what the transcript records from it). The keystroke walk for each harness is measured against a real dialog before it ships, as `claudeAskKeystrokes` and `ompAskKeystrokes` were, and is unit-tested the same way.
 - As built: claude's Other is a text field the cursor walks onto; omp's is "Other (type your own)", whose Enter opens a prompt. The text goes in a write of its own and the following keys in a later one (`chatAskSegmentGap`, 200 ms), since claude takes a long write as a paste and drops its Enter, and omp loses keys that arrive with its prompt's Enter. A claude single-select question laid out with previews has no Other row, so a `custom` answer there is refused; the client sends `previews: true` for such a question. Text is at most 1200 characters with no newline (both dialogs take a newline as Enter).
 
+**Later: the server's "Up next" queue** (`src/chatqueue.go`, `/api/chat/queue`)
+- The card's composer (`CardModel.send`) sends at once even while the agent works, with one `outgoing` echo. lasso now holds a per-pane queue in `lasso.db` and types each message once the agent is idle, so a message sent while `isWorking` (or while `chat.queue` has items) should be `POST /api/chat/queue {pane_id, text, session: chat.path}` instead of a send.
+- `chatPayload.queue` (`{paused, note?, tone?, items[{id, text, state, after?, detail?}]}`) is already in the contract; the card would draw `queued`/`failed` items as "Up next" (with remove, and resume when `paused`), and `sending`/`sent` ones as the echo `outgoing` is today. An omp bot steers mid-turn and never queues.
+
 **Not proposed**
 - Bearer auth on `/api/*` (see §0).
 - Native push: Web Push is VAPID-only (`src/webpush.go`). The app polls and posts local notifications (§17).
