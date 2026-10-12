@@ -804,7 +804,7 @@ A Mac uses one lasso. Settings has three tabs, each laid out as macOS's grouped 
 - **From titan:** `mac/Scripts/dev.sh use dev` finds the `mise run dev` backend (this worktree's, else the first on 8190–8199), checks it answers through the tunnel and relaunches the app on it. `use prod` goes back, and `use PORT` picks one.
 - **The tunnel** (`lasso-desktop-tunnel.service`) forwards minime's 18190–18199 to titan's 8190–8199, so a dev lasso that bumped past 8190 is still reachable.
 - **A reinstall keeps the choice.** `agent.sh install` sets `baseURL` only on a fresh Mac or when `LASSO_BASE_URL` is given.
-- **A dev lasso is not a sandbox.** It drives the same herdr and reads the same `lasso.db` as production, so the agents in it are real, and Kill and answers act on them. Two lassos of different versions on one `lasso.db` also rewrite each other's `ui_state`: an older one drops fields it does not know, such as `dismissed_cards`. So while the server changes are unreleased, titan's production lasso runs this branch's build (§15).
+- **A dev lasso is not a sandbox.** It drives the same herdr and reads the same `lasso.db` as production, so the agents in it are real, and Kill and answers act on them. Two lassos of different versions on one `lasso.db` also rewrite each other's `ui_state`: an older one drops fields it does not know, such as `dismissed_cards`.
 
 ### First run
 
@@ -816,15 +816,6 @@ The first launch shows the **first-run panel** (`Onboarding/`), never Settings. 
 - **esc** puts the panel away. Before step 3 that leaves `onboarded` unset; at step 3 it is Done.
 - **While no lasso answers** (`FleetModel.offline`: the fleet read failed before any answer from this lasso, or twice in a row after one), the inbox's badge is a grey "!" and the peek's dot is grey. A click or a rest on the inbox, and the inbox shortcut, open the first-run panel instead of an empty inbox.
 - **Parity states:** `first-run` (step 1), `first-run-connected` (step 3, the default shortcuts) and `rail-offline`.
-
-## 15. titan runs this branch's server until release
-
-The Inbox needs S1, S4 and S5 on the lasso the app talks to, and a dev lasso shares `lasso.db` with production (§14). So titan's production lasso runs this branch's build, not the 6.4.0 release, until these changes are released.
-- The binary is `~/.local/libexec/lasso-desktop/lasso`, built with `mise run build` from this worktree and copied there, so the weekly worktree prune cannot delete it.
-- A systemd drop-in, `/etc/systemd/system/lasso.service.d/desktop-branch.conf`, points `lasso.service` at it with production's own flags.
-- It reports `6.4.0 (dev)`: Go does not stamp a build made in a linked worktree with its commit. It is not a `-dev` instance and never self-updates.
-- **To update it:** `mise run build`, then `install -m 0755 lasso ~/.local/libexec/lasso-desktop/lasso.new && mv ~/.local/libexec/lasso-desktop/lasso.new ~/.local/libexec/lasso-desktop/lasso && sudo systemctl restart lasso`.
-- **To undo it, and once the release ships:** `sudo rm /etc/systemd/system/lasso.service.d/desktop-branch.conf && sudo systemctl daemon-reload && sudo systemctl restart lasso`. That puts back the mise-installed release.
 
 ## 16. Hover interaction language (reference recording)
 
