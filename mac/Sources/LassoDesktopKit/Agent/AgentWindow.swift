@@ -59,6 +59,11 @@ struct AgentWindowView: View {
 
     private var buttons: some View {
         HStack(spacing: Theme.space("xs")) {
+            if model.canShowInHerdr {
+                WindowButton(symbol: "terminal", label: "Show \(model.current.displayName) in herdr") { model.showInHerdr() }
+                    .keyHint(Keys.herdr, active: !chrome.collapsed)
+                    .parityAnchor("agent.herdr")
+            }
             WindowButton(symbol: chrome.collapsed ? "arrow.up.left.and.arrow.down.right" : "minus",
                          label: chrome.collapsed ? "Expand" : "Minimize") { chrome.onToggle() }
                 .parityAnchor("agent.minimize")
@@ -203,7 +208,7 @@ final class AgentWindowController {
 
     /// The card's keys, minus paging and Acknowledge: 1–9 highlight a choice,
     /// → takes it, ↳ edits it, ⏎ to the composer, A attaches, ⌘. stops,
-    /// X X kills.
+    /// X X kills, T shows the agent in herdr.
     private func handle(_ e: NSEvent) -> Bool {
         // ⌘. stops a working agent, the composer focused or not.
         if Keys.stop.matches(e), model.isWorking {
@@ -222,6 +227,7 @@ final class AgentWindowController {
         case Keys.editStep.matches(e): model.editStep()
         case Keys.takeStep.matches(e): model.takeStep()
         case Keys.kill.matches(e): model.kill()
+        case Keys.herdr.matches(e) && model.canShowInHerdr: model.showInHerdr()
         default: return false
         }
         return true

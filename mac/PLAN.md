@@ -912,7 +912,7 @@ The Mac launches agents the way lasso's web New dialog does (`src/web/src/compon
 - **⌥⇧O** for an agent in a repository and **⌃⇧O** for a scratch agent, from any app. The user's rule is at most three keys, never four.
 - Shift keeps ⌃O for terminals (Claude Code's transcript view, nano's save, vim's jump back, the shell) and ⌥O for typing "ø". ⌥⇧O no longer types "Ø" while it is set.
 - **⌘O and ⌘⇧O** do the same while a Lasso window has the keyboard, as in the web app. They are never system-wide, because ⌘O is every app's File › Open.
-- The rail has a **+** button above the ellipsis, and the agents list a **New agent** button. The **+** opens the form on a click only: hovering lights it but does not open it, because the form takes the keyboard.
+- The rail has a **+** button above the terminal (§22) and the ellipsis, and the agents list a **New agent** button. The **+** opens the form on a click only: hovering lights it but does not open it, because the form takes the keyboard.
 - Each chip opens its menu inside the form, toward the side with room (a system popover from a floating panel can land half off screen). Long lists (repositories, branches, a big fleet) and the model have a filter that takes the typing, like the web app's combobox; ↑/↓ move and ⏎ picks. The model's suggestions are a hint, as in the web's EditableCombobox: a typed name no suggestion has is offered first as Use “<name>”.
 
 All three system-wide shortcuts (inbox, new agent, new scratch agent) are `ShortcutSlot`s, each stored on its own and recorded the same way.
@@ -1021,3 +1021,44 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
   - The `agent-window-markdown` parity state renders it.
 
 **Parity states:** `list-hover-preview`, `agent-window` and `agent-window-collapsed`, from the `card-open` fixture.
+
+## 22. lasso's herdr in a window
+
+**The rail's terminal button** (between the **+** and the ellipsis, `rail.terminal`) opens lasso's herdr in a window of its own. Like the **+**, it opens on a click only, because the terminal takes the keyboard. **Every agent's header** has a terminal button too: the agent window's (beside minimize, `agent.herdr`) and the inbox card's (beside close, `card.herdr`), with **T** as its key. It focuses that agent's pane and shows the window. A blocked agent's **Focus in herdr** opens the window the same way. There is one window: a second open brings it forward.
+
+**The window is lasso's own web terminal**, ttyd's document under `/terminal/<slug>/`, the page the web app frames. It runs in a WKWebView whose page never reaches the network itself (`Terminal/TerminalBridge.swift`):
+- **Its document and its `token` fetch** come through the `lasso-terminal:` URL scheme. The app answers each one with a request through its `LassoClient`, carrying the same credentials as every API call.
+- **Its WebSocket** is a stand-in, injected before ttyd's script, that hands every frame to a native `URLSessionWebSocketTask`. That task carries the same headers on its upgrade.
+- **Both are confined to the one terminal** the window shows. Any other path is refused, so the page cannot reach `/api/file` with this Mac's sign-in.
+
+**Why this approach.** It works for every lasso the app can reach, including a remote one behind Cloudflare Access, with the sign-in the app already has and no new secret.
+- A WKWebView cannot put an `Authorization` header on a websocket. Access would then want its own cookie, which means a second sign-in inside the web view, and Google refuses embedded sign-ins.
+- lasso's local guard refuses a websocket upgrade whose `Origin` is not lasso's own. A page on another origin cannot open `/terminal/…/ws` directly, but a native task sends no `Origin`.
+- A native terminal emulator (SwiftTerm) would be third-party code (§0).
+- `ssh <host> herdr` in Terminal.app works only where the Mac has ssh to lasso's machine.
+
+**Checked from titan** (2026-10-12):
+- `lasso.orangecountyai.com` answers a credential-less websocket upgrade to `/terminal/local/ws` exactly as it answers `/api/version`: a 401 with Access's Managed OAuth `Bearer` challenge. So the bearer token that gets the app past Access on `/api` gets it past on `/terminal` too.
+- On loopback, an upgrade with no `Origin` and `Sec-WebSocket-Protocol: tty` gets `101` from lasso's proxy and ttyd. The same upgrade with `Origin: lasso-terminal://…` gets `403`.
+- ttyd starts its herdr client only on the first frame, so the handshake alone started nothing.
+
+**Hosts.** The window shows one host's herdr at a time.
+- Showing an agent first focuses its pane: `POST /api/focus?host=<pane host>` with `{pane_id, reveal: true}`. herdr's focus is one per herdr, so every client of that herdr moves with it, as the web app's explicit focus does.
+- If the window shows another host (or none), it then attaches the pane's host (`POST /api/host`, as a web tab moving onto a host does), reads its `host_slug` from `/api/active?host=`, and loads that terminal. A fresh herdr client opens on the focused pane.
+- `reattach` in the focus answer (the client showed a saved machine) reloads the page, which starts the client again on Local.
+- The document's palette is read off lasso's redirect (it is not followed), so the page's own URL carries `theme=`, where ttyd reads it.
+
+**The shared size.** Every client of one herdr shares its size, and herdr reflows every pane on each change. So the window takes part in lasso's term claim as a web tab does (`lib/term-claim.ts`).
+- It holds its own event stream on its host, as client `lasso-desktop-term-…`. That stream also keeps a remote host's terminal from being retired as idle. Its `active` frames say who holds the size.
+- A key, a pointer or the window taking focus claims the size (`/api/term-claim`), renewed at most every `live.term_claim` (15 s).
+- While another client holds the size, the page's resize frames are held and the last one goes when the size is free or ours. A size taken before layout settles (under 20×4) is never sent.
+
+**The page script also** opens terminal links in the browser, puts herdr's OSC 52 copies on the clipboard, and sends Shift/Ctrl+Enter as a Kitty CSI-u key (as the web app's `lib/terminal.ts` does). ⌘W closes the window. Closing it closes the socket, and with it that herdr client. The window remembers its frame (`LassoHerdrTerminal`), and switching to another lasso closes it.
+
+**Parity:** `rail-hover-terminal`, plus `rail.terminal`, `card.herdr` and `agent.herdr` rows in `rail-expanded`, `card-open` and `agent-window`. The window itself has no parity state, since its page comes from a live lasso.
+
+**Not yet verified live** (it needs an install on a Mac, and minime's app belongs to another session):
+- The page loading through the scheme handler, including ttyd's `fetch` of `token` over a custom scheme.
+- The native socket's upgrade through Access with the app's bearer token.
+- Typing, paste, resize and the claim handover with a browser tab open on the same herdr.
+- A remote host's terminal (`herdr --remote`).

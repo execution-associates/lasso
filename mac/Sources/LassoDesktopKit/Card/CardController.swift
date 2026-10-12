@@ -45,6 +45,8 @@ public final class CardController {
     var inbox: InboxModel?
     /// Kill or Acknowledge resolved the inbox's last entry.
     var onInboxEmpty: () -> Void = {}
+    /// The herdr window, focused on an agent (T, the header's button).
+    var showInHerdr: ((HostPane) -> Void)?
 
     public init(fleet: FleetModel, actions: CardActions) {
         self.fleet = fleet
@@ -92,6 +94,7 @@ public final class CardController {
         model.keyMode = !panel.isKeyWindow ? .none : (pointerKeyed ? .lent : .full)
         model.onClose = { [weak self] in self?.close() }
         model.onInboxEmpty = { [weak self] in self?.onInboxEmpty() }
+        model.onShowInHerdr = showInHerdr
         holder.model = model
         model.startPolling()
         place()
@@ -210,6 +213,9 @@ public final class CardController {
         case .previous: m.page(-1)
         case .editStep: m.editStep()
         case .takeStep: m.takeStep()
+        case .herdr:
+            guard m.canShowInHerdr else { return false }
+            m.showInHerdr()
         case .stop:
             guard m.isWorking else { return false }
             m.stop()
@@ -222,7 +228,7 @@ public final class CardController {
 
 /// What a key does in the card, decided before anything acts (PLAN 13.7a).
 public enum CardKeyAction: Equatable, CustomStringConvertible {
-    case close, attach, send, stop, kill, acknowledge, next, previous, editStep, takeStep, digit(Int)
+    case close, attach, send, stop, kill, acknowledge, next, previous, editStep, takeStep, herdr, digit(Int)
     /// Not a card key: left to the system.
     case unbound
     /// A key outside the hover set while the pointer lent the card the
@@ -241,6 +247,7 @@ public enum CardKeyAction: Equatable, CustomStringConvertible {
         case .previous: "k"
         case .editStep: "tab"
         case .takeStep: "right"
+        case .herdr: "t"
         case .digit(let n): "\(n)"
         case .unbound: "unbound"
         case .handBack: "hand back"
@@ -271,6 +278,7 @@ public enum CardKeys {
         case Keys.send.matches(e): return .send
         case Keys.editStep.matches(e): return .editStep
         case Keys.takeStep.matches(e): return .takeStep
+        case Keys.herdr.matches(e): return .herdr
         default: break
         }
         if let n = Keys.digit(e) { return .digit(n) }

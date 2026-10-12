@@ -45,7 +45,11 @@ public enum Keys {
     public static let stop = KeyBinding(
         id: "stop", legend: "⌘.", action: "Stop", keyCode: 47, character: nil, command: true)
 
-    public static let all: [KeyBinding] = [esc, attach, send, stop, kill, acknowledge, next, previous, editStep, takeStep]
+    /// Show the agent in lasso's herdr: the terminal window, its pane focused.
+    public static let herdr = KeyBinding(
+        id: "t", legend: "T", action: "Show in herdr", keyCode: nil, character: "t")
+
+    public static let all: [KeyBinding] = [esc, attach, send, stop, kill, acknowledge, next, previous, editStep, takeStep, herdr]
 
     /// 1-9 highlight a next step.
     public static func digit(_ e: NSEvent) -> Int? {

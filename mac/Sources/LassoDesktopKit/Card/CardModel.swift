@@ -116,6 +116,10 @@ public final class CardModel: ComposerModel {
     public var inbox: InboxModel?
     public let now: () -> Date
     public var onClose: () -> Void = {}
+    /// Show the agent in lasso's herdr, its pane focused (the herdr window,
+    /// PLAN 22). Nil where there is no such window: a fixture app, the hover
+    /// preview.
+    public var onShowInHerdr: ((HostPane) -> Void)?
     /// Set by the parity harness only (see ProbedAnimation).
     public var animationProbe: MotionProbe?
     private var poll: Task<Void, Never>?
@@ -152,6 +156,16 @@ public final class CardModel: ComposerModel {
     /// The machine whose files the conversation names: the one its
     /// transcript was read from (served_by), else the pane's.
     public var mediaHost: String { chat?.served_by ?? chat?.host ?? pane.host }
+
+    /// Whether this agent can be shown in the herdr window: there is one, and
+    /// the agent has a pane to focus.
+    public var canShowInHerdr: Bool { onShowInHerdr != nil && !current.pane_id.isEmpty }
+
+    /// T, or the header's terminal button.
+    public func showInHerdr() {
+        guard canShowInHerdr else { return }
+        onShowInHerdr?(current)
+    }
 
     /// A bot's pane: lasso keeps it running, so the card offers no Kill.
     public var isBot: Bool { fleet.bot(for: current) != nil }
@@ -216,6 +230,7 @@ public final class CardModel: ComposerModel {
         var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.send, Keys.next, Keys.previous]
         if !isBot { b.insert(Keys.kill) }
         if isWorking { b.insert(Keys.stop) }
+        if canShowInHerdr { b.insert(Keys.herdr) }
         if canAcknowledgeNow { b.insert(Keys.acknowledge) }
         if !nextSteps.isEmpty { b.formUnion([Keys.editStep, Keys.takeStep]) }
         return b
@@ -258,6 +273,8 @@ public final class CardModel: ComposerModel {
     }
 
     public func focusInHerdr() {
+        // With a herdr window, answer it there: the window opens on the pane.
+        if canShowInHerdr { return showInHerdr() }
         run("Focus") { [self] in
             try await actions.focus(pane)
             return "Focused \(pane.displayName) in herdr: answer it there"

@@ -1,0 +1,12 @@
+{
+  "about": "The pointer rests on the terminal button: its fill takes the hover overlay and its neighbours stay as they were. It opens lasso's herdr on a click only, since the terminal takes the keyboard.",
+  "state": "rail-hover-terminal",
+  "extends": "rail-expanded",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "hovered": "terminal"
+  }
+}
