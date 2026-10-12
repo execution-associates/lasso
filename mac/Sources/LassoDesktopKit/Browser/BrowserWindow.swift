@@ -228,6 +228,10 @@ public final class BrowserWindowController: NSObject {
 
     public var isOpen: Bool { window?.isVisible == true }
 
+    /// The window and its page, once made (tests).
+    var hostWindow: NSWindow? { window }
+    var pageView: LassoPageWebView? { web }
+
     /// On screen where the human can see it: open, not minimized, not
     /// covered entirely.
     public var isOnScreen: Bool {
