@@ -580,7 +580,7 @@ function GeneralTab({
             runtimeLocked
               ? "Stop the bot to change it."
               : omp
-                ? "omp itself in a herdr pane on this machine, kept running by lasso. Its questions and approvals come to its chat and its pane, and either can answer."
+                ? "omp itself in a herdr pane, on any host lasso drives, kept running by lasso. Its questions and approvals come to its chat and its pane, and either can answer."
                 : "Claude Code in a herdr pane, on any host lasso drives."
           }
         >
@@ -599,7 +599,6 @@ function GeneralTab({
                   ? draft.effort
                   : "",
                 permission_mode: "",
-                ...(runtime === "omp" ? { host: "local" } : {}),
               })
             }}
           >
@@ -624,7 +623,7 @@ function GeneralTab({
           </div>
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
-          {creating && !omp && (
+          {creating && (
             <Field
               label="Host"
               htmlFor="bot-host"

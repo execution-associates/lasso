@@ -217,11 +217,6 @@ func (r *botRecord) normalize() error {
 	default:
 		return fmt.Errorf("runtime must be omp or claude")
 	}
-	// omp bots are driven over a unix socket on lasso's own machine (the
-	// bridge's, botomp.go), so they live there.
-	if r.isOmp() && r.Host != "local" {
-		return fmt.Errorf("an omp bot runs on lasso's own machine; use the claude runtime for a bot on %s", r.Host)
-	}
 	if e := strings.TrimSpace(r.Effort); e != "" {
 		if r.Effort = normalizeEffort(r.Runtime, e); r.Effort == "" {
 			return fmt.Errorf("effort %q is not a %s effort level", e, r.Runtime)
@@ -386,10 +381,20 @@ func botMCPJSON(r *botRecord, dir string, signedIn map[string]bool) []byte {
 		}
 	}
 	// Lasso's channel, which delivers the bot's jobs and webhooks
-	// (botjobs.go). It runs this lasso binary and reaches back over loopback
-	// on the bot's own token, so it is offered under MCP_OAUTH too.
-	if base, ok := botLassoBase(); ok && r.channelToken != "" {
-		if offered, _ := botChannelOffered(r); offered {
+	// (botjobs.go). On lasso's machine it runs this lasso binary and reaches
+	// back over loopback on the bot's own token, so it is offered under
+	// MCP_OAUTH too. On another host it runs that host's lasso over the spool
+	// lasso writes into the folder (botspool.go), and holds no credential.
+	if offered, _ := botChannelOffered(r); offered && r.channelToken != "" {
+		if r.Host != "local" {
+			if exe, err := botRemoteChannel(r.Host); err == nil {
+				servers[botChannelName] = map[string]any{
+					"type":    "stdio",
+					"command": exe,
+					"args":    []string{"channel", "--bot", r.Name, "--spool", botSpoolDir(dir)},
+				}
+			}
+		} else if base, ok := botLassoBase(); ok {
 			servers[botChannelName] = map[string]any{
 				"type":    "stdio",
 				"command": botLassoExe(),

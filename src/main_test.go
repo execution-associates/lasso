@@ -58,6 +58,9 @@ func TestMain(m *testing.M) {
 	// One machine name wherever the suite runs: MCP output names lasso's own
 	// host by it (mcphost.go).
 	osHostname = func() (string, error) { return testHostname + ".example.com", nil }
+	// No test asks a real host for its lasso: a remote bot's channel is
+	// offered only where a test stubs this (botspool_test.go).
+	botRemoteLasso = func(host string) (string, error) { return "", fmt.Errorf("no remote hosts in tests") }
 	// No sweep runs the real herdr on whatever box the suite runs on.
 	listLocalSessionsFn = func(context.Context) ([]HerdrSession, error) { return nil, nil }
 	code := m.Run()

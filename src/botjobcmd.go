@@ -21,7 +21,9 @@ package main
 //
 // The command runs as lasso's user with a small environment, like a systemd
 // user unit's (botCommandEnv): never lasso's own credentials. Scripts fetch
-// their own secrets.
+// their own secrets. A bot on another host runs it there, as the user lasso
+// connects as, with the same kind of environment built from that host's own
+// values (execBotCommandRemote).
 
 import (
 	"bytes"
@@ -352,15 +354,22 @@ func runBotJobCommand(j *botJob, kind string, now time.Time) (botCmdOutcome, err
 	}
 	// The stored folder may be "~/…": expand it against the bot's host, as
 	// every other bot path does. exec reports a missing Dir as a missing
-	// /bin/sh, so say what is actually wrong.
+	// /bin/sh, so say what is actually wrong. A bot on another host runs its
+	// watch there, in its folder, over the ssh master (botspool.go).
 	dir := rec.Dir
-	if b, err := botBackend(rec.Host); err == nil {
+	b, berr := botBackend(rec.Host)
+	if berr == nil {
 		dir = expandTildeOn(b, dir)
 	}
 	var res botExecResult
-	if dirExists(dir) {
+	switch {
+	case rec.Host != "local" && berr != nil:
+		res = botExecResult{Err: fmt.Errorf("%s is not reachable: %v", rec.Host, berr)}
+	case rec.Host != "local":
+		res = botExecRemote(b, j.Command, dir, j.Bot, j.Name, j.timeout())
+	case dirExists(dir):
 		res = execBotCommand(j.Command, dir, botCommandEnv(os.Environ(), j.Bot, j.Name), j.timeout())
-	} else {
+	default:
 		res = botExecResult{Err: fmt.Errorf("the bot's folder %s does not exist", dir)}
 	}
 	end := now.Add(res.Took)

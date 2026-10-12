@@ -252,7 +252,7 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 		writeJSON(w, map[string]any{
 			"bot":      v,
 			"dir_path": dir,
-			"launch":   botLaunchScript(rec, dir, botEnvKeys(b, dir)),
+			"launch":   botLaunchScript(b, rec, dir, botEnvKeys(b, dir)),
 			// The instructions file: CLAUDE.md for claude, AGENTS.md for omp.
 			"claude_md": filepath.Join(dir, botInstructionsFile(rec)),
 			"tasks":     tasks,
@@ -462,9 +462,10 @@ func botFolderRemovable(b Backend, dir string) error {
 }
 
 // botLaunchScript is the generated launch task, as the Launch tab shows it.
-func botLaunchScript(r *botRecord, dir string, envKeys []string) string {
+func botLaunchScript(b Backend, r *botRecord, dir string, envKeys []string) string {
 	if r.isOmp() {
-		return botOmpTaskScript(r, dir, envKeys)
+		sock, _ := botOmpSocketOn(b, r.Name)
+		return botOmpTaskScript(r, dir, sock, envKeys)
 	}
 	return botTaskScript(r, dir, envKeys)
 }
