@@ -90,8 +90,9 @@ func newMCPHandler() http.Handler {
 		// on loopback, which 403s ("Forbidden: invalid Host header") every tunnelled
 		// request before it reaches a tool — the actual cause of remote MCP clients
 		// (Claude desktop/mobile) failing *after* a successful Access OAuth login.
-		// The trust gate here is Cloudflare Access (OAuth + policy) / the tailnet,
-		// not the Host header, so disable the loopback guard. See CLAUDE.md.
+		// lasso's own local guard (localguard.go) checks the Host against the
+		// names lasso answers to, public ones included, so the SDK's
+		// loopback-only version is turned off. See CLAUDE.md.
 		DisableLocalhostProtection: true,
 	}))
 }

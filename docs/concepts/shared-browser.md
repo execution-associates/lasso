@@ -71,7 +71,7 @@ Two lasso instances can't share one browser's data directory. If a second lasso 
 
 Whoever can reach `/cdp` or call the `browser_*` tools has full control of that browser: they can read every page, type into it and navigate it, **including every site it is logged into**. Only log a browser into an account you're happy for every agent that can reach lasso to act as you on.
 
-- `/cdp` and the `browser_*` tools are open by default (fine on loopback, a private tailnet or behind Cloudflare Access). With `UI_AUTH` set they need its basic credentials, which makes them stricter than the rest of `/mcp`, which `UI_AUTH` does not gate: a `browser_*` call without them is refused as a tool error. With `MCP_OAUTH` set they take what `/mcp` takes (a lasso bearer token or the `UI_AUTH` credentials), and a per-host token must include lasso's own machine in its scope.
+- `/cdp` and the `browser_*` tools are open by default on lasso's loopback listener, and take whoever `-tailnet` or `-listen-access` identified. With `UI_AUTH` set they need its basic credentials, which makes them stricter than the rest of `/mcp`, which `UI_AUTH` does not gate: a `browser_*` call without them is refused as a tool error. With `MCP_OAUTH` set they take what `/mcp` takes (a lasso bearer token or the `UI_AUTH` credentials), and a per-host token must include lasso's own machine in its scope.
 - Whatever the auth setting, lasso refuses a `/cdp` request or a `browser_*` call that a **different website** sends from your browser, so a page you visit can't drive a lasso running on your own machine.
 - Chromium and lasso's chrome-devtools-mcp processes get an environment without lasso's credentials (`UI_AUTH`, `MCP_OAUTH`, `LASSO_MCP_TOKEN`).
 

@@ -61,7 +61,7 @@ The other lifecycle commands:
 
 Open `http://127.0.0.1:8090` in a browser on the same machine. You get herdr's terminal in the main column, a sidebar of tabs on the right (Files, Browser, Terminal, Usage, Settings and others), and a footer with **New**, the host menu (server icon), the sidebar toggle and your agents' usage budgets. [The web UI](../web-ui/index.md) walks through the layout.
 
-lasso binds to loopback by default, and that is deliberate: the terminal is a writable shell as you, and the MCP endpoints can spawn agents. It refuses to listen on a non-loopback address unless you configure authentication (or explicitly opt out with `-insecure-no-auth`, which is only safe on a private interface). To reach it from another machine or a phone, see [Deployment](../deployment/index.md); for a phone specifically you also need HTTPS ([On your phone](./phone.md)).
+lasso binds to loopback by default, and that is deliberate: the terminal is a writable shell as you, and the MCP endpoints can spawn agents. To reach it from your other devices, serve it on your tailnet with `-tailnet`, or publish it through Cloudflare Access with `-listen-access`. Both serve HTTPS, which a phone needs, and both check who is calling before lasso answers. See [Deployment](../deployment/index.md) and [On your phone](./phone.md).
 
 ## Check the install
 

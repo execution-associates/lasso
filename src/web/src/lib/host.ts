@@ -1,3 +1,5 @@
+import { noteResponseStatus } from "./auth-state"
+
 // The host THIS browser tab is looking at.
 //
 // It used to be a property of the server: POST /api/host swapped one global
@@ -68,12 +70,19 @@ export function withTabHost(url: string): string {
 // API goes through it, so a handler always knows which machine the asking tab
 // is on. The header is skipped when the tab has made no choice, which is how
 // the server's default host stays the answer for a fresh tab.
+//
+// Every request also says it is one (X-Requested-With), so an expired Cloudflare
+// Access session answers 401 instead of redirecting to a login page fetch
+// cannot follow, and a 401 marks the tab signed out (lib/auth-state.ts).
 export function hostFetch(
   input: RequestInfo | URL,
   init?: RequestInit
 ): Promise<Response> {
-  if (!current) return fetch(input, init)
   const headers = new Headers(init?.headers)
-  headers.set(hostHeader, current)
-  return fetch(input, { ...init, headers })
+  headers.set("X-Requested-With", "XMLHttpRequest")
+  if (current) headers.set(hostHeader, current)
+  return fetch(input, { ...init, headers }).then((r) => {
+    noteResponseStatus(r.status)
+    return r
+  })
 }

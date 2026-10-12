@@ -25,7 +25,7 @@ Most agents spend their time in a terminal, and not every agent has lasso's MCP 
 | `LASSO_MCP_TOKEN` | A bearer token, for a lasso with `MCP_OAUTH` set (mint one with `lasso mcp-client token`, see [Agent scope](./agent-scope.md)). Sent as `Authorization: Bearer`. |
 | `UI_AUTH` | `user:pass`, sent as basic auth when there is no token. |
 
-`/mcp` is open by default, so usually none of these is needed. These commands send no Cloudflare Access headers, so they cannot pass a lasso started with `-require-access-header`.
+`/mcp` is open on lasso's loopback listener by default, so on lasso's own machine none of these is usually needed. From another machine, point `LASSO_URL` at lasso's tailnet address (`-tailnet`). These commands send no Cloudflare Access headers, so they cannot pass Access, nor a lasso started with the deprecated `-require-access-header`.
 
 A per-host token also decides what "your own host" means for tools that default `host`. Without one, the caller is unidentified and the default host is lasso's own box. On a remote machine with no per-host credential, pass `-host <alias>` where a tool takes one. `-host` takes lasso's own box by its hostname (`-host titan`) or as `local`, the same as the tools do.
 

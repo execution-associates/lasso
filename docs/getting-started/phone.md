@@ -13,8 +13,8 @@ Service workers and the Push API only exist in a **secure context**: an `https:/
 
 Two ways to get a real HTTPS origin without exposing lasso publicly:
 
-- **Tailscale.** Keep lasso on loopback and let `tailscale serve` terminate TLS on your node's `*.ts.net` name. See [Over your tailnet](../deployment/tailnet.md).
-- **Cloudflare Tunnel + Access.** Keep lasso on loopback and publish it on a hostname of yours behind Cloudflare Access. See [Cloudflare](../deployment/cloudflare.md).
+- **Tailscale.** Start lasso with `-tailnet` and it serves HTTPS on your node's `*.ts.net` name, with the phone identified by the tailnet. See [Tailscale](../deployment/tailnet.md).
+- **Cloudflare Tunnel + Access.** Publish lasso on a hostname of yours behind Cloudflare Access, with `-listen-access`. See [Cloudflare](../deployment/cloudflare.md).
 
 HTTPS also helps two smaller things: Files-tab downloads, which some browsers block from a plain-HTTP page, and terminal copy, which otherwise falls back to a legacy clipboard method (see [Why HTTPS matters](../deployment/index.md#why-https-matters)). Uploads and dictation work either way.
 
@@ -25,6 +25,10 @@ On **iPhone or iPad** (iOS 16.4 or later), open your HTTPS lasso URL in Safari, 
 On **Android** and desktop browsers, push works in an ordinary tab. Installing lasso as an app (Chrome's "Add to Home screen" or "Install app") is still nicer: it opens full screen from its own icon.
 
 The home-screen app is a shortcut to your lasso, not an offline app. It caches nothing, so the machine running lasso has to be up and reachable to open it.
+
+**Behind Cloudflare Access, sign in once inside the installed app.** On iOS the home-screen app keeps its own cookies, apart from Safari's, so the first launch shows Cloudflare's login page. Sign in there, and the app stays signed in for the Access application's session duration (up to a month). On a tailnet there is nothing to sign in to.
+
+When the Access session ends while lasso is open, the next request comes back 401 and a bar at the top says *"You're signed out. Sign in again to keep working."* Tap **Sign in again**: lasso reloads, which runs the Access login in the same window, inside the installed app too.
 
 ## 3. Turn on notifications
 

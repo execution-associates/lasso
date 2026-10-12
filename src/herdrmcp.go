@@ -468,7 +468,8 @@ func (h *herdrMCPServer) handler() http.Handler {
 	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return h.srv }, &mcp.StreamableHTTPOptions{
 		// Same reason as newMCPHandler: lasso is loopback-bound and reached
 		// through a tunnel under a public hostname, which the SDK's DNS-rebinding
-		// guard would 403. The gate is withMCPAuth plus Access.
+		// guard would 403. The local guard (localguard.go) does that job with
+		// the names lasso answers to; the gate is withMCPAuth plus Access.
 		DisableLocalhostProtection: true,
 	})
 }

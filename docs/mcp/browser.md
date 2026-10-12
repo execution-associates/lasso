@@ -89,7 +89,7 @@ claude mcp add --transport http --header "Authorization: Basic <base64 user:pass
   lasso https://lasso.example.com/mcp
 ```
 
-Under `MCP_OAUTH`, a token comes from `lasso mcp-client token`; see [Agent scope](./agent-scope.md) and [OAuth](./oauth.md). With [`-require-access-header`](../deployment/cloudflare.md), every request also needs Cloudflare Access's identity header.
+Under `MCP_OAUTH`, a token comes from `lasso mcp-client token`; see [Agent scope](./agent-scope.md) and [OAuth](./oauth.md). A caller a network listener verified (an Access identity, a tailnet device) needs no credential of its own for the browser tools; a per-host lasso token it also sends still has to reach `local`.
 
 lasso's own chrome-devtools-mcp processes reach `/cdp` over loopback with a random per-process internal token, not with the caller's credential. The caller's credential, reach and Origin are checked on every browser tool call, which is the only door those processes open.
 

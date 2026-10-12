@@ -15,7 +15,7 @@ MCP itself offers nothing here: a client's `clientInfo` is a self-asserted name 
 
 ## Prerequisite: `MCP_OAUTH` must be set
 
-**Without it none of this applies.** While `MCP_OAUTH` is unset, `/mcp` is open, every caller is unidentified, and an unidentified caller is fleet-scoped. Provisioned per-host credentials are inert, and lasso logs a startup warning when that combination exists. The same is true of a caller using the `UI_AUTH` basic credentials on `/mcp`: it carries no host.
+**Without it none of this applies.** While `MCP_OAUTH` is unset, `/mcp` is open, every caller is unidentified, and an unidentified caller is fleet-scoped. Provisioned per-host credentials are inert, and lasso logs a startup warning when that combination exists. The same is true of a caller using the `UI_AUTH` basic credentials on `/mcp`, or a caller a network listener verified without a lasso token: neither carries a host.
 
 Set `MCP_OAUTH=client_id:client_secret` in lasso's environment (never a flag) and restart; [OAuth](./oauth.md#enabling-it) shows how under systemd. Verify on loopback, which sidesteps any edge gate:
 
@@ -27,9 +27,9 @@ curl -s -u "$MCP_OAUTH" -d grant_type=client_credentials \
 
 To roll back, unset `MCP_OAUTH` and restart.
 
-### Trade-off: this displaces Access Managed OAuth for connectors
+### Behind Cloudflare Access too
 
-While `MCP_OAUTH` is unset the origin implements no OAuth at all, which is what lets **Cloudflare Access Managed OAuth** act as the authorization server for claude.ai and Claude Desktop connectors: they authenticate to Access, and lasso just sees an authenticated session. Once `MCP_OAUTH` is set, lasso demands a bearer token *it* issued, and a connector's token is Access's, so that connector stops working. A verified Access identity is not accepted as a caller on `/mcp`. Either connect the connector through lasso's own OAuth instead (see [OAuth](./oauth.md#claudeai-and-claude-desktop-connectors)) or go without it.
+`MCP_OAUTH` and Access work together. Access decides who reaches lasso at all, and a lasso token narrows what an agent may reach once inside. A caller Access verified with no lasso token (you in a browser, a claude.ai connector signed in through Access's Managed OAuth, a service token on its own) is unidentified as far as host scope goes, and sees the whole fleet. A caller that also sends a per-host lasso token gets that token's scope. Send the token as `X-Lasso-Token` when `Authorization` is taken, or always, since lasso reads both alike. The same holds on the tailnet listener.
 
 ## Provisioning a host
 
@@ -109,7 +109,7 @@ Reaching `local` here is a bigger grant than it reads: a browser acts with whate
 
 ## Installing on a host
 
-When Cloudflare Access fronts lasso, a remote box needs **two** credentials, and the split is the useful part: an Access service token decides *whether* that box may talk to lasso at all; the lasso credential decides *what it may see* once inside.
+When Cloudflare Access fronts lasso, a remote box needs **two** credentials, and the split is the useful part: an Access service token decides *whether* that box may talk to lasso at all; the lasso credential decides *what it may see* once inside. On a tailnet the box's tag (named in `LASSO_ALLOW`) plays the service token's part.
 
 ```bash
 # on lasso's machine: provision the host, then mint it a token
@@ -119,12 +119,12 @@ lasso mcp-client token <client_id>          # no --ttl => never expires
 # on the box (keep the token in that box's own secret store)
 claude mcp add --transport http --scope user lasso \
   https://lasso.example.com/mcp \
-  --header "Authorization: Bearer $LASSO_MCP_TOKEN" \
+  --header "X-Lasso-Token: $LASSO_MCP_TOKEN" \
   --header "CF-Access-Client-Id: $LASSO_ACCESS_ID" \
   --header "CF-Access-Client-Secret: $LASSO_ACCESS_SECRET"
 ```
 
-`lasso connect -url https://lasso.example.com -token <token> -header "CF-Access-Client-Id: ..." -header "CF-Access-Client-Secret: ..."` registers both servers with every agent CLI on the box in one go (see [Connect your agents](../getting-started/connect-agents.md)). Exporting `LASSO_MCP_TOKEN` and `LASSO_URL` on the box also lets [`lasso mcp`, `lasso notify` and `lasso open`](./cli.md) authenticate.
+`lasso connect -url https://lasso.example.com -header "X-Lasso-Token: <token>" -header "CF-Access-Client-Id: ..." -header "CF-Access-Client-Secret: ..."` registers both servers with every agent CLI on the box in one go (see [Connect your agents](../getting-started/connect-agents.md)). Exporting `LASSO_MCP_TOKEN` and `LASSO_URL` on the box also lets [`lasso mcp`, `lasso notify` and `lasso open`](./cli.md) authenticate where they can reach lasso, such as its tailnet address; they send no Access headers, so they cannot pass Access.
 
 `token` defaults to **no expiry**, because it sits unattended in a host's config, where a rolling expiry is an outage on a timer rather than a security win. Pass `--ttl 90d` (or `2w`, `12h`, `30m`) for a dated one. To revoke: `lasso mcp-client rm <client_id>` drops the client and every token issued to it; then `add` a replacement. One client is one host, so the blast radius is exactly the host you are re-keying. `lasso mcp-client list` shows how many tokens each host holds and how many never expire.
 
@@ -139,4 +139,4 @@ Sanity check from that box: `list_agents` with no `host` should return **its own
 
 ## What this is not
 
-Not a sandbox. A fleet-scoped agent is one message away from proxying for a contained one, and a secret on a box can be exfiltrated from it. Where a trust zone is a real boundary, enforce it at the network (block that box's path to lasso, for example with Access policy or by binding lasso to loopback) and treat credential scope as defence in depth.
+Not a sandbox. A fleet-scoped agent is one message away from proxying for a contained one, and a secret on a box can be exfiltrated from it. Where a trust zone is a real boundary, enforce it at the network (block that box's path to lasso, for example with your tailnet policy, an Access policy, or `LASSO_ALLOW`) and treat credential scope as defence in depth.
