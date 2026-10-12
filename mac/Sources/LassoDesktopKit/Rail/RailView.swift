@@ -252,9 +252,11 @@ public struct RailView: View {
             let ring = Theme.Rail.badgeRing
             let c = Theme.Rail.badgeCenter.size
             let state: AgentState = fleet.inbox.contains { $0.kind == .waiting } ? .blocked : .done
+            // The ring's ink, not white: white reads at 1.5:1 on the green and
+            // 2.5:1 on the red; the ink at 11:1 and 7:1.
             Text(count > 99 ? "99+" : "\(count)")
-                .font(.system(size: b.number("font"), weight: .semibold).monospacedDigit())
-                .foregroundStyle(Theme.Text.primary.color)
+                .font(.system(size: b.number("font"), weight: .bold).monospacedDigit())
+                .foregroundStyle(ring.color("color"))
                 .padding(.horizontal, b.number("pad_h"))
                 .frame(minWidth: b.number("height"), minHeight: b.number("height"), maxHeight: b.number("height"))
                 .background(Capsule().fill(StateStyle.color(state)))
