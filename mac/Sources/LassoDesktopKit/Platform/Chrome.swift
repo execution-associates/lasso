@@ -17,6 +17,14 @@ public final class KeyHints: ObservableObject {
             MainActor.assumeIsolated { self?.visible = e.modifierFlags.contains(.command) }
             return e
         }
+        // A local monitor sees no key while another app is active, so ⌘ let
+        // go there (a ⌘⇧ screenshot, ⌘-Tab away) would leave every keycap on.
+        // Read the keys afresh whenever the app is left or entered.
+        for name in [NSApplication.didResignActiveNotification, NSApplication.didBecomeActiveNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.visible = NSApp.isActive && NSEvent.modifierFlags.contains(.command) }
+            }
+        }
     }
 }
 

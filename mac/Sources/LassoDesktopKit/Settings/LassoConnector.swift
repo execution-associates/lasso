@@ -149,7 +149,7 @@ public final class LassoConnector {
             return .connected(url, .password)
         case .password:
             return .failed("That user and password did not work.")
-        case .signIn, .unreachable:
+        case .signIn, .unreachable, .tooOld:
             return Self.failure(access, url)
         }
     }
@@ -171,7 +171,7 @@ public final class LassoConnector {
             return await runSignIn(url, metadata, attempt: mine)
         case .password:
             return .needsPassword(url)
-        case .unreachable:
+        case .unreachable, .tooOld:
             return Self.failure(access, url)
         }
     }
@@ -203,6 +203,8 @@ public final class LassoConnector {
             return .failed("No lasso answered at \(host). \(reason)")
         case .signIn:
             return .failed("\(host) asks for a sign-in instead.")
+        case .tooOld(let release):
+            return .failed("\(host) runs \(release), and LassoDesktop needs lasso \(LassoCompat.minimumText) or later. Update that lasso (lasso update), then connect again.")
         case .password, .open:
             return .failed("\(host) did not let this Mac in.")
         }

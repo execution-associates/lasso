@@ -48,8 +48,11 @@ public final class FleetSync: ObservableObject {
             every(Theme.Live.pollAllPanes.seconds) { await $0.refreshPanes() },
             every(Theme.Live.pollBots.seconds) { await $0.refreshBots() },
             every(30) { await $0.refreshUIState() },
+            // Not once: a first read that loses a race with sign-in would
+            // leave Settings saying "Not answering" while the fleet loads,
+            // and a lasso updated under the app reports its new release.
+            every(60) { await $0.refreshVersion() },
         ]
-        Task { await refreshVersion() }
         Task { await refreshNotify(register: true) }
     }
 
@@ -170,6 +173,8 @@ public final class FleetSync: ObservableObject {
             note(error, "version")
             return false
         }
+        // An older lasso answers too, but is not one this app can use.
+        if let v = version, !LassoCompat.supports(v) { return false }
         await refreshPanes()
         return true
     }

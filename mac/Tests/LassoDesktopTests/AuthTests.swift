@@ -49,7 +49,7 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
 
     @Test func probeReadsWhatALassoWants() async {
         let base = URL(string: "https://lasso.example.com")!
-        StubProtocol.respond = { _ in (200, ["Content-Type": "application/json"], Data(#"{"lasso_protocol":22,"lasso_version":"6.4.0","herdr_protocol":22,"herdr_version":"0.9.3","compatible":true}"#.utf8)) }
+        StubProtocol.respond = { _ in (200, ["Content-Type": "application/json"], Data(#"{"lasso_protocol":22,"lasso_version":"7.0.0 (6ab86064a6df)","herdr_protocol":22,"herdr_version":"0.9.3","compatible":true}"#.utf8)) }
         #expect(await LassoAuth.probe(base, session: StubProtocol.session) == .open)
         #expect(StubProtocol.seen.last?.value(forHTTPHeaderField: "X-Requested-With") == "XMLHttpRequest")
         #expect(StubProtocol.seen.last?.value(forHTTPHeaderField: "Authorization") == nil)
@@ -58,6 +58,9 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
             == .signIn(resourceMetadata: URL(string: "https://lasso.example.com/.well-known/oauth-protected-resource")!))
         StubProtocol.respond = { _ in (401, ["WWW-Authenticate": #"Basic realm="lasso""#], Data()) }
         #expect(await LassoAuth.probe(base, session: StubProtocol.session) == .password)
+        // An older lasso answers too, but is not one this app can use.
+        StubProtocol.respond = { _ in (200, ["Content-Type": "application/json"], Data(#"{"lasso_protocol":22,"lasso_version":"2.13.0 (dev)","compatible":true}"#.utf8)) }
+        #expect(await LassoAuth.probe(base, session: StubProtocol.session) == .tooOld("lasso 2.13.0"))
     }
 
     @Test func aRefusalRefreshesOnceAndRetries() async throws {

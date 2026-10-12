@@ -331,7 +331,7 @@ public struct SettingsView: View {
             }
             VStack(spacing: 0) {
                 HStack(alignment: .center, spacing: Theme.space("l")) {
-                    dot(c.version == nil ? Theme.State.blocked.color : Theme.State.done.color, anchor: "settings.lasso[\(c.url)]")
+                    dot(c.supported ? Theme.State.done.color : Theme.State.blocked.color, anchor: "settings.lasso[\(c.url)]")
                     VStack(alignment: .leading, spacing: Theme.space("2xs")) {
                         Text(c.title).font(Theme.Fonts.name.font.weight(.semibold)).foregroundStyle(Theme.Text.primary.color)
                         Text(c.detail).font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color)
