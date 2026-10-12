@@ -23,10 +23,13 @@ curl -fsSL https://executionassociates.com/install-lasso | sh
 
 The script downloads the latest release binary for your platform from GitHub, verifies it against the release's `checksums.txt`, and installs it as `~/.local/bin/lasso`. It then installs herdr (from `https://herdr.dev/install.sh`) if `herdr` is not already on your `PATH`.
 
+At a terminal, the script asks whether lasso may send anonymous usage analytics: which views and features get used and rough counts, under a random id. [Usage analytics](../reference/analytics.md) lists exactly what is sent. You can change your answer any time with `lasso telemetry on|off` or in **Settings › General › Anonymous usage analytics**.
+
 | Variable | Effect |
 | --- | --- |
 | `LASSO_INSTALL_DIR` | Install somewhere other than `~/.local/bin`. |
 | `LASSO_SKIP_HERDR=1` | Don't install herdr; just print the command to install it yourself. |
+| `LASSO_TELEMETRY=0` | Turn off lasso's [anonymous usage analytics](../reference/analytics.md) without being asked. Passing `--no-telemetry` (`… \| sh -s -- --no-telemetry`) does the same. |
 
 ```bash
 curl -fsSL https://executionassociates.com/install-lasso | LASSO_INSTALL_DIR=/usr/local/bin sh

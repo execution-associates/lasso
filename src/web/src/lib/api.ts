@@ -8,6 +8,7 @@
 // from the request itself.
 
 import { hostFetch } from "./host"
+import { trackAgentCreated, trackFeature } from "./telemetry"
 
 export interface ActiveState {
   cwd?: string
@@ -1198,6 +1199,18 @@ export interface RepoBranches {
 }
 
 // The body POSTed to /api/create-agent.
+export interface TelemetryConfig {
+  // The stored choice (on unless switched off).
+  enabled: boolean
+  // Whether anything is actually sent: also needs the environment to allow it
+  // and a build with an ingestion key.
+  active: boolean
+  // "DO_NOT_TRACK" or "LASSO_TELEMETRY" when lasso's environment holds it off.
+  env_off: string
+  has_key: boolean
+  privacy_url: string
+}
+
 export interface CreateAgentPayload {
   // Host to create on ("local" or an ssh-config alias); omit for the active
   // host. Sent so the create targets the picked host's backend directly instead
@@ -1720,7 +1733,12 @@ export const api = {
   // Writes [theme].name in herdr's config.toml (the shared source of truth) —
   // herdr reloads it and lasso follows via the theme_rev SSE bump.
   setTheme: (name: string) =>
-    postJSON<{ ok: boolean; name: string }>("/api/theme-set", { name }),
+    postJSON<{ ok: boolean; name: string }>("/api/theme-set", { name }).then(
+      (r) => {
+        trackFeature("theme_changed")
+        return r
+      }
+    ),
   // Starts a push of a theme to local herdr and every reachable, non-opted-out
   // host. `palette` is the theme THIS browser resolved ("" to follow herdr's own
   // config) — the server cannot derive it, since appearance "system" resolves
@@ -1802,7 +1820,10 @@ export const api = {
     postAction(
       `/api/plugins/${encodeURIComponent(name)}/${action}`,
       fingerprint ? { fingerprint } : {}
-    ),
+    ).then((r) => {
+      if (action === "enable") trackFeature("plugin_enabled")
+      return r
+    }),
   setPluginTrusted: (name: string, trusted: boolean) =>
     postAction(`/api/plugins/${encodeURIComponent(name)}/trust`, { trusted }),
   // Container (vm: false, the default) or VM. A flip restarts its MCP server;
@@ -1894,6 +1915,11 @@ export const api = {
   autoTitle: () => getJSON<{ enabled: boolean }>("/api/auto-title"),
   setAutoTitle: (enabled: boolean) =>
     postJSON<{ enabled: boolean }>("/api/auto-title", { enabled }),
+  // Anonymous usage analytics (telemetry.go): the stored choice, whether
+  // anything is actually sent, and what holds it off.
+  telemetryConfig: () => getJSON<TelemetryConfig>("/api/telemetry/config"),
+  setTelemetry: (enabled: boolean) =>
+    postJSON<TelemetryConfig>("/api/telemetry/config", { enabled }),
 
   // Notifications (webpush.go). The config carries the VAPID public key a
   // subscription must be minted with plus the devices already registered; the
@@ -2150,7 +2176,10 @@ export const api = {
       postJSON<{ bot: BotView; error?: string; note?: string }>(
         "/api/bots",
         body
-      ),
+      ).then((r) => {
+        trackFeature("bot_created")
+        return r
+      }),
     update: (name: string, body: BotFields & { restart?: boolean }) =>
       sendJSON<{ bot: BotView }>("PUT", botURL(name), body),
     // Forgets the bot; its folder stays on the host.
@@ -2372,7 +2401,12 @@ export const api = {
   // Overwrite an existing file on `host` (omitted = the active backend) with
   // new content (preserving its mode).
   writeFile: (path: string, content: string, host?: string) =>
-    postJSON<{ ok: boolean }>("/api/file-write", { path, content, host }),
+    postJSON<{ ok: boolean }>("/api/file-write", { path, content, host }).then(
+      (r) => {
+        trackFeature("file_saved")
+        return r
+      }
+    ),
 
   // Delete a file or directory on `host` (directories recursively).
   deleteFile: (path: string, host?: string) =>
@@ -2486,6 +2520,7 @@ export const api = {
       body: file,
     })
     if (!r.ok) throw await httpError(r)
+    trackFeature("paste_upload")
     return r.json()
   },
 
@@ -2552,7 +2587,10 @@ export const api = {
 
   // Create + launch an agent (git worktree or scratch workspace).
   createAgent: (payload: CreateAgentPayload) =>
-    postJSON<AgentRecord>("/api/create-agent", payload),
+    postJSON<AgentRecord>("/api/create-agent", payload).then((r) => {
+      trackAgentCreated(payload.agent, payload.type)
+      return r
+    }),
 
   // Live Herdr workspaces on one host, for terminal creation and defaults.
   workspaces: (host?: string) =>

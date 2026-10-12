@@ -41,6 +41,9 @@ func TestMain(m *testing.M) {
 		// No unit test drives the real isb: a sandboxed plugin reads
 		// unavailable unless a test points LASSO_ISB somewhere itself.
 		"LASSO_ISB": "off",
+		// No test reports analytics anywhere; the telemetry tests switch it
+		// back on against a fake transport.
+		"LASSO_TELEMETRY": "0",
 	} {
 		os.Setenv(k, v)
 	}

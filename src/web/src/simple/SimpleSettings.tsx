@@ -2,6 +2,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { ChevronRight, Minus, Plus } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import {
+  ANALYTICS_LABEL,
+  AnalyticsNote,
+  useAnalyticsSetting,
+} from "@/components/AnalyticsToggle"
 import type { PhoneTextField } from "@/lib/api"
 import { api } from "@/lib/api"
 import { getMode, type Mode, setMode } from "@/lib/mode"
@@ -342,6 +347,30 @@ function TextSettings() {
   )
 }
 
+function Analytics() {
+  const a = useAnalyticsSetting()
+  return (
+    <>
+      <GroupHeader>Privacy</GroupHeader>
+      <Card className="overflow-hidden">
+        <Row
+          label={ANALYTICS_LABEL}
+          detail={
+            <AnalyticsNote heldBy={a.heldBy} url={a.config?.privacy_url} />
+          }
+        >
+          <Switch
+            on={a.on}
+            disabled={a.busy || !!a.heldBy}
+            onChange={a.set}
+            label={ANALYTICS_LABEL}
+          />
+        </Row>
+      </Card>
+    </>
+  )
+}
+
 export function SimpleSettings() {
   const version = useQuery({
     queryKey: ["simple", "version"],
@@ -370,6 +399,8 @@ export function SimpleSettings() {
             </span>
           </Row>
         </Card>
+
+        <Analytics />
 
         <GroupHeader>Full lasso</GroupHeader>
         <Card className="overflow-hidden">

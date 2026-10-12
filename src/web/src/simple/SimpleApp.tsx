@@ -3,6 +3,7 @@ import * as React from "react"
 
 import { AskConfirmContext, ChatSubmitContext } from "@/components/ChatView"
 import { phoneTextStyle, usePhoneMuted } from "@/lib/phone-text"
+import { type TelemetryView, trackView } from "@/lib/telemetry"
 import { useUIState } from "@/lib/ui-state"
 import { AgentChat, AgentsList } from "@/simple/AgentsView"
 import { BotChat, BotsList } from "@/simple/BotsList"
@@ -66,6 +67,20 @@ export function SimpleApp() {
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
   }, [])
+
+  // Anonymous usage analytics: which screen is open, never which agent or bot.
+  React.useEffect(() => {
+    const view: Record<SimpleRoute["view"], TelemetryView> = {
+      inbox: "simple_inbox",
+      agents: "simple_agents",
+      new: "new_form",
+      agent: "chat",
+      bots: "bots",
+      bot: "chat",
+      settings: "settings",
+    }
+    trackView(view[route.view])
+  }, [route.view])
 
   // Every move inside the app is a history entry marked as ours, so a chat's
   // Back returns to whatever opened it (the Inbox, a list) through history.

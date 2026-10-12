@@ -36,6 +36,7 @@ import { api, type ChatItem, type ChatPayload, type HostPane } from "@/lib/api"
 import { useApp } from "@/lib/app-store"
 import { useFlip } from "@/lib/flip"
 import { qk, queryClient } from "@/lib/query"
+import { trackInbox } from "@/lib/telemetry"
 import { patchUIState, setAgentPinned, useUIState } from "@/lib/ui-state"
 import { cn } from "@/lib/utils"
 
@@ -178,7 +179,10 @@ export function AgentsView({
       if (err) {
         restore()
         toast.error(`could not close ${agentName(p)}: ${err}`)
-      } else void queryClient.invalidateQueries({ queryKey: ["all-panes"] })
+      } else {
+        trackInbox("kill")
+        void queryClient.invalidateQueries({ queryKey: ["all-panes"] })
+      }
     } catch (e) {
       restore()
       toast.error(`could not close ${agentName(p)}: ${(e as Error).message}`)
@@ -759,6 +763,7 @@ function AgentCard({
       // which, since an uncertain send may already have landed and retrying
       // would duplicate the turn.
       if (res.outcome === "confirmed") {
+        trackInbox("reply")
         setText("")
         setAttachments([])
       } else setNotice(res.detail || `not sent (${res.outcome})`)

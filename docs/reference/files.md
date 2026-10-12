@@ -59,6 +59,7 @@ Notable `settings` keys:
 | `omarchy_installed` | Omarchy themes installed from a URL. |
 | `auto_title_agents`, `terminal_workspace` | The auto-title toggle; the New terminal form's default workspace. |
 | `transcribe` | The speech-to-text provider `/api/transcribe` uses: provider, model, `base_url` and the name of the key's variable. Never a key. |
+| `telemetry`, `telemetry_active_day` | Anonymous usage analytics: `{enabled, install_id}` (the switch and this install's random id), and the UTC day the last `install_active` went out. See [Usage analytics](./analytics.md). |
 
 ## Temporary files
 

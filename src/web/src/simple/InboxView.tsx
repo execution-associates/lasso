@@ -15,6 +15,7 @@ import { Markdown, resolveMarkdownSrc } from "@/components/Markdown"
 import { paneKey } from "@/lib/agents"
 import { api, type ChatPayload, type HostPane } from "@/lib/api"
 import { relativeTime, useMinuteClock } from "@/lib/bots"
+import { trackInbox } from "@/lib/telemetry"
 import { ackCard } from "@/lib/ui-state"
 import { cn } from "@/lib/utils"
 import { BotAskForm, PaneAskForm } from "@/simple/AskForm"
@@ -296,7 +297,13 @@ function ItemCard({
           )}
           <CardFooter>
             <Actions>
-              <ActionButton primary onClick={() => ackNotice(item.notice)}>
+              <ActionButton
+                primary
+                onClick={() => {
+                  trackInbox("acknowledge")
+                  ackNotice(item.notice)
+                }}
+              >
                 Acknowledge
               </ActionButton>
             </Actions>
@@ -457,10 +464,14 @@ function PaneCard({
   const refresh = () =>
     void queryClient.invalidateQueries({ queryKey: ["simple"] })
 
-  const ack = () => ackCard(item.ackKey, item.ackAt)
+  const ack = () => {
+    trackInbox("acknowledge")
+    ackCard(item.ackKey, item.ackAt)
+  }
   const kill = async () => {
     try {
       await api.close([p.pane_id], p.host)
+      trackInbox("kill")
       toast.success(`Ended ${name}`)
     } catch (e) {
       toast.error(`Could not end ${name}: ${(e as Error).message}`)
@@ -486,7 +497,10 @@ function PaneCard({
           tool={item.ask}
           host={chat?.host ?? p.host}
           paneID={p.pane_id}
-          onSent={refresh}
+          onSent={() => {
+            trackInbox("answer")
+            refresh()
+          }}
         />
       )}
       {item.kind === "blocked" && (
@@ -520,7 +534,10 @@ function PaneCard({
             host={chat?.host ?? p.host}
             send={async (t) => {
               const r = await api.chatSend(chat?.host ?? p.host, p.pane_id, t)
-              if (r.outcome === "confirmed") refresh()
+              if (r.outcome === "confirmed") {
+                trackInbox("reply")
+                refresh()
+              }
               return r
             }}
             onDraftChange={setDrafting}
@@ -580,7 +597,10 @@ function BotCard({
   }
   const text = lastAgentText(chat) || b.last_text || ""
   const files = sharedFiles(lastTurn(chat))
-  const ack = () => ackCard(item.ackKey, item.ackAt)
+  const ack = () => {
+    trackInbox("acknowledge")
+    ackCard(item.ackKey, item.ackAt)
+  }
   const [drafting, setDrafting] = React.useState(false)
 
   return (
@@ -593,7 +613,14 @@ function BotCard({
         status={b.state}
       />
       {item.kind === "bot-ask" && item.pending && (
-        <BotAskForm bot={b.name} question={item.pending} onSent={refresh} />
+        <BotAskForm
+          bot={b.name}
+          question={item.pending}
+          onSent={() => {
+            trackInbox("answer")
+            refresh()
+          }}
+        />
       )}
       {item.kind === "bot-reply" && (
         <>
@@ -608,7 +635,10 @@ function BotCard({
             placeholder="Reply…"
             send={async (t) => {
               const r = await api.bots.chatSend(b.name, t)
-              if (r.outcome === "confirmed") refresh()
+              if (r.outcome === "confirmed") {
+                trackInbox("reply")
+                refresh()
+              }
               return r
             }}
             onDraftChange={setDrafting}

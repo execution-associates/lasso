@@ -41,6 +41,8 @@ export const qk = {
   version: ["version"] as const,
   // Server-level (not host-scoped): whether new agents are auto-titled.
   autoTitle: ["auto-title"] as const,
+  // Server-level: anonymous usage analytics on or off (telemetry.go).
+  telemetry: ["telemetry"] as const,
   // Server-level: the VAPID key + registered notification devices.
   push: ["push"] as const,
   // Server-level: the shared browser's status (browser.go). Shared by the

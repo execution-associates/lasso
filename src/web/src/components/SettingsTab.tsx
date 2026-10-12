@@ -25,6 +25,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { AnalyticsToggle } from "@/components/AnalyticsToggle"
 import { Pill } from "@/components/Pill"
 import {
   AlertDialog,
@@ -491,6 +492,11 @@ export function SettingsTab({ active }: { active: boolean }) {
           >
             {(open) => <PluginsSettings active={generalActive && open} />}
           </SettingsGroup>
+          {/* Not a group either: one switch, and where the docs and the
+              privacy policy say it is. */}
+          <div className="fx-tile fx-tile-card mb-3 border-border/60 border-t pt-3">
+            <AnalyticsToggle />
+          </div>
           {/* Not a group: one action, nothing to configure, and it should be
               findable without opening anything. */}
           <div className="fx-tile fx-tile-card flex items-center gap-3 border-border/60 border-t pt-3">

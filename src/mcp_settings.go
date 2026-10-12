@@ -29,7 +29,7 @@ import (
 // agent (or a page an agent read) must not be able to grant them.
 
 // settingsSections are what get_settings can return, in display order.
-var settingsSections = []string{"ui", "agents", "repos", "theme", "notifications", "browser", "transcribe", "plugins"}
+var settingsSections = []string{"ui", "agents", "repos", "theme", "notifications", "browser", "transcribe", "telemetry", "plugins"}
 
 // mcpSettingsClientID is the writer identity update_settings stamps on a
 // ui_state patch. A deliberate settings change is a human-equivalent act, so it
@@ -107,10 +107,10 @@ func requireSettingsReach(req *mcp.CallToolRequest, host string) error {
 
 // ---- get_settings -------------------------------------------------------------
 
-const getSettingsDescription = "Read lasso's settings — everything the Settings tab shows. Sections: `ui` (the synced UI preferences: appearance_mode, palette_light/palette_dark, theme_atmosphere, typography, chat_text, terminal_text, phone_text, browser_mode, terminal_links_in_sidebar, files_click_navigates, sidebar_tabs, usage_hidden/usage_order/usage_compact, creator_default_host, agents_group_host/agents_group_repo, chat_sidebar, onboarding_done, …), `agents` (the creator defaults of `host` — repos_root, branch_prefix, default_agent, default_terminal_workspace, scratch_setup — plus `auto_title`), `repos` (each repo under `host`'s repo roots with its copy_files and setup), `theme` (herdr's current theme, the selectable `themes`, sync_agent_themes, theme_sync_off hosts, and the installable theme `catalog`), `notifications` (registered push devices by id and label; endpoints are never shown), `browser` (the browsers' status; list_browsers and the other browser tools manage them), `transcribe` (the speech-to-text provider /api/transcribe uses — provider, model, base_url and the NAME of the key's variable, never a key), and `plugins` (READ-ONLY: plugin state; enabling, trusting, installing and updating plugins is done by a human in lasso's Settings tab, never over MCP). Omit `section` for all of them. update_settings changes them."
+const getSettingsDescription = "Read lasso's settings — everything the Settings tab shows. Sections: `ui` (the synced UI preferences: appearance_mode, palette_light/palette_dark, theme_atmosphere, typography, chat_text, terminal_text, phone_text, browser_mode, terminal_links_in_sidebar, files_click_navigates, sidebar_tabs, usage_hidden/usage_order/usage_compact, creator_default_host, agents_group_host/agents_group_repo, chat_sidebar, onboarding_done, …), `agents` (the creator defaults of `host` — repos_root, branch_prefix, default_agent, default_terminal_workspace, scratch_setup — plus `auto_title`), `repos` (each repo under `host`'s repo roots with its copy_files and setup), `theme` (herdr's current theme, the selectable `themes`, sync_agent_themes, theme_sync_off hosts, and the installable theme `catalog`), `notifications` (registered push devices by id and label; endpoints are never shown), `browser` (the browsers' status; list_browsers and the other browser tools manage them), `transcribe` (the speech-to-text provider /api/transcribe uses — provider, model, base_url and the NAME of the key's variable, never a key), `telemetry` (anonymous usage analytics: `enabled` is the setting, `active` whether anything is actually sent, `env_off` the environment variable holding it off), and `plugins` (READ-ONLY: plugin state; enabling, trusting, installing and updating plugins is done by a human in lasso's Settings tab, never over MCP). Omit `section` for all of them. update_settings changes them."
 
 type getSettingsIn struct {
-	Section string `json:"section,omitempty" jsonschema:"One of ui, agents, repos, theme, notifications, browser, transcribe, plugins. Omit for every section."`
+	Section string `json:"section,omitempty" jsonschema:"One of ui, agents, repos, theme, notifications, browser, transcribe, telemetry, plugins. Omit for every section."`
 	Host    string `json:"host,omitempty" jsonschema:"Whose per-host settings the agents and repos sections show: a host from list_hosts. Omit for lasso's own host."`
 }
 
@@ -195,6 +195,8 @@ func readSettingsSection(ctx context.Context, section, host string) (any, error)
 		return callSettingsAPI(ctx, sharedBrowsers.serveStatus, http.MethodGet, "/api/browser", nil)
 	case "transcribe":
 		return callSettingsAPI(ctx, serveTranscribeConfig, http.MethodGet, "/api/transcribe/config", nil)
+	case "telemetry":
+		return callSettingsAPI(ctx, serveTelemetryConfig, http.MethodGet, "/api/telemetry/config", nil)
 	case "plugins":
 		if plugins == nil {
 			return map[string]any{"available": false}, nil
@@ -213,7 +215,7 @@ func readSettingsSection(ctx context.Context, section, host string) (any, error)
 
 // ---- update_settings ----------------------------------------------------------
 
-const updateSettingsDescription = "Change lasso's settings — what the Settings tab changes, with the same validation; every open lasso tab updates live. Pass only what changes; an omitted field is left alone. `ui` is a PATCH of the synced UI preferences get_settings shows under `ui` (only the keys you send change; typography/chat_text/terminal_text/phone_text/theme_atmosphere merge per field, \"\" or null deletes one; sidebar_tabs is replaced whole; pinned agents change only through `agent_pins: {<key>: true|false}`, dismissed agent cards through `card_dismiss: {<key>: <transcript_at ms>|null}`, the background gallery through `remember_background`/`forget_background`). `agent_defaults` and `repo` write `host`'s own creator settings (\"\" clears a field). `theme` switches herdr's theme fleet-wide (refused while an appearance palette is set — change ui.palette_light/palette_dark/appearance_mode instead); `sync_theme_now` pushes the current theme to every host; `install_theme_url` installs an Omarchy theme from a URL. `remove_push_device` forgets a notification device by the id get_settings lists. `transcribe` picks the speech-to-text provider (key NAMES only, never a key). Plugin approvals and trust are NOT settable here: they need a human in lasso's Settings tab. Returns the affected sections as they now read."
+const updateSettingsDescription = "Change lasso's settings — what the Settings tab changes, with the same validation; every open lasso tab updates live. Pass only what changes; an omitted field is left alone. `ui` is a PATCH of the synced UI preferences get_settings shows under `ui` (only the keys you send change; typography/chat_text/terminal_text/phone_text/theme_atmosphere merge per field, \"\" or null deletes one; sidebar_tabs is replaced whole; pinned agents change only through `agent_pins: {<key>: true|false}`, dismissed agent cards through `card_dismiss: {<key>: <transcript_at ms>|null}`, the background gallery through `remember_background`/`forget_background`). `agent_defaults` and `repo` write `host`'s own creator settings (\"\" clears a field). `theme` switches herdr's theme fleet-wide (refused while an appearance palette is set — change ui.palette_light/palette_dark/appearance_mode instead); `sync_theme_now` pushes the current theme to every host; `install_theme_url` installs an Omarchy theme from a URL. `remove_push_device` forgets a notification device by the id get_settings lists. `transcribe` picks the speech-to-text provider (key NAMES only, never a key). `telemetry` turns lasso's anonymous usage analytics on or off. Plugin approvals and trust are NOT settable here: they need a human in lasso's Settings tab. Returns the affected sections as they now read."
 
 type agentDefaultsIn struct {
 	ReposRoot                *string `json:"repos_root,omitempty" jsonschema:"Directories scanned for git repos, one per line."`
@@ -247,6 +249,7 @@ type updateSettingsIn struct {
 	InstallThemeURL  string                 `json:"install_theme_url,omitempty" jsonschema:"Install an Omarchy theme from this URL (a GitHub repo or archive)."`
 	RemovePushDevice string                 `json:"remove_push_device,omitempty" jsonschema:"Forget the notification device with this id (from get_settings section notifications)."`
 	Transcribe       *transcribeConfigPatch `json:"transcribe,omitempty" jsonschema:"The speech-to-text provider; only the fields given change."`
+	Telemetry        *bool                  `json:"telemetry,omitempty" jsonschema:"Anonymous usage analytics on or off (docs/reference/analytics.md says what is sent)."`
 }
 
 func updateSettingsTool(ctx context.Context, req *mcp.CallToolRequest, in updateSettingsIn) (*mcp.CallToolResult, map[string]any, error) {
@@ -378,6 +381,15 @@ func updateSettingsTool(ctx context.Context, req *mcp.CallToolRequest, in update
 			return nil, nil, err
 		}
 		out["transcribe"] = v
+		did = true
+	}
+
+	if in.Telemetry != nil {
+		v, err := callSettingsAPI(ctx, serveTelemetryConfig, http.MethodPost, "/api/telemetry/config", map[string]any{"enabled": *in.Telemetry})
+		if err != nil {
+			return nil, nil, err
+		}
+		out["telemetry"] = v
 		did = true
 	}
 
