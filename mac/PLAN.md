@@ -1176,3 +1176,24 @@ The web Browser tab's **Agent** view, in a window of its own: the rail's Browser
 - `/cdp` through Cloudflare Access with the app's bearer token, and under `MCP_OAUTH`.
 - Typing, paste and the page tabs against a browser an agent is using at the same time.
 - The **+** against minime's Chrome (a remote browser) in the installed app.
+## 25. Anonymous usage analytics
+
+The app sends anonymous usage analytics straight to PostHog's capture API (`POST https://posthog.execution.associates/batch/`), not through lasso: it may talk to a lasso it does not control, and lasso's own setting covers lasso and its web app only. `Platform/Analytics.swift` holds the host, the project's public ingestion key (`AnalyticsConfig.key`, a write-only `phc_…` key; empty sends nothing) and the whole vocabulary as closed enums, so no caller can pass a free string. There is no third-party SDK.
+
+**What it sends.** Every event carries `app` = `mac`, `app_version`, `os` = `darwin`, `arch`, `$lib` = `lasso`, and PostHog's `$geoip_disable` = true and `$process_person_profile` = false. Its `distinct_id` is a random UUID made on the first send (UserDefaults `analyticsInstallId`). Never a name, address, path, hostname, prompt, message, bot or agent name, token, or anything typed.
+- `install_active`, once per UTC day while the app runs on a live lasso (UserDefaults `analyticsActiveDay`): `hosts_count` (1, 2-3, 4+), `agents_running` and `bots_count` (0, 1-5, 6-20, 21+), from the fleet the app already holds.
+- `view_opened` with `view`: `inbox_card` (an inbox card, or the empty inbox), `agents_column`, `bots_column`, `chat` (a bot's chat panel), `agent_window`, `bot_window`, `terminal_window`, `browser_window`, `new_form`, `settings`. At most once per view per ten minutes.
+- `agent_created` (`harness`: claude, codex, opencode, omp, pi, other; `kind`: git, scratch; `from`: mac) when the New form creates an agent.
+- `inbox_action` (`action`: acknowledge, kill, reply, answer, stop, rename; `from`: mac) when lasso took one from a card or an agent window (`Card/LiveCardActions.swift`).
+- `feature_used` (`feature`): `shortcut_used` (a global shortcut, the summon key, ⌘O/⇧⌘O/⌘I), `paste_upload` (a file pasted or dropped onto a composer or the New form), `terminal_zoom` (the herdr window's text size).
+- `onboarding_completed` when the first-run panel is finished, only if analytics is on after the choice. The choice itself is never sent.
+
+**Off means nothing is sent**, not even an "opted out" event, and what waits is dropped:
+- the first-run panel's **Share anonymous usage analytics** switch, under the tips (on unless switched off);
+- **Settings › Info › Privacy › Anonymous usage analytics** (UserDefaults `analyticsEnabled`, absent = on), beside a link to the privacy policy (https://www.executionassociates.com/privacy/); its footnote says when the environment overrides it;
+- `DO_NOT_TRACK` = 1/true/yes or `LASSO_TELEMETRY` = 0/false/off/no in the app's environment, or an empty key (`LASSO_TELEMETRY_KEY=` overrides the build's; `LASSO_TELEMETRY_HOST` the host).
+A fixture or parity run and the test process never send (`Analytics.inert`), and the coordinator counts only with a live lasso.
+
+**Never in the way.** Events queue in memory, capped at 200 (the oldest go), and go out in batches of up to 100, 30 s after the first or at once when 20 wait. One request at a time on a detached utility task, an ephemeral `URLSession` (no cookies, no cache) with 5 s request and resource timeouts. A failure or an error status drops the batch: no retry, nothing shown, a debug log line at most. Quitting does not wait for it.
+
+**Tests:** `AnalyticsTests` (a fake transport): every off path sends nothing; every event the enums can make carries only the listed keys and values; an error status, an unreachable host and a hanging one leave one request in flight and a bounded queue; the view throttle and the daily ping; the first-run and Settings switches.

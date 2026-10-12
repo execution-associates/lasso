@@ -55,6 +55,8 @@ public final class AppCoordinator {
     private var glance: Glance?
     /// A shortcut-opened pop-out also goes on a click elsewhere.
     private let clickAway = ClickAwayWatch()
+    /// Anonymous usage analytics (PLAN 25); only a live lasso's app sends.
+    var analytics: Analytics = .shared
 
     public init(fleet: FleetModel, sync: FleetSync?, fixture: Fixture?) {
         self.fleet = fleet
@@ -108,7 +110,10 @@ public final class AppCoordinator {
         p.apply()
         presence = p
         settingsModel.onPresence = { [weak self] in self?.presence?.apply() }
-        hotKey = HotKey(token: Theme.summonKey) { [weak self] in self?.rail.summon() }
+        hotKey = HotKey(token: Theme.summonKey) { [weak self] in
+            self?.feature(.shortcut_used)
+            self?.rail.summon()
+        }
         for slot in ShortcutSlot.allCases {
             let sc = InboxShortcut { [weak self] in self?.shortcutPressed(slot) }
             sc.apply(InboxShortcutChoice.stored(slot))
@@ -126,10 +131,32 @@ public final class AppCoordinator {
                 default: nil
                 }
             guard let kind else { return e }
-            MainActor.assumeIsolated { self?.openNewAgent(kind) }
+            MainActor.assumeIsolated {
+                self?.feature(.shortcut_used)
+                self?.openNewAgent(kind)
+            }
             return nil
         }
         startFirstRun()
+    }
+
+    // MARK: analytics
+
+    /// A surface opened, counted (throttled per view) from a live lasso only:
+    /// fixtures, the parity harness and tests send nothing.
+    private func viewed(_ v: AnalyticsView) {
+        if sync != nil { analytics.view(v) }
+    }
+
+    private func feature(_ f: AnalyticsFeature) {
+        if sync != nil { analytics.track(.featureUsed(f)) }
+    }
+
+    /// `install_active` once a day: how many machines, agents and bots, in
+    /// buckets. Asked whenever the fleet changes; Analytics keeps it daily.
+    private func noteActive() {
+        guard sync?.version != nil, !fleet.offline else { return }
+        analytics.dailyActive(hosts: max(1, Set(fleet.panes.map(\.host)).count), agents: fleet.agents.count, bots: fleet.bots.count)
     }
 
     // MARK: first run
@@ -175,6 +202,7 @@ public final class AppCoordinator {
         m.onOpenSettings = { [weak self] in self?.openSettings() }
         // The rail is meant to be always there: add the login item once, now.
         m.onFinished = { [weak self] in self?.settingsModel.autoRegisterLoginItem() }
+        m.analytics = analytics
         let c = FirstRunController(model: m)
         firstRun = c
         return c
@@ -343,7 +371,12 @@ public final class AppCoordinator {
                 .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
                 .sink { [weak self] _ in self?.noteArrivals() }
                 .store(in: &subs)
+            fleet.$panes
+                .debounce(for: .seconds(5), scheduler: RunLoop.main)
+                .sink { [weak self] _ in self?.noteActive() }
+                .store(in: &subs)
         }
+        settingsModel.analytics = analytics
         fleet.$bots
             .sink { [weak self] bots in
                 guard let self, let c = self.chat?.model, let b = bots.first(where: { $0.name == c.bot.name }) else { return }
@@ -370,6 +403,7 @@ public final class AppCoordinator {
     func openCard(_ p: HostPane, takeKey: Bool = true) {
         closeAll(except: card)
         card.open(p, takeKey: takeKey)
+        viewed(.inbox_card)
     }
 
     /// One of the panels that open off the rail is up (not Settings, which
@@ -425,6 +459,7 @@ public final class AppCoordinator {
         }
         closeAll(except: list)
         list.open(takeKey: takeKey)
+        viewed(.agents_column)
     }
 
     /// The Bots column: opened, or given the keyboard (J/K, ⏎) when open.
@@ -435,12 +470,14 @@ public final class AppCoordinator {
         }
         closeAll(except: bots)
         bots.open(takeKey: takeKey)
+        viewed(.bots_column)
     }
 
     /// A bot's own window: one per bot, brought forward if open. Like an
     /// agent's, it floats free of the rail and outlives the column.
     func openBotWindow(_ b: BotView) {
         bots.hidePreview()
+        viewed(.bot_window)
         if let w = botWindows[b.name] {
             w.show()
             return
@@ -552,6 +589,7 @@ public final class AppCoordinator {
         } else {
             closeAll(except: inbox)
             inbox.open(takeKey: takeKey)
+            viewed(.inbox_card)
             inboxModel.markNoticesSeen()
         }
     }
@@ -567,9 +605,11 @@ public final class AppCoordinator {
         settingsModel.refresh()
         Task { await sync?.refreshNotify() }
         settings.open(takeKey: takeKey)
+        viewed(.settings)
     }
 
     func shortcutPressed(_ slot: ShortcutSlot) {
+        feature(.shortcut_used)
         switch slot {
         case .inbox: inboxShortcut()
         case .newAgent: openNewAgent(.git)
@@ -582,6 +622,7 @@ public final class AppCoordinator {
     /// opens on the pane it boots in.
     func openNewAgent(_ kind: NewAgentModel.Kind) {
         guard let client else { return }
+        viewed(.new_form)
         if let n = newAgent {
             if n.model.kind != kind {
                 n.model.kind = kind
@@ -596,8 +637,11 @@ public final class AppCoordinator {
             self?.newAgent?.close()
             self?.newAgent = nil
         }
-        m.onCreated = { [weak self] pane in
+        m.onCreated = { [weak self, weak m] pane in
             guard let self else { return }
+            if let m, self.sync != nil, let kind = AnalyticsAgentKind(rawValue: m.kind.rawValue) {
+                self.analytics.track(.agentCreated(AnalyticsHarness(id: m.agent), kind))
+            }
             let frame = c.panel.frame
             self.newAgent?.close()
             self.newAgent = nil
@@ -755,6 +799,7 @@ public final class AppCoordinator {
     /// puts the cursor in its composer (a new agent's window).
     func openWindow(_ p: HostPane, near anchor: NSRect? = nil, focusReply: Bool = false) {
         preview.close()
+        viewed(.agent_window)
         if let w = windows[p.key] {
             w.show(focusReply: focusReply)
             return
@@ -781,6 +826,7 @@ public final class AppCoordinator {
     /// rail's panels go first (agent windows stay).
     func openTerminal() {
         closeRailPanels()
+        viewed(.terminal_window)
         herdrWindow()?.open()
     }
 
@@ -797,6 +843,7 @@ public final class AppCoordinator {
     /// page an agent offered when one waits. The rail's panels go first.
     func openBrowser() {
         closeRailPanels()
+        viewed(.browser_window)
         let offer = browserAttention.request
         browserAttention.clear()
         banner.hide()
@@ -828,6 +875,7 @@ public final class AppCoordinator {
     func showInHerdr(_ p: HostPane, note: String? = nil) {
         herdrShown.append(p)
         closeRailPanels()
+        viewed(.terminal_window)
         herdrWindow()?.show(p, note: note)
     }
 
@@ -848,6 +896,7 @@ public final class AppCoordinator {
             chat = (m, panel)
         }
         guard let c = chat else { return }
+        viewed(.chat)
         closeAll(except: c.panel)
         c.model.startPolling()
         c.panel.open()

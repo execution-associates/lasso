@@ -30,6 +30,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public func applicationDidFinishLaunching(_ notification: Notification) {
         BundledFonts.register()
         if let states = value(after: "--parity") {
+            // The harness draws fixtures: nothing it does is anyone's usage.
+            Analytics.shared.inert = true
             runParity(states)
         } else {
             startApp()
@@ -63,6 +65,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         var sync: FleetSync?
         if let name = value(after: "--fixture") {
             // A fixture instead of a live lasso: what the parity states show.
+            Analytics.shared.inert = true
             do {
                 let fx = try Fixture.load(name, from: specDir.appendingPathComponent("fixtures"))
                 fleet.apply(panes: fx.server.all_panes)

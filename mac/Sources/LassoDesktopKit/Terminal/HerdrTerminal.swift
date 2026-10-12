@@ -399,6 +399,7 @@ public final class HerdrTerminalController: NSObject {
         guard next != fontSize else { return }
         fontSize = next
         TerminalZoom.store(next, scale: scale)
+        Analytics.shared.track(.featureUsed(.terminal_zoom))
         humanActed()
         bridge?.setFontSize(next)
         Trace.event("herdr window text \(next)")

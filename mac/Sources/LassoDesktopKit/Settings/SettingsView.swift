@@ -424,6 +424,17 @@ public struct SettingsView: View {
             }
             startAtLogin
         }
+        group("Privacy", footnote: model.analyticsNote) {
+            row(
+                "Anonymous usage analytics",
+                detail: "Which parts of Lasso get used, as counts: never names, paths or anything you type.", last: true
+            ) {
+                HStack(spacing: Theme.space("m")) {
+                    PillButton(title: "Privacy policy", label: "Open the privacy policy") { model.openPrivacy() }
+                    toggle(model.analyticsOn, "Anonymous usage analytics") { model.setAnalytics(!model.analyticsOn) }
+                }
+            }
+        }
         group(nil) {
             row(
                 "Quit Lasso",

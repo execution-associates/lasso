@@ -27,6 +27,7 @@ public final class LiveCardActions: CardActions {
     public func rename(_ pane: HostPane, to name: String) async throws {
         let _: Renamed = try await client.post("/api/agent/rename", query: ["host": pane.host], json: Rename(pane_id: pane.pane_id, name: name))
         fleet.relabel(pane.key, name.isEmpty ? nil : name)
+        Analytics.shared.track(.inboxAction(.rename))
     }
 
     /// The omp bot running in this pane: its chat, messages and questions go
@@ -59,8 +60,19 @@ public final class LiveCardActions: CardActions {
     struct BotSend: Encodable { var text: String }
 
     public func send(_ pane: HostPane, text: String) async throws -> Outcome {
-        if let b = ompBot(pane) { return try await client.post(botPath(b, "chat/send"), json: BotSend(text: text)) }
-        return try await client.post("/api/chat/send", query: ["host": pane.host], json: SendBody(pane_id: pane.pane_id, text: text))
+        let o: Outcome =
+            if let b = ompBot(pane) {
+                try await client.post(botPath(b, "chat/send"), json: BotSend(text: text))
+            } else {
+                try await client.post("/api/chat/send", query: ["host": pane.host], json: SendBody(pane_id: pane.pane_id, text: text))
+            }
+        return Self.counted(o, .reply)
+    }
+
+    /// An answer that went through counts as that inbox action (PLAN 25).
+    static func counted(_ o: Outcome, _ a: AnalyticsInboxAction) -> Outcome {
+        if o.ok { Analytics.shared.track(.inboxAction(a)) }
+        return o
     }
 
     struct BotAnswer: Encodable {
@@ -74,7 +86,7 @@ public final class LiveCardActions: CardActions {
         let body =
             pending.method == "confirm"
             ? BotAnswer(id: pending.id, value: nil, confirmed: value == "Yes") : BotAnswer(id: pending.id, value: value, confirmed: nil)
-        return try await client.post(botPath(b, "chat/answer"), json: body)
+        return Self.counted(try await client.post(botPath(b, "chat/answer"), json: body), .answer)
     }
 
     struct AnswerBody: Encodable {
@@ -97,7 +109,7 @@ public final class LiveCardActions: CardActions {
         let body = AnswerBody(
             pane_id: pane.pane_id, expect: question.question ?? "", labels: labels,
             answers: [.init(selected: option.map { [$0] } ?? [], multi: question.multi ?? false, options: labels.count, custom: custom)])
-        return try await client.post("/api/chat/answer", query: ["host": pane.host], json: body)
+        return Self.counted(try await client.post("/api/chat/answer", query: ["host": pane.host], json: body), .answer)
     }
 
     struct AgentClose: Encodable {
@@ -128,10 +140,12 @@ public final class LiveCardActions: CardActions {
             let r: AgentClosed = try await client.post(
                 "/api/agent/close",
                 json: AgentClose(pane_id: pane.pane_id, agent_id: id, host: pane.host, remove_worktree: false))
+            Analytics.shared.track(.inboxAction(.kill))
             return r.agent_killed == true || r.pane_closed == true ? "Killed \(pane.displayName)" : "Nothing to kill"
         }
         let r: PaneClosed = try await client.post("/api/close", query: ["host": pane.host], json: PaneClose(pane_ids: [pane.pane_id]))
         if let err = r.errors?[pane.pane_id] { throw LassoError.http(502, err) }
+        Analytics.shared.track(.inboxAction(.kill))
         return "Closed \(pane.displayName)"
     }
 
@@ -146,6 +160,7 @@ public final class LiveCardActions: CardActions {
         let e = fleet.inbox.first { $0.id == pane.key }
         let _: UIStateSlice = try await client.post(
             "/api/ui-state", json: AckWrite(card_dismiss: [e?.ackKey ?? pane.key: e?.ackAt ?? pane.transcript_at ?? 0]))
+        Analytics.shared.track(.inboxAction(.acknowledge))
         await refreshUIState()
     }
 
@@ -154,8 +169,13 @@ public final class LiveCardActions: CardActions {
 
     /// POST /api/chat/stop on the pane's host, or an omp bot's own stop route.
     public func stop(_ pane: HostPane) async throws -> Outcome {
-        if let b = ompBot(pane) { return try await client.post(botPath(b, "chat/stop"), json: Empty()) }
-        return try await client.post("/api/chat/stop", query: ["host": pane.host], json: PaneStop(pane_id: pane.pane_id))
+        let o: Outcome =
+            if let b = ompBot(pane) {
+                try await client.post(botPath(b, "chat/stop"), json: Empty())
+            } else {
+                try await client.post("/api/chat/stop", query: ["host": pane.host], json: PaneStop(pane_id: pane.pane_id))
+            }
+        return Self.counted(o, .stop)
     }
 
     struct Focus: Encodable { var pane_id: String }
@@ -186,6 +206,7 @@ extension LassoClient {
         let type = UTType(filenameExtension: file.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
         req.setValue(type, forHTTPHeaderField: "Content-Type")
         let r: Pasted = try await upload(req, fromFile: file)
+        Analytics.shared.track(.featureUsed(.paste_upload))
         return r.path
     }
 }

@@ -231,7 +231,33 @@ public struct FirstRunView: View {
             }
             .parityAnchor("onboarding.tips")
             .padding(.top, Theme.space("m"))
+            analyticsRow
+                .padding(.top, Theme.space("xl"))
         }
+    }
+
+    /// Share anonymous usage analytics: on unless unticked, what it is in a
+    /// line, and the privacy policy.
+    private var analyticsRow: some View {
+        HStack(alignment: .top, spacing: Theme.space("l")) {
+            Switch(
+                on: model.shareAnalytics, label: "Share anonymous usage analytics", showsLabel: false, anchor: "onboarding.analytics"
+            ) { model.setShareAnalytics(!model.shareAnalytics) }
+            VStack(alignment: .leading, spacing: Theme.space("2xs")) {
+                Text("Share anonymous usage analytics").font(Theme.Fonts.small.font.weight(.semibold))
+                    .foregroundStyle(Theme.Text.primary.color)
+                HStack(spacing: Theme.space("xs")) {
+                    Text("Which parts get used, never names or text.").foregroundStyle(Theme.Text.secondary.color)
+                    Button { NSWorkspace.shared.open(AnalyticsConfig.privacyURL) } label: {
+                        Text("Privacy").foregroundStyle(Theme.accent.color).underline()
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Privacy policy")
+                }
+                .font(Theme.Fonts.small.font)
+            }
+        }
+        .padding(.horizontal, Theme.space("xs"))
     }
 
     private func tipRow(_ t: FirstRunModel.Tip) -> some View {

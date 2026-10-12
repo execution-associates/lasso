@@ -96,6 +96,8 @@ public final class FirstRunModel: ObservableObject {
     public var onFinished: () -> Void = {}
     /// The header was dragged (true: the drag ended).
     public var onDrag: (Bool) -> Void = { _ in }
+    /// Anonymous usage analytics (PLAN 25): step 3's switch, on unless unticked.
+    public var analytics: Analytics = .shared { didSet { objectWillChange.send() } }
 
     public init(connector: LassoConnector, defaults: UserDefaults = .standard) {
         self.connector = connector
@@ -137,6 +139,14 @@ public final class FirstRunModel: ObservableObject {
                 id: "settings", icon: .settings, title: "Settings",
                 detail: "The gear at the rail's foot: shortcuts, sounds and this connection.", keys: []),
         ]
+    }
+
+    /// Share anonymous usage analytics: the switch under the tips.
+    public var shareAnalytics: Bool { analytics.enabled }
+
+    public func setShareAnalytics(_ on: Bool) {
+        objectWillChange.send()
+        analytics.enabled = on
     }
 
     // MARK: steps
@@ -221,6 +231,7 @@ public final class FirstRunModel: ObservableObject {
     /// Done: finished for good.
     public func done() {
         defaults.set(true, forKey: Self.doneKey)
+        finishedOnboarding()
         onFinished()
         onClose()
     }
@@ -228,6 +239,7 @@ public final class FirstRunModel: ObservableObject {
     /// Open Settings: finished too, and Settings takes over.
     public func openSettings() {
         defaults.set(true, forKey: Self.doneKey)
+        finishedOnboarding()
         onFinished()
         onClose()
         onOpenSettings()
@@ -241,6 +253,12 @@ public final class FirstRunModel: ObservableObject {
         busy = false
         if step == .signingIn { step = .connect }
         onClose()
+    }
+
+    /// Counted only with analytics on after the choice; the choice itself
+    /// is never sent.
+    private func finishedOnboarding() {
+        analytics.track(.onboardingCompleted)
     }
 
     private func land(_ r: ConnectOutcome) async {
