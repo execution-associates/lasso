@@ -8,6 +8,11 @@
 // browser's own unpreventable chords (⌘T/⌘W/⌘N/⌘Q, ⌘1–9, ⌘⇧T), the file
 // viewer's CodeMirror keymap (⌘F/⌘G/⌘D/⌘U/⌘[ ⌘] — App's listener sits on the
 // document, so a chord CodeMirror also binds would do both), and copy/paste.
+//
+// ⌘⇧M swaps the full UI and the simple app at /m (M for /m): App's handler
+// opens the simple app, and SimpleApp's own listener comes back. Shifted
+// because a bare ⌘M is the Mac's Minimize, which the browser takes before the
+// page sees it.
 export interface Shortcut {
   keys: string
   label: string
@@ -49,6 +54,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: "⌘⇧F", label: "Sidebar: Files" },
       { keys: "⌘⇧S", label: "Sidebar: Scratch" },
       { keys: "⌘⇧B", label: "Sidebar: Browser" },
+      { keys: "⌘⇧M", label: "Simple view ⟷ full view" },
     ],
   },
   {
@@ -77,4 +83,4 @@ export const APP_KEYS = new Set([
   ";",
   ",",
 ])
-export const APP_SHIFT_KEYS = new Set(["o", "f", "s", "b"])
+export const APP_SHIFT_KEYS = new Set(["o", "f", "s", "b", "m"])

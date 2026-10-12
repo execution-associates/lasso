@@ -90,7 +90,7 @@ These settings are lasso's, not this phone's: every phone using the simple app g
 
 Secondary text (captions, an agent's reasoning, a tool row's detail) is held to WCAG AA contrast, 4.5:1, against your theme's background and its cards. A theme whose muted colour already reaches that, lasso's own light and dark included, is shown as it is.
 
-Simple or advanced is remembered per device, so choosing the full UI on a phone does not change your laptop. From the full UI, **Simple view** in the view menu (and in Settings → General) goes back. A desktop browser can open `/m` too.
+Simple or advanced is remembered per device, so choosing the full UI on a phone does not change your laptop. From the full UI, **Simple view** in the view menu (and in Settings → General) goes back. A desktop browser can open `/m` too: `⌘⇧M` in the full UI goes there, and `⌘⇧M` in the simple app comes back.
 
 ## Things to know
 
