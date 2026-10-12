@@ -738,7 +738,7 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 | Key | Action |
 |---|---|
 | `j` / `k` | Next / previous item, in Inbox order (wrapping). The card lands on it, the unread bar shows where you are, and it is marked seen. |
-| `x` | Kill, behind its confirm: a first `x` arms it ("Press X again"), a second kills, and any other key disarms. A bot has none. |
+| `x` | Kill, behind its confirm: a first `x` arms it ("Press X again"), a second kills, and any other key disarms. A bot has none. Until lasso answers (`/api/agent/close` can take seconds), the button reads "Killing…" with a spinner and is off, the conversation and the choices dim (`card.killing`) under "Killing <agent>…", and every key but `j`, `k` and `esc` waits (`CardModel.killingKey`, so paging away shows the other card as it is). A failure clears the wait and says why in the same place. Parity state `card-killing`. |
 | `a` | Acknowledge (S1): writes the entry's own key, and nothing to the agent. It returns when the item has something new. Off while the reply composer holds a draft: the button is greyed with the hint "Send or clear your reply first", `a` does nothing and shows no keycap, and a focused composer types it. |
 | `r` | Rename the agent in place, as a click on its name does (§17): ⏎ or a click away keeps the name, esc keeps the old one. A bot has none. |
 | `l` | Put the cursor in the reply composer, draft or not. Every key is then text until esc leaves the field. |
@@ -1010,7 +1010,7 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
   - Anything else is a chip that opens the file.
   - The bytes come through `/api/file` (`download=1`) from the host that served the transcript. They are cached in `~/Library/Caches/Lasso/Media` per path and showing, since an agent may overwrite a file in place.
 - **Choices need a confirm.** A click (or 1–9) only selects a choice; the selected one shows **Answer**, and that button (or →) sends it. An answer cannot be taken back, and the preview appears under a moving pointer.
-- **No header menu:** the window's header is minimize and close. **Kill** is a red pill at the trailing end of the folder/model row (`AgentKill`; a bot has none, and neither does a hover preview), behind the inbox's confirm: X or a click arms it ("Confirm kill"), a second kills. Its accessibility label is "Kill <agent>". Once the kill goes through, the window closes and the agent's inbox entry goes with it (§13.7a).
+- **No header menu:** the window's header is minimize and close. **Kill** is a red pill at the trailing end of the folder/model row (`AgentKill`; a bot has none, and neither does a hover preview), behind the inbox's confirm: X or a click arms it ("Confirm kill"), a second kills. Its accessibility label is "Kill <agent>". While lasso closes the pane it reads "Killing…" with a spinner and the window waits as the card does (§13.7a); a failure clears it and the notice line says why. Once the kill goes through, the window closes and the agent's inbox entry goes with it (§13.7a).
 - The composer's paperclip (U) attaches any files: each goes through `/api/paste-file` to the agent's machine and its path into the message.
 - **Paste and drop attach too** (`Platform/Attachments.swift`), in every composer (inbox card, agent window and preview, bot chat) and the New Agent prompt.
   - The composer's NSTextField uses its own field editor (`ComposerCell` → `AttachingTextView`), so ⌘V and Edit › Paste reach it. A drop works on the field and on its editor alike.

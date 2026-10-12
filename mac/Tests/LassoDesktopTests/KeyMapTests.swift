@@ -129,3 +129,61 @@ private var u: NSEvent { key("u", 32) }
     let chars = Keys.all.compactMap(\.character)
     #expect(Set(chars).count == chars.count)
 }
+
+/// Two blocked agents in the inbox, the card on the first, with a kill that
+/// takes `wait` and fails with `error`.
+@MainActor private func killableCard(wait: UInt64, error: String? = nil) -> (CardModel, FixtureCardActions, FleetModel) {
+    let fleet = FleetModel()
+    // p1 is the newer, so first in the inbox.
+    var older = agentPane("w1:p2")
+    older.transcript_at = 20
+    fleet.apply(panes: AllPanes(panes: [agentPane("w1:p1"), older]))
+    let actions = FixtureCardActions(chats: [:], canAcknowledge: true)
+    actions.killWait = wait
+    actions.killError = error
+    let m = CardModel(pane: agentPane("w1:p1"), fleet: fleet, actions: actions)
+    m.inbox = InboxModel(fleet: fleet)
+    return (m, actions, fleet)
+}
+
+/// A kill in flight shows its wait: Kill is off, and every key but paging
+/// waits. Once lasso answers, the card moves on.
+@MainActor @Test func killWaitsThenMovesOn() async throws {
+    let (m, actions, _) = killableCard(wait: 400_000_000)
+    let first = m.pane.key
+    m.perform(.kill)
+    #expect(!m.killing && m.killArmed)
+    m.perform(.kill)
+    try await Task.sleep(nanoseconds: 50_000_000)
+    #expect(m.killing && m.killingKey == first && actions.calls == ["kill"])
+    #expect(!m.activeBindings.contains(Keys.kill) && !m.canAcknowledgeNow)
+    // X, A and L wait; a third X does not arm another kill.
+    for a: CardKeyAction in [.kill, .acknowledge, .reply, .rename] { #expect(m.perform(a)) }
+    m.kill()
+    #expect(!m.killArmed && !m.renaming && m.focusRequest == 0 && actions.calls == ["kill"])
+    try await Task.sleep(nanoseconds: 600_000_000)
+    #expect(!m.killing && m.killingKey == nil)
+    #expect(m.pane.pane_id == "w1:p2")
+}
+
+/// A kill lasso refuses clears the wait and says why; J/K page meanwhile,
+/// and the wait belongs to the agent being killed, not the card.
+@MainActor @Test func aFailedKillSaysWhy() async throws {
+    let (m, actions, fleet) = killableCard(wait: 400_000_000, error: "the pane is gone")
+    m.kill()
+    m.kill()
+    try await Task.sleep(nanoseconds: 50_000_000)
+    #expect(m.killing)
+    #expect(m.perform(.next))
+    #expect(m.pane.pane_id == "w1:p2" && !m.killing && m.activeBindings.contains(Keys.kill))
+    #expect(m.perform(.previous))
+    #expect(m.pane.pane_id == "w1:p1" && m.killing)
+    try await Task.sleep(nanoseconds: 600_000_000)
+    #expect(!m.killing && m.killingKey == nil && actions.calls == ["kill"])
+    #expect(m.notice == "Kill failed: the pane is gone" && m.killFailed == "Kill failed: the pane is gone")
+    #expect(m.pane.pane_id == "w1:p1" && fleet.killed.isEmpty)
+    #expect(m.activeBindings.contains(Keys.kill))
+    // The next X starts over.
+    m.kill()
+    #expect(m.killArmed && m.killFailed == nil)
+}

@@ -194,20 +194,24 @@ struct PillButton: View {
     /// and not clickable, with `hint` saying why.
     var enabled = true
     var hint: String?
+    /// Its action is in flight: a small spinner before the title.
+    var busy = false
     let label: String
     let action: () -> Void
 
     var body: some View {
         let p = Theme.Control.pill
         let lit = primary && enabled
+        let ink = !enabled ? Theme.Text.secondary.color : lit ? Theme.Control.pillPrimary.color("text") : textColor
         Button(action: action) {
-            Text(title)
-                .font(Theme.Fonts.label.font)
-                .foregroundStyle(!enabled ? Theme.Text.secondary.color : lit ? Theme.Control.pillPrimary.color("text") : textColor)
-                .padding(.horizontal, p.number("pad_h"))
-                .frame(height: p.number("height"))
-                .background(Capsule().fill(lit ? Theme.Control.pillPrimary.color("fill") : p.color("fill")))
-                .contentShape(Capsule())
+            HStack(spacing: Theme.space("m")) {
+                if busy { ProgressView().controlSize(.small).tint(ink) }
+                Text(title).font(Theme.Fonts.label.font).foregroundStyle(ink)
+            }
+            .padding(.horizontal, p.number("pad_h"))
+            .frame(height: p.number("height"))
+            .background(Capsule().fill(lit ? Theme.Control.pillPrimary.color("fill") : p.color("fill")))
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .disabled(!enabled)

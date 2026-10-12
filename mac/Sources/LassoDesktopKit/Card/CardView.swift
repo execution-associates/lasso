@@ -83,6 +83,7 @@ public struct CardView: View {
                     .padding(.top, Theme.Layout.card.number("identity_gap"))
                 Group {
                     conversation
+                        .killingDim(model, failure: true)
                 }
                 .id(pane.key)
                 .transition(
@@ -248,10 +249,13 @@ public struct CardView: View {
                 Spacer(minLength: 8)
                 if !model.isBot {
                     PillButton(
-                        title: model.killArmed ? "Confirm kill" : "Kill agent", textColor: Theme.dangerText.color,
-                        label: model.killArmed ? "Confirm kill agent (X)" : "Kill agent (X)"
+                        title: model.killing ? "Killing…" : model.killArmed ? "Confirm kill" : "Kill agent",
+                        textColor: Theme.dangerText.color, enabled: !model.killing, busy: model.killing,
+                        label: model.killing
+                            ? "Killing \(model.current.displayName)"
+                            : model.killArmed ? "Confirm kill agent (X)" : "Kill agent (X)"
                     ) { model.kill() }
-                    .keyHint(Keys.kill)
+                    .keyHint(Keys.kill, active: !model.killing)
                     .parityAnchor("action.kill")
                 }
                 if model.actions.canAcknowledge {
@@ -313,6 +317,7 @@ public struct CardView: View {
                         }
                     }
                 }
+                .opacity(model.killing ? Theme.Card.killing.number("dim") : 1)
                 .parityAnchor("card.steps")
             }
         }

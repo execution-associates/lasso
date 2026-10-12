@@ -251,6 +251,9 @@ public enum Theme {
         public static let placement = Token(
             "card.placement", ["side": "leading-of-rail", "gap": 8, "align": "top-of-rail"],
             .measured("ref a2: 8 pt from the rail"))
+        /// A kill in flight: the conversation's opacity under "Killing <agent>…".
+        public static let killing = Token(
+            "card.killing", ["dim": 0.5], .unmeasured("a kill in flight dims the conversation"), proposed: true)
     }
 
     public enum Text {
@@ -432,7 +435,7 @@ public enum Theme {
         Control.round, Control.composer, Control.pill, Control.pillPrimary,
         Card.size, Card.titleX, Card.contentX, Card.unreadSegment, Card.unreadDot, Card.unreadGap, Card.keycapFill,
         Card.keycapFont, Card.keycapMinSize, Card.keycapRadius, Card.keycapPadH, Card.toolRow, Card.machineChip,
-        Card.placement,
+        Card.placement, Card.killing,
         Text.primary, Text.secondary, Text.placeholder, accent, dangerText,
         Row.hover, Row.selected, Row.radius,
         Fonts.display, Fonts.title, Fonts.body, Fonts.chat, Fonts.name, Fonts.label, Fonts.header, Fonts.small, Fonts.terminal,

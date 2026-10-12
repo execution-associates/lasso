@@ -12,7 +12,7 @@ public final class ParityRunner {
     /// milestone lands (PLAN 6).
     public static let implemented: Set<String> = [
         "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "settings-shortcuts", "new-agent", "new-agent-menu", "agent-window-markdown",
-        "first-run", "first-run-connected", "rail-offline",
+        "card-killing", "first-run", "first-run-connected", "rail-offline",
     ]
 
     let spec: Spec
@@ -247,6 +247,7 @@ public final class ParityRunner {
             recapture = make
         } else if let key = fixture.ui.card {
             let c = try cardModel(fixture, fleet: fleet, key: key)
+            if fixture.ui.killing == true { c.killingKey = c.pane.key }
             card = c
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(CardView(model: c), size: Theme.Card.size.size) }
             cap = try await make()

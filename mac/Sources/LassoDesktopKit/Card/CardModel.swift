@@ -82,6 +82,16 @@ public final class CardModel: ComposerModel {
     @Published public private(set) var renaming = false
     @Published public var renameDraft = ""
     @Published public private(set) var killArmed = false
+    /// A kill lasso has not answered yet (closing a pane can take seconds):
+    /// that pane's key. The parity harness sets it to draw the wait.
+    @Published public internal(set) var killingKey: String?
+    /// This card's agent is being killed: its Kill reads "Killing…", the
+    /// conversation dims, and every key but paging (and esc) waits.
+    public var killing: Bool { killingKey == pane.key }
+    /// Why the last kill of this card's agent failed, until the next X or
+    /// a page away (the card shows no notice line under its next steps).
+    @Published public private(set) var killFailure: (key: String, reason: String)?
+    public var killFailed: String? { killFailure?.key == pane.key ? killFailure?.reason : nil }
     /// Whether the card has the keyboard, and how (PLAN 13.7a): it decides
     /// which keys the card shows and answers.
     @Published public var keyMode: KeyMode = .none
@@ -214,7 +224,7 @@ public final class CardModel: ComposerModel {
     /// in here).
     public var activeBindings: Set<KeyBinding> {
         var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.send, Keys.reply, Keys.next, Keys.previous]
-        if !isBot { b.insert(Keys.kill) }
+        if !isBot, !killing { b.insert(Keys.kill) }
         if canRename { b.insert(Keys.rename) }
         if isWorking { b.insert(Keys.stop) }
         if canAcknowledgeNow { b.insert(Keys.acknowledge) }
@@ -459,16 +469,26 @@ public final class CardModel: ComposerModel {
             notice = "\(pane.displayName) is a bot: stop it from lasso's Bots view"
             return
         }
+        guard !killing else { return }
+        killFailure = nil
         guard killArmed else {
             killArmed = true
             notice = "Press X again to kill \(pane.displayName)"
             return
         }
         killArmed = false
+        guard !busy else { return }
         let p = pane
         let order = pages.map(\.key)
+        killingKey = p.key
         run("Kill") { [self] in
-            let said = try await actions.kill(p)
+            // Answered either way: a failure's reason goes in the notice.
+            defer { killingKey = nil }
+            let said: String
+            do { said = try await actions.kill(p) } catch {
+                killFailure = (p.key, "Kill failed: \(error)")
+                throw error
+            }
             resolved(p, killed: true, order: order)
             return said
         }
@@ -487,7 +507,7 @@ public final class CardModel: ComposerModel {
     public var hasDraft: Bool { !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     /// Acknowledge can be pressed now (A, or its button).
-    public var canAcknowledgeNow: Bool { actions.canAcknowledge && !hasDraft }
+    public var canAcknowledgeNow: Bool { actions.canAcknowledge && !hasDraft && !killing }
 
     public func acknowledge() {
         guard actions.canAcknowledge else {
@@ -563,11 +583,14 @@ public final class CardModel: ComposerModel {
     public func focusComposer() { focusRequest += 1 }
 
     /// Do what a routed key asks, in the inbox card or an agent window
-    /// (CardKeys). Any key but X disarms a kill. Returns false for a key that
+    /// (CardKeys). Any key but X disarms a kill; while a kill is in flight
+    /// only J/K act and the rest are swallowed. Returns false for a key that
     /// does nothing here (the window's own keys, esc and the unbound, are
     /// its caller's), so the system gets it.
     @discardableResult
     public func perform(_ action: CardKeyAction) -> Bool {
+        // A kill in flight: only paging moves; the rest waits for lasso.
+        if killing, action != .next, action != .previous { return true }
         if action != .kill { disarm() }
         switch action {
         case .digit(let n): highlight(n)
@@ -615,6 +638,7 @@ public final class CardModel: ComposerModel {
         }
         inbox?.markSeen(next)
         killArmed = false
+        killFailure = nil
         highlighted = nil
         notice = nil
         stopping = false

@@ -53,7 +53,9 @@ struct AgentWindowView: View {
                 AgentConversation(
                     entries: ConversationEntry.fold(model.chat?.items.suffix(160).map { $0 } ?? [], cwd: model.chat?.cwd),
                     pending: model.pending, phase: model.phase, outgoing: model.outgoing, host: model.mediaHost)
+                .killingDim(model)
                 StepList(model: model)
+                    .opacity(model.killing ? Theme.Card.killing.number("dim") : 1)
                 AgentComposer(model: model, showsKill: true)
             }
         }

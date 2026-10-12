@@ -222,7 +222,18 @@ public final class FixtureCardActions: CardActions {
 
     public func kill(_ pane: HostPane) async throws -> String {
         calls.append("kill")
+        if killWait > 0 { try await Task.sleep(nanoseconds: killWait) }
+        if let killError { throw FixtureError(message: killError) }
         return "fixture"
+    }
+
+    /// How long the fixture's kill takes, and why it fails (nil: it succeeds).
+    public var killWait: UInt64 = 0
+    public var killError: String?
+
+    public struct FixtureError: Error, CustomStringConvertible {
+        public var message: String
+        public var description: String { message }
     }
 
     public func acknowledge(_ pane: HostPane) async throws { calls.append("acknowledge") }
