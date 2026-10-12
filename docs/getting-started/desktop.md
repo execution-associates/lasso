@@ -1,13 +1,13 @@
 ---
 title: The Mac app
-description: LassoDesktop, the native macOS client for lasso: install it from the release DMG, connect it to your lasso by address, and keep it updated.
+description: Lasso, the native macOS client for lasso: install it from the release DMG, connect it to your lasso by address, and keep it updated.
 order: 13
 nav_title: Mac app
 ---
 
-LassoDesktop is a native macOS app for a running lasso. It lives on the edge of your screen instead of in a browser tab: a rail you reveal with the pointer, an **Inbox** of what is waiting on you across every machine, a window per agent, and your bots' conversations. It talks to lasso over the same HTTP API as the web UI, so everything it shows is on the lasso you point it at; the app keeps no agents of its own.
+Lasso is the native macOS app for a running lasso. It lives on the edge of your screen instead of in a browser tab: a rail you reveal with the pointer, an **Inbox** of what is waiting on you across every machine, a window per agent, and your bots' conversations. It talks to lasso over the same HTTP API as the web UI, so everything it shows is on the lasso you point it at; the app keeps no agents of its own.
 
-![LassoDesktop: the edge rail, the Inbox and an agent window](../assets/readme/desktop.webp)
+![Lasso, the Mac app: the edge rail, the Inbox and an agent window](../assets/readme/desktop.webp)
 
 ## Requirements
 
@@ -16,7 +16,7 @@ LassoDesktop is a native macOS app for a running lasso. It lives on the edge of 
 
 ## Install
 
-[Download LassoDesktop](https://github.com/execution-associates/lasso/releases/latest/download/LassoDesktop.dmg), the newest release's DMG. Every lasso release on [GitHub](https://github.com/execution-associates/lasso/releases/latest) carries it, as `LassoDesktop.dmg` and as `LassoDesktop-<version>.dmg`, at lasso's own version. Open the DMG and drag **LassoDesktop** onto **Applications**. The app is signed with a Developer ID and notarized by Apple, so it opens without a Gatekeeper warning, and it updates itself from then on.
+[Download Lasso for the Mac](https://github.com/execution-associates/lasso/releases/latest/download/Lasso.dmg), the newest release's DMG. Every lasso release on [GitHub](https://github.com/execution-associates/lasso/releases/latest) carries it, as `Lasso.dmg` and as `Lasso-<version>.dmg`, at lasso's own version. Open the DMG and drag **Lasso** onto **Applications**. The app is signed with a Developer ID and notarized by Apple, so it opens without a Gatekeeper warning, and it updates itself from then on.
 
 On first launch the app looks for a lasso at the address it last used and at `127.0.0.1:8090`. If neither answers, a first-run panel asks for your lasso's address; when one does, it says so and shows a few tips. Until a lasso answers, the rail's inbox shows a grey **!** and opens that panel.
 
@@ -47,7 +47,7 @@ The app uses one lasso at a time. [Security](../security.md) and [Authentication
 
 ## Notifications
 
-The Mac is a notification device of its own, registered as "LassoDesktop on <your Mac>". Settings › Notifications lists the same **Notify me about** choices as the web UI, and a sound plays only for a kind this Mac wants. A choice never hides anything from the Inbox. See [Notifications](../concepts/notifications.md#choosing-what-interrupts-each-device).
+The Mac is a notification device of its own, registered as "Lasso on <your Mac>". Settings › Notifications lists the same **Notify me about** choices as the web UI, and a sound plays only for a kind this Mac wants. A choice never hides anything from the Inbox. See [Notifications](../concepts/notifications.md#choosing-what-interrupts-each-device).
 
 ## Updates
 

@@ -427,7 +427,7 @@ type uiState struct {
 	// the reason pins are: a stale copy would undo another device's dismissal.
 	// Capped at maxDismissedCards, smallest transcript_at dropped first.
 	DismissedCards map[string]int64 `json:"dismissed_cards"`
-	// DesktopSound describes the inbox arrival sound uploaded for LassoDesktop
+	// DesktopSound describes the inbox arrival sound uploaded for the Mac app
 	// (desktopsound.go), absent when none is. Server-owned: only PUT and
 	// DELETE /api/desktop/sound change it, and POST /api/ui-state discards it,
 	// so a client learns of a new sound through the ui_state_rev it already

@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// The JSON shapes LassoDesktop (mac/) decodes, as golden files under
+// The JSON shapes the Mac app (mac/) decodes, as golden files under
 // mac/Spec/contract. Every field is filled with a non-zero value, so every
 // tag (omitempty ones included) is in the file; the Swift tests decode these
 // files with the app's own models. A renamed or removed tag therefore fails
