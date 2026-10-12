@@ -194,6 +194,13 @@ public final class AppCoordinator {
         }
 
         card.inbox = inboxModel
+        // The last entry resolved: the card gives way to the empty inbox.
+        card.onInboxEmpty = { [weak self] in
+            guard let self else { return }
+            let key = self.card.isKey
+            self.card.close()
+            self.openInbox(takeKey: key)
+        }
         rail.onMoved = { [weak self] in
             guard let self else { return }
             self.card.follow()

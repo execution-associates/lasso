@@ -45,7 +45,7 @@ struct AgentWindowView: View {
                     entries: ConversationEntry.fold(model.chat?.items.suffix(160).map { $0 } ?? [], cwd: model.chat?.cwd),
                     pending: model.pending, phase: model.phase, outgoing: model.outgoing, host: model.mediaHost)
                 StepList(model: model)
-                AgentComposer(model: model)
+                AgentComposer(model: model, showsKill: true)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -137,6 +137,8 @@ final class AgentWindowController {
         host.frame = NSRect(origin: .zero, size: frame.size)
         panel = AgentWindowPanel(content: host, frame: frame)
         panel.onKey = { [weak self] e in self?.handle(e) ?? false }
+        // A kill that went through closes the window (CardModel.resolved).
+        model.onClose = { [weak self] in self?.close() }
         chrome.onToggle = { [weak self] in self?.toggle() }
         chrome.onClose = { [weak self] in self?.close() }
         chrome.onDrag = { [weak self] ended in self?.drag(ended, resize: false) }

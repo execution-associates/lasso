@@ -737,7 +737,12 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 |---|---|
 | `j` / `k` | Next / previous item, in Inbox order (wrapping). The card lands on it, the unread bar shows where you are, and it is marked seen. |
 | `x` | Kill, behind its confirm: a first `x` arms it ("Press X again"), a second kills, and any other key disarms. A bot has none. |
-| `e` | Acknowledge (S1): writes the entry's own key, and nothing to the agent. It returns when the item has something new. |
+| `e` | Acknowledge (S1): writes the entry's own key, and nothing to the agent. It returns when the item has something new. Off while the reply composer holds a draft: the button is greyed with the hint "Send or clear your reply first", `e` does nothing and shows no keycap, and a focused composer types it. |
+
+**A resolved entry moves the card on.** Kill and Acknowledge share one path (`CardModel.resolved`). Once the action succeeds:
+- The entry leaves the inbox at once, without waiting for a poll. A killed pane is in `FleetModel.killed`, hidden from the whole fleet until a poll stops listing it. An acknowledged entry is in `FleetModel.acknowledged` with the mark it had, hidden until ui_state catches up or something new gives it another mark. So a stale poll cannot bring either back.
+- The card shows the next entry in the Inbox order taken when the key was pressed, or the previous one when it was the last. With none left, it gives way to the empty inbox (`onInboxEmpty`).
+- A kill from an agent window closes that window.
 | `1`–`9`, `→`, `↳` | Pick a choice, answer with it, or edit it into your own words. |
 | `⏎`, `a` | To the composer (or send); attach a file. |
 | `⌘.` | Stop: interrupts the agent's turn (one Escape through `/api/chat/stop`, or an omp bot's `chat/stop`). It works while the agent is working or starting, even with the composer focused, since a text field would take `⌘.` as esc. |
@@ -998,7 +1003,7 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
   - Anything else is a chip that opens the file.
   - The bytes come through `/api/file` (`download=1`) from the host that served the transcript. They are cached in `~/Library/Caches/Lasso/Media` per path and showing, since an agent may overwrite a file in place.
 - **Choices need a confirm.** A click (or 1–9) only selects a choice; the selected one shows **Answer**, and that button (or →) sends it. An answer cannot be taken back, and the preview appears under a moving pointer.
-- **No header menu:** the window's header is minimize and close. X X kills from the keyboard.
+- **No header menu:** the window's header is minimize and close. **Kill** is a red pill at the trailing end of the folder/model row (`AgentKill`; a bot has none, and neither does a hover preview), behind the inbox's confirm: X or a click arms it ("Confirm kill"), a second kills. Its accessibility label is "Kill <agent>". Once the kill goes through, the window closes and the agent's inbox entry goes with it (§13.7a).
 - The composer's paperclip (A) attaches any files: each goes through `/api/paste-file` to the agent's machine and its path into the message.
 - **Paste and drop attach too** (`Platform/Attachments.swift`), in every composer (inbox card, agent window and preview, bot chat) and the New Agent prompt.
   - The composer's NSTextField uses its own field editor (`ComposerCell` → `AttachingTextView`), so ⌘V and Edit › Paste reach it. A drop works on the field and on its editor alike.

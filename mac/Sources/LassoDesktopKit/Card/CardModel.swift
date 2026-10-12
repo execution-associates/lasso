@@ -216,7 +216,7 @@ public final class CardModel: ComposerModel {
         var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.send, Keys.next, Keys.previous]
         if !isBot { b.insert(Keys.kill) }
         if isWorking { b.insert(Keys.stop) }
-        if actions.canAcknowledge { b.insert(Keys.acknowledge) }
+        if canAcknowledgeNow { b.insert(Keys.acknowledge) }
         if !nextSteps.isEmpty { b.formUnion([Keys.editStep, Keys.takeStep]) }
         return b
     }
@@ -460,7 +460,13 @@ public final class CardModel: ComposerModel {
             return
         }
         killArmed = false
-        run("Kill") { [self] in try await actions.kill(pane) }
+        let p = pane
+        let order = pages.map(\.key)
+        run("Kill") { [self] in
+            let said = try await actions.kill(p)
+            resolved(p, killed: true, order: order)
+            return said
+        }
     }
 
     public func disarm() {
@@ -471,17 +477,56 @@ public final class CardModel: ComposerModel {
     }
 
 
+    /// A reply is being written: Acknowledge waits until it is sent or
+    /// cleared, so a draft is never left behind on an entry that goes away.
+    public var hasDraft: Bool { !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    /// Acknowledge can be pressed now (E, or its button).
+    public var canAcknowledgeNow: Bool { actions.canAcknowledge && !hasDraft }
+
     public func acknowledge() {
         guard actions.canAcknowledge else {
             notice = "Acknowledge needs a lasso with shared acknowledgements"
             return
         }
+        guard !hasDraft else { return }
+        let p = pane
+        let entry = fleet.inbox.first { $0.id == p.key }
+        let order = pages.map(\.key)
         run("Acknowledge") { [self] in
-            try await actions.acknowledge(pane)
-            page(1)
-            return "Acknowledged"
+            try await actions.acknowledge(p)
+            if let entry { fleet.markAcknowledged(entry) }
+            resolved(p, killed: false, order: order)
+            return "Acknowledged \(p.displayName)"
         }
     }
+
+    /// Kill or Acknowledge succeeded: the entry has left the inbox (the
+    /// fleet hides it at once, and a stale poll cannot bring it back). The
+    /// inbox card moves to the next entry in Inbox order, the previous one
+    /// when it was the last, or the empty inbox when none remain; a window
+    /// (no inbox) closes after a kill.
+    /// `order` is the Inbox order when the action was pressed.
+    func resolved(_ p: HostPane, killed: Bool, order before: [String]) {
+        if killed { fleet.markKilled(p.key) }
+        guard pane.key == p.key else { return }
+        guard inbox != nil else {
+            if killed { onClose() }
+            return
+        }
+        let rest = pages.filter { $0.key != p.key }
+        guard !rest.isEmpty else {
+            onInboxEmpty()
+            return
+        }
+        let i = before.firstIndex(of: p.key) ?? 0
+        let after = before[(i + 1)...].compactMap { k in rest.first { $0.key == k } }
+        let ahead = before[..<i].reversed().compactMap { k in rest.first { $0.key == k } }
+        show(after.first ?? ahead.first ?? rest[0], direction: after.isEmpty ? -1 : 1)
+    }
+
+    /// The inbox card resolved its last entry: show the empty inbox.
+    public var onInboxEmpty: () -> Void = {}
 
     /// The paperclip (A): choose files, upload them to the agent's machine,
     /// and put their paths in the message.
@@ -520,7 +565,10 @@ public final class CardModel: ComposerModel {
     public func page(_ delta: Int) {
         let list = pages
         guard list.count > 1, let i = list.firstIndex(where: { $0.key == pane.key }) else { return }
-        let next = list[(i + delta + list.count) % list.count]
+        show(list[(i + delta + list.count) % list.count], direction: delta)
+    }
+
+    private func show(_ next: HostPane, direction delta: Int) {
         pageDirection = delta
         withAnimationToken(Theme.Motion.cardPaging, probe: animationProbe) { [self] in
             pane = next

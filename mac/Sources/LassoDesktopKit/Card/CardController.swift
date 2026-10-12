@@ -43,6 +43,8 @@ public final class CardController {
     var railFrame: () -> NSRect = { .zero }
     /// What J/K page through.
     var inbox: InboxModel?
+    /// Kill or Acknowledge resolved the inbox's last entry.
+    var onInboxEmpty: () -> Void = {}
 
     public init(fleet: FleetModel, actions: CardActions) {
         self.fleet = fleet
@@ -89,6 +91,7 @@ public final class CardController {
         inbox?.markSeen(pane)
         model.keyMode = !panel.isKeyWindow ? .none : (pointerKeyed ? .lent : .full)
         model.onClose = { [weak self] in self?.close() }
+        model.onInboxEmpty = { [weak self] in self?.onInboxEmpty() }
         holder.model = model
         model.startPolling()
         place()

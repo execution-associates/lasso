@@ -84,6 +84,8 @@ final class HoveredKey: ObservableObject {
 struct KeyHint: ViewModifier {
     let binding: KeyBinding
     var alignment: Alignment = .bottomTrailing
+    /// The key does nothing right now (its control is disabled): no keycap.
+    var active = true
     @ObservedObject var hints = KeyHints.shared
     @ObservedObject var hovered = HoveredKey.shared
     @Environment(\.shownKeys) private var shown
@@ -94,7 +96,7 @@ struct KeyHint: ViewModifier {
                 if inside { hovered.id = binding.id } else if hovered.id == binding.id { hovered.id = nil }
             }
             .overlay(alignment: alignment) {
-            if hints.visible || (shown?.contains(binding.id) == true && hovered.id == binding.id) {
+            if active, hints.visible || (shown?.contains(binding.id) == true && hovered.id == binding.id) {
                 Keycap(binding).offset(x: Theme.space("s"), y: Theme.space("s"))
             }
         }
@@ -115,8 +117,8 @@ struct InlineKey: View {
 }
 
 extension View {
-    func keyHint(_ b: KeyBinding, _ alignment: Alignment = .bottomTrailing) -> some View {
-        modifier(KeyHint(binding: b, alignment: alignment))
+    func keyHint(_ b: KeyBinding, _ alignment: Alignment = .bottomTrailing, active: Bool = true) -> some View {
+        modifier(KeyHint(binding: b, alignment: alignment, active: active))
     }
 }
 
@@ -188,22 +190,29 @@ struct PillButton: View {
     let title: String
     var primary = false
     var textColor: Color = Theme.Text.primary.color
+    /// Off: greyed (secondary text, the plain fill, never the primary one)
+    /// and not clickable, with `hint` saying why.
+    var enabled = true
+    var hint: String?
     let label: String
     let action: () -> Void
 
     var body: some View {
         let p = Theme.Control.pill
+        let lit = primary && enabled
         Button(action: action) {
             Text(title)
                 .font(Theme.Fonts.label.font)
-                .foregroundStyle(primary ? Theme.Control.pillPrimary.color("text") : textColor)
+                .foregroundStyle(!enabled ? Theme.Text.secondary.color : lit ? Theme.Control.pillPrimary.color("text") : textColor)
                 .padding(.horizontal, p.number("pad_h"))
                 .frame(height: p.number("height"))
-                .background(Capsule().fill(primary ? Theme.Control.pillPrimary.color("fill") : p.color("fill")))
+                .background(Capsule().fill(lit ? Theme.Control.pillPrimary.color("fill") : p.color("fill")))
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
         .accessibilityLabel(label)
+        .accessibilityHint(enabled ? "" : hint ?? "")
     }
 }
 
