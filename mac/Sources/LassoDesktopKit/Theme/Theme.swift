@@ -343,7 +343,7 @@ public enum Theme {
         .unmeasured("symbol avatar with a state dot on its corner"), proposed: true)
 
     public static let icon = Token(
-        "icon", ["round_ratio": 0.42, "control": 14, "step": 11, "pin": 10, "menubar": 18],
+        "icon", ["round_ratio": 0.42, "control": 14, "step": 11, "pin": 10, "menubar": 14, "menubar_text": 13],
         .measured("ref a2: control glyphs about 28 px; the rest proposed"))
 
     public static let focusRing = Token(

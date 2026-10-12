@@ -39,6 +39,8 @@ public final class AppPresence: NSObject {
 
     /// The EXA monogram as a template (Resources/Brand/monogram-template*,
     /// cut from the app icon), so the menu bar tints it for light and dark.
+    /// Its letters fill the whole square, so it is drawn at the count's
+    /// cap height (icon.menubar), not a full 18 pt icon.
     static let monogram: NSImage? = {
         guard let dir = Bundle.main.resourceURL?.appendingPathComponent("Brand") else { return nil }
         let side = Theme.icon.number("menubar")
@@ -78,7 +80,12 @@ public final class AppPresence: NSObject {
 
     private func refreshCount() {
         let n = fleet.inbox.count + fleet.notices.count
-        item?.button?.title = n > 0 ? " \(n > 99 ? "99+" : String(n))" : ""
+        // The count in the menu bar's own size, medium, with steady-width
+        // digits: it sits beside the monogram as a pair, not a caption.
+        let text = n > 0 ? " \(n > 99 ? "99+" : String(n))" : ""
+        item?.button?.attributedTitle = NSAttributedString(
+            string: text,
+            attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: Theme.icon.number("menubar_text"), weight: .medium)])
         item?.button?.setAccessibilityLabel(n > 0 ? "Lasso, \(n) in the inbox" : "Lasso")
     }
 
