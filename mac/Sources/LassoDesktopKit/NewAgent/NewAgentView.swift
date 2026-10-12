@@ -644,7 +644,7 @@ struct PromptEditor: NSViewRepresentable {
 /// centred high on the screen.
 @MainActor
 final class NewAgentController {
-    let panel: RailPanel
+    private(set) var panel: RailPanel
     let model: NewAgentModel
     static let originKey = "newAgentOrigin"
     private var dragFrom: (pointer: NSPoint, origin: NSPoint)?
@@ -670,7 +670,7 @@ final class NewAgentController {
             let v = Screens.underPointer
             panel.setFrameOrigin(NSPoint(x: (v.midX - s.width / 2).rounded(), y: (v.midY - s.height / 2 + v.height / 8).rounded()))
         }
-        panel.makeKeyAndOrderFront(nil)
+        panel.orderIn(takeKey: true) { panel = $0 }
         Task { await model.load() }
     }
 

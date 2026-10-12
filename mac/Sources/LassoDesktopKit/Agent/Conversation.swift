@@ -315,6 +315,13 @@ final class AgentWindowPanel: RailPanel {
         hasShadow = true
     }
 
+    override func replacement() -> RailPanel { AgentWindowPanel(content: NSView(), frame: frame) }
+
+    override func handOver(to p: RailPanel) {
+        super.handOver(to: p)
+        (p as? AgentWindowPanel)?.onCloseKey = onCloseKey
+    }
+
     /// ⌘W, whatever has the keyboard inside (the composer included).
     static func isCloseKey(_ e: NSEvent) -> Bool {
         e.type == .keyDown && e.modifierFlags.intersection([.command, .shift, .option, .control]) == .command
@@ -346,7 +353,7 @@ final class AgentWindowPanel: RailPanel {
 @MainActor
 final class ConversationWindowController<M: Conversation> {
     let model: M
-    let panel: AgentWindowPanel
+    private(set) var panel: AgentWindowPanel
     private let chrome = AgentWindowChrome()
     var onClosed: () -> Void = {}
     private var dragFrom: (pointer: NSPoint, frame: NSRect)?
@@ -416,7 +423,7 @@ final class ConversationWindowController<M: Conversation> {
     /// writing to it, even while it is still starting.
     func show(focusReply: Bool = false) {
         model.startPolling()
-        panel.makeKeyAndOrderFront(nil)
+        panel.orderIn(takeKey: true) { if let p = $0 as? AgentWindowPanel { panel = p } }
         if focusReply { model.focusComposer() }
     }
 
@@ -516,7 +523,7 @@ struct PreviewHost<M: Conversation>: View {
 /// (`AgentPreviewController`), one for the Bots column.
 @MainActor
 final class ConversationPreviewController<M: Conversation> {
-    let panel: RailPanel
+    private(set) var panel: RailPanel
     private let presence = CardPresence()
     private let holder = PreviewHolder<M>()
     /// The model for a row's key, nil when the row is gone.
@@ -556,7 +563,7 @@ final class ConversationPreviewController<M: Conversation> {
         let x = max(vis.minX, column.minX - Theme.Agent.preview.number("gap") - size.width)
         let y = min(max(vis.minY, row.maxY - size.height), vis.maxY - size.height)
         panel.setFrameOrigin(NSPoint(x: x.rounded(), y: y.rounded()))
-        panel.orderFrontRegardless()
+        panel.orderIn(takeKey: false) { panel = $0 }
         if !presence.shown { withAnimationToken(Theme.Motion.cardOpen) { presence.shown = true } }
     }
 

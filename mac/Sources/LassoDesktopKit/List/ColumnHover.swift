@@ -51,7 +51,8 @@ extension View {
 /// not stop it.
 @MainActor
 final class ColumnHover {
-    private let panel: NSPanel
+    /// The column's panel (its controller swaps in a new one, `RailPanel.orderIn`).
+    var panel: NSPanel
     private let column: HoverColumn
     /// The pointer, in screen coordinates (a seam for tests).
     var pointer: () -> NSPoint = { NSEvent.mouseLocation }

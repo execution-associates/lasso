@@ -358,7 +358,7 @@ public final class AppCoordinator {
     }
 
     /// The rail and the panels off it: a click on one keeps them.
-    private var railWindows: [NSWindow] {
+    var railWindows: [NSWindow] {
         [rail.panel, card.panel, list.panel, inbox.panel, preview.panel, bots.panel, bots.preview] + (chat.map { [$0.panel.panel] } ?? [])
     }
 
@@ -373,6 +373,7 @@ public final class AppCoordinator {
     /// Settings' panel (tests).
     var isSettingsOpen: Bool { settings.isOpen }
     var settingsFrame: NSRect { settings.panel.frame }
+    var settingsWindow: NSWindow { settings.panel }
     func closeSettings() { settings.close() }
 
     /// An agent's own window, if open (tests).

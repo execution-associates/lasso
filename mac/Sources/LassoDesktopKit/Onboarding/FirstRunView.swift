@@ -553,7 +553,7 @@ struct OnboardingField: NSViewRepresentable {
 /// its header moves it.
 @MainActor
 final class FirstRunController {
-    let panel: RailPanel
+    private(set) var panel: RailPanel
     let model: FirstRunModel
     private var dragFrom: (pointer: NSPoint, origin: NSPoint)?
     /// Counts opens, so a close's fade that ends after a reopen leaves it up.
@@ -578,18 +578,22 @@ final class FirstRunController {
     func show(takeKey: Bool = true) {
         opens += 1
         isOpen = true
-        if !panel.isVisible {
+        let appearing = !panel.isVisible
+        if appearing {
             let v = Screens.underPointer
             let s = panel.frame.size
             panel.setFrameOrigin(NSPoint(x: (v.midX - s.width / 2).rounded(), y: (v.midY - s.height / 2 + v.height / 8).rounded()))
             panel.alphaValue = 0
+        }
+        // Ordered in first: the fade is the panel's that is showing.
+        panel.orderIn(takeKey: takeKey) { panel = $0 }
+        if appearing {
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = Theme.Motion.cardOpen.number("duration")
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 panel.animator().alphaValue = 1
             }
         }
-        if takeKey { panel.makeKeyAndOrderFront(nil) } else { panel.orderFrontRegardless() }
     }
 
     func close() {
