@@ -11,8 +11,8 @@ public final class ParityRunner {
     /// States whose surfaces exist. The rest report as pending until their
     /// milestone lands (PLAN 6).
     public static let implemented: Set<String> = [
-        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "settings-shortcuts", "new-agent", "new-agent-menu", "agent-window-markdown",
-        "first-run", "first-run-connected", "rail-offline",
+        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "rail-hover-terminal", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "settings-shortcuts", "new-agent", "new-agent-menu", "agent-window-markdown",
+        "card-killing", "first-run", "first-run-connected", "rail-offline",
     ]
 
     let spec: Spec
@@ -247,13 +247,16 @@ public final class ParityRunner {
             recapture = make
         } else if let key = fixture.ui.card {
             let c = try cardModel(fixture, fleet: fleet, key: key)
+            if fixture.ui.killing == true { c.killingKey = c.pane.key }
             card = c
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(CardView(model: c), size: Theme.Card.size.size) }
             cap = try await make()
             recapture = make
         } else {
             // A rail control under the pointer (rail-hover-*).
-            let hoverable: [String: RailModel.Item] = ["inbox": .inbox, "agents": .agents, "new": .newAgent, "settings": .settings]
+            let hoverable: [String: RailModel.Item] = [
+                "inbox": .inbox, "agents": .agents, "new": .newAgent, "terminal": .terminal, "settings": .settings,
+            ]
             model.hovered = fixture.ui.hovered.flatMap { hoverable[$0] }
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(RailView(model: model), size: self.railSize()) }
             cap = try await make()
@@ -299,6 +302,8 @@ public final class ParityRunner {
         let actions = FixtureCardActions(chats: fx.chats, canAcknowledge: fx.server.ui_state.dismissed_cards != nil)
         let now = fx.now
         let c = CardModel(pane: pane, fleet: fleet, actions: actions, now: { now })
+        // The app's cards and windows can show their agent in herdr.
+        c.onShowInHerdr = { _ in }
         c.show(chat: fx.chats[key])
         return c
     }

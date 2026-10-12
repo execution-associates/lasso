@@ -82,6 +82,16 @@ public final class CardModel: ComposerModel {
     @Published public private(set) var renaming = false
     @Published public var renameDraft = ""
     @Published public private(set) var killArmed = false
+    /// A kill lasso has not answered yet (closing a pane can take seconds):
+    /// that pane's key. The parity harness sets it to draw the wait.
+    @Published public internal(set) var killingKey: String?
+    /// This card's agent is being killed: its Kill reads "Killing…", the
+    /// conversation dims, and every key but paging (and esc) waits.
+    public var killing: Bool { killingKey == pane.key }
+    /// Why the last kill of this card's agent failed, until the next X or
+    /// a page away (the card shows no notice line under its next steps).
+    @Published public private(set) var killFailure: (key: String, reason: String)?
+    public var killFailed: String? { killFailure?.key == pane.key ? killFailure?.reason : nil }
     /// Whether the card has the keyboard, and how (PLAN 13.7a): it decides
     /// which keys the card shows and answers.
     @Published public var keyMode: KeyMode = .none
@@ -116,6 +126,10 @@ public final class CardModel: ComposerModel {
     public var inbox: InboxModel?
     public let now: () -> Date
     public var onClose: () -> Void = {}
+    /// Show the agent in lasso's herdr, its pane focused (the herdr window,
+    /// PLAN 22). Nil where there is no such window: a fixture app, the hover
+    /// preview.
+    public var onShowInHerdr: ((HostPane) -> Void)?
     /// Set by the parity harness only (see ProbedAnimation).
     public var animationProbe: MotionProbe?
     private var poll: Task<Void, Never>?
@@ -152,6 +166,16 @@ public final class CardModel: ComposerModel {
     /// The machine whose files the conversation names: the one its
     /// transcript was read from (served_by), else the pane's.
     public var mediaHost: String { chat?.served_by ?? chat?.host ?? pane.host }
+
+    /// Whether this agent can be shown in the herdr window: there is one, and
+    /// the agent has a pane to focus.
+    public var canShowInHerdr: Bool { onShowInHerdr != nil && !current.pane_id.isEmpty }
+
+    /// T, or the header's terminal button.
+    public func showInHerdr() {
+        guard canShowInHerdr else { return }
+        onShowInHerdr?(current)
+    }
 
     /// A bot's pane: lasso keeps it running, so the card offers no Kill.
     public var isBot: Bool { fleet.bot(for: current) != nil }
@@ -213,9 +237,11 @@ public final class CardModel: ComposerModel {
     /// screen may show (the parity harness checks every rendered keycap is
     /// in here).
     public var activeBindings: Set<KeyBinding> {
-        var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.send, Keys.next, Keys.previous]
-        if !isBot { b.insert(Keys.kill) }
+        var b: Set<KeyBinding> = [Keys.esc, Keys.attach, Keys.send, Keys.reply, Keys.next, Keys.previous]
+        if !isBot, !killing { b.insert(Keys.kill) }
+        if canRename { b.insert(Keys.rename) }
         if isWorking { b.insert(Keys.stop) }
+        if canShowInHerdr { b.insert(Keys.herdr) }
         if canAcknowledgeNow { b.insert(Keys.acknowledge) }
         if !nextSteps.isEmpty { b.formUnion([Keys.editStep, Keys.takeStep]) }
         return b
@@ -258,6 +284,8 @@ public final class CardModel: ComposerModel {
     }
 
     public func focusInHerdr() {
+        // With a herdr window, answer it there: the window opens on the pane.
+        if canShowInHerdr { return showInHerdr() }
         run("Focus") { [self] in
             try await actions.focus(pane)
             return "Focused \(pane.displayName) in herdr: answer it there"
@@ -458,16 +486,26 @@ public final class CardModel: ComposerModel {
             notice = "\(pane.displayName) is a bot: stop it from lasso's Bots view"
             return
         }
+        guard !killing else { return }
+        killFailure = nil
         guard killArmed else {
             killArmed = true
             notice = "Press X again to kill \(pane.displayName)"
             return
         }
         killArmed = false
+        guard !busy else { return }
         let p = pane
         let order = pages.map(\.key)
+        killingKey = p.key
         run("Kill") { [self] in
-            let said = try await actions.kill(p)
+            // Answered either way: a failure's reason goes in the notice.
+            defer { killingKey = nil }
+            let said: String
+            do { said = try await actions.kill(p) } catch {
+                killFailure = (p.key, "Kill failed: \(error)")
+                throw error
+            }
             resolved(p, killed: true, order: order)
             return said
         }
@@ -485,8 +523,8 @@ public final class CardModel: ComposerModel {
     /// cleared, so a draft is never left behind on an entry that goes away.
     public var hasDraft: Bool { !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
-    /// Acknowledge can be pressed now (E, or its button).
-    public var canAcknowledgeNow: Bool { actions.canAcknowledge && !hasDraft }
+    /// Acknowledge can be pressed now (A, or its button).
+    public var canAcknowledgeNow: Bool { actions.canAcknowledge && !hasDraft && !killing }
 
     public func acknowledge() {
         guard actions.canAcknowledge else {
@@ -532,9 +570,12 @@ public final class CardModel: ComposerModel {
     /// The inbox card resolved its last entry: show the empty inbox.
     public var onInboxEmpty: () -> Void = {}
 
-    /// The paperclip (A): choose files, upload them to the agent's machine,
+    /// The paperclip (U): choose files, upload them to the agent's machine,
     /// and put their paths in the message.
-    public func attachFile() { attach(FilePicker.choose(), at: nil) }
+    public func attachFile() { attach(chooseFiles(), at: nil) }
+
+    /// The paperclip's chooser (a seam for tests, which cannot click one).
+    var chooseFiles: () -> [URL] = { FilePicker.choose() }
 
     /// Upload files (the paperclip's, or pasted or dropped on the message box)
     /// to the agent's machine and put their paths in the message at `caret`
@@ -557,6 +598,42 @@ public final class CardModel: ComposerModel {
     }
 
     public func focusComposer() { focusRequest += 1 }
+
+    /// Do what a routed key asks, in the inbox card or an agent window
+    /// (CardKeys). Any key but X disarms a kill; while a kill is in flight
+    /// only J/K act and the rest are swallowed. Returns false for a key that
+    /// does nothing here (the window's own keys, esc and the unbound, are
+    /// its caller's), so the system gets it.
+    @discardableResult
+    public func perform(_ action: CardKeyAction) -> Bool {
+        // A kill in flight: only paging moves; the rest waits for lasso.
+        if killing, action != .next, action != .previous { return true }
+        if action != .kill { disarm() }
+        switch action {
+        case .digit(let n): highlight(n)
+        case .attach: attachFile()
+        // ⏎: to the composer, or send what it holds.
+        case .send: if composer.isEmpty { focusComposer() } else { send() }
+        case .reply: focusComposer()
+        case .rename:
+            guard canRename else { return false }
+            startRename()
+        case .kill: kill()
+        case .acknowledge: acknowledge()
+        case .next: page(1)
+        case .previous: page(-1)
+        case .editStep: editStep()
+        case .takeStep: takeStep()
+        case .stop:
+            guard isWorking else { return false }
+            stop()
+        case .herdr:
+            guard canShowInHerdr else { return false }
+            showInHerdr()
+        case .close, .unbound, .handBack: return false
+        }
+        return true
+    }
 
     public var composerPlaceholder: String {
         guard answeringCustom else { return "Reply to \(current.displayName)" }
@@ -581,6 +658,7 @@ public final class CardModel: ComposerModel {
         }
         inbox?.markSeen(next)
         killArmed = false
+        killFailure = nil
         highlighted = nil
         notice = nil
         stopping = false

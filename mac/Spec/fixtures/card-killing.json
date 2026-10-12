@@ -1,0 +1,13 @@
+{
+  "about": "Kill pressed twice on stub and lasso has not answered yet: Kill reads Killing… with a spinner and is disabled, and the conversation dims under \"Killing stub…\".",
+  "state": "card-killing",
+  "extends": "card-open",
+  "ui": {
+    "rail": "expanded",
+    "card": "local\u0000w1:p1",
+    "list": false,
+    "chat": false,
+    "recording": null,
+    "killing": true
+  }
+}

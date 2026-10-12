@@ -449,11 +449,35 @@ struct AgentKill: View {
     var body: some View {
         let name = model.current.displayName
         PillButton(
-            title: model.killArmed ? "Confirm kill" : "Kill agent", textColor: Theme.dangerText.color,
-            label: model.killArmed ? "Confirm: kill \(name)" : "Kill \(name)"
+            title: model.killing ? "Killing…" : model.killArmed ? "Confirm kill" : "Kill agent",
+            textColor: Theme.dangerText.color, enabled: !model.killing, busy: model.killing,
+            label: model.killing ? "Killing \(name)" : model.killArmed ? "Confirm: kill \(name)" : "Kill \(name)"
         ) { model.kill() }
-        .keyHint(Keys.kill)
+        .keyHint(Keys.kill, active: !model.killing)
         .parityAnchor("agent.kill")
+    }
+}
+
+extension View {
+    /// A kill in flight (CardModel.killing): the conversation dims under
+    /// "Killing <agent>…", said and shown moving. `failure` also says there
+    /// why one failed, for a surface with no notice line (the inbox card).
+    func killingDim(_ model: CardModel, failure: Bool = false) -> some View {
+        opacity(model.killing ? Theme.Card.killing.number("dim") : 1)
+            .overlay(alignment: .bottomLeading) {
+                Group {
+                    if model.killing {
+                        WaitingRow(text: "Killing \(model.current.displayName)…")
+                    } else if failure, let why = model.killFailed {
+                        Text(why)
+                            .font(Theme.Fonts.small.font)
+                            .foregroundStyle(Theme.dangerText.color)
+                            .lineLimit(2)
+                            .padding(.vertical, Theme.space("s"))
+                    }
+                }
+                .padding(Theme.Panel.inner.number("pad"))
+            }
     }
 }
 

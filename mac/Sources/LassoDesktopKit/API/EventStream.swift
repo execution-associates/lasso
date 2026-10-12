@@ -57,22 +57,25 @@ public final class EventStream: @unchecked Sendable {
 
     private let client: LassoClient
     private let clientID: String
+    /// The host whose state the stream carries ("local" or an ssh alias).
+    private let host: String
     private let onEvent: @Sendable (SSEEvent) -> Void
     private let onStatus: @Sendable (Status) -> Void
     private var task: Task<Void, Never>?
 
     public init(
-        client: LassoClient, clientID: String, onEvent: @escaping @Sendable (SSEEvent) -> Void,
+        client: LassoClient, clientID: String, host: String = "local", onEvent: @escaping @Sendable (SSEEvent) -> Void,
         onStatus: @escaping @Sendable (Status) -> Void
     ) {
         self.client = client
         self.clientID = clientID
+        self.host = host
         self.onEvent = onEvent
         self.onStatus = onStatus
     }
 
     public func start() {
-        task = Task { [client, clientID, onEvent, onStatus] in
+        task = Task { [client, clientID, host, onEvent, onStatus] in
             let watchdog = Theme.Live.sseWatchdog.seconds
             let backoff = Theme.Live.backoff
             var delay = Double(backoff.number("min"))
@@ -81,7 +84,7 @@ public final class EventStream: @unchecked Sendable {
                 let started = Date()
                 do {
                     try await EventStream.consume(
-                        client: client, clientID: clientID, watchdog: watchdog, onEvent: onEvent,
+                        client: client, clientID: clientID, host: host, watchdog: watchdog, onEvent: onEvent,
                         onLive: { onStatus(.live) })
                     onStatus(.down("stream ended"))
                 } catch is CancellationError {
@@ -106,13 +109,13 @@ public final class EventStream: @unchecked Sendable {
     }
 
     private static func consume(
-        client: LassoClient, clientID: String, watchdog: Double, onEvent: @escaping @Sendable (SSEEvent) -> Void,
+        client: LassoClient, clientID: String, host: String, watchdog: Double, onEvent: @escaping @Sendable (SSEEvent) -> Void,
         onLive: @escaping @Sendable () -> Void
     ) async throws {
         // The stream carries the token like any request; a refusal refreshes
         // it for the reconnect.
         await client.auth?.freshen()
-        let req = client.streamRequest("/api/events", query: ["host": "local", "client": clientID])
+        let req = client.streamRequest("/api/events", query: ["host": host, "client": clientID])
         let last = LastSeen()
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {

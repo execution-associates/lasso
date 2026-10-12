@@ -631,7 +631,12 @@ final class NewAgentController {
         Task { await model.load() }
     }
 
-    func close() { panel.orderOut(nil) }
+    /// Gone, keyboard and all: a created agent's window takes the keyboard
+    /// next, so none is left with a form nobody sees.
+    func close() {
+        if panel.isKeyWindow { panel.resignKey() }
+        panel.orderOut(nil)
+    }
 
     private func drag(_ ended: Bool) {
         if ended {

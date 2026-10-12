@@ -8,11 +8,12 @@
 # The version defaults to lasso's (src/version.go). --no-upload stops after
 # copying the DMG and appcast to mac/dist/release/. No runner on the Mac
 # listens to GitHub: lasso's repo is public, and a fork's workflow must never
-# reach a logged-in Mac. LASSO_MAC picks the Mac (default minime).
+# reach a logged-in Mac. LASSO_MAC picks the Mac (default minime), and
+# LASSO_MAC_DIR the folder there (default src/lasso-desktop/mac, as dev.sh).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 MAC="${LASSO_MAC:-minime}"
-REMOTE="src/lasso-desktop/mac"
+REMOTE="${LASSO_MAC_DIR:-src/lasso-desktop/mac}"
 REPO="execution-associates/lasso"
 
 UPLOAD=1
@@ -28,7 +29,7 @@ if [ "$UPLOAD" = 1 ]; then
   gh release view "v$VERSION" --repo "$REPO" >/dev/null || { echo "no release v$VERSION on $REPO yet" >&2; exit 1; }
 fi
 
-"$HERE/Scripts/dev.sh" sync
+LASSO_MAC_DIR="$REMOTE" "$HERE/Scripts/dev.sh" sync
 # fnox decrypts with the Mac's ssh key (as Recap's runner does); gh and fnox are Homebrew's.
 ssh "$MAC" "export PATH=/opt/homebrew/bin:\$HOME/.local/share/mise/shims:\$PATH FNOX_AGE_KEY_FILE=\$HOME/.ssh/id_ed25519; cd $REMOTE && Scripts/release.sh $VERSION"
 

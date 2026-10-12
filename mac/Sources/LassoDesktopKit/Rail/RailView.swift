@@ -2,9 +2,8 @@ import SwiftUI
 
 // The rail. At rest only a sliver of a pill shows at the screen edge (the
 // peek); hovering it reveals the rail: the inbox (what waits on you), the
-// agents capsule (the fleet), the plus (a new agent) and the ellipsis
-// (settings), each floating on
-// its own (no backing).
+// agents capsule (the fleet), the plus (a new agent), the terminal (lasso's
+// herdr) and the ellipsis (settings), each floating on its own (no backing).
 // Layout numbers all come from Theme.Rail.
 
 enum RailMetrics {
@@ -33,7 +32,7 @@ enum RailMetrics {
     /// Height of everything below the inbox: the travel of expand/collapse.
     static func revealHeight(_ slots: Int) -> CGFloat {
         let agents = slots > 0 ? gap + agentsHeight(slots) : 0
-        return agents + 2 * (gap + Theme.Rail.ellipsisOuter.pt)
+        return agents + 3 * (gap + Theme.Rail.ellipsisOuter.pt)
     }
 
     static func expandedHeight(_ slots: Int) -> CGFloat { outer + revealHeight(slots) }
@@ -49,6 +48,8 @@ enum RailMetrics {
         }
         let e = Theme.Rail.ellipsisOuter.pt
         out.append((.newAgent, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
+        y += e + gap
+        out.append((.terminal, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
         y += e + gap
         out.append((.settings, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
         return out
@@ -170,6 +171,7 @@ public struct RailView: View {
                 VStack(spacing: RailMetrics.gap) {
                     if !slots.isEmpty { agents(slots) }
                     plus
+                    terminal
                     ellipsis
                 }
                 .padding(.top, RailMetrics.gap)
@@ -319,6 +321,25 @@ public struct RailView: View {
         .modifier(FocusRing(on: focused(.newAgent)))
         .accessibilityLabel("New agent")
         .help("New agent")
+    }
+
+    /// lasso's herdr in a terminal window. Like the plus it opens on a click
+    /// only: the terminal takes the keyboard.
+    private var terminal: some View {
+        Button { model.activate(.terminal) } label: {
+            ZStack {
+                GroupBackground(hovered: model.hovered == .terminal)
+                RailIcon(symbol: "terminal")
+            }
+            .frame(width: Theme.Rail.ellipsisOuter.pt, height: Theme.Rail.ellipsisOuter.pt)
+            .contentShape(Circle())
+        }
+        .buttonStyle(RailPress())
+        .parityAnchor("rail.terminal")
+        .modifier(FocusRing(on: focused(.terminal)))
+        .accessibilityLabel("Open herdr")
+        .accessibilityHint("lasso's herdr in a terminal window")
+        .help("Open herdr")
     }
 
     private var ellipsis: some View {

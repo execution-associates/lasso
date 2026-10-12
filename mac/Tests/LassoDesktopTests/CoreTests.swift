@@ -86,7 +86,7 @@ private let specDir = packageDir.appendingPathComponent("Spec")
 /// belongs in Theme.swift with its provenance.
 @Test func viewsTakeTheirLayoutFromTheme() throws {
     let src = packageDir.appendingPathComponent("Sources/LassoDesktopKit")
-    let views = ["Rail", "Card", "List", "Inbox", "Chat", "Settings", "Platform", "Agent", "NewAgent", "Onboarding"]
+    let views = ["Rail", "Card", "List", "Inbox", "Chat", "Settings", "Platform", "Agent", "NewAgent", "Onboarding", "Terminal"]
     let literal = try Regex(
         #"\.padding\((\.[a-zA-Z]+, )?[1-9][0-9]*(\.[0-9]+)?\)|spacing: [1-9]|(width|height|size): [1-9][0-9]*(\.[0-9]+)?[,)]|\* 0\.[0-9]|offset\(x: [1-9]"#)
     for dir in views {
@@ -114,7 +114,9 @@ private let specDir = packageDir.appendingPathComponent("Spec")
     model.setExpanded(true, animated: false)
     let cap = try await Capturer.capture(RailView(model: model), size: CGSize(
         width: RailMetrics.panelWidth, height: RailMetrics.expandedHeight(Theme.Rail.maxSlots.int) + 2 * RailMetrics.margin))
-    let anchors: [RailModel.Item: String] = [.inbox: "rail.inbox", .agents: "rail.agents.capsule", .newAgent: "rail.new", .settings: "rail.ellipsis"]
+    let anchors: [RailModel.Item: String] = [
+        .inbox: "rail.inbox", .agents: "rail.agents.capsule", .newAgent: "rail.new", .terminal: "rail.terminal", .settings: "rail.ellipsis",
+    ]
     for (item, frame) in RailMetrics.itemFrames(model.slots.count) {
         let drawn = try #require(cap.frames[anchors[item]!])
         #expect(abs(drawn.minY - frame.minY) <= 1 && abs(drawn.height - frame.height) <= 1, "\(item): \(drawn) vs \(frame)")
@@ -214,13 +216,20 @@ private let specDir = packageDir.appendingPathComponent("Spec")
     #expect(!m.allowsCustom)
 }
 
-private func key(_ c: String, _ code: UInt16) -> NSEvent {
+/// Run the main run loop (SwiftUI's updates, AppKit's focus changes) until
+/// `done`, for at most two seconds.
+@MainActor func spin(until done: () -> Bool) {
+    let end = Date().addingTimeInterval(2)
+    while !done(), Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+}
+
+func key(_ c: String, _ code: UInt16) -> NSEvent {
     NSEvent.keyEvent(
         with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
         characters: c, charactersIgnoringModifiers: c, isARepeat: false, keyCode: code)!
 }
 
-/// The inbox card answers j/k/x/e (PLAN 13.7a): they are in its live
+/// The inbox card answers j/k/x/a (PLAN 13.7a): they are in its live
 /// bindings, they route to paging, kill and acknowledge, a focused composer keeps
 /// them as text, and a keyboard the pointer lent takes those four (and esc)
 /// only, handing everything else back.
@@ -236,16 +245,17 @@ private func key(_ c: String, _ code: UInt16) -> NSEvent {
     for b in [Keys.next, Keys.previous, Keys.kill, Keys.acknowledge] {
         #expect(m.activeBindings.contains(b), "\(b.id) not live in the inbox card")
     }
-    let j = key("j", 38), k = key("k", 40), x = key("x", 7), e = key("e", 14)
+    let j = key("j", 38), k = key("k", 40), x = key("x", 7), a = key("a", 0)
     #expect(CardKeys.route(j, editing: false, pointerKeyed: false) == .next)
     #expect(CardKeys.route(k, editing: false, pointerKeyed: false) == .previous)
     #expect(CardKeys.route(x, editing: false, pointerKeyed: false) == .kill)
-    #expect(CardKeys.route(e, editing: false, pointerKeyed: false) == .acknowledge)
+    #expect(CardKeys.route(a, editing: false, pointerKeyed: false) == .acknowledge)
     // A focused composer: the field types them.
-    for ev in [j, k, x, e] { #expect(CardKeys.route(ev, editing: true, pointerKeyed: false) == nil) }
+    for ev in [j, k, x, a] { #expect(CardKeys.route(ev, editing: true, pointerKeyed: false) == nil) }
     // Lent by the pointer: the four and esc act; anything else goes back.
     #expect(CardKeys.route(j, editing: false, pointerKeyed: true) == .next)
-    #expect(CardKeys.route(key("a", 0), editing: false, pointerKeyed: true) == .handBack)
+    #expect(CardKeys.route(a, editing: false, pointerKeyed: true) == .acknowledge)
+    #expect(CardKeys.route(key("u", 32), editing: false, pointerKeyed: true) == .handBack)
     #expect(CardKeys.route(key("q", 12), editing: false, pointerKeyed: true) == .handBack)
 }
 
@@ -262,12 +272,46 @@ private func key(_ c: String, _ code: UInt16) -> NSEvent {
     m.prompt = "  Fix the flaky upload test\nIt fails one run in ten."
     #expect(m.title == "Fix the flaky upload test" && m.canCreate)
     #expect(m.request.type == "git" && m.request.repo == "/home/stephan/projects/exa/lasso" && m.request.base_branch == "main")
+    // As the coordinator does: the form, with the keyboard, closes and the
+    // new agent's window opens with the cursor in its composer.
+    let form = NewAgentController(model: m)
+    form.show()
+    #expect(form.panel.isKeyWindow)
     var opened: HostPane?
-    m.onCreated = { opened = $0 }
+    var window: AgentWindowController?
+    let fleet = FleetModel()
+    m.onCreated = { pane in
+        opened = pane
+        form.close()
+        let w = AgentWindowController(
+            model: CardModel(pane: pane, fleet: fleet, actions: FixtureCardActions(chats: [:], canAcknowledge: true)),
+            near: NSRect(x: 900, y: 300, width: 10, height: 10), media: nil)
+        window = w
+        w.show(focusReply: true)
+    }
     m.create()
     try await Task.sleep(nanoseconds: 100_000_000)
     #expect(opened?.pane_id == "w9:p1" && opened?.host == "local")
     #expect(source.created.count == 1)
+    let w = try #require(window)
+    defer {
+        w.model.stopPolling()
+        w.panel.orderOut(nil)
+    }
+    spin(until: { w.panel.editingText && w.model.chat != nil })
+    #expect(!form.panel.isKeyWindow && !form.panel.isVisible)
+    #expect(w.panel.canBecomeKey && w.panel.isKeyWindow)
+    // The cursor is in the composer while the agent is still starting.
+    #expect(w.panel.editingText && w.model.focusRequest == 1)
+    guard case .starting = w.model.phase else {
+        Issue.record("the new agent's window is not starting: \(w.model.phase)")
+        return
+    }
+    // Typing goes to the composer, not the window's one-letter keys.
+    for (c, code) in [("x", UInt16(7)), ("r", 15), ("u", 32), ("l", 37)] {
+        #expect(!w.handle(key(c, code)), "\(c) was taken as a window key")
+    }
+    #expect(!w.model.killArmed && !w.model.renaming)
 
     let s = NewAgentModel(kind: .scratch, source: source)
     s.prompt = "Explore"
