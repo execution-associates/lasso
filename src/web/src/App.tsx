@@ -896,7 +896,7 @@ function Shell() {
 
   // ⌘K → herdr's own pane search, ⌘O/⌘⇧O → a Git/Scratch agent and ⌘I → a
   // terminal in the New dialog, ⌘;/⌘J/⌘E/⌘./⌘B → the left column's views and sidebar, ⌘\ and ⌘⇧F/S/B →
-  // the right sidebar, ⌘/ → toggles the keyboard-shortcuts reference, ⌘, → Settings › General. Bound to the Cmd key only (not Ctrl) so it
+  // the right sidebar, ⌘⇧M → the simple app, ⌘/ → toggles the keyboard-shortcuts reference, ⌘, → Settings › General. Bound to the Cmd key only (not Ctrl) so it
   // never clobbers terminal control keys like Ctrl-H (backspace). The
   // herdr/shell terminal iframes re-dispatch Cmd-shortcuts to this document, so
   // these work even while a terminal holds focus. (See SHORTCUTS, the reference
@@ -906,6 +906,13 @@ function Shell() {
       if (!e.metaKey || e.ctrlKey || e.altKey) return
       const k = e.key.toLowerCase()
       if (e.shiftKey) {
+        // ⌘⇧M → the simple app, remembered on this device like the view
+        // menu's Simple view (simple/route.ts); ⌘⇧M there comes back.
+        if (k === "m") {
+          e.preventDefault()
+          switchUI("simple")
+          return
+        }
         // ⌘⇧O is ⌘O's Scratch twin (see the ⌘O branch below).
         if (k === "o") {
           e.preventDefault()
@@ -1113,6 +1120,7 @@ function Shell() {
       <DropdownMenuItem onSelect={() => switchUI("simple")}>
         <Smartphone />
         Simple view
+        {!narrow && <DropdownMenuShortcut>⌘⇧M</DropdownMenuShortcut>}
       </DropdownMenuItem>
       {narrow && (
         <>

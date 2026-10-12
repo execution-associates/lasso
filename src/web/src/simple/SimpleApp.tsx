@@ -15,7 +15,12 @@ import {
 } from "@/simple/inbox"
 import { NewAgent } from "@/simple/NewAgent"
 import { TabBar, type TabSpec } from "@/simple/parts"
-import { parseSimplePath, type SimpleRoute, simplePath } from "@/simple/route"
+import {
+  parseSimplePath,
+  type SimpleRoute,
+  simplePath,
+  switchUI,
+} from "@/simple/route"
 import { SimpleSettings } from "@/simple/SimpleSettings"
 
 // The simple app: Inbox, Agents, Bots and Settings, phone-sized and touch
@@ -45,6 +50,21 @@ export function SimpleApp() {
     const onPop = () => setRoute(parseSimplePath(window.location.pathname))
     window.addEventListener("popstate", onPop)
     return () => window.removeEventListener("popstate", onPop)
+  }, [])
+
+  // ⌘⇧M back to the full UI, the full UI's chord for coming here
+  // (lib/shortcuts.ts), so a desktop browser toggles between the two. It
+  // records the choice on this device, like Settings' Switch to the advanced
+  // view.
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.metaKey || !e.shiftKey || e.ctrlKey || e.altKey) return
+      if (e.key.toLowerCase() !== "m") return
+      e.preventDefault()
+      switchUI("advanced")
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
   }, [])
 
   // Every move inside the app is a history entry marked as ours, so a chat's
