@@ -12,7 +12,7 @@ LassoDesktop is a native macOS app for a running lasso. It lives on the edge of 
 ## Requirements
 
 - A Mac with Apple silicon, on macOS 14 or later.
-- A lasso the Mac can reach: on the same Mac, on your tailnet, or behind Cloudflare Access. See [Deployment](../deployment/index.md).
+- **lasso 7.0.0 or later**, which the Mac can reach: on the same Mac, on your tailnet, or behind Cloudflare Access. The app will not connect to an older lasso; update it with `lasso update`. See [Deployment](../deployment/index.md).
 
 ## Install
 
