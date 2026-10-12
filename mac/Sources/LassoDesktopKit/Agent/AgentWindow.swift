@@ -154,9 +154,13 @@ final class AgentWindowController {
         chrome.onResize = { [weak self] ended in self?.drag(ended, resize: true) }
     }
 
-    func show() {
+    /// Bring it forward with the keyboard. `focusReply` puts the cursor in
+    /// the composer, as L does: a window opened on a new agent is for
+    /// writing to it, even while it is still starting.
+    func show(focusReply: Bool = false) {
         model.startPolling()
         panel.makeKeyAndOrderFront(nil)
+        if focusReply { model.focusComposer() }
     }
 
     func close() {

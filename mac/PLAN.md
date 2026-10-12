@@ -904,7 +904,7 @@ A message you send shows at once, faded, under **Sending…**, until it appears 
 The Mac launches agents the way lasso's web New dialog does (`src/web/src/components/NewDialog.tsx`), over the same routes:
 - `GET /api/agent-config?host=` returns the harnesses, the default or last agent and the last repository.
 - `GET /api/repos?host=` lists the repositories, and `GET /api/repo-branches?path=&host=` their branches.
-- `POST /api/create-agent` creates the agent. It answers as soon as the record, workspace and root pane exist, and the agent boots afterwards. So the new agent's **own window** (§19) opens right away on that pane, and its conversation fills in as it starts.
+- `POST /api/create-agent` creates the agent. It answers as soon as the record, workspace and root pane exist, and the agent boots afterwards. So the new agent's **own window** (§19) opens right away on that pane, and its conversation fills in as it starts. The form gives up the keyboard as it closes, and the window takes it with the cursor in its composer (as L does), so you can write to the agent at once, while it shows "Starting <harness>".
 
 **The form:**
 - In a repository (a Git agent: repository plus base branch, picked with a filter, since titan has 183 repositories and 502 branches in lasso), or Scratch.

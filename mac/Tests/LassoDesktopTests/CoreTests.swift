@@ -214,6 +214,13 @@ private let specDir = packageDir.appendingPathComponent("Spec")
     #expect(!m.allowsCustom)
 }
 
+/// Run the main run loop (SwiftUI's updates, AppKit's focus changes) until
+/// `done`, for at most two seconds.
+@MainActor func spin(until done: () -> Bool) {
+    let end = Date().addingTimeInterval(2)
+    while !done(), Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+}
+
 func key(_ c: String, _ code: UInt16) -> NSEvent {
     NSEvent.keyEvent(
         with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
@@ -263,12 +270,46 @@ func key(_ c: String, _ code: UInt16) -> NSEvent {
     m.prompt = "  Fix the flaky upload test\nIt fails one run in ten."
     #expect(m.title == "Fix the flaky upload test" && m.canCreate)
     #expect(m.request.type == "git" && m.request.repo == "/home/stephan/projects/exa/lasso" && m.request.base_branch == "main")
+    // As the coordinator does: the form, with the keyboard, closes and the
+    // new agent's window opens with the cursor in its composer.
+    let form = NewAgentController(model: m)
+    form.show()
+    #expect(form.panel.isKeyWindow)
     var opened: HostPane?
-    m.onCreated = { opened = $0 }
+    var window: AgentWindowController?
+    let fleet = FleetModel()
+    m.onCreated = { pane in
+        opened = pane
+        form.close()
+        let w = AgentWindowController(
+            model: CardModel(pane: pane, fleet: fleet, actions: FixtureCardActions(chats: [:], canAcknowledge: true)),
+            near: NSRect(x: 900, y: 300, width: 10, height: 10), media: nil)
+        window = w
+        w.show(focusReply: true)
+    }
     m.create()
     try await Task.sleep(nanoseconds: 100_000_000)
     #expect(opened?.pane_id == "w9:p1" && opened?.host == "local")
     #expect(source.created.count == 1)
+    let w = try #require(window)
+    defer {
+        w.model.stopPolling()
+        w.panel.orderOut(nil)
+    }
+    spin(until: { w.panel.editingText && w.model.chat != nil })
+    #expect(!form.panel.isKeyWindow && !form.panel.isVisible)
+    #expect(w.panel.canBecomeKey && w.panel.isKeyWindow)
+    // The cursor is in the composer while the agent is still starting.
+    #expect(w.panel.editingText && w.model.focusRequest == 1)
+    guard case .starting = w.model.phase else {
+        Issue.record("the new agent's window is not starting: \(w.model.phase)")
+        return
+    }
+    // Typing goes to the composer, not the window's one-letter keys.
+    for (c, code) in [("x", UInt16(7)), ("r", 15), ("u", 32), ("l", 37)] {
+        #expect(!w.handle(key(c, code)), "\(c) was taken as a window key")
+    }
+    #expect(!w.model.killArmed && !w.model.renaming)
 
     let s = NewAgentModel(kind: .scratch, source: source)
     s.prompt = "Explore"
