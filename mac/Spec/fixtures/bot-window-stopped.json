@@ -1,0 +1,35 @@
+{
+  "about": "A stopped bot's window: \"fitty isn't running\" with Start fitty above its last conversation, which is read-only until it starts.",
+  "state": "bot-window-stopped",
+  "extends": "rail-expanded",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "bot_window": "fitty"
+  },
+  "chats": {
+    "bot:fitty": {
+      "pane_id": "bot:fitty",
+      "agent": "claude",
+      "host": "local",
+      "start_offset": 0,
+      "running": false,
+      "items": [
+        {
+          "kind": "user",
+          "id": "u1",
+          "at": "2026-10-10T07:58:00Z",
+          "text": "Post the weekly digest."
+        },
+        {
+          "kind": "agent",
+          "id": "a1",
+          "at": "2026-10-10T08:00:00Z",
+          "text": "Done: posted the weekly digest to #general."
+        }
+      ]
+    }
+  }
+}

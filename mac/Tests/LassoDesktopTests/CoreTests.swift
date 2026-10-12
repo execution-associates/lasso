@@ -115,9 +115,11 @@ private let specDir = packageDir.appendingPathComponent("Spec")
     let cap = try await Capturer.capture(RailView(model: model), size: CGSize(
         width: RailMetrics.panelWidth, height: RailMetrics.expandedHeight(Theme.Rail.maxSlots.int) + 2 * RailMetrics.margin))
     let anchors: [RailModel.Item: String] = [
-        .inbox: "rail.inbox", .agents: "rail.agents.capsule", .newAgent: "rail.new", .terminal: "rail.terminal", .settings: "rail.ellipsis",
+        .inbox: "rail.inbox", .agents: "rail.agents.capsule", .bots: "rail.bots", .newAgent: "rail.new", .terminal: "rail.terminal",
+        .settings: "rail.ellipsis",
     ]
-    for (item, frame) in RailMetrics.itemFrames(model.slots.count) {
+    #expect(model.hasBots)
+    for (item, frame) in RailMetrics.itemFrames(model.slots.count, bots: model.hasBots) {
         let drawn = try #require(cap.frames[anchors[item]!])
         #expect(abs(drawn.minY - frame.minY) <= 1 && abs(drawn.height - frame.height) <= 1, "\(item): \(drawn) vs \(frame)")
     }

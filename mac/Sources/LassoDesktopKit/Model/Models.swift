@@ -162,6 +162,8 @@ public struct BotView: Codable, Sendable, Equatable, Identifiable {
     /// A claude bot's herdr pane, while it runs (its chat is that pane's).
     public var pane_id: String?
     public var dir_path: String?
+    /// Its picture's file name (with a revision after "?"), when it has one.
+    public var avatar_image: String?
     public var live_model: LiveModel?
     /// What a blocked omp bot waits on, the same list its chat carries.
     public var pending_ui: [ChatPayload.PendingUI]?

@@ -214,7 +214,7 @@ public final class RailController {
         let f = panel.frame
         let m = NSEvent.mouseLocation
         let p = CGPoint(x: m.x - f.minX, y: f.maxY - m.y)
-        return RailMetrics.itemFrames(model.slots.count).first { $0.1.contains(p) }?.0
+        return RailMetrics.itemFrames(model.slots.count, bots: model.hasBots).first { $0.1.contains(p) }?.0
     }
 
     /// Resting on a control for `item_open_ms` opens it.

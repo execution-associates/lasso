@@ -25,6 +25,11 @@ public final class AppCoordinator {
     /// The hover preview beside the agents list, and each agent's own window.
     private var preview: AgentPreviewController!
     private var windows: [String: AgentWindowController] = [:]
+    /// The Bots column and each bot's own window (PLAN 23).
+    let bots: BotsController
+    private let botActions2: BotActions
+    private let avatars: BotAvatars
+    private var botWindows: [String: BotWindowController] = [:]
     private let cardActions: CardActions
     private let media: MediaSource?
     private var shortcuts: [ShortcutSlot: InboxShortcut] = [:]
@@ -69,6 +74,12 @@ public final class AppCoordinator {
         self.cardActions = cardActions
         media = client.map { LiveMediaSource(client: $0) }
         rail = RailController(model: RailModel(fleet: fleet))
+        botActions2 = client.map { LiveBotActions(client: $0) } ?? FixtureBotActions()
+        avatars = BotAvatars(actions: botActions2)
+        let chats = botActions
+        bots = BotsController(
+            model: BotsListModel(fleet: fleet), avatars: avatars, media: client.map { LiveMediaSource(client: $0) },
+            makeChat: { ChatModel(bot: $0, actions: chats) })
         card = CardController(fleet: fleet, actions: cardActions)
         list = ListController(model: ListModel(fleet: fleet, actions: fleetActions))
         inboxModel = InboxModel(fleet: fleet)
@@ -229,11 +240,17 @@ public final class AppCoordinator {
             self.inbox.follow()
             self.settings.follow()
             self.chat?.panel.follow()
+            self.bots.follow()
         }
         rail.model.onInbox = { [weak self] in self?.railActivated(.inbox) }
         rail.model.onHoverOpen = { [weak self] item in self?.hoverOpen(item) }
         rail.onPointer = { [weak self] p in self?.hoverTick(p) }
         rail.model.onAgents = { [weak self] in self?.railActivated(.agents) }
+        rail.model.onBots = { [weak self] in self?.railActivated(.bots) }
+        bots.railFrame = railFrame
+        bots.model.onOpen = { [weak self] b in self?.openBotWindow(b) }
+        bots.model.onManage = { [weak self] in self?.openWeb("/bots/manage") }
+        fleet.$bots.sink { [weak self] b in self?.avatars.refresh(b) }.store(in: &subs)
         rail.model.onSettings = { [weak self] in self?.openSettings() }
         rail.model.onNewAgent = { [weak self] in self?.openNewAgent(.git) }
         rail.model.onTerminal = { [weak self] in self?.openTerminal() }
@@ -329,6 +346,7 @@ public final class AppCoordinator {
     private func closeAll(except keep: AnyObject? = nil) {
         if keep !== card { card.close() }
         if keep !== list { list.close() }
+        if keep !== bots { bots.close() }
         if keep !== inbox { inbox.close() }
         if keep !== settings { settings.close() }
         if let c = chat, keep !== c.panel { c.panel.close() }
@@ -342,12 +360,12 @@ public final class AppCoordinator {
     /// One of the panels that open off the rail is up (not Settings, which
     /// the user works in, nor the windows they arrange).
     var railPanelOpen: Bool {
-        card.isOpen || list.isOpen || inbox.isOpen || preview.isOpen || chat?.panel.isOpen == true
+        card.isOpen || list.isOpen || inbox.isOpen || preview.isOpen || bots.isOpen || chat?.panel.isOpen == true
     }
 
     /// The rail and the panels off it: a click on one keeps them.
     private var railWindows: [NSWindow] {
-        [rail.panel, card.panel, list.panel, inbox.panel, preview.panel] + (chat.map { [$0.panel.panel] } ?? [])
+        [rail.panel, card.panel, list.panel, inbox.panel, preview.panel, bots.panel, bots.preview] + (chat.map { [$0.panel.panel] } ?? [])
     }
 
     /// A mouse-down while a rail panel is open (ClickAwayWatch): anywhere
@@ -372,6 +390,7 @@ public final class AppCoordinator {
         preview.close()
         card.close()
         list.close()
+        bots.close()
         inbox.close()
         chat?.panel.close()
     }
@@ -387,6 +406,50 @@ public final class AppCoordinator {
         list.open(takeKey: takeKey)
     }
 
+    /// The Bots column: opened, or given the keyboard (J/K, ⏎) when open.
+    func openBots(takeKey: Bool = true) {
+        if bots.isOpen {
+            if takeKey, !bots.isKey { bots.takeKey() }
+            return
+        }
+        closeAll(except: bots)
+        bots.open(takeKey: takeKey)
+    }
+
+    /// A bot's own window: one per bot, brought forward if open. Like an
+    /// agent's, it floats free of the rail and outlives the column.
+    func openBotWindow(_ b: BotView) {
+        bots.hidePreview()
+        if let w = botWindows[b.name] {
+            w.show()
+            return
+        }
+        let m = BotWindowModel(chat: ChatModel(bot: b, actions: botActions), actions: botActions2, fleet: fleet)
+        m.openWeb = { [weak self] path in self?.openWeb(path) }
+        if let client {
+            m.suggestions = { bot in
+                let cfg: AgentConfig? = try? await client.get("/api/agent-config", query: ["host": bot.host])
+                return cfg?.harnesses?.first { $0.id == bot.runtime }?.model_suggestions ?? []
+            }
+        }
+        let w = BotWindowController(model: m, near: bots.isOpen ? bots.panel.frame : rail.panel.frame, media: media)
+        w.onClosed = { [weak self] in self?.botWindows[b.name] = nil }
+        botWindows[b.name] = w
+        w.show()
+        Trace.event("bot window opened")
+    }
+
+    /// A bot's window, if open (tests).
+    func botWindow(_ name: String) -> BotWindowController? { botWindows[name] }
+
+    /// One of the web app's pages for this lasso, in the default browser.
+    func openWeb(_ path: String) {
+        guard let base = client?.baseURL, var c = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return }
+        let prefix = c.percentEncodedPath.hasSuffix("/") ? String(c.percentEncodedPath.dropLast()) : c.percentEncodedPath
+        c.percentEncodedPath = prefix + path
+        if let u = c.url { NSWorkspace.shared.open(u) }
+    }
+
     /// A click on the inbox or agents button, or ⏎ on it in the summoned
     /// rail: its pop-out opens with the keyboard, or an open one takes it.
     /// It pins nothing: the pointer leaving closes it as after a hover. With
@@ -397,6 +460,7 @@ public final class AppCoordinator {
         switch item {
         case .inbox: openInbox(takeKey: true)
         case .agents: openList(takeKey: true)
+        case .bots: openBots(takeKey: true)
         default: return
         }
         if byPointer { glance = glance ?? Glance() } else { waitForThePointer() }
@@ -548,6 +612,9 @@ public final class AppCoordinator {
         case .agents:
             guard !list.isOpen else { return }
             openList(takeKey: false)
+        case .bots:
+            guard !bots.isOpen else { return }
+            openBots(takeKey: false)
         case .settings:
             guard !settings.isOpen else { return }
             openSettings(takeKey: false)
@@ -570,6 +637,8 @@ public final class AppCoordinator {
         if card.isOpen { frames.append(card.panel.frame) }
         if inbox.isOpen { frames.append(inbox.panel.frame) }
         if list.isOpen { frames.append(list.panel.frame) }
+        if bots.isOpen { frames.append(bots.panel.frame) }
+        if bots.previewOpen { frames.append(bots.preview.frame) }
         if preview.isOpen { frames.append(preview.panel.frame) }
         if let c = chat, c.panel.isOpen { frames.append(c.panel.panel.frame) }
         return frames.contains { $0.contains(pointer) }

@@ -844,9 +844,9 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
 - **Hover fill** (`rail.hover.fill`): a control under the pointer takes a 20% white overlay, stepped in one frame with no animation (f655, f734). The whole agents capsule takes it, and its neighbours do not change. One value says what is hovered: `RailModel.hovered`.
 - **Pressed** (`rail.pressed`): the whole control drops to 0.71 opacity while pressed (f219–225, f355–361).
 - **Resting opens** (`rail.hover.item_open_ms`, 117 ms, f655→f662): the inbox, the agents capsule and settings open by hover alone. A hover-opened panel is ordered front **without the keyboard**, so typing in another app never lands on the card's one-letter keys.
-- **The rail's pop-outs live under the pointer** (`Glance`, `AppCoordinator.pointerTick`): the inbox's card or panel, the agents column, a hover preview and a bot's chat. However one opened, it closes `rail.hover.panel_close_ms` (317 ms, f707→f726) after the pointer has left the rail and every pop-out. Moving from the rail to a panel inside that time does not flicker.
+- **The rail's pop-outs live under the pointer** (`Glance`, `AppCoordinator.pointerTick`): the inbox's card or panel, the agents column, the Bots column (§23), their hover previews and a bot's chat. However one opened, it closes `rail.hover.panel_close_ms` (317 ms, f707→f726) after the pointer has left the rail and every pop-out. Moving from the rail to a panel inside that time does not flicker.
   - **A click on a rail button pins nothing.** A click on the inbox button gives the card the keyboard (to reply, say), and one on the agents capsule gives the column the keyboard (↑/↓/⏎). Either still closes when the pointer leaves. A typed reply stays as a draft for that agent (`CardController.drafts`), a rename in progress is committed, and the keyboard goes back to the app that had it.
-  - **Persistent windows are what a click opens:** a row of the agents column opens that agent's own window (§19), which stays, floats over full-screen apps and follows across Spaces. The herdr window, Settings and the New form are windows too.
+  - **Persistent windows are what a click opens:** a row of the agents column opens that agent's own window (§19), and a row of the Bots column that bot's (§23), which stays, floats over full-screen apps and follows across Spaces. The herdr window, Settings and the New form are windows too.
   - **A pop-out opened with the pointer elsewhere** (the inbox shortcut, ⏎ on the summoned rail, the Dock icon, the menu-bar icon's Open Inbox) waits for the pointer. It goes on esc, once the pointer has come onto the rail or a pop-out and left, or on a click elsewhere. A global mouse-down monitor and a local one hear that click (`ClickAwayWatch`). They run only while such a pop-out waits, and a click on the rail, on a pop-out, or on a menu over one keeps it (`ClickAway`).
   - **Opening the herdr window** (the rail's terminal button, **T**, a header's button, a new terminal) puts the pop-outs away first, so it comes up alone.
 - **Settings** a hover opened is a glance until clicked: it closes once the pointer has left it and the rail, and a click makes it stay.
@@ -1087,3 +1087,26 @@ The first Developer ID build replaces the self-signed identity. macOS then asks 
 - The native socket's upgrade through Access with the app's bearer token.
 - Typing, paste, resize and the claim handover with a browser tab open on the same herdr.
 - A remote host's terminal (`herdr --remote`).
+
+## 23. Bots
+
+lasso's bots get a place of their own on the rail, following the web app's Bots view. Creating, deleting and configuring a bot (env, secrets, skills, jobs) stays in the web app. Bots still come to the Inbox when they ask or finish.
+
+**The rail's Bots button** sits between the agents and the **+** while lasso has bots (`RailModel.hasBots`). Its dot is the most urgent bot's state: red while one asks or failed, blue while one works, none otherwise (`BotStanding.railDot`). Like the agents capsule, resting on it opens its column and a click pins nothing (§16).
+
+**The Bots column** (`Bots/BotsColumn.swift`) is a rail pop-out the size of the agents column. Each bot has a row with its picture (`/api/bots/<name>/avatar`, else its initial), its name, its state and its last line: the question it asks, its last words, or why it failed.
+- **Order:** asking (blocked, or holding a `pending_ui` request), working, failed, idle, stopped, by name within each (`BotStanding`).
+- **Resting on a row** previews its latest exchange to the column's left, with the same timing as the agents column (`PreviewHover`).
+- **Keys:** J/K and ↑/↓ move, ⏎ opens, and esc closes. No keycaps are drawn.
+- **Manage bots ↗** opens the web app's `/bots/manage` at this lasso's address.
+
+**A row's click opens the bot's window** (`Bots/BotWindow.swift`). It is an agent window's panel with an agent window's behaviour: it persists, floats over full-screen apps, follows across Spaces, moves by its header, resizes by its corner and collapses to its header. Its frame is kept per bot (UserDefaults `botWindowFrames`). The chat is the bot chat's own `ChatModel`, on the bot's routes (`chat`, `chat/send`, `chat/answer`, `chat/stop`; a claude bot's pane chat).
+- **Header:** the picture, the name, the state and runtime. An omp bot has its model as a menu: `POST /api/bots/<name>/model`, which switches a running bot at once and otherwise says the change takes effect after a restart. The jobs count opens the bot's settings in the web app.
+- **Conversation:** as an agent window renders it. An open request's options are listed with Answer (`chat/answer`).
+- **Composer:** paste and drop upload, ⏎ sends, and ⌘. stops the turn.
+- **Footer:** New conversation (`sessions/new`), Conversations (`sessions`, a pick resumes with `sessions/resume`), Stop bot or Start bot (`stop`, `start`), and ⋯ with Restart, Jobs ↗, Settings ↗ (`/bots/<name>/settings`) and Manage bots ↗.
+- **Refusals are said.** lasso refuses a conversation switch mid-turn with a 409, and its reason shows in the window ("Not now: …"). Every other failure is named too.
+- **A stopped bot** shows "<name> isn't running." with **Start <name>** above its last conversation, and the composer is greyed until it starts.
+
+**Parity states:** `bots-column`, `bot-window` (an omp bot holding an approval) and `bot-window-stopped`. `rail-expanded`'s fixture has an asking, a working, an idle and a stopped bot, so the rail draws the Bots button with a red dot.
+

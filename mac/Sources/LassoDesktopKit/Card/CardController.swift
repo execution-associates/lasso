@@ -304,6 +304,9 @@ public enum CardKeys {
         Keys.esc, Keys.attach, Keys.send, Keys.reply, Keys.editStep, Keys.takeStep,
     ]
 
+    /// A bot's window: the chat's keys, without esc (it closes by its header).
+    public static let botWindowSet: [KeyBinding] = [Keys.attach, Keys.send, Keys.reply, Keys.editStep, Keys.takeStep]
+
     /// A hover preview's, once a click made it the user's: no Kill, and esc closes it.
     public static let previewSet: [KeyBinding] = [
         Keys.esc, Keys.attach, Keys.send, Keys.reply, Keys.rename, Keys.editStep, Keys.takeStep,

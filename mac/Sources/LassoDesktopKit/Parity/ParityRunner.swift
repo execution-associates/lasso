@@ -11,7 +11,7 @@ public final class ParityRunner {
     /// States whose surfaces exist. The rest report as pending until their
     /// milestone lands (PLAN 6).
     public static let implemented: Set<String> = [
-        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "rail-hover-terminal", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "settings-shortcuts", "new-agent", "new-agent-menu", "new-terminal", "agent-window-markdown",
+        "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "rail-hover-terminal", "inbox-open", "inbox-empty", "card-open", "card-blocked", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "settings-shortcuts", "new-agent", "new-agent-menu", "new-terminal", "bots-column", "bot-window", "bot-window-stopped", "agent-window-markdown",
         "card-killing", "first-run", "first-run-connected", "rail-offline",
     ]
 
@@ -207,6 +207,26 @@ public final class ParityRunner {
             surface = CardKeys.chatSet
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(ChatView(model: m), size: Theme.Card.size.size) }
             cap = try await make()
+        } else if let name = fixture.ui.bot_window, let bot = fixture.server.bots.bots.first(where: { $0.name == name }) {
+            let chat = ChatModel(bot: bot, actions: FixtureBotChatActions(payload: fixture.chats["bot:\(name)"]))
+            chat.show(chat: fixture.chats["bot:\(name)"])
+            let m = BotWindowModel(chat: chat, actions: FixtureBotActions(), fleet: fleet)
+            m.suggestions = { _ in ["deepseek-v4-flash", "claude-opus-5-5"] }
+            await m.load()
+            bindings = chat.activeBindings
+            surface = CardKeys.botWindowSet
+            let make: @MainActor () async throws -> Capture = {
+                try await Capturer.capture(
+                    BotWindowView(model: m, chrome: AgentWindowChrome()).environment(\.mediaSource, self.media),
+                    size: Theme.Agent.window.size2("size"))
+            }
+            cap = try await make()
+        } else if fixture.ui.bots == true {
+            let l = BotsListModel(fleet: fleet, now: { fixture.now })
+            l.hovered = fixture.ui.hovered
+            l.selected = fixture.ui.selected
+            let make: @MainActor () async throws -> Capture = { try await Capturer.capture(BotsListView(model: l), size: Theme.List.size.size) }
+            cap = try await make()
         } else if fixture.ui.list == true {
             let l = ListModel(fleet: fleet, actions: FixtureFleetActions(), now: { fixture.now })
             l.selected = fixture.ui.selected
@@ -254,7 +274,7 @@ public final class ParityRunner {
         } else {
             // A rail control under the pointer (rail-hover-*).
             let hoverable: [String: RailModel.Item] = [
-                "inbox": .inbox, "agents": .agents, "new": .newAgent, "terminal": .terminal, "settings": .settings,
+                "inbox": .inbox, "agents": .agents, "bots": .bots, "new": .newAgent, "terminal": .terminal, "settings": .settings,
             ]
             model.hovered = fixture.ui.hovered.flatMap { hoverable[$0] }
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(RailView(model: model), size: self.railSize()) }
@@ -647,7 +667,7 @@ public final class ParityRunner {
 
         // The reference: the same travel, animated by a SwiftUI spring made
         // from tokens.json's numbers, in a view of its own.
-        let travel = Double(RailMetrics.revealHeight(model.slots.count))
+        let travel = Double(RailMetrics.revealHeight(model.slots.count, bots: model.hasBots))
         let tok = spec.tokens[Theme.Motion.railExpand.id]?.value
         let springAnim = Animation.spring(
             response: tok?["response"]?.double ?? .nan, dampingFraction: tok?["damping"]?.double ?? .nan)

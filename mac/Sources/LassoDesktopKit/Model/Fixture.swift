@@ -31,6 +31,10 @@ public struct Fixture: Decodable, Sendable {
         public var new_agent_menu: String?
         /// The form's mode (NewAgentModel.Kind: "git", "scratch", "terminal").
         public var new_agent_kind: String?
+        /// The Bots column (its hovered row is `hovered`, a bot's name).
+        public var bots: Bool?
+        /// A bot's own window, by the bot's name.
+        public var bot_window: String?
         public var inbox: Bool?
         /// The first-run panel, at a step (FirstRunModel.Step: "connect", "connected").
         public var first_run: String?

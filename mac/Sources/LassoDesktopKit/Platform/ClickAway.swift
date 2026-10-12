@@ -1,7 +1,7 @@
 import AppKit
 
 /// A rail pop-out's life under the pointer (PLAN 16): the inbox's card or
-/// panel, the agents column, a hover preview, a bot's chat. However it
+/// panel, the agents and Bots columns, their hover previews, a bot's chat. However it
 /// opened, it closes once the pointer has been off the rail and every
 /// pop-out for `grace`. One a shortcut opened (the pointer was elsewhere)
 /// first waits for the pointer to come onto it; until then esc or a click
