@@ -791,7 +791,7 @@ func (h *herdrMCPServer) registerMachineList() {
 	h.srv.AddTool(&mcp.Tool{
 		Name:        herdrMachineListTool,
 		Title:       "Machine List",
-		Description: `List the hosts this endpoint can drive for you — ` + mcpLocalDesc() + ` plus its reachable ssh aliases, narrowed to your credential's scope; the same answer as /mcp's list_hosts. Pass a returned host as the "host" (or "machine") argument on any other tool. An entry in state "probing" or "timeout" is not down; call again shortly. Inputs: none.`,
+		Description: `List the hosts this endpoint can drive for you — ` + mcpLocalDesc() + ` plus its reachable ssh aliases, narrowed to your credential's scope; the same answer as /mcp's list_hosts. Pass a returned host as the "host" (or "machine") argument on any other tool. An entry in state "probing" or "timeout" is not down; call again shortly. Each host's "sessions" lists its herdr sessions (each its own herdr server); "current" marks the one every tool here acts on for that host. Inputs: none.`,
 		InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld},
 	}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {

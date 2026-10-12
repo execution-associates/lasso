@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ func resetHostStore(t *testing.T) {
 	hostStore.sweep = nil
 	hostStore.at = time.Time{}
 	hostStore.backoff = nil
+	hostStore.local.sessions, hostStore.local.err = nil, ""
 	hostStore.mu.Unlock()
 }
 
@@ -406,5 +408,41 @@ func TestSweepBacksOffUnreachableHosts(t *testing.T) {
 	sweep(true)
 	if probed["dead"] != before+2 {
 		t.Errorf("a host that answered must leave backoff: %v", probed)
+	}
+}
+
+// remoteHerdrShell's body goes through two shells: the one ssh hands the line
+// to, then the login shell it starts. An argument quoted for the inner shell
+// must arrive intact, so a session name like O'Brien cannot end the outer
+// quote early and run the rest of the line in the outer shell.
+func TestRemoteHerdrShellPreservesQuotedArguments(t *testing.T) {
+	t.Setenv("SHELL", "/bin/sh")
+	for _, name := range []string{
+		"work",
+		"O'Brien",
+		"O'Brien $(printf injected); a/b",
+		`it's "both" 'kinds'`,
+		"$HOME `id` \\ end",
+		"日本語",
+	} {
+		out, err := exec.Command("sh", "-c", remoteHerdrShell("printf '%s' "+shellQuote(name))).Output()
+		if err != nil || string(out) != name {
+			t.Errorf("name %q came back as %q (err %v)", name, out, err)
+		}
+	}
+}
+
+// The PATH prefix is for the inner login shell to expand, not the outer one.
+func TestRemoteHerdrShellExpandsPathInInnerShell(t *testing.T) {
+	t.Setenv("SHELL", "/bin/sh")
+	home := t.TempDir()
+	cmd := exec.Command("sh", "-c", remoteHerdrShell(`printf '%s' "$PATH"`))
+	cmd.Env = append(os.Environ(), "HOME="+home)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := home + "/.local/bin:" + home + "/.local/share/mise/shims:"; len(out) < len(want) || string(out[:len(want)]) != want {
+		t.Fatalf("PATH = %q, want prefix %q", out, want)
 	}
 }
