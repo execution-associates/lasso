@@ -26,12 +26,15 @@ const MD_RE = /\.(md|markdown|mdown|mkd|mkdn|mdwn)$/i
 const PDF_RE = /\.pdf$/i
 const HTML_RE = /\.html?$/i
 const VIDEO_RE = /\.(mp4|webm|ogv|mov|m4v|mkv)$/i
+// Kept in step with audioTypes in main.go, which serves these with a real type.
+const AUDIO_RE = /\.(mp3|wav|ogg|oga|opus|m4a|aac|flac|weba)$/i
 
 export const isImage = (p: string) => IMG_RE.test(p)
 export const isMarkdown = (p: string) => MD_RE.test(p)
 export const isPdf = (p: string) => PDF_RE.test(p)
 export const isHtml = (p: string) => HTML_RE.test(p)
 export const isVideo = (p: string) => VIDEO_RE.test(p)
+export const isAudio = (p: string) => AUDIO_RE.test(p)
 
 // file extension -> highlight.js language id (falls back to auto-detect)
 const LANGS: Record<string, string> = {

@@ -3346,26 +3346,48 @@ func serveFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The preview cap bounds text fetched into the editor; binary media
-	// (images, PDFs) render in-browser regardless of size, so serve them whole.
+	// (images, PDFs, video, audio) render in-browser regardless of size, so
+	// serve them whole.
 	if info.Size() > maxPreview && !isPreviewMedia(path) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		fmt.Fprintf(w, "[%s is %d bytes — too large to preview (limit %d)]", filepath.Base(path), info.Size(), maxPreview)
 		return
 	}
+	if ct, ok := audioTypes[strings.ToLower(filepath.Ext(path))]; ok {
+		w.Header().Set("Content-Type", ct)
+	}
 	http.ServeContent(w, r, filepath.Base(path), info.ModTime(), f)
 }
 
+// audioTypes names the audio formats the viewer plays. Go's built-in MIME table
+// has none of them, so without this ServeContent falls back to the host's
+// mime.types (absent on minimal boxes) and then to sniffing, which misses FLAC,
+// AAC and M4A, and Safari refuses to play audio served under the wrong type.
+var audioTypes = map[string]string{
+	".mp3":  "audio/mpeg",
+	".wav":  "audio/wav",
+	".ogg":  "audio/ogg",
+	".oga":  "audio/ogg",
+	".opus": "audio/ogg",
+	".m4a":  "audio/mp4",
+	".aac":  "audio/aac",
+	".flac": "audio/flac",
+	".weba": "audio/webm",
+}
+
 // isPreviewMedia reports whether path is a binary media type the viewer renders
-// directly (images, PDFs, videos) rather than fetching as text — these bypass
-// the text preview size cap. Videos rely on http.ServeContent's Range support
-// for in-browser seeking/streaming.
+// directly (images, PDFs, videos, audio) rather than fetching as text — these
+// bypass the text preview size cap. Videos and audio rely on
+// http.ServeContent's Range support for in-browser seeking/streaming.
 func isPreviewMedia(path string) bool {
-	switch strings.ToLower(filepath.Ext(path)) {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
 	case ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico", ".avif",
 		".mp4", ".webm", ".ogv", ".mov", ".m4v", ".mkv":
 		return true
 	}
-	return false
+	_, audio := audioTypes[ext]
+	return audio
 }
 
 // ---------------------------------------------------------------------------

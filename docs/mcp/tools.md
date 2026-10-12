@@ -268,7 +268,7 @@ Opens a file in the human's sidebar file viewer (the Files panel beside their te
 | --- | --- | --- | --- |
 | `path` | string | | Absolute path of the file or directory, or one starting with `~/` (expanded against the target host's home). Relative paths are refused because the server cannot see your working directory; `lasso open <path>` in a shell resolves one for you. |
 | `host` | string | optional | Host the file lives on. Defaults to your own host, which is where your files are. |
-| `line` | integer | optional | 1-based line to scroll to and select. Ignored for directories, images, PDFs and videos. A markdown file opened at a line shows its raw editor instead of the rendered preview. |
+| `line` | integer | optional | 1-based line to scroll to and select. Ignored for directories, images, PDFs, videos and audio. A markdown file opened at a line shows its raw editor instead of the rendered preview. |
 | `pane_id` | string | optional | Your `$HERDR_PANE_ID`, used only to tell the human which agent opened it; without it they are told "an agent". |
 
 The file must exist; a missing path is an error, so write it first. A directory opens the sidebar's file tree rooted there instead of the viewer.
