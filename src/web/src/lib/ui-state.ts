@@ -10,6 +10,7 @@ import {
 } from "@/lib/api"
 import { clientID } from "@/lib/client-id"
 import { qk, queryClient } from "@/lib/query"
+import { trackFeature } from "@/lib/telemetry"
 
 // Persisted, SQLite-backed UI preferences (sidebar layout, the Files tab's
 // click behavior, usage-footer settings, the appearance mode and its palettes,
@@ -280,6 +281,7 @@ export function ackCard(key: string, at: number) {
 // than a list write, so a tab holding a stale list cannot drop another
 // device's pin.
 export function setAgentPinned(key: string, pinned: boolean) {
+  if (pinned) trackFeature("agent_pinned")
   patchUIState({ agent_pins: { [key]: pinned } })
 }
 

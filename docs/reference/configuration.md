@@ -83,6 +83,9 @@ The CPU and memory caps apply only when `systemd-run` and a user systemd manager
 | `HERDR_SOCKET_PATH` | Default for `-herdr-sock`. |
 | `HERDR_CONFIG_PATH` | The local herdr `config.toml` lasso reads its theme from and writes theme changes to. Default `$XDG_CONFIG_HOME/herdr/config.toml`, else `~/.config/herdr/config.toml`, which is herdr's own order. On a remote host lasso resolves the same chain from that host's environment. |
 | `XDG_RUNTIME_DIR` | Its presence (with `systemd-run`) is what lets lasso cap the shared browser in a systemd user scope. |
+| `DO_NOT_TRACK`, `LASSO_TELEMETRY` | `DO_NOT_TRACK=1` or `LASSO_TELEMETRY=0` (also `false`, `off`, `no`) holds [anonymous usage analytics](./analytics.md) off whatever the setting says. |
+| `LASSO_TELEMETRY_HOST`, `LASSO_TELEMETRY_KEY` | Send analytics to another PostHog host or project, for testing. An empty key sends nothing. |
+| `LASSO_TELEMETRY_DEBUG` | `1` logs analytics send failures, which are otherwise silent. |
 | `LASSO_COMPOSER_GUARD` | On by default. Before the chat view types a message into an agent pane, lasso checks that pane's input box holds no unsent draft and refuses if it does. `false` or `0` turns that check off, as an escape hatch if a harness's screen layout changes and the check misfires. |
 
 ### Usage footer credentials

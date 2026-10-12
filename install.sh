@@ -8,7 +8,20 @@
 #
 # Honors:
 #   LASSO_INSTALL_DIR   where to install (default ~/.local/bin)
+#   LASSO_TELEMETRY=0   turn lasso's anonymous usage analytics off without asking
+#                       (same as passing --no-telemetry: `| sh -s -- --no-telemetry`)
 set -eu
+
+telemetry=""
+for arg in "$@"; do
+  case "$arg" in
+    --no-telemetry) telemetry=off ;;
+    *) echo "lasso: unknown option '$arg' (known: --no-telemetry)" >&2; exit 2 ;;
+  esac
+done
+case "${LASSO_TELEMETRY:-}" in
+  0 | false | off | no) telemetry=off ;;
+esac
 
 REPO="execution-associates/lasso"
 BASE="https://github.com/${REPO}/releases/latest/download"
@@ -70,6 +83,33 @@ mkdir -p "$dir"
 chmod +x "${tmp}/${asset}"
 mv "${tmp}/${asset}" "${dir}/lasso"
 echo "lasso: installed → ${dir}/lasso ($("${dir}/lasso" version 2>/dev/null || echo unknown))"
+
+# --- anonymous usage analytics ---------------------------------------------
+# lasso reports a few anonymous events (which views and features get used,
+# rough counts, a random install id; never names, paths, prompts or anything
+# typed) unless it is told not to. Asked here when someone is at a terminal;
+# stored in lasso.db through `lasso telemetry on|off`, which is also how to
+# change it later (or Settings > General > Anonymous usage analytics).
+if [ -z "$telemetry" ] && [ -t 1 ] && { : </dev/tty; } 2>/dev/null; then
+  echo
+  echo "lasso can send anonymous usage analytics: which views and features get used"
+  echo "and rough counts, under a random id. Never names, paths, hosts, prompts or"
+  echo "anything you type. Details: https://www.executionassociates.com/privacy/"
+  printf "Share anonymous usage analytics? [Y/n] "
+  ans=""
+  read -r ans </dev/tty || ans=""
+  case "$ans" in
+    [nN]*) telemetry=off ;;
+    *) telemetry=on ;;
+  esac
+fi
+if [ -n "$telemetry" ]; then
+  if "${dir}/lasso" telemetry "$telemetry" >/dev/null 2>&1; then
+    echo "lasso: anonymous usage analytics ${telemetry} (change it any time: lasso telemetry on|off)"
+  else
+    echo "lasso: couldn't record the analytics choice; run 'lasso telemetry ${telemetry}' yourself" >&2
+  fi
+fi
 
 # --- PATH hint -------------------------------------------------------------
 case ":${PATH}:" in

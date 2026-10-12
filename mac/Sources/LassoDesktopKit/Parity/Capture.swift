@@ -70,8 +70,14 @@ public enum Capturer {
     @MainActor
     public static func capture<V: View>(_ view: V, size: CGSize) async throws -> Capture {
         let box = FrameBox()
+        // The capture is a Retina one whatever the Mac's screen: minime's is
+        // 1x, and SwiftUI rasterises an image (a Lucide icon's SVG) at the
+        // display scale it is given, so at 1x the 2x bitmap below would hold
+        // that raster upscaled, its strokes soft and short of their colour.
+        let scale: CGFloat = 2
         let root = view
             .environment(\.parityEnabled, true)
+            .environment(\.displayScale, scale)
             .coordinateSpace(name: ParityRoot.space)
             .frame(width: size.width, height: size.height, alignment: .topLeading)
             .onPreferenceChange(ParityFramesKey.self) { v in
@@ -97,7 +103,6 @@ public enum Capturer {
         // than bitmapImageRepForCachingDisplay's: that one carries the
         // screen's colour space, and reading it back as sRGB shifted every
         // colour.
-        let scale: CGFloat = 2
         guard let blank = NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale),
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .calibratedRGB,

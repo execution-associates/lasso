@@ -146,6 +146,11 @@ lasso start                 # run it in the background
 open http://127.0.0.1:8090
 ```
 
+The installer asks whether lasso may send anonymous usage analytics. Answer `n`,
+or install with `LASSO_TELEMETRY=0` or `sh -s -- --no-telemetry`, to turn them off,
+and turn them on or off later in Settings or with `lasso telemetry on|off`.
+[Usage analytics](docs/reference/analytics.md) lists exactly what is sent.
+
 lasso needs [herdr](https://herdr.dev) and [ttyd](https://github.com/tsl0922/ttyd) on
 the same machine. Run `lasso doctor`
 if anything looks off. Then register lasso's MCP servers with the agent CLIs on

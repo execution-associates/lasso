@@ -120,6 +120,19 @@ public final class SettingsModel: ObservableObject {
         onPresence()
     }
 
+    /// Anonymous usage analytics (PLAN 25): this Mac's own choice.
+    public var analytics: Analytics = .shared { didSet { objectWillChange.send() } }
+    public var analyticsOn: Bool { analytics.enabled }
+    /// Why it sends nothing whatever the switch says (DO_NOT_TRACK, …).
+    public var analyticsNote: String? { analytics.forcedOff }
+
+    public func setAnalytics(_ on: Bool) {
+        objectWillChange.send()
+        analytics.enabled = on
+    }
+
+    public func openPrivacy() { NSWorkspace.shared.open(AnalyticsConfig.privacyURL) }
+
     public func setMenuBar(_ on: Bool) {
         AppPresence.set(menuBar: on)
         inMenuBar = on

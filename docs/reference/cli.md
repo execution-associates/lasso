@@ -30,6 +30,7 @@ lasso serve -h    # every server flag
 | `lasso open [flags] <path>` | | Show a file in the human's sidebar file viewer. |
 | `lasso closeme` | | Close the calling agent itself. |
 | `lasso skill [path]` | | Print lasso's agent skill, or a doc it links to. |
+| `lasso telemetry [on\|off]` | | Turn anonymous usage analytics on or off, or show whether they are on. |
 | `lasso mcp-client <cmd>` | | Manage per-host MCP credentials. |
 | `lasso mcp-group <cmd>` | | Manage host groups. |
 | `lasso plugin <cmd>` | `plugins` | Manage plugins. |
@@ -94,6 +95,10 @@ Takes no flags. Prints one line per check, marked ✓ (pass), ⚠ (warn) or ✗ 
 | latest release | A newer release exists (warns, and suggests `lasso update`), or GitHub could not be asked. |
 
 doctor does not check for `ttyd`, and it looks only at the default socket and port.
+
+### `lasso telemetry`
+
+`lasso telemetry off` turns lasso's [anonymous usage analytics](./analytics.md) off, `lasso telemetry on` turns them back on, and a bare `lasso telemetry` says which it is and whether `DO_NOT_TRACK` or `LASSO_TELEMETRY` in the current environment would hold them off. It writes `lasso.db` directly, so it needs no running lasso; a running one notices within 30 seconds. The installer runs it with your answer.
 
 ### `lasso version`
 

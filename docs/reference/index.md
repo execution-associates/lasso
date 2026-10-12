@@ -14,5 +14,6 @@ These pages are lookup material. Each one is checked against the source, and eac
 | [HTTP routes](./http-routes.md) | The route table, and which auth gate guards each route. |
 | [Architecture](./architecture.md) | How the binary, ttyd, herdr, SSH and the browser fit together. |
 | [Development](./development.md) | Building from source, the dev loop, and cutting a release. |
+| [Usage analytics](./analytics.md) | Exactly what anonymous usage analytics are sent, and every way to turn them off. |
 
 For the reasoning behind the security-relevant defaults, read [Security](../security.md). For the MCP tool catalog, see [MCP tools](../mcp/tools.md).

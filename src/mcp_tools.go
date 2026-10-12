@@ -733,6 +733,7 @@ func createAgentTool(_ context.Context, req *mcp.CallToolRequest, in createAgent
 	if err != nil {
 		return nil, agentInfo{}, err
 	}
+	telemetryTrack("server", "agent_created", telemetryAgentCreatedProps(rec.Agent, rec.Type, "mcp"))
 	return nil, agentInfoFrom(b.Name(), rec, "").named(), nil
 }
 

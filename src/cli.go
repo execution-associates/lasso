@@ -37,6 +37,7 @@ import (
 //	lasso plugin          list, enable/disable, trust, restart plugins
 //	lasso channel         a bot's lasso channel (claude runs it from the bot's mcp.json)
 //	lasso skill [path]    print lasso's agent skill (SKILL.md), or one of its docs
+//	lasso telemetry       turn anonymous usage analytics on or off (on|off|status)
 //	lasso version         print the version
 //
 // Subcommands are dispatched in main() BEFORE flag.Parse so the server's flags
@@ -104,6 +105,9 @@ func main() {
 		case "plugin", "plugins":
 			cliPlugin(os.Args[2:])
 			return
+		case "telemetry":
+			cliTelemetry(os.Args[2:])
+			return
 		case "skill":
 			if err := cliSkill(os.Args[2:], os.Stdout); err != nil {
 				fatal("skill: %v", err)
@@ -150,6 +154,7 @@ usage:
   lasso plugin <cmd>       plugins: list|enable|disable|trust|untrust|vm|restart|reload|install|update|uninstall|link|unlink|log|data-dir (see -h)
   lasso channel --bot <n>  a bot's jobs channel (claude runs it from the bot's mcp.json)
   lasso skill [path]       print lasso's agent skill (SKILL.md), or a doc it links to
+  lasso telemetry [on|off] turn anonymous usage analytics on or off (no argument: status)
   lasso version            print the version
 
 run "lasso -h" style flags after serve/start/restart; see docs/reference/cli.md for details.

@@ -1,7 +1,9 @@
 import { ArrowLeft, ArrowRight, X } from "lucide-react"
 import * as React from "react"
+import { AnalyticsToggle } from "@/components/AnalyticsToggle"
 import { Button } from "@/components/ui/button"
 import { tourAnchor } from "@/lib/onboarding"
+import { track } from "@/lib/telemetry"
 import { cn } from "@/lib/utils"
 
 // What App does to the screen before a step is shown, so the step's anchor is
@@ -25,6 +27,9 @@ export interface TourStep {
   // reaches the same commands through the input dial inside the terminal's
   // iframe, which the tour cannot reach into.
   only?: "desktop" | "mobile"
+  // Shows the anonymous-analytics switch under the body. On the first card
+  // and the last, so someone who skips straight away has still seen it.
+  analytics?: boolean
 }
 
 const Kbd = ({ children }: { children: React.ReactNode }) => (
@@ -37,6 +42,7 @@ export const TOUR_STEPS: TourStep[] = [
   {
     id: "welcome",
     title: "Welcome to lasso",
+    analytics: true,
     body: (
       <>
         Lasso is a browser front end for herdr: your terminals and coding
@@ -161,6 +167,7 @@ export const TOUR_STEPS: TourStep[] = [
   {
     id: "done",
     title: "You're set",
+    analytics: true,
     body: (
       <>
         Start an agent and you&apos;re off. You can replay this tour any time
@@ -294,8 +301,12 @@ export function OnboardingTour({
   }, [])
 
   const next = React.useCallback(() => {
-    if (last) onClose()
-    else setIndex(i + 1)
+    if (last) {
+      // Finished, not skipped. Sent only while analytics is on; the choice
+      // itself is never reported.
+      track({ event: "onboarding_completed", props: {} })
+      onClose()
+    } else setIndex(i + 1)
   }, [last, onClose, i])
   const back = React.useCallback(() => setIndex(Math.max(0, i - 1)), [i])
 
@@ -413,6 +424,11 @@ export function OnboardingTour({
           </Button>
         </div>
         <p className="text-muted-foreground leading-relaxed">{step.body}</p>
+        {step.analytics && (
+          <div className="rounded-lg border border-border/60 p-2.5">
+            <AnalyticsToggle id="tour-analytics" />
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <div className="flex flex-1 gap-1" aria-hidden>
             {steps.map((s, n) => (

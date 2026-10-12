@@ -295,6 +295,9 @@ func runServer() {
 	// (see agentreap.go — the aggregation used to be driven by a browser).
 	go startAgentReaper(ctx)
 	go startBotLoop(ctx)
+	// Anonymous usage analytics (telemetry.go): a sender nothing waits on, inert
+	// while analytics is off.
+	go startTelemetry(ctx)
 	// The chat's "Up next" queue: typed while an agent works, delivered by
 	// lasso when it is idle, whether or not any browser is open (chatqueue.go).
 	go startChatQueueLoop(ctx)
@@ -416,6 +419,8 @@ func runServer() {
 	mux.HandleFunc("/api/repo-branches", serveRepoBranches)
 	mux.HandleFunc("/api/create-agent", serveCreateAgent)
 	mux.HandleFunc("/api/auto-title", serveAutoTitle)
+	mux.HandleFunc("/api/telemetry", serveTelemetry)
+	mux.HandleFunc("/api/telemetry/config", serveTelemetryConfig)
 	mux.HandleFunc("/api/create-terminal", serveCreateTerminal)
 	mux.HandleFunc("/api/workspaces", serveWorkspaces)
 	mux.HandleFunc("/api/agent-upload", serveAgentUpload)

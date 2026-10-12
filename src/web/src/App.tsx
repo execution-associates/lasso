@@ -98,6 +98,7 @@ import {
   resolveSidebarTabs,
 } from "@/lib/sidebar-tabs"
 import { isStandalone } from "@/lib/standalone"
+import { type TelemetryView, trackFeature, trackView } from "@/lib/telemetry"
 import {
   blurHerdrTerminal,
   focusHerdrTerminal,
@@ -360,6 +361,17 @@ function Shell() {
     writeLeftView(leftView, viewSynced.current)
     viewSynced.current = true
   }, [leftView])
+  // Anonymous usage analytics: which built-in view is open (a plugin's view
+  // is not reported at all).
+  React.useEffect(() => {
+    const view: TelemetryView | undefined =
+      leftView === "agents"
+        ? "grid"
+        : leftView === "terminal" || leftView === "chat" || leftView === "bots"
+          ? leftView
+          : undefined
+    if (view) trackView(view)
+  }, [leftView])
   // The grid stays MOUNTED under a chat opened from it, so Back lands where the
   // reader left it: its scroll, filter, grouping and every card's own scroll and
   // draft. Leaving for the terminal lets it go, and its polls with it.
@@ -452,6 +464,21 @@ function Shell() {
   }, [leftView])
   const [collapsed, setCollapsed] = React.useState(false)
   const [newOpen, setNewOpen] = React.useState(false)
+  // Analytics: the right sidebar's built-in tabs while it is open, and the
+  // New dialog. Plugin tabs are not reported.
+  React.useEffect(() => {
+    if (collapsed) return
+    if (
+      rightView === "files" ||
+      rightView === "scratch" ||
+      rightView === "browser" ||
+      rightView === "settings"
+    )
+      trackView(rightView)
+  }, [rightView, collapsed])
+  React.useEffect(() => {
+    if (newOpen) trackView("new_form")
+  }, [newOpen])
   const [newTab, setNewTab] = React.useState<NewDialogTab>("agent")
   const [newBoth, setNewBoth] = React.useState(false)
   const [newTypeRequest, setNewTypeRequest] = React.useState<{
@@ -903,6 +930,12 @@ function Shell() {
   // list shown in Settings.)
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const was = e.defaultPrevented
+      handleKey(e)
+      // A chord this handler acted on; which one is never reported.
+      if (!was && e.defaultPrevented) trackFeature("shortcut_used")
+    }
+    const handleKey = (e: KeyboardEvent) => {
       if (!e.metaKey || e.ctrlKey || e.altKey) return
       const k = e.key.toLowerCase()
       if (e.shiftKey) {
