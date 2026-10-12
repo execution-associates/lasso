@@ -1,11 +1,19 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { ChevronRight } from "lucide-react"
+import { ChevronRight, Minus, Plus } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
-
+import type { PhoneTextField } from "@/lib/api"
 import { api } from "@/lib/api"
 import { getMode, type Mode, setMode } from "@/lib/mode"
 import { setNotifyKind, useNotifyChoices } from "@/lib/notify"
+import {
+  effectivePhoneText,
+  formatPhoneText,
+  PHONE_TEXT_CONTROLS,
+  PHONE_TEXT_FIELDS,
+  resetPhoneText,
+  setPhoneText,
+} from "@/lib/phone-text"
 import {
   disablePush,
   enablePush,
@@ -226,6 +234,114 @@ function Appearance() {
   )
 }
 
+// A value is stepped rather than dragged: a thumb-sized slider on a phone
+// lands a pixel off as often as not, and each tap here is one exact step.
+function Stepper({
+  field,
+  value,
+  isSet,
+}: {
+  field: PhoneTextField
+  value: number
+  isSet: boolean
+}) {
+  const c = PHONE_TEXT_CONTROLS[field]
+  const [lo, hi] = c.span
+  // Rounded to the step, so 1.6 + 0.1 stores 1.7 and not 1.7000000000000002.
+  const step = (dir: 1 | -1) => {
+    const decimals = (String(c.step).split(".")[1] ?? "").length
+    const next = Number((value + dir * c.step).toFixed(decimals))
+    setPhoneText({ [field]: Math.min(hi, Math.max(lo, next)) })
+  }
+  const btn =
+    "flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-foreground active:bg-accent disabled:opacity-30"
+  return (
+    <Row label={c.label} detail={isSet ? undefined : "default"}>
+      <span className="flex shrink-0 items-center gap-1.5">
+        <button
+          type="button"
+          aria-label={`Less ${c.label.toLowerCase()}`}
+          disabled={value <= lo}
+          onClick={() => step(-1)}
+          className={btn}
+        >
+          <Minus className="size-5" />
+        </button>
+        <span
+          aria-live="polite"
+          className="min-w-[4.5em] text-center text-[15px] text-foreground tabular-nums"
+        >
+          {formatPhoneText(field, value)}
+        </span>
+        <button
+          type="button"
+          aria-label={`More ${c.label.toLowerCase()}`}
+          disabled={value >= hi}
+          onClick={() => step(1)}
+          className={btn}
+        >
+          <Plus className="size-5" />
+        </button>
+      </span>
+    </Row>
+  )
+}
+
+// What the conversations and the Inbox read like at these settings: set
+// inside .phone-chat on the reading panel, so the same rules and properties
+// apply as in a real chat.
+function TextPreview() {
+  return (
+    <div className="phone-chat px-4 pt-3 pb-4">
+      <div className="chat-column border border-border/60 px-4 py-3">
+        <div className="md-body md-chat">
+          <p>
+            The tests pass and the branch is pushed.{" "}
+            <strong>Nothing is merged yet.</strong> Want me to open the pull
+            request?
+          </p>
+        </div>
+        <div className="mt-2 font-mono text-[11.5px] text-muted-foreground">
+          Bash · go test ./... · 12s
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TextSettings() {
+  const { values, set } = effectivePhoneText(useUIState().phone_text ?? {})
+  const anySet = PHONE_TEXT_FIELDS.some((f) => set[f])
+  return (
+    <>
+      <GroupHeader>Text</GroupHeader>
+      <Card className="overflow-hidden">
+        <TextPreview />
+        {PHONE_TEXT_FIELDS.map((f) => (
+          <div key={f} className="border-border/60 border-t">
+            <Stepper field={f} value={values[f]} isSet={set[f]} />
+          </div>
+        ))}
+        <div className="border-border/60 border-t">
+          <button
+            type="button"
+            disabled={!anySet}
+            onClick={resetPhoneText}
+            className="flex min-h-[56px] w-full items-center px-4 text-left text-[16px] text-destructive active:bg-muted/60 disabled:text-muted-foreground disabled:opacity-60"
+          >
+            Reset to defaults
+          </button>
+        </div>
+      </Card>
+      <p className="px-2 pt-2 text-[13px] text-muted-foreground leading-snug">
+        Conversations and Inbox cards in this app, on every phone. The full
+        lasso's chat keeps its own, in Settings → Chat text. The reading panel
+        shows behind a conversation when your theme has a backdrop.
+      </p>
+    </>
+  )
+}
+
 export function SimpleSettings() {
   const version = useQuery({
     queryKey: ["simple", "version"],
@@ -241,6 +357,8 @@ export function SimpleSettings() {
           <div className="border-border/60 border-t" />
           <Appearance />
         </Card>
+
+        <TextSettings />
 
         <NotifyKinds />
 

@@ -48,6 +48,9 @@
   "terminal_text": {
     "x": null
   },
+  "phone_text": {
+    "x": null
+  },
   "onboarding_done": true,
   "dismissed_cards": {
     "x": 1

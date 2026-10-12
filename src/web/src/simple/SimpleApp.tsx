@@ -2,6 +2,8 @@ import { Bot, Inbox, List, Settings } from "lucide-react"
 import * as React from "react"
 
 import { AskConfirmContext, ChatSubmitContext } from "@/components/ChatView"
+import { phoneTextStyle, usePhoneMuted } from "@/lib/phone-text"
+import { useUIState } from "@/lib/ui-state"
 import { AgentChat, AgentsList } from "@/simple/AgentsView"
 import { BotChat, BotsList } from "@/simple/BotsList"
 import { InboxView } from "@/simple/InboxView"
@@ -77,11 +79,18 @@ export function SimpleApp() {
   // A conversation has its own composer at the bottom, so it is a page of its
   // own with a Back, and the tab bar steps aside.
   const inChat = route.view === "agent" || route.view === "bot"
+  // The phone's own text settings (Settings → Text), pinned here so they win
+  // over the desktop chat's inside this app and nowhere else.
+  const phoneText = useUIState().phone_text ?? {}
+  const muted = usePhoneMuted()
 
   return (
     <AskConfirmContext.Provider value={true}>
       <ChatSubmitContext.Provider value={noteChatSubmitted}>
-        <div className="chat-overlay fixed inset-0 flex flex-col bg-background pt-[env(safe-area-inset-top)]">
+        <div
+          className="chat-overlay chat-text phone-text fixed inset-0 flex flex-col bg-background pt-[env(safe-area-inset-top)]"
+          style={phoneTextStyle(phoneText, muted)}
+        >
           <main
             // A tablet gets a phone-width column, centred, rather than cards
             // stretched across the screen.

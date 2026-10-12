@@ -170,7 +170,7 @@ export function InboxView({ go }: { go: (r: SimpleRoute) => void }) {
             {...swipe.handlers}
             className="flex min-h-0 flex-1 touch-pan-y flex-col will-change-transform"
           >
-            <ScrollBody key={item.key} className="pt-2 pb-4">
+            <ScrollBody key={item.key} className="phone-cards pt-2 pb-4">
               <ItemCard item={item} go={openFromCard} />
             </ScrollBody>
           </div>
@@ -409,7 +409,7 @@ function AgentProse({
   )
   if (!text) return null
   return (
-    <div className="md-body md-chat text-[15px]">
+    <div className="md-body md-chat">
       <Markdown source={text} resolveImageSrc={resolve} />
     </div>
   )

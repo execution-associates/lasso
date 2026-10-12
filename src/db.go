@@ -412,6 +412,11 @@ type uiState struct {
 	// terminal it shows. Stored and merged exactly like ChatText, without a
 	// preset.
 	TerminalText map[string]any `json:"terminal_text"`
+	// PhoneText is the simple phone app's text (/m): size, weight, line
+	// height, letter spacing and the reading panel, from phoneTextRanges (the
+	// chat's own ranges). Stored and merged exactly like TerminalText, and
+	// separate from ChatText so a phone and a desktop each keep their own.
+	PhoneText map[string]any `json:"phone_text"`
 	// OnboardingDone records that the first-run tour was finished or skipped,
 	// so it opens once per lasso rather than once per browser. A fresh install
 	// (no blob) starts false; a blob written before this field existed reads
@@ -684,6 +689,7 @@ func getUIState() (uiState, error) {
 		Typography:             map[string]string{},
 		ChatText:               map[string]any{},
 		TerminalText:           map[string]any{},
+		PhoneText:              map[string]any{},
 		DismissedCards:         map[string]int64{},
 	}
 	var v string
@@ -734,6 +740,7 @@ func getUIState() (uiState, error) {
 	}
 	us.ChatText = sanitizeChatText(us.ChatText)
 	us.TerminalText = terminalTextKind.sanitize(us.TerminalText)
+	us.PhoneText = phoneTextKind.sanitize(us.PhoneText)
 	us.DismissedCards = mergeDismissedCards(us.DismissedCards, nil)
 	if s := us.DesktopSound; s != nil && (s.SHA256 == "" || s.Size <= 0) {
 		us.DesktopSound = nil // a hand-edited blob: no sound rather than a broken one

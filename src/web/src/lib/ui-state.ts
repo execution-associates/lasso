@@ -63,6 +63,7 @@ const DEFAULTS: UIState = {
   typography: {},
   chat_text: {},
   terminal_text: {},
+  phone_text: {},
   // true until the server says otherwise, so the tour never flashes open in
   // the instant before the first fetch lands.
   onboarding_done: true,
@@ -175,6 +176,8 @@ function mergePatch(a: UIStatePatch, b: UIStatePatch): UIStatePatch {
     out.chat_text = { ...a.chat_text, ...b.chat_text }
   if (a.terminal_text && b.terminal_text)
     out.terminal_text = { ...a.terminal_text, ...b.terminal_text }
+  if (a.phone_text && b.phone_text)
+    out.phone_text = { ...a.phone_text, ...b.phone_text }
   // Pin ops are per key too: two cards pinned in one round trip both land.
   if (a.agent_pins && b.agent_pins)
     out.agent_pins = { ...a.agent_pins, ...b.agent_pins }
@@ -201,6 +204,7 @@ function mergeLocal(cached: UIState, patch: UIStatePatch): UIState {
     typography,
     chat_text: chatText,
     terminal_text: terminalText,
+    phone_text: phoneText,
     remember_background: remember,
     forget_background: forget,
     agent_pins: pins,
@@ -220,6 +224,11 @@ function mergeLocal(cached: UIState, patch: UIStatePatch): UIState {
       cached.terminal_text,
       terminalText
     ) as UIState["terminal_text"]
+  if (phoneText)
+    out.phone_text = mergeFields(
+      cached.phone_text,
+      phoneText
+    ) as UIState["phone_text"]
   if (atmosphere)
     out.theme_atmosphere = mergeAtmosphereInto(
       cached.theme_atmosphere,

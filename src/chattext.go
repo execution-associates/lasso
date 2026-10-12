@@ -18,6 +18,12 @@ import (
 // may store. Terminal text is ui_state.terminal_text: xterm's font options,
 // with its own table and no plugin styles.
 //
+// The simple phone app (/m) keeps its own copy, ui_state.phone_text: the
+// chat's fields a phone has (no column width, no plugin style), held to the
+// chat's own ranges. A phone is read at arm's length in one narrow column, so
+// its defaults are larger than the desktop chat's, and a size picked for one
+// screen must not resize the other.
+//
 // Every field is a plain number the frontend writes into a CSS custom property
 // or an xterm option itself, which is why ranges are enforced here and again in
 // the browser: a plugin contributes values, never CSS.
@@ -52,6 +58,22 @@ var terminalTextRanges = map[string]chatTextRange{
 	"letter_spacing": {Min: -2, Max: 8, Integer: true},
 }
 
+// phoneTextRanges is the simple phone app's table (ui_state.phone_text): the
+// chat's own ranges, picked field by field so the two can never disagree.
+var phoneTextRanges = pickTextRanges(chatTextRanges, "size", "weight", "line_height", "letter_spacing", "backing")
+
+func pickTextRanges(from map[string]chatTextRange, keys ...string) map[string]chatTextRange {
+	out := make(map[string]chatTextRange, len(keys))
+	for _, k := range keys {
+		r, ok := from[k]
+		if !ok {
+			panic("pickTextRanges: no range for " + k)
+		}
+		out[k] = r
+	}
+	return out
+}
+
 // textPrefKind is one stored set of text settings: its name in errors, its
 // range table, and whether it takes a plugin style (only the chat's does).
 type textPrefKind struct {
@@ -63,6 +85,7 @@ type textPrefKind struct {
 var (
 	chatTextKind     = textPrefKind{name: "chat_text", ranges: chatTextRanges, hasPreset: true}
 	terminalTextKind = textPrefKind{name: "terminal_text", ranges: terminalTextRanges}
+	phoneTextKind    = textPrefKind{name: "phone_text", ranges: phoneTextRanges}
 )
 
 // chatTextPresetKey names the plugin chat style the stored values sit on top

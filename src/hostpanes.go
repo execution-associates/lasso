@@ -490,6 +490,7 @@ func serveUIState(w http.ResponseWriter, r *http.Request) {
 		// with a null value marking a field to delete.
 		us.ChatText = nil
 		us.TerminalText = nil
+		us.PhoneText = nil
 		// Detached, and whatever the body says about it is discarded below: it
 		// changes only through the agent_pins ops.
 		us.PinnedAgents = nil
@@ -535,6 +536,10 @@ func serveUIState(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if us.TerminalText, err = terminalTextKind.merge(stored.TerminalText, us.TerminalText); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if us.PhoneText, err = phoneTextKind.merge(stored.PhoneText, us.PhoneText); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

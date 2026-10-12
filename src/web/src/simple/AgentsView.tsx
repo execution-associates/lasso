@@ -245,7 +245,7 @@ export function AgentChat({
           </button>
         }
         placeholder={`Message ${name}…`}
-        className="min-h-0 flex-1"
+        className="phone-chat min-h-0 flex-1"
       />
       <EndAgentDialog
         open={confirmKill}

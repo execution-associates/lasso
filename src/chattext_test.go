@@ -174,3 +174,47 @@ func TestTerminalTextUIState(t *testing.T) {
 		}
 	}
 }
+
+func TestPhoneTextUIState(t *testing.T) {
+	openTestDB(t)
+	us, _ := getUIState()
+	if us.PhoneText == nil || len(us.PhoneText) != 0 {
+		t.Fatalf("default phone_text = %#v; want {}", us.PhoneText)
+	}
+	postUIState(t, `{"phone_text":{"size":18}}`)
+	got := postUIState(t, `{"phone_text":{"weight":450.4,"backing":0.8}}`)
+	if got.PhoneText["size"] != 18.0 || got.PhoneText["weight"] != 450.0 || got.PhoneText["backing"] != 0.8 {
+		t.Fatalf("per-field merge = %v (weight is rounded to an integer)", got.PhoneText)
+	}
+	// The phone and the desktop chat are separate stores: writing one leaves
+	// the other.
+	got = postUIState(t, `{"chat_text":{"size":14}}`)
+	if len(got.PhoneText) != 3 || got.PhoneText["size"] != 18.0 {
+		t.Fatalf("a chat_text patch touched phone_text: %v", got.PhoneText)
+	}
+	if got.ChatText["size"] != 14.0 {
+		t.Fatalf("chat_text = %v", got.ChatText)
+	}
+	got = postUIState(t, `{"phone_text":{"size":null,"weight":null,"backing":null}}`)
+	if len(got.PhoneText) != 0 {
+		t.Fatalf("null did not clear the fields: %v", got.PhoneText)
+	}
+	for name, body := range map[string]string{
+		"no presets":        `{"phone_text":{"preset":"plugin:a:b"}}`,
+		"no column width":   `{"phone_text":{"width":40}}`,
+		"size too small":    `{"phone_text":{"size":4}}`,
+		"size too large":    `{"phone_text":{"size":40}}`,
+		"leading too large": `{"phone_text":{"line_height":9}}`,
+		"number as string":  `{"phone_text":{"size":"17px"}}`,
+	} {
+		if w := postUIStateRaw(t, body); w.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d %s; want 400", name, w.Code, w.Body.String())
+		}
+	}
+	// The ranges are the chat's own, field for field.
+	for k, r := range phoneTextRanges {
+		if chatTextRanges[k] != r {
+			t.Errorf("phone_text %s range %v; chat_text has %v", k, r, chatTextRanges[k])
+		}
+	}
+}

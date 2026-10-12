@@ -501,7 +501,7 @@ Pass only what changes; an omitted field is left alone. Returns the affected sec
 
 | parameter | type | | description |
 | --- | --- | --- | --- |
-| `ui` | object | optional | A patch of the `ui` section. Only the keys you send change. `typography`, `chat_text`, `terminal_text` and `theme_atmosphere` merge per field, and `""` or `null` deletes one; `sidebar_tabs` is replaced whole. Pinned agents change through `agent_pins: {<key>: true\|false}`, dismissed agent cards through `card_dismiss: {<key>: <transcript_at ms>\|null}`, and the background gallery through `remember_background` / `forget_background`. |
+| `ui` | object | optional | A patch of the `ui` section. Only the keys you send change. `typography`, `chat_text`, `terminal_text`, `phone_text` and `theme_atmosphere` merge per field, and `""` or `null` deletes one; `sidebar_tabs` is replaced whole. Pinned agents change through `agent_pins: {<key>: true\|false}`, dismissed agent cards through `card_dismiss: {<key>: <transcript_at ms>\|null}`, and the background gallery through `remember_background` / `forget_background`. |
 | `auto_title` | boolean | optional | Name new agents from their prompt. |
 | `agent_defaults` | object | optional | `host`'s creator defaults: any of `repos_root`, `branch_prefix`, `default_agent`, `default_terminal_workspace`, `scratch_setup`. `""` clears one. |
 | `repo` | object | optional | `{path, copy_files?, setup?}`: one repository's per-repo settings on `host`. |

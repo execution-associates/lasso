@@ -845,6 +845,75 @@
 .chat-text .md-body.md-chat b {
   font-weight: max(700, calc(var(--chat-weight) + 300));
 }
+/* The simple phone app (/m). Its root carries .chat-text and .phone-text and
+   pins ui_state.phone_text there (lib/phone-text.ts): the --chat-* properties
+   above, which then win over <html>'s for everything inside, and a scale for
+   the smaller text around the prose. Scoped to the conversations (.phone-chat)
+   and the Inbox's cards (.phone-cards), never the tab bar, the headers or
+   Settings, whose fixed heights the text has to fit.
+
+   The scale reaches the chat view's and the Inbox's own sizes through their
+   classes, one rule per size they use, so neither component needs to know it
+   is on a phone. A size not listed here simply does not scale. */
+.phone-text {
+  /* Secondary text lifted to AA when the palette's muted colour falls short
+     (lib/phone-text.ts:usePhoneMuted), and the theme's own otherwise. */
+  --muted-foreground: var(--phone-muted, var(--h-muted));
+}
+.phone-text .md-body.md-chat-soft {
+  color: var(--muted-foreground);
+}
+.phone-chat {
+  --phone-scale: var(--phone-chat-scale, 1);
+}
+.phone-cards {
+  --phone-scale: var(--phone-card-scale, 1);
+}
+:is(.phone-chat, .phone-cards) .text-\[9\.5px\] {
+  font-size: calc(9.5px * var(--phone-scale));
+}
+:is(.phone-chat, .phone-cards) .text-\[10px\] {
+  font-size: calc(10px * var(--phone-scale));
+}
+:is(.phone-chat, .phone-cards) .text-\[10\.5px\] {
+  font-size: calc(10.5px * var(--phone-scale));
+}
+:is(.phone-chat, .phone-cards) .text-\[11px\] {
+  font-size: calc(11px * var(--phone-scale));
+}
+:is(.phone-chat, .phone-cards) .text-\[11\.5px\] {
+  font-size: calc(11.5px * var(--phone-scale));
+}
+:is(.phone-chat, .phone-cards) .text-\[12px\] {
+  font-size: calc(12px * var(--phone-scale));
+}
+:is(.phone-chat, .phone-cards) .text-\[12\.5px\] {
+  font-size: calc(12.5px * var(--phone-scale));
+}
+:is(.phone-chat, .phone-cards) .text-\[13px\] {
+  font-size: calc(13px * var(--phone-scale));
+}
+:is(.phone-chat, .phone-cards) .text-\[13\.5px\] {
+  font-size: calc(13.5px * var(--phone-scale));
+}
+:is(.phone-chat, .phone-cards) .text-\[14px\] {
+  font-size: calc(14px * var(--phone-scale));
+}
+:is(.phone-chat, .phone-cards) .text-\[14\.5px\] {
+  font-size: calc(14.5px * var(--phone-scale));
+}
+:is(.phone-chat, .phone-cards) .text-\[15px\] {
+  font-size: calc(15px * var(--phone-scale));
+}
+:is(.phone-chat, .phone-cards) .text-\[16px\] {
+  font-size: calc(16px * var(--phone-scale));
+}
+:is(.phone-chat, .phone-cards) .text-\[17px\] {
+  font-size: calc(17px * var(--phone-scale));
+}
+:is(.phone-chat, .phone-cards) .md-body pre code {
+  font-size: calc(12.5px * var(--phone-scale));
+}
 /* The reading panel: a wash of the theme background behind the conversation
    column. Over a flat theme it is the colour it already sits on, so it only
    shows where it matters, under a backdrop. */
