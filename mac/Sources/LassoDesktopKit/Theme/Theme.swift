@@ -390,6 +390,10 @@ public enum Theme {
         public static let pollBots = Token("live.poll.bots", 3, .inferred("src/web/src/lib/bots.ts"), proposed: true)
         public static let pollChat = Token(
             "live.poll.chat_open", 2, .inferred("src/web/src/components/ChatView.tsx"), proposed: true)
+        public static let revealKeys = Token(
+            "live.poll.reveal_keys", 0.2,
+            .unmeasured("keycaps re-read ⌘ while they show: a release while another app has the keys sends Lasso no event"),
+            proposed: true)
         public static let sseWatchdog = Token(
             "live.sse.watchdog", 60, .inferred("server pings every 25 s, src/main.go:2847"), proposed: true)
         public static let backoff = Token(
@@ -433,7 +437,7 @@ public enum Theme {
         spaceScale, Layout.card, Layout.chat,
         avatar, icon,
         Motion.railExpand, Motion.railCollapse, Motion.cardOpen, Motion.cardClose, Motion.toastIn, Motion.cardPaging,
-        Live.pollAllPanes, Live.pollBots, Live.pollChat, Live.sseWatchdog, Live.backoff, Live.arrivalSound,
+        Live.pollAllPanes, Live.pollBots, Live.pollChat, Live.revealKeys, Live.sseWatchdog, Live.backoff, Live.arrivalSound,
         summonKey, inboxDoubleTap, revealKeys,
     ]
 }

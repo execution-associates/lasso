@@ -8,8 +8,38 @@ import SwiftUI
 @MainActor
 public final class KeyHints: ObservableObject {
     public static let shared = KeyHints()
-    @Published public var visible = false
+    @Published public var visible = false {
+        didSet { if visible != oldValue { visible ? startWatch() : stopWatch() } }
+    }
     private var monitor: Any?
+    /// Whether ⌘ is down: the class property is the hardware's state, read
+    /// without focus and without Accessibility. A test or the parity
+    /// harness's ⌘-held pass replaces it.
+    var commandDown: () -> Bool = { NSEvent.modifierFlags.contains(.command) }
+    private var watch: Timer?
+    /// The ⌘ watch is running (only while keycaps show).
+    var watching: Bool { watch != nil }
+
+    /// While keycaps show, ⌘ is read again every `live.poll.reveal_keys`,
+    /// and they go once it is up. The release event cannot be relied on:
+    /// the inbox and agent windows are non-activating panels, so Lasso has
+    /// the keyboard without being the active app, and ⌘ let go while another
+    /// app or a screenshot overlay has the keys sends it no flagsChanged and
+    /// no activation change. Nothing runs while they are hidden.
+    private func startWatch() {
+        guard watch == nil else { return }
+        watch = Timer.scheduledTimer(withTimeInterval: Theme.Live.revealKeys.seconds, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.check() }
+        }
+    }
+
+    private func stopWatch() {
+        watch?.invalidate()
+        watch = nil
+    }
+
+    /// One reading of the watch: hide the keycaps once ⌘ is up.
+    func check() { if visible, !commandDown() { visible = false } }
 
     public func start() {
         guard monitor == nil else { return }

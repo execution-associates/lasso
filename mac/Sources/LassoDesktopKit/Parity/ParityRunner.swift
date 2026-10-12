@@ -273,10 +273,14 @@ public final class ParityRunner {
         accessibilityChecks(state, cap)
         if let card { bindings = card.activeBindings }
         if let bindings, let again = recapture {
-            // Keycaps show only while ⌘ is held: render again holding it.
+            // Keycaps show only while ⌘ is held: render again holding it
+            // (the ⌘ watch reads it as held, so it keeps them on).
+            let read = KeyHints.shared.commandDown
+            KeyHints.shared.commandDown = { true }
             KeyHints.shared.visible = true
             let held = try await again()
             KeyHints.shared.visible = false
+            KeyHints.shared.commandDown = read
             if let png = held.image.representation(using: .png, properties: [:]) {
                 try png.write(to: out.appendingPathComponent("\(state)-keys.png"))
             }

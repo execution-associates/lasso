@@ -538,6 +538,8 @@ The user supplied reference screenshots of the intended look (kept out of git). 
 - **The list** has group headers, then rows of dot, avatar, name, microphone and ×.
 - **The chat** puts your messages in `#1D1C1E` bubbles, with a "Talking to …" line over the composer.
 - **Keycaps are hidden**, since the references show none, and appear over their controls while ⌘ is held. Parity renders each state a second time with ⌘ held (`<state>-keys.png`) and checks every legend against its live binding.
+  - A local `flagsChanged` monitor shows them at once. Hiding them does not wait for the release: the inbox and agent windows are non-activating panels, so Lasso often has the keys without being the active app, and a ⌘ let go while another app or a screenshot overlay has the keyboard sends it no event.
+  - So while they show, a timer reads `NSEvent.modifierFlags` (the hardware state, which needs no focus or Accessibility) every `live.poll.reveal_keys` (0.2 s) and hides them once ⌘ is up. No timer runs while they are hidden. The activation observers stay as well.
 - **Parity covers all seven states: 211 checks pass.** New checks include colour patches read along a gradient, `x`/`right_inset` measures, the peek's visible width, and the ⌘-held keycap pass.
 - **The app traces state changes to its log** (`dev.sh logs`): events only, never typed or spoken text. The hover reveal was verified live on minime by moving the pointer onto the peek from inside the Aqua session.
 
