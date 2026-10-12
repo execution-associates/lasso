@@ -754,14 +754,15 @@ The keys are `KeyBinding`s in `Theme/Keys.swift`; `CardKeys` (`Card/CardControll
 
 **How the card gets the keyboard:**
 - **By click or keyboard:** the inbox shortcut, the summon key, or a click on the inbox button gives the card the keyboard in the same press. Opening never puts the cursor in the composer, so the next `j` pages.
-- **By hover:** an inbox opened by hover is shown without the keyboard (§16). **While the pointer is over the inbox (the rail or its card)**, the card lends itself the keyboard for `j`, `k`, `x`, `a` and `esc` only. `r` and `l` put the cursor in a field, so they wait for a click. So `j`/`k` work the moment the inbox opens under the pointer, with no move onto the card.
+- **By hover:** an inbox opened by hover is shown without the keyboard (§16). **While the pointer is over the inbox (the rail or its card)**, the card lends itself the keyboard for `j`, `k`, `x`, `a`, `esc`, `r` and `l` only. So `j`/`k` work the moment the inbox opens under the pointer, with no move onto the card.
+  - **`r` and `l` take the keyboard for good** (`CardKeys.takesKeyboard`). They put the cursor in a field (the name, the reply), so the card first becomes the user's as a click would make it (`keyMode` full, nothing lent), then acts. The pointer leaving no longer takes the keyboard back; esc, a click elsewhere or the commit ends it. A bot's card has no rename, so its `r` hands the keyboard back like any key outside the set.
   - Any other key hands the keyboard straight back. That key is lost, since a key cannot be re-sent to another app without Accessibility, and the card keeps it back until the pointer leaves and returns.
   - The keyboard is lent **once per pointer visit**. If it goes away (a click in another app), the card does not take it again until the pointer leaves and comes back.
   - When the pointer leaves the card, the keyboard goes back to your app. A click on the card makes it fully yours.
   - **Why this is safe:** the pointer is visibly on the card, so you are looking at it.
     - Paging and esc are harmless.
     - Acknowledge acts at once (the user chose no confirm for it): it never touches the agent, and the item comes back when it has something new. Kill needs a second press.
-    - Typing meant for another app is cut off at its first key outside the set. The worst a stray word does is page the card or acknowledge one item.
+    - Typing meant for another app is cut off at its first key outside the set. A stray word can page the card or acknowledge one item. A word that starts with `r` or `l` takes the keyboard into the name or the reply, so the rest of it lands there. A rename keeps it only on ⏎ or a click away. A reply is sent only on ⏎, so a line ended with ⏎ would reach the agent. The user chose this so that R and L work on a hovered inbox.
 - **Keys work but are not drawn.** The table above is the reference; no keycap shows on any control, hovered or with ⌘ held. Each button's accessibility label names its key.
 - **A focused text field wins.** A key typed into the composer stays text, `j` included, even as the first character. Text focus is read from the window's first responder, not only from the field's own "did begin editing" (which fires only after the first character).
 

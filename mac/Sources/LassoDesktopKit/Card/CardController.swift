@@ -218,6 +218,19 @@ public final class CardController {
             releasePointerKey()
             return true
         }
+        if pointerKeyed, CardKeys.takesKeyboard.contains(action) {
+            // R or L under a lending pointer: they put the cursor in a field,
+            // so the keyboard becomes the card's, as a click would make it,
+            // and the pointer leaving no longer takes it back.
+            if action == .rename, !m.canRename {
+                heldBack = true
+                releasePointerKey()
+                return true
+            }
+            Trace.event("card key \(action) under the pointer: the keyboard is the card's")
+            pointerKeyed = false
+            syncKeyMode()
+        }
         Trace.event("card key \(action)")
         if case .close = action {
             m.disarm()
@@ -259,9 +272,16 @@ public enum CardKeys {
     ]
 
     /// The keys a card answers when the pointer, not a click, gave it the
-    /// keyboard: paging, kill (behind its confirm), acknowledge, and esc.
-    /// Rename and Reply put the cursor in a field, so they wait for a click.
-    public static let hoverSet: [KeyBinding] = [Keys.next, Keys.previous, Keys.kill, Keys.acknowledge, Keys.esc]
+    /// keyboard: paging, kill (behind its confirm), acknowledge, esc, and
+    /// rename and reply, which take the keyboard for good (`takesKeyboard`).
+    public static let hoverSet: [KeyBinding] = [
+        Keys.next, Keys.previous, Keys.kill, Keys.acknowledge, Keys.esc, Keys.rename, Keys.reply,
+    ]
+
+    /// Hover-set keys that put the cursor in a field (the name, the reply):
+    /// pressed under a lending pointer, they make the keyboard the card's,
+    /// as a click on it would, before they act.
+    public static let takesKeyboard: [CardKeyAction] = [.rename, .reply]
 
     /// The inbox card's whole vocabulary.
     public static let cardSet: [KeyBinding] = [

@@ -58,12 +58,12 @@ private var u: NSEvent { key("u", 32) }
     #expect(actions.calls.isEmpty)
 }
 
-/// R starts the rename in place, in the card and in an agent window; a bot
-/// has none, and the key is not lent to a hovering pointer.
+/// R starts the rename in place, in the card and in an agent window, and
+/// under a lending pointer too; a bot has none.
 @MainActor @Test func rRenames() throws {
     let m = inboxCard(FixtureCardActions(chats: [:], canAcknowledge: true))
     #expect(m.activeBindings.contains(Keys.rename))
-    #expect(CardKeys.route(r, editing: false, pointerKeyed: true) == .handBack)
+    #expect(CardKeys.route(r, editing: false, pointerKeyed: true) == .rename)
     #expect(CardKeys.route(r, editing: true, pointerKeyed: false) == nil)
     #expect(m.perform(try #require(CardKeys.route(r, editing: false, pointerKeyed: false))))
     #expect(m.renaming)
@@ -83,12 +83,12 @@ private var u: NSEvent { key("u", 32) }
     #expect(!bot.perform(.rename) && !bot.renaming)
 }
 
-/// L puts the cursor in the composer, a draft or not; it is not lent to a
-/// hovering pointer. ⏎ still goes to an empty composer, or sends.
+/// L puts the cursor in the composer, a draft or not, under a lending
+/// pointer too. ⏎ still goes to an empty composer, or sends.
 @MainActor @Test func lFocusesTheReply() throws {
     let m = inboxCard(FixtureCardActions(chats: [:], canAcknowledge: true))
     #expect(m.activeBindings.contains(Keys.reply))
-    #expect(CardKeys.route(l, editing: false, pointerKeyed: true) == .handBack)
+    #expect(CardKeys.route(l, editing: false, pointerKeyed: true) == .reply)
     #expect(m.perform(try #require(CardKeys.route(l, editing: false, pointerKeyed: false))))
     #expect(m.focusRequest == 1)
     m.composer = "half a thought"
@@ -200,4 +200,54 @@ private var u: NSEvent { key("u", 32) }
     #expect(CardKeys.route(Keys.stop.event()!, editing: true, among: CardKeys.chatSet) == .stop)
     #expect(CardKeys.route(Keys.reply.event()!, editing: true, among: CardKeys.chatSet) == nil)
     #expect(CardKeys.route(Keys.kill.event()!, editing: false, among: CardKeys.chatSet) == .unbound)
+}
+
+/// Under a lending pointer (a hover-opened inbox), R and L make the keyboard
+/// the card's, as a click would, and then act: R starts the rename (its field
+/// takes the caret as it appears), L asks the reply for the caret. The pointer
+/// leaving afterwards keeps the keyboard with the card, and a key typed into
+/// the field is text.
+@MainActor @Test func rAndLUnderThePointerTakeTheKeyboard() throws {
+    let p = agentPane()
+    let fleet = FleetModel()
+    fleet.apply(panes: AllPanes(panes: [p]))
+    let c = CardController(fleet: fleet, actions: FixtureCardActions(chats: [:], canAcknowledge: true))
+    c.open(p, takeKey: false)
+    defer { c.close() }
+    let m = try #require(c.model)
+
+    c.takeKeyForPointer()
+    #expect(c.pointerKeyed && c.panel.isKeyWindow && m.keyMode == .lent)
+    #expect(c.panel.onKey?(r) == true)
+    #expect(m.renaming && !c.pointerKeyed && m.keyMode == .full)
+    c.pointerLeft()
+    #expect(c.panel.isKeyWindow && m.renaming && m.keyMode == .full)
+    m.cancelRename()
+
+    // Lent again on a later visit, L goes to the reply the same way.
+    c.panel.resignKey()
+    #expect(!c.panel.isKeyWindow && m.keyMode == .none)
+    c.takeKeyForPointer()
+    #expect(c.pointerKeyed && m.keyMode == .lent)
+    let asked = m.focusRequest
+    #expect(c.panel.onKey?(l) == true)
+    #expect(m.focusRequest == asked + 1 && !c.pointerKeyed && m.keyMode == .full)
+    c.pointerLeft()
+    #expect(c.panel.isKeyWindow && m.keyMode == .full)
+    // In the field, an l is text: the router leaves it to the field.
+    m.composerFocused = true
+    #expect(c.panel.onKey?(l) == false)
+    m.composerFocused = false
+
+    // A bot's card has no rename: R under the pointer hands the keyboard back.
+    c.panel.resignKey()
+    c.pointerLeft()
+    c.takeKeyForPointer()
+    m.fleet.apply(bots: try JSONDecoder().decode(BotsPayload.self, from: Data("""
+        {"bots":[{"id":1,"host":"local","name":"stub","runtime":"claude","stopped":false,"notify":true,
+        "state":"idle","pane_id":"\(p.pane_id)","last_kind":"agent","last_at":"2026-10-11T12:00:00Z"}]}
+        """.utf8)))
+    #expect(c.pointerKeyed && m.isBot)
+    #expect(c.panel.onKey?(r) == true)
+    #expect(!m.renaming && !c.pointerKeyed && !c.panel.isKeyWindow)
 }

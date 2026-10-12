@@ -6,4 +6,6 @@ cd "$(dirname "$0")/.."
 PLUGINS=/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing
 flags=()
 [ -d "$PLUGINS" ] && flags=(-Xswiftc -plugin-path -Xswiftc "$PLUGINS")
-swift test "${flags[@]}" "$@"
+# One test at a time: the UI tests share the one key window, and a test
+# that takes it in another's await breaks that one's typing.
+swift test --no-parallel "${flags[@]}" "$@"

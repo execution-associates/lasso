@@ -301,8 +301,9 @@ func key(_ c: String, _ code: UInt16) -> NSEvent {
     spin(until: { w.panel.editingText && w.model.chat != nil })
     #expect(!form.panel.isKeyWindow && !form.panel.isVisible)
     #expect(w.panel.canBecomeKey && w.panel.isKeyWindow)
-    // The cursor is in the composer while the agent is still starting.
-    #expect(w.panel.editingText && w.model.focusRequest == 1)
+    // The cursor is in the composer while the agent is still starting. Without
+    // it, the keys below would be the window's (U opens a modal file picker).
+    try #require(w.panel.editingText && w.model.focusRequest == 1)
     guard case .starting = w.model.phase else {
         Issue.record("the new agent's window is not starting: \(w.model.phase)")
         return
