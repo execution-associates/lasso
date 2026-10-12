@@ -120,8 +120,7 @@ public struct ListView: View {
                             }
                             .padding(.leading, row.number("name_x") - row.number("dot_col") - row.number("avatar"))
                             if pinned && !pinnedSection {
-                                Image(systemName: "pin.fill")
-                                    .font(.system(size: Theme.icon.number("pin")))
+                                LucideIcon(.pin, size: Theme.icon.number("pin"))
                                     .foregroundStyle(Theme.Text.secondary.color)
                                     .padding(.leading, Theme.space("s"))
                             }
@@ -136,7 +135,8 @@ public struct ListView: View {
                         "\(p.displayName), \(p.state.label), \(p.agent) in \(p.group) on \(p.host_label)\(pinned ? ", pinned" : "")"
                             + (fleet.bot(for: p) != nil ? ", a bot" : ""))
                     Button { model.askEnd(p) } label: {
-                        Image(systemName: "xmark").frame(width: row.number("action_w"), height: row.number("height")).contentShape(Rectangle())
+                        LucideIcon(.x, size: Theme.icon.number("control"))
+                            .frame(width: row.number("action_w"), height: row.number("height")).contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("End \(p.displayName)")

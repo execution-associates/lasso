@@ -85,16 +85,17 @@ public struct ChannelMessage: Equatable, Sendable {
     /// A long one (a forwarded thread) is clamped until asked for.
     public var long: Bool { body.count > 280 || body.split(separator: "\n", omittingEmptySubsequences: false).count > 4 }
 
-    /// Its glyph: the family lives in the glyph, colour stays for state.
-    public var symbol: String {
+    /// Its icon, the web chat's (`channelIcon`): the family lives in the
+    /// icon, colour stays for state.
+    public var icon: Lucide {
         let l = label.lowercased()
-        if l == "email" || l.contains("mail") { return "envelope" }
-        if l == "scheduled" { return "clock" }
-        if l == "hotline" { return "phone" }
+        if l == "email" || l.contains("mail") { return .mail }
+        if l == "scheduled" { return .clock }
+        if l == "hotline" { return .phone }
         if ["mattermost", "imessage", "text", "sms", "slack", "whatsapp", "telegram"].contains(where: { l.contains($0) }) {
-            return "message"
+            return .messageSquare
         }
-        return "tray"
+        return .inbox
     }
 }
 
@@ -158,8 +159,7 @@ struct TaskNotificationRow: View {
         VStack(alignment: .leading, spacing: Theme.space("s")) {
             Button { unfolded.toggle(id) } label: {
                 HStack(spacing: Theme.space("s")) {
-                    Image(systemName: open ? "chevron.down" : "chevron.right")
-                        .font(.system(size: Theme.icon.number("pin")))
+                    LucideIcon(open ? .chevronDown : .chevronRight, size: Theme.icon.number("pin"))
                     Text(note.summary).lineLimit(1).truncationMode(.tail)
                     if note.failed {
                         Text(note.status).foregroundStyle(Theme.dangerText.color)
@@ -201,7 +201,7 @@ struct ChannelCard: View {
         let open = unfolded.open.contains(id)
         VStack(alignment: .leading, spacing: Theme.space("s")) {
             HStack(spacing: Theme.space("s")) {
-                Image(systemName: msg.symbol).foregroundStyle(Theme.Text.secondary.color)
+                LucideIcon(msg.icon, size: Theme.Fonts.body.number("size")).foregroundStyle(Theme.Text.secondary.color)
                 Text(msg.label.uppercased())
                     .font(Theme.Fonts.small.font)
                     .foregroundStyle(Theme.Text.secondary.color)

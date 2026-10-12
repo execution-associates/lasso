@@ -42,6 +42,7 @@ cp -R Spec "$APP/Contents/Resources/Spec"
 cp -R Resources/Fonts "$APP/Contents/Resources/Fonts"
 cp -R Resources/Sounds "$APP/Contents/Resources/Sounds"
 cp -R Resources/Brand "$APP/Contents/Resources/Brand"
+cp -R Resources/Icons "$APP/Contents/Resources/Icons"
 
 # The app icon: Resources/AppIcon.png (the EXA monogram on the rail's ink,
 # 1024 px) cut into an iconset and packed with the macOS tools.

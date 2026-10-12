@@ -55,8 +55,7 @@ struct BrowserBannerView: View {
         let o = attention.request
         VStack(alignment: .leading, spacing: Theme.space("m")) {
             HStack(alignment: .top, spacing: Theme.space("m")) {
-                Image(systemName: "globe")
-                    .font(.system(size: Theme.Rail.icon.number("size"), weight: .regular))
+                LucideIcon(.globe, size: Theme.Rail.icon.number("size"))
                     .foregroundStyle(Theme.accent.color)
                     .parityAnchor("banner.icon")
                 VStack(alignment: .leading, spacing: Theme.space("xs")) {

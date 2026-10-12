@@ -52,7 +52,7 @@ public struct NewAgentView: View {
                 model.kind = k
                 Task { await model.load() }
             }
-            RoundButton(symbol: "xmark", label: "Cancel (esc)") { model.onClose() }
+            RoundButton(glyph: .window(.close), label: "Cancel (esc)") { model.onClose() }
         }
         // The header moves the form.
         .contentShape(Rectangle())
@@ -100,8 +100,7 @@ public struct NewAgentView: View {
     /// A terminal's line says how its command runs.
     private var namePreview: some View {
         HStack(spacing: Theme.space("s")) {
-            Image(systemName: model.notice != nil ? "paperclip" : model.kind == .terminal ? "terminal" : "tag")
-                .font(.system(size: Theme.icon.number("pin")))
+            LucideIcon(model.notice != nil ? .paperclip : model.kind == .terminal ? .squareTerminal : .tag, size: Theme.icon.number("pin"))
             if let notice = model.notice {
                 Text(notice).lineLimit(1).truncationMode(.middle)
             } else if model.kind == .terminal {
@@ -130,10 +129,10 @@ public struct NewAgentView: View {
     private var terminalChips: some View {
         HStack(spacing: Theme.space("s")) {
             if model.hosts.count > 1 {
-                Chip(id: "host", icon: "desktopcomputer", value: model.hostName, label: "Machine", model: model)
+                Chip(id: "host", icon: .server, value: model.hostName, label: "Machine", model: model)
             }
             HStack(spacing: Theme.space("s")) {
-                Image(systemName: "folder").font(.system(size: Theme.icon.number("pin"), weight: .medium))
+                LucideIcon(.folder, size: Theme.icon.number("pin"))
                     .foregroundStyle(Theme.Text.secondary.color)
                 TextField("", text: $model.cwd, prompt: Text("Working directory (optional)").foregroundColor(Theme.Text.placeholder.color))
                     .textFieldStyle(.plain)
@@ -156,21 +155,21 @@ public struct NewAgentView: View {
             // Where it runs.
             HStack(spacing: Theme.space("s")) {
                 if model.kind == .git {
-                    Chip(id: "repo", icon: "folder", value: model.repos.first { $0.path == model.repo }?.name ?? "Repository", label: "Repository", model: model)
-                    Chip(id: "branch", icon: "arrow.triangle.branch", value: model.baseBranch.isEmpty ? "Base branch" : model.baseBranch, label: "Base branch", model: model)
+                    Chip(id: "repo", icon: .folderGit2, value: model.repos.first { $0.path == model.repo }?.name ?? "Repository", label: "Repository", model: model)
+                    Chip(id: "branch", icon: .gitBranch, value: model.baseBranch.isEmpty ? "Base branch" : model.baseBranch, label: "Base branch", model: model)
                 } else {
-                    StaticChip(icon: "sparkles", value: "A fresh folder")
+                    StaticChip(icon: .sparkles, value: "A fresh folder")
                 }
                 if model.hosts.count > 1 {
-                    Chip(id: "host", icon: "desktopcomputer", value: model.hostName, label: "Machine", model: model)
+                    Chip(id: "host", icon: .server, value: model.hostName, label: "Machine", model: model)
                 }
             }
             // Who runs it.
             HStack(spacing: Theme.space("s")) {
                 Chip(id: "agent", icon: agentIcon, value: model.harness?.label ?? "Agent", label: "Agent", model: model)
-                Chip(id: "model", icon: "cpu", value: model.model.isEmpty ? "Default model" : model.model, label: "Model", isDefault: model.model.isEmpty, model: model)
+                Chip(id: "model", icon: .cpu, value: model.model.isEmpty ? "Default model" : model.model, label: "Model", isDefault: model.model.isEmpty, model: model)
                 if let levels = model.harness?.effort_levels, !levels.isEmpty {
-                    Chip(id: "effort", icon: "brain", value: model.effort.isEmpty ? "Default thinking" : model.effort.capitalized, label: "Thinking effort", isDefault: model.effort.isEmpty, model: model)
+                    Chip(id: "effort", icon: .brain, value: model.effort.isEmpty ? "Default thinking" : model.effort.capitalized, label: "Thinking effort", isDefault: model.effort.isEmpty, model: model)
                 }
             }
         }
@@ -196,20 +195,13 @@ public struct NewAgentView: View {
         .animation(.easeOut(duration: Theme.Motion.cardOpen.number("duration")), value: model.openChip)
     }
 
-    private var agentIcon: String {
-        switch model.agent {
-        case "claude": "asterisk"
-        case "codex": "chevron.left.forwardslash.chevron.right"
-        case "omp", "pi": "circle.hexagongrid"
-        default: "terminal"
-        }
-    }
+    private var agentIcon: Lucide { .agent(model.agent) }
 
     // MARK: footer
 
     private func errorBanner(_ e: String) -> some View {
         HStack(alignment: .top, spacing: Theme.space("s")) {
-            Image(systemName: "exclamationmark.circle.fill")
+            LucideIcon(.triangleAlert, size: Theme.Fonts.small.number("size"))
             Text(e).fixedSize(horizontal: false, vertical: true)
         }
         .font(Theme.Fonts.small.font)
@@ -302,7 +294,7 @@ struct ChipAnchors: PreferenceKey {
 /// its menu.
 struct Chip: View {
     let id: String
-    let icon: String
+    let icon: Lucide
     let value: String
     let label: String
     /// The value is a default nobody chose: shown quieter than a choice.
@@ -316,11 +308,11 @@ struct Chip: View {
         let lit = open || hover.id == id
         Button { model.openChip = open ? nil : id } label: {
             HStack(spacing: Theme.space("s")) {
-                Image(systemName: icon).font(.system(size: Theme.icon.number("pin"), weight: .medium))
+                LucideIcon(icon, size: Theme.icon.number("pin"))
                     .foregroundStyle(open ? Theme.accent.color : Theme.Text.secondary.color)
                 Text(value).font(Theme.Fonts.small.font)
                     .foregroundStyle(isDefault ? Theme.Text.secondary.color : Theme.Text.primary.color).lineLimit(1)
-                Image(systemName: "chevron.down").font(.system(size: n.number("chevron"), weight: .semibold))
+                LucideIcon(.chevronDown, size: n.number("chevron"))
                     .foregroundStyle(Theme.Text.secondary.color)
                     .rotationEffect(.degrees(open ? 180 : 0))
             }
@@ -350,12 +342,12 @@ struct Chip: View {
 
 /// A chip that says what it is and opens nothing.
 struct StaticChip: View {
-    let icon: String
+    let icon: Lucide
     let value: String
 
     var body: some View {
         HStack(spacing: Theme.space("s")) {
-            Image(systemName: icon).font(.system(size: Theme.icon.number("pin"), weight: .medium))
+            LucideIcon(icon, size: Theme.icon.number("pin"))
             Text(value).font(Theme.Fonts.small.font)
         }
         .foregroundStyle(Theme.Text.secondary.color)
@@ -406,7 +398,7 @@ struct ChipMenu: View {
         return VStack(alignment: .leading, spacing: 0) {
             if model.searchable(id) {
                 HStack(spacing: Theme.space("s")) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(Theme.Text.secondary.color)
+                    LucideIcon(.search, size: Theme.Fonts.body.number("size")).foregroundStyle(Theme.Text.secondary.color)
                     FilterField(text: $model.chipFilter, placeholder: ["branch": "Filter branches", "repo": "Filter repositories", "model": "Filter or type a model"][id] ?? "Filter")
                 }
                 .font(Theme.Fonts.body.font)
@@ -451,7 +443,8 @@ struct ChipMenu: View {
                 }
                 Spacer(minLength: Theme.space("m"))
                 if selected {
-                    Image(systemName: "checkmark").font(.system(size: Theme.icon.number("pin"), weight: .semibold))
+                    // Thicker, as the web's small checks are (strokeWidth 3).
+                    LucideIcon(.check, size: Theme.icon.number("pin"), stroke: 3)
                         .foregroundStyle(Theme.accent.color)
                 }
             }

@@ -30,7 +30,7 @@ public struct FirstRunView: View {
             footer
         }
         .overlay(alignment: .topTrailing) {
-            RoundButton(symbol: "xmark", label: model.step == .connected ? "Done (esc)" : "Close (esc); the inbox brings this back") {
+            RoundButton(glyph: .window(.close), label: model.step == .connected ? "Done (esc)" : "Close (esc); the inbox brings this back") {
                 model.dismiss()
             }
             .padding(Theme.space("2xl"))
@@ -68,10 +68,10 @@ public struct FirstRunView: View {
         }
     }
 
-    private var badge: (symbol: String, color: Color)? {
+    private var badge: (icon: Lucide, color: Color)? {
         switch model.step {
-        case .connected: ("checkmark", Theme.State.done.color)
-        case .password, .signingIn: ("lock.fill", Theme.accent.color)
+        case .connected: (.check, Theme.State.done.color)
+        case .password, .signingIn: (.lock, Theme.accent.color)
         case .checking, .connect: nil
         }
     }
@@ -111,8 +111,7 @@ public struct FirstRunView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: Theme.space("m")) {
                 fieldBox(.address) {
-                    Image(systemName: "link")
-                        .font(.system(size: Theme.icon.number("control"), weight: .medium))
+                    LucideIcon(.link, size: Theme.icon.number("control"))
                         .foregroundStyle(model.focus == .address ? Theme.accent.color : Theme.Text.secondary.color)
                     OnboardingField(
                         text: $model.address, focus: $model.focus, field: .address, placeholder: "lasso's address",
@@ -142,7 +141,7 @@ public struct FirstRunView: View {
         let lit = model.hoveredExample == e.id
         return Button { model.use(e) } label: {
             HStack(spacing: Theme.space("l")) {
-                IconTile(symbol: e.symbol)
+                IconTile(icon: e.icon)
                 VStack(alignment: .leading, spacing: Theme.space("2xs")) {
                     HStack(alignment: .firstTextBaseline, spacing: Theme.space("m")) {
                         Text(e.title).font(Theme.Fonts.body.font).foregroundStyle(Theme.Text.primary.color)
@@ -175,13 +174,13 @@ public struct FirstRunView: View {
     private var passwordForm: some View {
         VStack(alignment: .leading, spacing: 0) {
             GroupCard {
-                credentialRow("person", .user) {
+                credentialRow(.user, .user) {
                     OnboardingField(
                         text: $model.user, focus: $model.focus, field: .user, placeholder: "User", label: "UI_AUTH user",
                         onTab: { model.focus = .password }) { model.primary() }
                 }
                 Hairline()
-                credentialRow("key", .password) {
+                credentialRow(.keyRound, .password) {
                     OnboardingField(
                         text: $model.password, focus: $model.focus, field: .password, placeholder: "Password", secure: true,
                         label: "UI_AUTH password", onTab: { model.focus = .user }) { model.submitPassword() }
@@ -194,10 +193,9 @@ public struct FirstRunView: View {
         }
     }
 
-    private func credentialRow<F: View>(_ symbol: String, _ f: FirstRunModel.Field, @ViewBuilder field: () -> F) -> some View {
+    private func credentialRow<F: View>(_ icon: Lucide, _ f: FirstRunModel.Field, @ViewBuilder field: () -> F) -> some View {
         HStack(spacing: Theme.space("l")) {
-            Image(systemName: symbol)
-                .font(.system(size: Theme.icon.number("control"), weight: .medium))
+            LucideIcon(icon, size: Theme.icon.number("control"))
                 .foregroundStyle(model.focus == f ? Theme.accent.color : Theme.Text.secondary.color)
                 .frame(width: Theme.icon.number("control") + Theme.space("xs"))
             field()
@@ -238,7 +236,7 @@ public struct FirstRunView: View {
 
     private func tipRow(_ t: FirstRunModel.Tip) -> some View {
         HStack(alignment: .top, spacing: Theme.space("l")) {
-            RailTile(symbol: t.symbol)
+            RailTile(icon: t.icon)
             VStack(alignment: .leading, spacing: Theme.space("2xs")) {
                 HStack(spacing: Theme.space("s")) {
                     Text(t.title).font(Theme.Fonts.body.font.weight(.semibold)).foregroundStyle(Theme.Text.primary.color)
@@ -326,7 +324,7 @@ public struct FirstRunView: View {
 /// The app's icon over a soft glow of the brand colour, with a small badge
 /// for the step (a check once connected, a lock while signing in).
 struct AppMark: View {
-    let badge: (symbol: String, color: Color)?
+    let badge: (icon: Lucide, color: Color)?
 
     var body: some View {
         let o = Theme.Onboarding.layout
@@ -348,8 +346,8 @@ struct AppMark: View {
                 Circle().fill(badge.color)
                     .frame(width: b, height: b)
                     .overlay(
-                        Image(systemName: badge.symbol)
-                            .font(.system(size: o.number("badge_glyph"), weight: .heavy))
+                        // Bold, as the web's small checks are (strokeWidth 3).
+                        LucideIcon(badge.icon, size: o.number("badge_glyph"), stroke: 3)
                             .foregroundStyle(Theme.Panel.surface.color))
                     .padding(Theme.space("2xs"))
                     .background(Circle().fill(Theme.Panel.surface.color))
@@ -380,14 +378,13 @@ struct Hairline: View {
     }
 }
 
-/// An example's symbol on a small tile in the brand colour.
+/// An example's icon on a small tile in the brand colour.
 struct IconTile: View {
-    let symbol: String
+    let icon: Lucide
 
     var body: some View {
         let o = Theme.Onboarding.layout
-        Image(systemName: symbol)
-            .font(.system(size: Theme.icon.number("control"), weight: .medium))
+        LucideIcon(icon, size: Theme.icon.number("control"))
             .foregroundStyle(Theme.accent.color)
             .frame(width: o.number("row_icon"), height: o.number("row_icon"))
             .background(
@@ -398,14 +395,13 @@ struct IconTile: View {
 
 /// A rail control in miniature, so a tip looks like the thing it names.
 struct RailTile: View {
-    let symbol: String
+    let icon: Lucide
 
     var body: some View {
         let side = Theme.Onboarding.layout.number("row_icon")
         ZStack {
             GroupBackground()
-            Image(systemName: symbol)
-                .font(.system(size: Theme.icon.number("control"), weight: Theme.Rail.icon.weight))
+            LucideIcon(icon, size: Theme.icon.number("control"))
                 .foregroundStyle(Theme.Rail.icon.textColor)
         }
         .frame(width: side, height: side)
@@ -431,7 +427,7 @@ struct NoteBanner: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: Theme.space("s")) {
-            Image(systemName: "exclamationmark.circle.fill")
+            LucideIcon(.triangleAlert, size: Theme.Fonts.small.number("size"))
             Text(text).fixedSize(horizontal: false, vertical: true)
         }
         .font(Theme.Fonts.small.font)

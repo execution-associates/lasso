@@ -20,7 +20,7 @@ public struct SettingsView: View {
                     .font(Theme.Fonts.title.font)
                     .foregroundStyle(Theme.Text.primary.color)
                 Spacer()
-                RoundButton(symbol: "xmark", label: "Close settings (esc)") { model.close() }
+                RoundButton(glyph: .window(.close), label: "Close settings (esc)") { model.close() }
             }
             .padding(.horizontal, pad)
             .padding(.top, Theme.Layout.card.number("top"))
@@ -49,11 +49,11 @@ public struct SettingsView: View {
 
     // MARK: tabs
 
-    private func icon(_ t: SettingsTab) -> String {
+    private func icon(_ t: SettingsTab) -> Lucide {
         switch t {
-        case .notifications: "bell"
-        case .shortcuts: "keyboard"
-        case .info: "info.circle"
+        case .notifications: .bell
+        case .shortcuts: .keyboard
+        case .info: .info
         }
     }
 
@@ -64,8 +64,7 @@ public struct SettingsView: View {
                 let on = t == model.tab
                 Button { model.tab = t } label: {
                     HStack(spacing: Theme.space("s")) {
-                        Image(systemName: icon(t))
-                            .font(.system(size: Theme.icon.number("pin"), weight: .semibold))
+                        LucideIcon(icon(t), size: Theme.icon.number("pin"))
                             .foregroundStyle(on ? Theme.accent.color : Theme.Text.secondary.color)
                         Text(t.title)
                             .font(Theme.Fonts.small.font.weight(on ? .semibold : .medium))

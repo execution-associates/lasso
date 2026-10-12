@@ -123,14 +123,13 @@ struct BrowserBar: View {
     var body: some View {
         let bar = Theme.Browser.bar
         HStack(spacing: Theme.space("m")) {
-            Image(systemName: "globe")
-                .font(.system(size: Theme.Rail.icon.number("size") - 3, weight: .regular))
+            LucideIcon(.globe, size: Theme.Rail.icon.number("size") - 3)
                 .foregroundStyle(Theme.Text.secondary.color)
             Text("Browser").font(Theme.Fonts.label.font).foregroundStyle(Theme.Text.primary.color)
             Menu {
                 ForEach(model.browsers) { b in
                     Button { model.select(b.id) } label: {
-                        if b.id == model.selected { Label(model.line(b), systemImage: "checkmark") } else { Text(model.line(b)) }
+                        if b.id == model.selected { Label(model.line(b), lucide: .check, size: Theme.Fonts.small.number("size")) } else { Text(model.line(b)) }
                     }
                 }
             } label: {

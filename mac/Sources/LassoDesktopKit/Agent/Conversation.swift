@@ -197,20 +197,19 @@ struct ConversationWindowView<M: Conversation>: View {
     private var buttons: some View {
         let a = model.anchor
         return HStack(spacing: Theme.space("xs")) {
-            WindowButton(symbol: "terminal", label: model.herdrLabel, enabled: model.canShowInHerdr) { model.showInHerdr() }
+            WindowButton(glyph: .lucide(.squareTerminal), label: model.herdrLabel, enabled: model.canShowInHerdr) { model.showInHerdr() }
                 .parityAnchor("\(a).herdr")
-            WindowButton(symbol: chrome.collapsed ? "arrow.up.left.and.arrow.down.right" : "minus",
+            WindowButton(glyph: .window(chrome.collapsed ? .expand : .minimize),
                          label: chrome.collapsed ? "Expand" : "Minimize") { chrome.onToggle() }
                 .parityAnchor("\(a).minimize")
-            WindowButton(symbol: "xmark", label: "Close") { chrome.onClose() }
+            WindowButton(glyph: .window(.close), label: "Close") { chrome.onClose() }
                 .parityAnchor("\(a).close")
         }
     }
 
     /// The corner to resize by; a double-click puts the default size back.
     private var grip: some View {
-        Image(systemName: "line.diagonal")
-            .font(.system(size: Theme.icon.number("control")))
+        WindowControl.resize.image(size: Theme.icon.number("control"), weight: .regular)
             .foregroundStyle(Theme.Text.secondary.color)
             .frame(width: Theme.Agent.window.number("button"), height: Theme.Agent.window.number("button"))
             .contentShape(Rectangle())
@@ -278,7 +277,7 @@ final class AgentWindowChrome: ObservableObject {
 /// A plain glyph button in the window's header (no circle, as the
 /// reference). One that cannot act now is drawn dimmed and says why.
 struct WindowButton: View {
-    let symbol: String
+    let glyph: Glyph
     let label: String
     var enabled = true
     let action: () -> Void
@@ -288,8 +287,7 @@ struct WindowButton: View {
         Button {
             if enabled { action() }
         } label: {
-            Image(systemName: symbol)
-                .font(.system(size: w.number("icon"), weight: .medium))
+            glyph.view(size: w.number("icon"), weight: .medium)
                 .foregroundStyle(enabled ? Theme.Text.primary.color : Theme.Text.placeholder.color)
                 .frame(width: w.number("button"), height: w.number("button"))
                 .contentShape(Rectangle())
