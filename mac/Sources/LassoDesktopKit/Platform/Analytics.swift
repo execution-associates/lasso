@@ -10,7 +10,7 @@ import Foundation
 /// ingestion key (`phc_…`, write-only, safe to ship). An empty key sends nothing.
 public enum AnalyticsConfig {
     public static let host = "https://posthog.execution.associates"
-    public static let key = ""
+    public static let key = "phc_opKzDx78nmTsMeZAJmB7PLzFja5eW6AdKiN5pqUSKyUR"
     /// What is collected and why.
     public static let privacyURL = URL(string: "https://www.executionassociates.com/privacy/")!
 

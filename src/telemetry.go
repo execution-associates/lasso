@@ -47,7 +47,7 @@ import (
 // for testing (LASSO_TELEMETRY_HOST, LASSO_TELEMETRY_KEY).
 const (
 	telemetryDefaultHost = "https://posthog.execution.associates"
-	telemetryDefaultKey  = ""
+	telemetryDefaultKey  = "phc_opKzDx78nmTsMeZAJmB7PLzFja5eW6AdKiN5pqUSKyUR"
 	telemetryPrivacyURL  = "https://www.executionassociates.com/privacy/"
 )
 
