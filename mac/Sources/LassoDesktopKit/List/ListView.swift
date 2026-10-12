@@ -104,7 +104,7 @@ public struct ListView: View {
                             Group {
                                 if model.renaming == key {
                                     InlineField(
-                                        text: $model.renameDraft, placeholder: p.tab_label, label: "New name for \(p.displayName)",
+                                        text: $model.renameDraft, placeholder: p.displayName, label: "New name for \(p.displayName)",
                                         onSubmit: { model.commitRename() }, onCancel: { model.cancelRename() })
                                         .padding(.horizontal, Theme.space("s"))
                                         .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).strokeBorder(Theme.accent.color, lineWidth: 1))

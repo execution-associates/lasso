@@ -65,3 +65,19 @@ func TestRenameAgentLabelsClearsAndSparesBots(t *testing.T) {
 		t.Fatalf("another host's pane = %d %v", code, err)
 	}
 }
+
+// What a human types becomes a herdr agent name.
+func TestAgentNameFromTyping(t *testing.T) {
+	for in, want := range map[string]string{
+		"Check Hacker News front page": "check-hacker-news-front-page",
+		"  HN digest! ":                "hn-digest",
+		"2nd try":                      "nd-try",
+		"already-fine_1":               "already-fine_1",
+		"???":                          "",
+		"a very long name that keeps going and going": "a-very-long-name-that-keeps-goin",
+	} {
+		if got := agentName(in); got != want {
+			t.Errorf("agentName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

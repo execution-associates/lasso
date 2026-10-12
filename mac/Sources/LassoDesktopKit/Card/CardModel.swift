@@ -148,7 +148,9 @@ public final class CardModel: ComposerModel {
 
     public func startRename() {
         guard canRename else { return }
-        renameDraft = current.agent_label ?? current.displayName
+        // An agent without a label starts empty, its shown name the placeholder:
+        // a click away with nothing typed changes nothing.
+        renameDraft = current.agent_label ?? ""
         renaming = true
     }
 
@@ -159,8 +161,13 @@ public final class CardModel: ComposerModel {
         guard renaming else { return }
         renaming = false
         let p = current
-        let name = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let typed = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = AgentName.from(typed)
         guard name != (p.agent_label ?? "") else { return }
+        guard !(name.isEmpty && !typed.isEmpty) else {
+            notice = "An agent name needs a letter: lowercase letters, digits, - and _"
+            return
+        }
         run("Rename") { [self] in
             try await actions.rename(p, to: name)
             return nil

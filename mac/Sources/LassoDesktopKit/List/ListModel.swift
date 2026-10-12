@@ -126,7 +126,7 @@ public final class ListModel: ObservableObject {
     /// Rename in place: the row's name becomes a field holding it.
     public func startRename(_ p: HostPane) {
         confirmEnd = nil
-        renameDraft = p.agent_label ?? p.displayName
+        renameDraft = p.agent_label ?? ""
         renaming = p.key
     }
 
@@ -138,9 +138,14 @@ public final class ListModel: ObservableObject {
             renaming = nil
             return
         }
-        let name = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let typed = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = AgentName.from(typed)
         renaming = nil
         guard name != (p.agent_label ?? "") else { return }
+        guard !(name.isEmpty && !typed.isEmpty) else {
+            notice = "An agent name needs a letter: lowercase letters, digits, - and _"
+            return
+        }
         Task {
             do { try await actions.rename(p, to: name) } catch { notice = "Rename failed: \(error)" }
         }

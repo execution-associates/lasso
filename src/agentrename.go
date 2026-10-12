@@ -25,9 +25,9 @@ func serveAgentRename(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "pane_id required", http.StatusBadRequest)
 		return
 	}
-	name := strings.TrimSpace(req.Name)
-	if len(name) > 100 || strings.ContainsAny(name, "\r\n") {
-		http.Error(w, "a name is one line of at most 100 characters", http.StatusBadRequest)
+	name := agentName(req.Name)
+	if name == "" && strings.TrimSpace(req.Name) != "" {
+		http.Error(w, "an agent name needs a letter (herdr names are lowercase letters, digits, - and _)", http.StatusBadRequest)
 		return
 	}
 	be, err := reqBackend(r, "")
@@ -58,6 +58,30 @@ func renameAgent(be Backend, host, paneID, name string) (int, error) {
 		return http.StatusBadGateway, err
 	}
 	return http.StatusOK, nil
+}
+
+// agentName turns what a human typed into a herdr agent name, which must
+// start with a lowercase letter and hold only lowercase letters, digits, '-'
+// and '_', 1-32 characters: "Check HN page" is "check-hn-page". "" when
+// nothing usable is left.
+func agentName(s string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(strings.TrimSpace(s)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_', r == '-':
+			b.WriteRune(r)
+			dash = r == '-'
+		case !dash && b.Len() > 0:
+			b.WriteByte('-')
+			dash = true
+		}
+	}
+	n := strings.TrimLeft(b.String(), "0123456789_-")
+	if len(n) > 32 {
+		n = n[:32]
+	}
+	return strings.TrimRight(n, "_-")
 }
 
 // agentLabelOf is the pane's custom agent label, "" when it has none.

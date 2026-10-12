@@ -327,7 +327,7 @@ struct AgentTitle: View {
         let p = model.current
         if model.renaming {
             InlineField(
-                text: $model.renameDraft, placeholder: p.tab_label, label: "New name for \(p.displayName)", font: font.nsFont,
+                text: $model.renameDraft, placeholder: p.displayName, label: "New name for \(p.displayName)", font: font.nsFont,
                 onSubmit: { model.commitRename() }, onCancel: { model.cancelRename() }
             )
             .padding(.horizontal, Theme.space("s"))

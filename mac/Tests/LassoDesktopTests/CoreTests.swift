@@ -348,5 +348,14 @@ private func key(_ c: String, _ code: UInt16) -> NSEvent {
     m.renameDraft = "  HN digest "
     m.commitRename()
     try await Task.sleep(nanoseconds: 50_000_000)
-    #expect(actions.calls == ["rename:HN digest"] && m.renaming == nil)
+    #expect(actions.calls == ["rename:hn-digest"] && m.renaming == nil)
+}
+
+/// Typed names become herdr agent names, the same as lasso's agentName.
+@Test func agentNamesFromTyping() {
+    let cases = [
+        "Check Hacker News front page": "check-hacker-news-front-page", "  HN digest! ": "hn-digest", "2nd try": "nd-try",
+        "already-fine_1": "already-fine_1", "???": "", "a very long name that keeps going and going": "a-very-long-name-that-keeps-goin",
+    ]
+    for (typed, want) in cases { #expect(AgentName.from(typed) == want, "\(typed)") }
 }
