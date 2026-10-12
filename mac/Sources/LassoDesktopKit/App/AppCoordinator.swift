@@ -247,8 +247,7 @@ public final class AppCoordinator {
         settings.railFrame = railFrame
         rail.keepOpen = { [weak self] in
             guard let self else { return false }
-            return self.card.isOpen || self.list.isOpen || self.inbox.isOpen || self.settings.isOpen || self.preview.isOpen
-                || self.bots.isOpen || self.bots.previewOpen || self.chat?.panel.isOpen == true
+            return self.openPopOuts.contains { $0.isOpen && Self.onScreen($0.window) } || self.settings.isOpen && Self.onScreen(self.settings.panel)
         }
 
         clickAway.active = { [weak self] in (self?.railPanelOpen ?? false) && self?.glance?.byShortcut == true }
@@ -815,6 +814,34 @@ public final class AppCoordinator {
 
     private func hoverTick(_ pointer: NSPoint) { pointerTick(pointer, now: Date()) }
 
+    /// The rail's pop-outs: whether each counts as open, its window, and
+    /// how it closes.
+    private var openPopOuts: [(isOpen: Bool, window: NSWindow, close: () -> Void)] {
+        var out: [(isOpen: Bool, window: NSWindow, close: () -> Void)] = [
+            (card.isOpen, card.panel, { [card] in card.close() }),
+            (inbox.isOpen, inbox.panel, { [inbox] in inbox.close() }),
+            (list.isOpen, list.panel, { [list] in list.close() }),
+            (bots.isOpen, bots.panel, { [bots] in bots.close() }),
+            (preview.isOpen, preview.panel, { [preview] in preview?.close() }),
+            (bots.previewOpen, bots.preview, { [bots] in bots.hidePreview() }),
+        ]
+        if let c = chat { out.append((c.panel.isOpen, c.panel.panel, { c.panel.close() })) }
+        return out
+    }
+
+    /// A window the user can see now: ordered in, on the Space they are on.
+    static func onScreen(_ w: NSWindow) -> Bool { w.isVisible && RailPanel.onActiveSpace(w) }
+
+    /// A pop-out that counts as open with no window the user can see (one
+    /// macOS left on another Space, or ordered out under it) holds nothing:
+    /// it closes, so the rail and the glance never wait on it.
+    private func closeUnseenPopOuts() {
+        for p in openPopOuts where p.isOpen && !Self.onScreen(p.window) {
+            p.close()
+            Trace.event("a pop-out open out of sight: closed")
+        }
+    }
+
     /// Every rail poll (20 Hz). The rail's pop-outs live under the pointer
     /// (`Glance`): however they opened, a click on a rail button included,
     /// they close rail.hover's panel_close_ms after the pointer has left the
@@ -822,6 +849,7 @@ public final class AppCoordinator {
     /// come first. Settings a hover opened is a glance until clicked.
     func pointerTick(_ pointer: NSPoint, now: Date) {
         settingsTick(pointer, now: now)
+        closeUnseenPopOuts()
         guard railPanelOpen else {
             glance = nil
             return

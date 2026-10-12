@@ -171,6 +171,9 @@ public final class RailController {
     private var hoverTimer: Timer?
     private var inSince: Date?
     private var outSince: Date?
+    /// Where the pointer was at the last poll: a move off the rail ends the
+    /// keyboard's hold on it.
+    private var lastPointer: NSPoint?
     /// Something beside the rail is open (card, list, chat): stay revealed.
     var keepOpen: () -> Bool = { false }
     /// Every hover poll, with the pointer (screen coordinates): the
@@ -345,7 +348,12 @@ public final class RailController {
         guard dragFrom == nil else { return }
         pollItemHover()
         onPointer(NSEvent.mouseLocation)
-        let inside = hotRect().contains(NSEvent.mouseLocation)
+        let at = NSEvent.mouseLocation
+        let inside = hotRect().contains(at)
+        // The pointer moving elsewhere takes over from the keyboard: the
+        // ring goes, and with it the hold that keeps a summoned rail out.
+        if let last = lastPointer, last != at, !inside, model.focusVisible { model.focusVisible = false }
+        lastPointer = at
         let h = Theme.Rail.hover
         let now = Date()
         if inside {
