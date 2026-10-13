@@ -14,7 +14,7 @@ A bot's **runtime** is one of two:
 
 The rest of this page describes both, and says where they differ. An assistant that answers your mail is a bot, and so is a watcher that runs on a schedule. The **Bots** view lists them like a messaging app: the bots down the left, and the selected one's conversation on the right.
 
-Open it with `⌘.` (press it again to go back to the terminal), from the footer's view menu (it names the view you are in) on a desktop, or from the view picker on a phone (see [On a phone](#on-a-phone)). It can also be [its own app](#the-bots-app) on your phone or desktop. Like Chat and the Grid, Bots covers the terminal without unmounting it. Leaving the view and coming back finds it on the same page, with the conversation's scroll and draft where you left them.
+Open it with `⌘.` (press it again to go back to the terminal), from the footer's view menu (it names the view you are in) on a desktop, or from the view picker on a phone (see [On a phone](#on-a-phone)). Like Chat and the Grid, Bots covers the terminal without unmounting it. Leaving the view and coming back finds it on the same page, with the conversation's scroll and draft where you left them.
 
 The address bar follows the view, so these links work and Back moves between them:
 
@@ -188,21 +188,11 @@ It is safer to type a secret into **Environment** yourself than to paste it into
 
 lasso can notify you each time a bot finishes a reply. The notification is titled with the bot's name, shows the start of its message and its picture, and opens that bot's conversation. A newer answer from the same bot replaces the older notification rather than stacking.
 
-- **Turn it on for each device.** The bell in the list's header turns notifications on or off for the device you are on. It does the same as **Settings → General → Notifications**, and it is the only switch in the [Bots app](#the-bots-app), which counts as a device of its own.
+- **Turn it on for each device.** The bell in the list's header turns notifications on or off for the device you are on. It does the same as **Settings → General → Notifications**,.
 - **Turn it off for a bot.** Untick **Notify me when it answers** in that bot's **General** settings.
 - **No duplicates for what you're reading.** No notification appears while that bot's conversation is focused and on screen, except on iPhone and iPad, which always show one.
 
 Every device with notifications on gets every notification, including [blocked agents](../concepts/notifications.md) from the rest of lasso.
-
-## The Bots app
-
-The Bots view can be installed as an app of its own, called **Bots**. It opens straight to your bots, with no terminal, footer or other views, and its notifications arrive under its own icon.
-
-1. Open lasso at `/bots` (or any page of the Bots view) over HTTPS.
-2. Install it: in Safari, **Share → Add to Home Screen**; in Chrome, **Install**.
-3. Open **Bots** from its icon and press the bell to turn on notifications. On an iPhone or iPad this has to happen inside the installed app.
-
-Opening a bot's terminal from the app leaves it for lasso itself. Adding `?app=bots` to a `/bots` address in an ordinary tab shows the same Bots-only page.
 
 ## Creating a bot
 

@@ -97,7 +97,6 @@ import {
   isBuiltinTab,
   resolveSidebarTabs,
 } from "@/lib/sidebar-tabs"
-import { isStandalone } from "@/lib/standalone"
 import { type TelemetryView, trackFeature, trackView } from "@/lib/telemetry"
 import {
   blurHerdrTerminal,
@@ -123,6 +122,7 @@ import { cn } from "@/lib/utils"
 import {
   isSimplePath,
   SIMPLE_BASE,
+  simplePath,
   switchUI,
   wantsSimple,
 } from "@/simple/route"
@@ -294,7 +294,7 @@ function Pane({
 export function App() {
   return (
     <AppProvider>
-      {simpleApp ? <SimpleApp /> : botsApp ? <BotsApp /> : <Shell />}
+      {simpleApp ? <SimpleApp /> : <Shell />}
       <SignedOutBar />
       <Toaster />
     </AppProvider>
@@ -302,34 +302,22 @@ export function App() {
 }
 
 // The simple app (src/simple): /m and below. A phone opening lasso's root
-// lands there unless this device chose the full UI (simple/route.ts). Only the
-// root redirects: a deep link into the full UI (/chat, /agents, /bots) is
-// taken as asked.
-if (window.location.pathname === "/" && wantsSimple())
-  window.location.replace(SIMPLE_BASE)
-const simpleApp = isSimplePath(window.location.pathname)
-
-// The Bots app: lasso installed from /bots (manifest-bots.json, start_url
-// /bots?app=bots) is its own home-screen app holding only the Bots view, so a
-// phone opens straight into its bots and gets their notifications on their
-// own icon. Decided once at boot, from where the window was opened.
-const botsApp =
-  window.location.pathname.startsWith("/bots") &&
-  (isStandalone() ||
-    new URLSearchParams(window.location.search).get("app") === "bots")
-
-function BotsApp() {
-  return (
-    <div className="chat-overlay fixed inset-0 flex flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
-      <BotsView
-        active
-        // Opening a bot's terminal leaves the Bots app for lasso itself.
-        onShowTerminal={() => window.location.assign("/")}
-        className="min-h-0 flex-1"
-      />
-    </div>
-  )
+// lands there unless this device chose the full UI (simple/route.ts). A deep
+// link into the full UI (/chat, /agents) is taken as asked, except a bot's
+// page: that is where a bot's notification points, and a tap on one should
+// open the app this device uses, not the other one.
+if (wantsSimple()) {
+  const path = window.location.pathname
+  const bot = /^\/bots\/([^/]+)\/?$/.exec(path)
+  if (path === "/") window.location.replace(SIMPLE_BASE)
+  else if (path === "/bots" || path === "/bots/")
+    window.location.replace(simplePath({ view: "bots" }))
+  else if (bot && bot[1] !== "manage")
+    window.location.replace(
+      simplePath({ view: "bot", name: decodeURIComponent(bot[1]) })
+    )
 }
+const simpleApp = isSimplePath(window.location.pathname)
 
 function Shell() {
   const [rightView, setRightView] = React.useState<RightView>("files")

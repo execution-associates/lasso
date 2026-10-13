@@ -49,8 +49,8 @@ you**.
   in while an agent drives it.
 - **Bots that stay up.** Long-lived Claude Code sessions with their own
   folder, MCP servers, channels and encrypted secrets, read like a messaging
-  app, with a push when one answers and an installable Bots app. Ask a bot to
-  change its own settings and it can.
+  app, with a push when one answers. Ask a bot to change its own settings and
+  it can.
 - **Agents orchestrating agents.** An MCP server lets one agent spawn, list,
   inspect and close the others, across the fleet, and `/herdr-mcp` serves
   herdr's own API as MCP tools on any host (no separate herdr-mcp to run).

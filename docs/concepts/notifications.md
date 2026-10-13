@@ -91,7 +91,7 @@ A bot's notification opens **that bot's conversation** instead. Either way, an o
 
 ## Devices
 
-Each device registers for push from Settings → General → Notifications, the simple app's Settings, or the bell in the Bots list's header, and gets every notification of the kinds it takes. The installed [Bots app](../web-ui/bots.md#the-bots-app) is a device of its own and turns notifications on with its bell. The Settings list shows each device with the outcome of its last push. Unticking the box on a device removes it.
+Each device registers for push from Settings → General → Notifications, the simple app's Settings, or the bell in the Bots list's header, and gets every notification of the kinds it takes. The Settings list shows each device with the outcome of its last push. Unticking the box on a device removes it.
 
 - A push service answering that a subscription **is gone** (HTTP 404 or 410) removes that device automatically.
 - Any other failure (a rejected credential, the push service being down) is recorded on the device and shown in Settings as `last push failed: <reason>`, and the device keeps being tried. A transient outage never deletes a healthy device.
