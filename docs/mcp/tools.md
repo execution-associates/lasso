@@ -264,7 +264,7 @@ Returns `sent`, `transports` (the channels that took it), `title` (the headline 
 
 ### `open_file`
 
-Opens a file in front of the human: in the lasso web app's sidebar file viewer (the Files panel beside their terminal), in every lasso tab they have open, and in a window of its own in the Lasso Mac app on the Mac they are at. `app` picks one of the two. Use it to show them something: a plan you just wrote, a file to review, the place a bug lives.
+Opens a file in front of the human, in one of two places, picked by `app`: the lasso web app's sidebar file viewer (the Files panel beside their terminal) in every lasso tab they have open, or a window of its own in the Lasso Mac app on the Mac they are at. To show it in both, call it twice. Use it to show them something: a plan you just wrote, a file to review, the place a bug lives.
 
 | parameter | type | | description |
 | --- | --- | --- | --- |
@@ -272,11 +272,11 @@ Opens a file in front of the human: in the lasso web app's sidebar file viewer (
 | `host` | string | optional | Host the file lives on. Defaults to your own host, which is where your files are. |
 | `line` | integer | optional | 1-based line to scroll to and select. Ignored for directories, images, PDFs, videos and audio. A markdown file opened at a line shows its raw editor instead of the rendered preview. |
 | `pane_id` | string | optional | Your `$HERDR_PANE_ID`, used only to tell the human which agent opened it; without it they are told "an agent". |
-| `app` | string | optional | `web` (the web app's sidebar viewer) or `mac` (a window in the Lasso Mac app). Omitted, both. |
+| `app` | string | | `web` (the web app's sidebar viewer) or `mac` (a window in the Lasso Mac app). Required. |
 
 The file must exist; a missing path is an error, so write it first. A directory opens the web sidebar's file tree rooted there instead of the viewer; the Mac app opens nothing for one.
 
-Returns `delivered` (the number of lasso tabs and Mac apps the request reached), `web` and `mac` (that number split by app), `path` (the resolved absolute path), `host`, `dir` (true for a directory) and `detail`. **`delivered: 0` means none of the apps you picked is open and the human did not see it.** A tab that is hidden (a phone in a pocket, a background browser tab), or a Mac nobody is using, receives the request and ignores it, and a viewer holding unsaved edits is not replaced: the human gets a prompt offering to open the file instead.
+Returns `delivered` (the number of lasso tabs or Mac apps the request reached), `web` and `mac` (the same number under the app it went to), `path` (the resolved absolute path), `host`, `dir` (true for a directory) and `detail`. **`delivered: 0` means the app you picked is not open and the human did not see it.** A tab that is hidden (a phone in a pocket, a background browser tab), or a Mac nobody is using, receives the request and ignores it, and a viewer holding unsaved edits is not replaced: the human gets a prompt offering to open the file instead.
 
 ## Browser
 

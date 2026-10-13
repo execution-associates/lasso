@@ -61,10 +61,10 @@ lasso notify "the migration drops 2 columns. Safe to run on prod?"
 
 Check the result: `sent: false` (or a non-zero exit from the CLI) means no device is registered and nobody received it. Don't claim you notified them.
 
-**open_file** shows a file in the Files panel beside their terminal, in every visible lasso tab, and in a window of its own in the Lasso Mac app. Use it when they say "open it for me" or you want them to review something. Pass an absolute or `~/` path (the CLI resolves relative ones), optional `line`, and `app` (`web` or `mac`) when they asked for one of the two; omitted, both. A directory opens the web file tree there. Check `delivered`: `0` means none of those apps is open and they did not see it.
+**open_file** shows a file either in the Files panel beside their terminal, in every visible lasso tab (`app: "web"`), or in a window of its own in the Lasso Mac app (`app: "mac"`). `app` is required: pick where they are (ask if you don't know), and call twice for both. Use it when they say "open it for me" or you want them to review something. Pass an absolute or `~/` path (the CLI resolves relative ones), optional `line`. A directory opens the web file tree there. Check `delivered`: `0` means that app is not open and they did not see it.
 
 ```bash
-lasso open docs/plan.md -line 40
+lasso open -app web docs/plan.md -line 40
 ```
 
 **Status card.** Put a one-line summary of what you are doing on your pane's card in herdr's sidebar and lasso's pane switcher, and update it when you change phase:
