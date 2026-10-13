@@ -24,8 +24,8 @@ public enum Lucide: String, CaseIterable, Sendable {
     case chevronUp = "chevron-up"
     case clock
     case codeXml = "code-xml"
-    case copy
     case cpu
+    case download
     case ellipsis
     case externalLink = "external-link"
     case file
