@@ -141,6 +141,10 @@ type chatTool struct {
 	// rather than as one more tool line. Paths are on the transcript's host
 	// (served_by, else host); the bytes come through /api/file.
 	Files []chatFile `json:"files,omitempty"`
+	// Plan is what Claude Code's ExitPlanMode put up for approval, rendered as
+	// Markdown. While its dialog is on the pane's screen the same card carries
+	// Ask with the dialog's own choices (chatplan.go).
+	Plan *chatPlan `json:"plan,omitempty"`
 }
 
 // chatFile is one file a call put in front of the human.
@@ -193,6 +197,11 @@ type chatAskQuestion struct {
 	Selected []string `json:"selected,omitempty"`
 	// Custom is a free-text answer typed into the dialog's "Other".
 	Custom string `json:"custom,omitempty"`
+	// Other is the dialog's own name for its free-text row, when it has one
+	// of its own: the plan approval's "Tell Claude what to change", which sends
+	// the plan back with the text. Absent on an ask, whose row is the generic
+	// "Other". A client labels its text field with it.
+	Other string `json:"other,omitempty"`
 }
 
 // chatAskOption is one choice. Label and description are shown as the agent
@@ -1188,6 +1197,8 @@ var toolFamilies = map[string]string{
 	// An ask is its own family: it is the one call in the conversation that is
 	// waiting on the READER, and it must not scan as another tool row.
 	"ask": "ask", "askuserquestion": "ask",
+	// A plan up for approval is read, not scanned: its card is the plan.
+	"exitplanmode": "plan",
 }
 
 // toolGroups is the collapse key for a run of consecutive calls. Two names
@@ -1224,6 +1235,7 @@ var toolTitles = map[string]string{
 	"view_image": "Image", "imagegen": "Image", "generate_image": "Image",
 	"edit_image": "Image", "hub": "Hub",
 	"ask": "Ask", "askuserquestion": "Ask",
+	"exitplanmode": "Plan",
 }
 
 func toolFamily(name string) string {
@@ -1295,6 +1307,13 @@ func describeTool(t *chatTool, args map[string]json.RawMessage) {
 			t.Subject = clipLine(t.Ask.Questions[0].Question, chatSubjectCap)
 			return
 		}
+	}
+
+	// ExitPlanMode (Claude Code): the plan itself, which is what the human is
+	// asked to approve.
+	if isExitPlanMode(t.Name) {
+		describePlan(t, str("plan"), str("planFilePath"))
+		return
 	}
 
 	// SendUserFile (Claude Code): the files themselves, with the caption as
@@ -1735,6 +1754,10 @@ func finishTool(t *chatTool, body string, isError bool, images int) {
 		t.Images += images
 	}
 	body = strings.TrimSpace(body)
+	if t.Plan != nil {
+		finishPlan(t, body, isError)
+		return
+	}
 	if t.State == "error" {
 		// An errored call shows the failure, not the whole output: the first
 		// line is what a reader needs on a phone.
@@ -2006,6 +2029,11 @@ func buildChatPayload(be Backend, p pane, before string, withIncoming bool) chat
 	// it, and a card that flickers back to finished reads worse than a spare
 	// "working" beat.
 	out.Running = run || paneStatus == "working"
+	// A plan waiting for approval offers the choices its dialog shows. Only on
+	// the tail: an older page cannot hold the call that is up now.
+	if before == "" && isClaudeKind(tx.Harness) {
+		attachPlanAsk(be, p.PaneID, out.Items)
+	}
 	// The harness's own name for the session, when herdr's workspace has none: a
 	// labelled workspace is the name this agent goes by everywhere else in lasso
 	// (the panel, the creator, the auto-titler's target), and two names for one
@@ -2288,6 +2316,10 @@ type chatAskPick struct {
 	// Enter abandons the question. So a Custom answer there is refused rather
 	// than typed (see chatAnswer).
 	Previews bool `json:"previews,omitempty"`
+	// Other is the question's `other` as the card showed it, sent with a
+	// Custom answer to a plan approval: the server types only into a field that
+	// still shows that placeholder (see planAnswer).
+	Other string `json:"other,omitempty"`
 }
 
 // chatAnswerRequest is POST /api/chat/answer's body.
@@ -2648,6 +2680,19 @@ func chatAnswer(be Backend, paneID, kind, expect string, labels []string, answer
 			}
 		}
 	}
+	// Claude Code's plan approval is read exactly, attributes and all
+	// (chatplan.go), and an answer picked for one must find one: the ask check
+	// below would pass a screen that merely mentions its words.
+	if isClaudeKind(kind) {
+		if ansi, ok := paneVisibleANSI(be, paneID); ok {
+			if d, ok := parsePlanDialog(ansi); ok {
+				return planAnswer(be, paneID, d, expect, labels, answers)
+			}
+		}
+		if looksLikePlanQuestion(expect) {
+			return "refused", "that plan approval is no longer on the pane's screen — answer it in the terminal"
+		}
+	}
 	screen, ok := paneVisibleText(be, paneID)
 	if !ok {
 		return "refused", "could not read the pane to check the question is still up"
@@ -2662,7 +2707,13 @@ func chatAnswer(be Backend, paneID, kind, expect string, labels []string, answer
 		strings.Contains(strings.ToLower(collapseSpace(screen)), "add notes") {
 		return "refused", "claude's dialog has no free-text row on a question with previews — answer it in the terminal"
 	}
-	for i, seg := range chatAskKeystrokes(kind, answers) {
+	return sendAskSegments(be, paneID, chatAskKeystrokes(kind, answers))
+}
+
+// sendAskSegments types an answer's segments into the pane, chatAskSegmentGap
+// apart, and says how far it got. Never retried (see serveChatAnswer).
+func sendAskSegments(be Backend, paneID string, segs []string) (outcome, detail string) {
+	for i, seg := range segs {
 		if i > 0 {
 			time.Sleep(chatAskSegmentGap)
 		}

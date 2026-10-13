@@ -663,9 +663,11 @@ The Inbox is the surface this app exists for: **the latest messages across lasso
 - Against a lasso without S4 (the request's `custom` is ignored, so the app checks `/api/version` for this branch's protocol), the text field is replaced by the same action.
 - The app never sends free text to a blocked pane through `/api/chat/send`: with a dialog up, that is a blind paste into it.
 
+**A Claude Code plan approval is an ask** (`src/chatplan.go`). The `ExitPlanMode` call is a Plan row carrying `plan` (the Markdown, shown in full, `Card/PlanRow.swift`) and, while the dialog is on the pane's screen, an `ask` whose options are the dialog's own rows (they change with the session's permission mode) and whose `other` names its feedback field ("Tell Claude what to change"). The card lists that field as the step after the options, and the composer then sends to it with `answers[0].other`. lasso refuses unless every label still matches the screen and the field still shows its placeholder. Once answered, the row reads "approved", or "changes asked" with the feedback. Parity state `card-plan`.
+
 ### 13.5 Blocked with no choices
 
-When a pane is blocked but its chat carries no open ask, its row reads **blocked, no choices**. Examples: a claude permission dialog, or an approval outside both shapes.
+When a pane is blocked but its chat carries no open ask, its row reads **blocked, no choices**. Examples: a claude permission dialog, a plan approval whose dialog is not on screen, or an approval outside both shapes.
 - The row shows the state, the agent's last tool line if there is one, and three actions:
   - **Focus in herdr** (`POST /api/focus?host= {pane_id}`, `src/main.go:1355`)
   - Acknowledge

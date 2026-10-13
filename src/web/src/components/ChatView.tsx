@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
   Clock,
   File as FileIcon,
   Globe,
@@ -145,6 +146,7 @@ const FAMILY_ICON: Record<string, typeof Wrench> = {
   todo: ListTodo,
   task: Users,
   image: ImageIcon,
+  plan: ClipboardList,
   generic: Wrench,
 }
 
@@ -275,10 +277,13 @@ function AskCard({
   tool,
   host,
   paneID,
+  bare,
 }: {
   tool: ChatTool
   host: string
   paneID: string
+  // Drawn inside another card (PlanCard), which owns the frame and heading.
+  bare?: boolean
 }) {
   const questions = tool.ask?.questions ?? []
   const confirm = React.useContext(AskConfirmContext)
@@ -293,6 +298,9 @@ function AskCard({
   const [sending, setSending] = React.useState(false)
   const [sent, setSent] = React.useState(false)
   const [notice, setNotice] = React.useState<string | null>(null)
+  // Text for the dialog's own free-text row, offered only where the dialog
+  // names one (a plan approval's "Tell Claude what to change").
+  const [custom, setCustom] = React.useState("")
 
   if (!tool.ask) return null
 
@@ -306,7 +314,12 @@ function AskCard({
   // The simple app turns that off (AskConfirmContext): there a tap only
   // selects and Answer sends, since a stray tap while scrolling a phone is
   // the common mistake and an answer cannot be taken back.
-  const oneTap = !confirm && questions.length === 1 && !questions[0]?.multi
+  //
+  // A plan approval is never one tap either: its options include handing the
+  // session every permission for the rest of its life.
+  const oneTap =
+    !confirm && !tool.plan && questions.length === 1 && !questions[0]?.multi
+  const other = questions.length === 1 ? questions[0]?.other : undefined
   // A question with no options is the free-text kind: the terminal is where it
   // is answered, so the card does not offer a form for it.
   const hasOptions = questions.some((q) => q.options.length > 0)
@@ -314,9 +327,11 @@ function AskCard({
   // dialog on a screen for keystrokes to reach.
   const answerable =
     running && !sent && !sending && hasOptions && !paneID.startsWith("bot:")
-  const ready = questions.every((_, i) => (picks[i]?.length ?? 0) > 0)
+  const ready =
+    questions.every((_, i) => (picks[i]?.length ?? 0) > 0) ||
+    Boolean(other && custom.trim())
 
-  const send = async (answers: number[][]) => {
+  const send = async (answers: number[][], text?: string) => {
     setSending(true)
     setNotice(null)
     try {
@@ -330,11 +345,12 @@ function AskCard({
         questions[0]?.question ?? "",
         (questions[0]?.options ?? []).map((o) => o.label),
         answers.map((selected, i) => ({
-          selected,
+          selected: text ? [] : selected,
           multi: Boolean(questions[i]?.multi),
           // claude's dialog is left by walking off the end of its option list,
           // so it needs the length, which the indexes alone do not give.
           options: questions[i]?.options.length ?? 0,
+          ...(text ? { custom: text, other } : {}),
         }))
       )
       if (res.outcome === "sent") {
@@ -360,6 +376,8 @@ function AskCard({
         : [...p, oi].sort((a, b) => a - b)
     })
     setPicks(next)
+    // A pick and typed text are one answer or the other.
+    setCustom("")
     if (oneTap) void send(next)
   }
 
@@ -381,11 +399,13 @@ function AskCard({
   return (
     <div
       className={cn(
-        "fx-plate overflow-hidden rounded-lg border bg-card",
-        answerable ? "border-primary/40" : "border-border"
+        !bare && "fx-plate overflow-hidden rounded-lg border bg-card",
+        !bare && (answerable ? "border-primary/40" : "border-border")
       )}
     >
-      <div className="flex items-center gap-2 px-2.5 py-2">
+      <div
+        className={cn("flex items-center gap-2 px-2.5 py-2", bare && "hidden")}
+      >
         <span className="shrink-0 font-semibold text-[12.5px] text-foreground">
           {tool.title}
         </span>
@@ -503,6 +523,22 @@ function AskCard({
                   Answer: <span className="text-foreground">{q.custom}</span>
                 </div>
               )}
+              {/* The dialog's own free-text row, under its own name. Typing
+                  here replaces a pick: the dialog takes one or the other. */}
+              {other && running && qi === 0 && (
+                <input
+                  value={custom}
+                  disabled={!answerable}
+                  onChange={(e) => {
+                    setCustom(e.target.value)
+                    if (e.target.value) setPicks(questions.map(() => []))
+                  }}
+                  placeholder={other}
+                  aria-label={other}
+                  className="h-9 rounded-lg border border-border bg-background/40 px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/60 disabled:opacity-60"
+                  {...NO_AUTOCORRECT}
+                />
+              )}
             </div>
           )
         })}
@@ -541,7 +577,9 @@ function AskCard({
           <button
             type="button"
             disabled={!ready || sending}
-            onClick={() => void send(picks)}
+            onClick={() =>
+              void send(picks, other ? custom.trim() || undefined : undefined)
+            }
             className="flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 font-medium text-[12.5px] text-primary-foreground disabled:opacity-40"
           >
             {sending ? (
@@ -553,14 +591,122 @@ function AskCard({
               ? "Sending…"
               : questions.length > 1
                 ? "Send answers"
-                : "Answer"}
+                : custom.trim()
+                  ? "Send back"
+                  : "Answer"}
           </button>
           <span className="min-w-0 truncate text-[11px] text-muted-foreground">
             {ready
               ? "Answers the dialog in the terminal"
-              : "Pick one per question"}
+              : other
+                ? "Pick one, or say what to change"
+                : "Pick one per question"}
           </span>
         </div>
+      )}
+    </div>
+  )
+}
+
+// PlanCard is a plan Claude Code put up for approval (ExitPlanMode): the plan
+// itself, rendered, because it is the thing being approved, and — while the
+// dialog is on the pane's screen — the dialog's own choices under it (the
+// tool's `ask`, read off that screen by the server). A long plan is clamped
+// until opened, except while it waits on the reader: then it reads in full.
+function PlanCard({
+  tool,
+  host,
+  paneID,
+  resolveImage,
+}: {
+  tool: ChatTool
+  host: string
+  paneID: string
+  resolveImage?: (src: string | undefined) => string | undefined
+}) {
+  const plan = tool.plan
+  const running = tool.state === "running"
+  const long = (plan?.text.length ?? 0) > 1200
+  const [open, setOpen] = React.useState(running)
+  if (!plan) return null
+  const clamped = long && !open
+  return (
+    <div
+      className={cn(
+        "fx-plate overflow-hidden rounded-lg border bg-card",
+        tool.state === "error"
+          ? "border-destructive/40"
+          : running && tool.ask
+            ? "border-primary/40"
+            : "border-border"
+      )}
+    >
+      <div className="flex items-center gap-2 px-2.5 py-2">
+        <ClipboardList className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="shrink-0 font-semibold text-[12.5px] text-foreground">
+          {tool.title}
+        </span>
+        {tool.subject && (
+          <span className="truncate text-[12px] text-muted-foreground">
+            {tool.subject}
+          </span>
+        )}
+        <span className="ml-auto flex shrink-0 items-center gap-2 pl-2">
+          {tool.result_line && tool.state === "completed" && (
+            <span className="font-mono text-[10.5px] text-muted-foreground">
+              {tool.result_line}
+            </span>
+          )}
+          <StateMark state={tool.state} />
+        </span>
+      </div>
+      <div className="relative border-border/60 border-t">
+        <div
+          className={cn(
+            "md-body md-chat px-2.5 py-2",
+            clamped && "max-h-56 overflow-hidden"
+          )}
+        >
+          <Markdown source={plan.text} resolveImageSrc={resolveImage} />
+        </div>
+        {clamped && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-card to-transparent" />
+        )}
+      </div>
+      {long && (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="w-full border-border/60 border-t px-2.5 py-1.5 text-left text-[11.5px] text-muted-foreground hover:text-foreground"
+        >
+          {open ? "Show less" : "Show the whole plan"}
+        </button>
+      )}
+      {plan.feedback && (
+        <div className="border-border/60 border-t px-2.5 py-2 text-[12px] text-muted-foreground">
+          Sent back:{" "}
+          <span className="whitespace-pre-wrap text-foreground">
+            {plan.feedback}
+          </span>
+        </div>
+      )}
+      {tool.error && (
+        <div className="border-border/60 border-t bg-destructive/8 px-2.5 py-1.5 font-mono text-[11.5px] text-destructive">
+          {tool.error}
+        </div>
+      )}
+      {/* The choices exist only while the dialog is up; a plan waiting with no
+          dialog lasso can read says where it is answered instead. */}
+      {running && tool.ask ? (
+        <div className="border-border/60 border-t">
+          <AskCard tool={tool} host={host} paneID={paneID} bare />
+        </div>
+      ) : (
+        running && (
+          <div className="border-border/60 border-t px-2.5 py-2 text-[11.5px] text-muted-foreground">
+            Waiting for approval in the terminal.
+          </div>
+        )
       )}
     </div>
   )
@@ -970,6 +1116,16 @@ function RowView({
       // An ask is the one call that is a question rather than a record, so it
       // gets its own card — and it is never folded into a group: a burst of
       // reads behind it must not hide the thing the agent is waiting on.
+      if (item.tool.plan) {
+        return (
+          <PlanCard
+            tool={item.tool}
+            host={host}
+            paneID={paneID}
+            resolveImage={resolveImage}
+          />
+        )
+      }
       return item.tool.ask ? (
         <AskCard tool={item.tool} host={host} paneID={paneID} />
       ) : (

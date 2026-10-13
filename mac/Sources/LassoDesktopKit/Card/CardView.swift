@@ -313,6 +313,27 @@ public struct CardView: View {
                         .accessibilityLabel("Step \(step.index + 1): \(step.label)")
                         .accessibilityHint("Right arrow answers with it; tab edits it first")
                     }
+                    // A dialog's own free-text row, under its own name (a plan's
+                    // "Tell Claude what to change"): the composer then sends to it.
+                    if let other = model.captured?.other, model.allowsCustom {
+                        Button { model.answerInOwnWords() } label: {
+                            HStack(spacing: Theme.space("m")) {
+                                Text("\(min(steps.count, 3) + 1).")
+                                    .foregroundStyle(Theme.Text.secondary.color)
+                                Text(other)
+                                    .foregroundStyle(Theme.Text.primary.color)
+                                    .lineLimit(1)
+                                Spacer(minLength: 8)
+                            }
+                            .font(Theme.Fonts.body.font)
+                            .padding(.vertical, Theme.space("2xs"))
+                            .padding(.horizontal, Theme.Card.titleX.pt - contentX)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(other)
+                        .accessibilityHint("Type it in the composer; return sends it to the dialog")
+                    }
                 }
                 .opacity(model.killing ? Theme.Card.killing.number("dim") : 1)
                 .parityAnchor("card.steps")
@@ -344,7 +365,9 @@ struct ChatRow: View {
     var body: some View {
         switch item.kind {
         case "tool":
-            if let ask = item.tool?.ask { AskRow(ask: ask, font: font) } else if let t = item.tool { ToolRow(tool: t) }
+            if let t = item.tool, t.plan != nil {
+                PlanRow(tool: t, font: font, boxed: false)
+            } else if let ask = item.tool?.ask { AskRow(ask: ask, font: font) } else if let t = item.tool { ToolRow(tool: t) }
         case "marker":
             Text("— \(item.marker ?? "marker") —")
                 .font(font)

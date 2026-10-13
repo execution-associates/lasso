@@ -186,6 +186,8 @@ enum ConversationEntry: Identifiable {
     case incoming(ChatItem, ChannelMessage)
     case tools(id: String, [ChatTool])
     case ask(ChatItem, ChatTool.Ask)
+    /// A plan up for approval (ExitPlanMode), read in full (PlanRow).
+    case plan(ChatItem, ChatTool)
     case marker(ChatItem)
     /// Files shown to the human: a SendUserFile call's, or the images an
     /// agent's message wrote as markdown. `version` is the item they came with.
@@ -193,7 +195,7 @@ enum ConversationEntry: Identifiable {
 
     var id: String {
         switch self {
-        case .message(let i, _, _), .ask(let i, _), .marker(let i), .task(let i, _), .incoming(let i, _): i.id
+        case .message(let i, _, _), .ask(let i, _), .plan(let i, _), .marker(let i), .task(let i, _), .incoming(let i, _): i.id
         case .tools(let id, _), .media(let id, _, _): id
         }
     }
@@ -214,6 +216,9 @@ enum ConversationEntry: Identifiable {
                 if let files = t.files, !files.isEmpty {
                     flush()
                     out.append(.media(id: item.id, version: item.id, files))
+                } else if t.plan != nil {
+                    flush()
+                    out.append(.plan(item, t))
                 } else if let ask = t.ask {
                     flush()
                     out.append(.ask(item, ask))
@@ -313,6 +318,7 @@ struct AgentConversation: View {
         case .incoming(let item, let msg): ChannelCard(id: item.id, msg: msg)
         case .media(_, let version, let files): SharedFilesView(files: files, host: host, version: version)
         case .ask(_, let ask): AskRow(ask: ask, font: Theme.Fonts.chat.font)
+        case .plan(_, let tool): PlanRow(tool: tool)
         case .marker(let item):
             Text("— \(item.marker ?? "marker") —")
                 .font(Theme.Fonts.small.font)
@@ -386,7 +392,9 @@ struct AnswerExtras: View {
                 .parityAnchor("agent.blocked")
             } else if model.answeringCustom {
                 HStack(spacing: Theme.space("m")) {
-                    Text("Answering in your own words: type it below, ⏎ sends it to the question.")
+                    Text(
+                        model.captured?.other.map { "\($0): type it below, ⏎ sends the plan back with it." }
+                            ?? "Answering in your own words: type it below, ⏎ sends it to the question.")
                         .font(Theme.Fonts.small.font)
                         .foregroundStyle(Theme.Text.secondary.color)
                     Spacer(minLength: Theme.space("m"))
@@ -396,7 +404,7 @@ struct AnswerExtras: View {
                 Button { model.answerInOwnWords() } label: {
                     HStack(spacing: Theme.space("m")) {
                         Text("\(model.nextSteps.count + 1).").foregroundStyle(Theme.Text.secondary.color)
-                        Text("Other: answer in your own words").foregroundStyle(Theme.Text.primary.color)
+                        Text(model.captured?.other ?? "Other: answer in your own words").foregroundStyle(Theme.Text.primary.color)
                         Spacer(minLength: Theme.space("m"))
                     }
                     .font(Theme.Fonts.body.font)
