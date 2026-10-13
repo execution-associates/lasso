@@ -17,6 +17,8 @@ export interface OpenFileRequest {
   dir?: boolean
   // Who asked: the agent's name, or "an agent".
   from: string
+  // The app the agent opened it for: "web", "mac", or absent for both.
+  app?: string
   seq: number
 }
 
@@ -79,6 +81,9 @@ export function handleOpenFileEvent(raw: string) {
     return
   }
   if (typeof ev?.path !== "string" || !ev.path.startsWith("/")) return
+  // lasso sends a Mac-only open to the Mac app's streams alone; this is the
+  // belt to that.
+  if (ev.app === "mac") return
   requestOpenFile({
     path: ev.path,
     host: typeof ev.host === "string" && ev.host ? ev.host : "local",

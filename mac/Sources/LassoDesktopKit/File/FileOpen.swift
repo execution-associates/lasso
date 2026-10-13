@@ -17,14 +17,21 @@ public struct FileOpen: Codable, Sendable, Equatable {
     public var dir: Bool?
     /// Who opened it: the agent's name.
     public var from: String?
+    /// The app it was opened for: "web", "mac", or nil for both. lasso sends
+    /// a "web" one only to web tabs; a Mac app still checks.
+    public var app: String?
 
-    public init(path: String, host: String = "local", line: Int? = nil, dir: Bool? = nil, from: String? = nil) {
+    public init(path: String, host: String = "local", line: Int? = nil, dir: Bool? = nil, from: String? = nil, app: String? = nil) {
         self.path = path
         self.host = host
         self.line = line
         self.dir = dir
         self.from = from
+        self.app = app
     }
+
+    /// Whether the agent asked for it in the web app only.
+    public var webOnly: Bool { app == "web" }
 
     /// The host as every request names it: lasso's own is "local".
     public var hostKey: String { FileHost.normal(host) }

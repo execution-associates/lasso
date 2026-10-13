@@ -27,9 +27,9 @@ func captureOpenFile(t *testing.T, tabs int) *[]openFileEvent {
 	t.Helper()
 	var got []openFileEvent
 	prev := openFileBroadcast
-	openFileBroadcast = func(ev openFileEvent) int {
+	openFileBroadcast = func(ev openFileEvent) (int, int) {
 		got = append(got, ev)
-		return tabs
+		return tabs, 0
 	}
 	t.Cleanup(func() { openFileBroadcast = prev })
 	return &got
@@ -206,7 +206,7 @@ func TestOpenFileNoTabIsNotSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Delivered != 0 || out.Detail != openFileNobody {
+	if out.Delivered != 0 || out.Detail != openFileNobody("") {
 		t.Errorf("out = %+v, want delivered 0 with the nobody detail", out)
 	}
 
@@ -223,11 +223,11 @@ func TestOpenFileFansOutToEveryTab(t *testing.T) {
 	prev := srvHub
 	srvHub = newHub()
 	t.Cleanup(func() { srvHub = prev })
-	a, unsubA := srvHub.subscribeEvents()
+	a, unsubA := srvHub.subscribeEvents(eventAppWeb)
 	defer unsubA()
-	b, unsubB := srvHub.subscribeEvents()
+	b, unsubB := srvHub.subscribeEvents(eventAppWeb)
 	defer unsubB()
-	c, unsubC := srvHub.subscribeEvents()
+	c, unsubC := srvHub.subscribeEvents(eventAppWeb)
 	unsubC() // a tab that has gone away is not counted
 	swapBackend(t, &localBackend{})
 	doc := writeTemp(t, t.TempDir(), "review.go", "package x\n")
@@ -264,6 +264,70 @@ func TestOpenFileFansOutToEveryTab(t *testing.T) {
 	case <-c:
 		t.Error("an unsubscribed tab still received the event")
 	default:
+	}
+}
+
+// `app` sends the event to one app's streams only, and delivered counts just
+// those; omitted, both apps get it and the reply splits the count.
+func TestOpenFileAppPicksTheStreams(t *testing.T) {
+	prev := srvHub
+	srvHub = newHub()
+	t.Cleanup(func() { srvHub = prev })
+	web, unsubW := srvHub.subscribeEvents(eventAppWeb)
+	defer unsubW()
+	mac, unsubM := srvHub.subscribeEvents(eventAppMac)
+	defer unsubM()
+	swapBackend(t, &localBackend{})
+	doc := writeTemp(t, t.TempDir(), "plan.md", "x")
+	drain := func(ch chan sseEvent) (string, bool) {
+		select {
+		case ev := <-ch:
+			raw, _ := json.Marshal(ev.data)
+			var p struct{ App string }
+			_ = json.Unmarshal(raw, &p)
+			return p.App, true
+		default:
+			return "", false
+		}
+	}
+
+	for _, tc := range []struct {
+		app              string
+		wantWeb, wantMac int
+		evApp            string
+	}{
+		{"", 1, 1, ""},
+		{"web", 1, 0, "web"},
+		{"mac", 0, 1, "mac"},
+		{"desktop", 0, 1, "mac"},
+		{"both", 1, 1, ""},
+	} {
+		_, out, err := openFileTool(context.Background(), nil, openFileIn{Path: doc, App: tc.app})
+		if err != nil {
+			t.Fatalf("app %q: %v", tc.app, err)
+		}
+		if out.Web != tc.wantWeb || out.Mac != tc.wantMac || out.Delivered != tc.wantWeb+tc.wantMac {
+			t.Errorf("app %q: out = %+v", tc.app, out)
+		}
+		for name, ch := range map[string]chan sseEvent{"web": web, "mac": mac} {
+			want := map[string]int{"web": tc.wantWeb, "mac": tc.wantMac}[name] == 1
+			got, ok := drain(ch)
+			if ok != want {
+				t.Errorf("app %q: %s stream got event = %v, want %v", tc.app, name, ok, want)
+			}
+			if ok && got != tc.evApp {
+				t.Errorf("app %q: %s stream payload app = %q, want %q", tc.app, name, got, tc.evApp)
+			}
+		}
+	}
+
+	unsubM()
+	_, out, _ := openFileTool(context.Background(), nil, openFileIn{Path: doc, App: "mac"})
+	if out.Delivered != 0 || out.Detail != openFileNobody(eventAppMac) {
+		t.Errorf("no Mac connected: out = %+v", out)
+	}
+	if _, _, err := openFileTool(context.Background(), nil, openFileIn{Path: doc, App: "phone"}); err == nil {
+		t.Error("an unknown app should be refused")
 	}
 }
 
@@ -326,6 +390,13 @@ func TestOpenCLIResolvesRelativePaths(t *testing.T) {
 		t.Errorf("in = %+v, want ~ passed through untouched", in)
 	}
 
+	in, err = parseOpenArgs([]string{"/x/plan.md", "-app", "mac"})
+	if err != nil || in.App != "mac" {
+		t.Errorf("-app mac: in = %+v, err = %v", in, err)
+	}
+	if _, err := parseOpenArgs([]string{"/x/plan.md", "-app", "tv"}); err == nil {
+		t.Error("-app tv should be refused")
+	}
 	if _, err := parseOpenArgs(nil); err == nil {
 		t.Error("no path must be a usage error")
 	}

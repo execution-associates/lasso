@@ -142,12 +142,14 @@ private let pngFixture = URL(fileURLWithPath: #filePath).deletingLastPathCompone
     let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("Spec/contract")
     let o = try JSONDecoder().decode(FileOpen.self, from: Data(contentsOf: dir.appendingPathComponent("open_file.json")))
-    #expect(o.path == "x" && o.host == "x" && o.line == 1 && o.dir == true && o.from == "x")
+    #expect(o.path == "x" && o.host == "x" && o.line == 1 && o.dir == true && o.from == "x" && o.app == "x")
     let s = try JSONDecoder().decode(FileStatPayload.self, from: Data(contentsOf: dir.appendingPathComponent("file_stat.json")))
     #expect(s.host == "x" && s.files.first == FileStatEntry(path: "x", exists: true, dir: true, size: 1, mtime: 1, error: "x"))
     let r = try JSONDecoder().decode(FileStatRequest.self, from: Data(contentsOf: dir.appendingPathComponent("file_stat_request.json")))
     #expect(r == FileStatRequest(host: "x", paths: ["x"]))
     #expect(FileOpen(path: "/a", host: "").hostKey == "local" && FileOpen(path: "/a").who == "an agent")
+    // An agent's open_file with app "web" is the web app's alone.
+    #expect(FileOpen(path: "/a", app: "web").webOnly && !FileOpen(path: "/a", app: "mac").webOnly && !FileOpen(path: "/a").webOnly)
 }
 
 /// lasso's `open-file` on the stream reaches the coordinator's handler.
