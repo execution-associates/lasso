@@ -11,7 +11,7 @@ Most agents spend their time in a terminal, and not every agent has lasso's MCP 
 | --- | --- |
 | `lasso mcp` | list and call every tool on `/mcp` (with `-herdr`, on `/herdr-mcp`) |
 | `lasso notify` | push a notification to the human (the [`notify`](./tools.md#notify) tool) |
-| `lasso open` | show a file to the human, in the web app's sidebar viewer and the Mac app (the [`open_file`](./tools.md#open_file) tool) |
+| `lasso open` | show a file to the human, in the web app's sidebar viewer or the Mac app (the [`open_file`](./tools.md#open_file) tool) |
 | `lasso closeme` | close the agent this shell runs in |
 
 ## Finding the server
@@ -105,7 +105,7 @@ lasso open [flags] <path> [flags]
 | `-line <n>` | | Scroll to, and select, this 1-based line. |
 | `-host <alias>` | your own host | The host the file lives on. |
 | `-pane <id>` | `$HERDR_PANE_ID` | Your herdr pane id, to say who opened it. |
-| `-app <app>` | both | `web` (the web app's sidebar viewer) or `mac` (a window in the Lasso Mac app). |
+| `-app <app>` | required | `web` (the web app's sidebar viewer) or `mac` (a window in the Lasso Mac app). |
 
 Flags may come before or after the path. One path at a time.
 
@@ -113,7 +113,7 @@ Flags may come before or after the path. One path at a time.
 - A **directory** opens the web sidebar's file tree there instead of the viewer. The Mac app opens nothing for one.
 - The **host** defaults to your own host. Without a per-host credential (`LASSO_MCP_TOKEN`) that is lasso's own box, which `-host` also takes by its hostname or as `local`. On a remote fleet machine without one, pass `-host <alias>`, or the path is looked for on the lasso host.
 
-Exit codes: `0` when at least one lasso tab or Mac app received it (prints `opened file <path> on <host> in N lasso tabs and M Mac apps`), `1` when none of the apps it was meant for is open (nobody saw it; reason on stderr) or the call failed, `2` for a usage error. The round trip is bounded at 30 seconds.
+Exit codes: `0` when at least one lasso tab or Mac app received it (prints `opened file <path> on <host> in N lasso tabs` or `in N Mac apps`), `1` when the app it was meant for is not open (nobody saw it; reason on stderr) or the call failed, `2` for a usage error. The round trip is bounded at 30 seconds.
 
 ## `lasso closeme`
 

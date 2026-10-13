@@ -31,19 +31,19 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const openFileDescription = "Open a file in front of the human. `app` picks where: \"web\" — the lasso sidebar file viewer (the Files panel beside their terminal) of every lasso browser tab they have visible; \"mac\" — a window of its own in the Lasso Mac app, on the Mac they are at, that renders it (markdown, HTML, images, video, audio, PDF, Office documents) and follows the file as it changes; omitted — both. Use it to SHOW them a file: a doc or plan you just wrote when they ask \"open it for me\", a file you want them to review, the place a bug lives. Pass an absolute path (or one starting with ~/, expanded against the target host's home); a relative path is refused because the server cannot see your working directory — `lasso open <path>` in a shell resolves one for you. `host` defaults to YOUR OWN host (the box lasso runs on when your credential names none), which is where your files are; pass it only for a file on another machine. `line` scrolls the web editor to that 1-based line and selects it (a markdown file then opens in its raw editor instead of the rendered preview). A DIRECTORY opens the web sidebar's file tree rooted there rather than the viewer; the Mac app opens nothing for one. The file must exist: a missing path is an error, so write it first. Pass your $HERDR_PANE_ID as pane_id so the human is told which agent opened it. Check `delivered` in the reply: it is the number of lasso tabs and Mac apps the request reached (`web` and `mac` split it), and 0 means none of the apps you picked is open, so the human did NOT see it — do not tell them it is on their screen. A tab that is hidden (a phone in a pocket, a background browser tab) or a Mac nobody is using receives it and ignores it, and a viewer holding the human's unsaved edits is not replaced — they get a prompt offering to open it instead."
+const openFileDescription = "Open a file in front of the human. `app` (required) picks ONE place: \"web\" — the lasso sidebar file viewer (the Files panel beside their terminal) of every lasso browser tab they have visible; \"mac\" — a window of its own in the Lasso Mac app, on the Mac they are at, that renders it (markdown, HTML, images, video, audio, PDF, Office documents) and follows the file as it changes; to show it in both, call twice. Use it to SHOW them a file: a doc or plan you just wrote when they ask \"open it for me\", a file you want them to review, the place a bug lives. Pass an absolute path (or one starting with ~/, expanded against the target host's home); a relative path is refused because the server cannot see your working directory — `lasso open <path>` in a shell resolves one for you. `host` defaults to YOUR OWN host (the box lasso runs on when your credential names none), which is where your files are; pass it only for a file on another machine. `line` scrolls the web editor to that 1-based line and selects it (a markdown file then opens in its raw editor instead of the rendered preview). A DIRECTORY opens the web sidebar's file tree rooted there rather than the viewer; the Mac app opens nothing for one. The file must exist: a missing path is an error, so write it first. Pass your $HERDR_PANE_ID as pane_id so the human is told which agent opened it. Check `delivered` in the reply: it is the number of lasso tabs or Mac apps the request reached, and 0 means the app you picked is not open, so the human did NOT see it — do not tell them it is on their screen. A tab that is hidden (a phone in a pocket, a background browser tab) or a Mac nobody is using receives it and ignores it, and a viewer holding the human's unsaved edits is not replaced — they get a prompt offering to open it instead."
 
 type openFileIn struct {
 	Path   string `json:"path" jsonschema:"Absolute path of the file (or directory) to open, or one starting with ~/ (expanded against the target host's home). Relative paths are refused — the server cannot see your working directory; use \"lasso open <path>\" from a shell for one."`
 	Host   string `json:"host,omitempty" jsonschema:"Host the file lives on; omit to target your OWN host — the host your credential was issued for, or the box lasso runs on when it is not host-scoped."`
 	Line   int    `json:"line,omitempty" jsonschema:"1-based line to scroll to and select in the editor. Optional; ignored for a directory and for images, PDFs, videos and audio."`
 	PaneID string `json:"pane_id,omitempty" jsonschema:"Your own herdr pane id — the value of $HERDR_PANE_ID in your shell. Used only to tell the human which agent opened the file; without it they are told \"an agent\"."`
-	App    string `json:"app,omitempty" jsonschema:"Where to open it: \"web\" (the lasso web app's sidebar file viewer), \"mac\" (a window of its own in the Lasso Mac app), or omit for both."`
+	App    string `json:"app" jsonschema:"Where to open it, one of the two: \"web\" (the lasso web app's sidebar file viewer) or \"mac\" (a window of its own in the Lasso Mac app)."`
 }
 
 type openFileOut struct {
-	// Delivered is the number of lasso tabs and Mac apps the request was pushed
-	// to (Web + Mac). 0 means nobody saw it.
+	// Delivered is the number of streams of the chosen app the request was
+	// pushed to (Web + Mac, one of them always 0). 0 means nobody saw it.
 	Delivered int    `json:"delivered"`
 	Web       int    `json:"web"`  // web app tabs it reached
 	Mac       int    `json:"mac"`  // Mac apps it reached
@@ -60,10 +60,10 @@ type openFileEvent struct {
 	Line int    `json:"line,omitempty"`
 	Dir  bool   `json:"dir,omitempty"`
 	From string `json:"from"`
-	// App is the app it was opened for, "" for both. Each app's stream only
+	// App is the app it was opened for, "web" or "mac". Each app's stream only
 	// gets events meant for it; this lets an app that did not name itself
 	// (a Mac app from before `?app=mac`) still tell.
-	App string `json:"app,omitempty"`
+	App string `json:"app"`
 }
 
 // openFileNobody is the reply's detail when nothing the event was meant for is
@@ -75,20 +75,21 @@ func openFileNobody(app string) string {
 	case eventAppMac:
 		return "no Lasso Mac app is connected, so nobody saw it"
 	}
-	return "no lasso tab or Mac app is open, so nobody saw it"
+	return "nobody saw it"
 }
 
-// openFileApp normalizes the tool's `app`: "web", "mac", or "" for both.
+// openFileApp normalizes the tool's required `app`: "web" or "mac".
 func openFileApp(s string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "", "both", "all":
-		return "", nil
-	case "web", "browser":
+	case "web":
 		return eventAppWeb, nil
-	case "mac", "desktop":
+	case "mac":
 		return eventAppMac, nil
 	}
-	return "", fmt.Errorf("app must be \"web\", \"mac\" or omitted for both (got %q)", s)
+	if strings.TrimSpace(s) == "" {
+		return "", errors.New("app is required: \"web\" (the lasso web app's sidebar file viewer) or \"mac\" (a window in the Lasso Mac app); call twice to show it in both")
+	}
+	return "", fmt.Errorf("app must be \"web\" or \"mac\" (got %q)", s)
 }
 
 // openFileBackend resolves the host whose filesystem the path is checked on.
@@ -98,16 +99,16 @@ func openFileApp(s string) (string, error) {
 var openFileBackend = namedHostBackend
 
 // openFileBroadcast hands the event to every connected stream of the app it is
-// for (ev.App, "" for both) and reports how many web tabs and Mac apps took
+// for (ev.App) and reports how many web tabs and Mac apps took
 // it; a no-op answering 0 before the server is up (tests, CLI paths).
 var openFileBroadcast = func(ev openFileEvent) (web, mac int) {
 	if srvHub == nil {
 		return 0, 0
 	}
-	if ev.App != eventAppMac {
+	if ev.App == eventAppWeb {
 		web = srvHub.broadcastTo("open-file", ev, eventAppWeb)
 	}
-	if ev.App != eventAppWeb {
+	if ev.App == eventAppMac {
 		mac = srvHub.broadcastTo("open-file", ev, eventAppMac)
 	}
 	return web, mac
@@ -119,7 +120,7 @@ func openFileTool(ctx context.Context, req *mcp.CallToolRequest, in openFileIn) 
 		return nil, openFileOut{}, fmt.Errorf("path is required")
 	}
 	if !filepath.IsAbs(p) && p != "~" && !strings.HasPrefix(p, "~/") {
-		return nil, openFileOut{}, fmt.Errorf("path %q is relative: pass an absolute path (or one starting with ~/) — the server cannot see your working directory. From a shell, `lasso open %s` resolves it for you", p, p)
+		return nil, openFileOut{}, fmt.Errorf("path %q is relative: pass an absolute path (or one starting with ~/) — the server cannot see your working directory. From a shell, `lasso open -app web %s` resolves it for you", p, p)
 	}
 	app, err := openFileApp(in.App)
 	if err != nil {
@@ -192,17 +193,17 @@ func openFileTool(ctx context.Context, req *mcp.CallToolRequest, in openFileIn) 
 const openCLITimeout = 30 * time.Second
 
 func printOpenUsage(w *os.File) {
-	fmt.Fprint(w, `lasso open — show a file to the human, in the lasso web app's file viewer and/or the Lasso Mac app
+	fmt.Fprint(w, `lasso open — show a file to the human, in the lasso web app's file viewer or the Lasso Mac app
 
 usage:
-  lasso open [flags] <path> [flags]
+  lasso open -app web|mac [flags] <path> [flags]
 
 flags:
   -line <n>       scroll to (and select) this 1-based line
   -host <alias>   host the file lives on (default: your own host — see below)
   -pane <id>      your herdr pane id, to say who opened it (default: $HERDR_PANE_ID)
-  -app <app>      where to open it: web (the web app's sidebar viewer) or mac (a
-                  window in the Lasso Mac app); default both
+  -app <app>      required: web (the web app's sidebar viewer) or mac (a window
+                  in the Lasso Mac app)
 
 <path> may be relative: it is resolved against THIS shell's working directory,
 on the machine this command runs on, before the call. A ~/ path is passed
@@ -214,7 +215,7 @@ credential (no LASSO_MCP_TOKEN) is lasso's own box, "local". Running this on a
 remote fleet machine without a per-host credential? Pass -host <alias>, or the
 path will be looked for on the lasso host instead.
 
-Exits non-zero when no lasso tab or Mac app it was meant for is open (nobody saw it), with the reason on
+Exits non-zero when the app it was meant for is not open (nobody saw it), with the reason on
 stderr — so an agent can tell "on their screen" from "nobody was looking".
 
 environment:
@@ -277,7 +278,7 @@ func parseOpenArgs(args []string) (openFileIn, error) {
 	line := fs.Int("line", 0, "1-based line to scroll to")
 	host := fs.String("host", "", "host the file lives on")
 	pane := fs.String("pane", os.Getenv("HERDR_PANE_ID"), "your herdr pane id")
-	app := fs.String("app", "", "web, mac, or empty for both")
+	app := fs.String("app", "", "web or mac (required)")
 	parse := func(a []string) error {
 		if err := fs.Parse(a); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -352,9 +353,7 @@ func callOpenFileTool(ctx context.Context, endpoint string, hc *http.Client, in 
 	if in.PaneID != "" {
 		args["pane_id"] = in.PaneID
 	}
-	if in.App != "" {
-		args["app"] = in.App
-	}
+	args["app"] = in.App
 	res, err := sess.CallTool(ctx, &mcp.CallToolParams{Name: "open_file", Arguments: args})
 	if err != nil {
 		return openFileOut{}, err

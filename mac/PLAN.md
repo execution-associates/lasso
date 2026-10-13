@@ -1251,7 +1251,7 @@ A fixture or parity run and the test process never send (`Analytics.inert`), and
 
 An agent's `open_file` (or `lasso open`) puts the file on the human's screen. On the web it goes to the Files sidebar (`docs/design/file-viewer-host.md`). The Mac app opens it in a window of its own, on the Mac the human is at. The window shows text, markdown and SVG (rendered or source), rendered HTML with the files beside it, images, audio, video, PDFs and anything QuickLook previews. It follows changes to the file on its machine, local or remote, and it edits and saves text.
 
-**Which Mac opens it** (`App/AppCoordinator.fileOpened`, `File/FileWindows.opened`). Every Mac app on the lasso hears lasso's `open-file` event (`FleetSync.onOpenFile`), unless the agent asked for the web app only (`open_file`'s `app: "web"`): the app opens `/api/events` with `app=mac`, and lasso sends that event to web streams alone. The app also skips an event whose `app` is `web`. Nothing opens unless all of these hold:
+**Which Mac opens it** (`App/AppCoordinator.fileOpened`, `File/FileWindows.opened`). Every Mac app on the lasso hears lasso's `open-file` event (`FleetSync.onOpenFile`), when the agent asked for the Mac app (`open_file`'s required `app: "mac"`): the app opens `/api/events` with `app=mac`, and lasso sends that event to web streams alone. The app also skips an event whose `app` is `web`. Nothing opens unless all of these hold:
 - the app is on a live lasso;
 - Settings › Notifications › Files › **Open files agents show you** is on (UserDefaults `openAgentFiles`, on when absent);
 - the path is not a folder;

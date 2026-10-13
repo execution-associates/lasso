@@ -66,7 +66,7 @@ func writeTemp(t *testing.T, dir, name, body string) string {
 func TestOpenFileRefusesARelativePath(t *testing.T) {
 	captureOpenFile(t, 1)
 	for _, p := range []string{"notes.md", "./docs/plan.md", "../x"} {
-		_, _, err := openFileTool(context.Background(), nil, openFileIn{Path: p})
+		_, _, err := openFileTool(context.Background(), nil, openFileIn{Path: p, App: "web"})
 		if err == nil {
 			t.Fatalf("%q: a relative path must be refused", p)
 		}
@@ -74,7 +74,7 @@ func TestOpenFileRefusesARelativePath(t *testing.T) {
 			t.Errorf("%q: error %q should say to pass an absolute path or use lasso open", p, err)
 		}
 	}
-	if _, _, err := openFileTool(context.Background(), nil, openFileIn{Path: "  "}); err == nil {
+	if _, _, err := openFileTool(context.Background(), nil, openFileIn{Path: "  ", App: "web"}); err == nil {
 		t.Error("an empty path must be refused")
 	}
 }
@@ -85,7 +85,7 @@ func TestOpenFileMissingFileIsAnError(t *testing.T) {
 	got := captureOpenFile(t, 1)
 	swapBackend(t, &localBackend{})
 	missing := filepath.Join(t.TempDir(), "nope.md")
-	_, _, err := openFileTool(context.Background(), nil, openFileIn{Path: missing})
+	_, _, err := openFileTool(context.Background(), nil, openFileIn{Path: missing, App: "web"})
 	if err == nil || !strings.Contains(err.Error(), "does not exist") {
 		t.Fatalf("err = %v, want a does-not-exist error", err)
 	}
@@ -102,7 +102,7 @@ func TestOpenFileExpandsTildeOnTheTargetHost(t *testing.T) {
 	want := writeTemp(t, home, "plan.md", "# plan\n")
 	swapBackend(t, &fakeHomeBackend{Backend: &localBackend{}, home: home})
 
-	_, out, err := openFileTool(context.Background(), nil, openFileIn{Path: "~/plan.md", Line: 12})
+	_, out, err := openFileTool(context.Background(), nil, openFileIn{Path: "~/plan.md", Line: 12, App: "web"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestOpenFileDefaultsToTheCallersHost(t *testing.T) {
 		"gigachad": &namedFSBackend{Backend: &localBackend{}, name: "gigachad"},
 	})
 
-	_, out, err := openFileTool(context.Background(), callerReq("c-gig", "gigachad", scopeSelf), openFileIn{Path: doc})
+	_, out, err := openFileTool(context.Background(), callerReq("c-gig", "gigachad", scopeSelf), openFileIn{Path: doc, App: "web"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestOpenFileUnidentifiedCallerDefaultsToLocal(t *testing.T) {
 	captureOpenFile(t, 1)
 	doc := writeTemp(t, t.TempDir(), "a.txt", "x")
 	asked := stubOpenFileBackends(t, map[string]Backend{"local": &localBackend{}})
-	if _, _, err := openFileTool(context.Background(), nil, openFileIn{Path: doc}); err != nil {
+	if _, _, err := openFileTool(context.Background(), nil, openFileIn{Path: doc, App: "web"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(*asked) != 1 || (*asked)[0] != "local" {
@@ -163,7 +163,7 @@ func TestOpenFileRespectsCallerScope(t *testing.T) {
 	doc := writeTemp(t, t.TempDir(), "secret.txt", "x")
 
 	_, _, err := openFileTool(context.Background(), callerReq("c-gig", "gigachad", scopeSelf),
-		openFileIn{Path: doc, Host: "local"})
+		openFileIn{Path: doc, Host: "local", App: "web"})
 	if err == nil || !strings.Contains(err.Error(), "may not address") {
 		t.Fatalf("err = %v, want a scope refusal", err)
 	}
@@ -172,7 +172,7 @@ func TestOpenFileRespectsCallerScope(t *testing.T) {
 	}
 
 	// And a host with no ssh alias at all is not addressable by anyone.
-	if _, _, err := openFileTool(context.Background(), nil, openFileIn{Path: doc, Host: "no-such-host-xyz"}); err == nil {
+	if _, _, err := openFileTool(context.Background(), nil, openFileIn{Path: doc, Host: "no-such-host-xyz", App: "web"}); err == nil {
 		t.Error("an unaddressable host must be refused")
 	}
 }
@@ -182,7 +182,7 @@ func TestOpenFileDirectoryOpensTheTree(t *testing.T) {
 	got := captureOpenFile(t, 1)
 	swapBackend(t, &localBackend{})
 	dir := t.TempDir()
-	_, out, err := openFileTool(context.Background(), nil, openFileIn{Path: dir + "/", Line: 5})
+	_, out, err := openFileTool(context.Background(), nil, openFileIn{Path: dir + "/", Line: 5, App: "web"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,17 +202,17 @@ func TestOpenFileNoTabIsNotSuccess(t *testing.T) {
 	swapBackend(t, &localBackend{})
 	doc := writeTemp(t, t.TempDir(), "a.md", "x")
 
-	_, out, err := openFileTool(context.Background(), nil, openFileIn{Path: doc})
+	_, out, err := openFileTool(context.Background(), nil, openFileIn{Path: doc, App: "web"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Delivered != 0 || out.Detail != openFileNobody("") {
+	if out.Delivered != 0 || out.Detail != openFileNobody(eventAppWeb) {
 		t.Errorf("out = %+v, want delivered 0 with the nobody detail", out)
 	}
 
 	// No hub at all (a CLI path, a test) is the same answer, not a panic.
 	srvHub = nil
-	if _, out, _ := openFileTool(context.Background(), nil, openFileIn{Path: doc}); out.Delivered != 0 {
+	if _, out, _ := openFileTool(context.Background(), nil, openFileIn{Path: doc, App: "web"}); out.Delivered != 0 {
 		t.Errorf("delivered = %d with no hub", out.Delivered)
 	}
 }
@@ -232,7 +232,7 @@ func TestOpenFileFansOutToEveryTab(t *testing.T) {
 	swapBackend(t, &localBackend{})
 	doc := writeTemp(t, t.TempDir(), "review.go", "package x\n")
 
-	_, out, err := openFileTool(context.Background(), nil, openFileIn{Path: doc, Line: 3})
+	_, out, err := openFileTool(context.Background(), nil, openFileIn{Path: doc, Line: 3, App: "web"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,8 +267,8 @@ func TestOpenFileFansOutToEveryTab(t *testing.T) {
 	}
 }
 
-// `app` sends the event to one app's streams only, and delivered counts just
-// those; omitted, both apps get it and the reply splits the count.
+// `app` is required and sends the event to that one app's streams only, and
+// delivered counts just those.
 func TestOpenFileAppPicksTheStreams(t *testing.T) {
 	prev := srvHub
 	srvHub = newHub()
@@ -296,11 +296,8 @@ func TestOpenFileAppPicksTheStreams(t *testing.T) {
 		wantWeb, wantMac int
 		evApp            string
 	}{
-		{"", 1, 1, ""},
 		{"web", 1, 0, "web"},
 		{"mac", 0, 1, "mac"},
-		{"desktop", 0, 1, "mac"},
-		{"both", 1, 1, ""},
 	} {
 		_, out, err := openFileTool(context.Background(), nil, openFileIn{Path: doc, App: tc.app})
 		if err != nil {
@@ -326,8 +323,10 @@ func TestOpenFileAppPicksTheStreams(t *testing.T) {
 	if out.Delivered != 0 || out.Detail != openFileNobody(eventAppMac) {
 		t.Errorf("no Mac connected: out = %+v", out)
 	}
-	if _, _, err := openFileTool(context.Background(), nil, openFileIn{Path: doc, App: "phone"}); err == nil {
-		t.Error("an unknown app should be refused")
+	for _, app := range []string{"", "both", "phone"} {
+		if _, _, err := openFileTool(context.Background(), nil, openFileIn{Path: doc, App: app}); err == nil {
+			t.Errorf("app %q should be refused: it is required, web or mac", app)
+		}
 	}
 }
 
@@ -347,7 +346,7 @@ func TestOpenFileAttributesToTheCallingAgent(t *testing.T) {
 	stubOpenFileBackends(t, map[string]Backend{"local": &localBackend{}})
 	doc := writeTemp(t, t.TempDir(), "design.md", "x")
 
-	_, out, err := openFileTool(context.Background(), nil, openFileIn{Path: doc, PaneID: "w1F:p1"})
+	_, out, err := openFileTool(context.Background(), nil, openFileIn{Path: doc, PaneID: "w1F:p1", App: "web"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +354,7 @@ func TestOpenFileAttributesToTheCallingAgent(t *testing.T) {
 		t.Errorf("from = %q, detail = %q", (*got)[0].From, out.Detail)
 	}
 
-	_, out, err = openFileTool(context.Background(), nil, openFileIn{Path: doc, PaneID: "wZ:p9"})
+	_, out, err = openFileTool(context.Background(), nil, openFileIn{Path: doc, PaneID: "wZ:p9", App: "web"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +370,7 @@ func TestOpenCLIResolvesRelativePaths(t *testing.T) {
 	t.Chdir(dir)
 	t.Setenv("HERDR_PANE_ID", "w9:p2")
 
-	in, err := parseOpenArgs([]string{"docs/plan.md", "-line", "40"})
+	in, err := parseOpenArgs([]string{"docs/plan.md", "-line", "40", "-app", "web"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +381,7 @@ func TestOpenCLIResolvesRelativePaths(t *testing.T) {
 		t.Errorf("in = %+v", in)
 	}
 
-	in, err = parseOpenArgs([]string{"-host", "gigachad", "~/notes.md"})
+	in, err = parseOpenArgs([]string{"-host", "gigachad", "-app", "web", "~/notes.md"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,6 +392,9 @@ func TestOpenCLIResolvesRelativePaths(t *testing.T) {
 	in, err = parseOpenArgs([]string{"/x/plan.md", "-app", "mac"})
 	if err != nil || in.App != "mac" {
 		t.Errorf("-app mac: in = %+v, err = %v", in, err)
+	}
+	if _, err := parseOpenArgs([]string{"/x/plan.md"}); err == nil {
+		t.Error("a missing -app should be refused")
 	}
 	if _, err := parseOpenArgs([]string{"/x/plan.md", "-app", "tv"}); err == nil {
 		t.Error("-app tv should be refused")
@@ -415,7 +417,7 @@ func TestCallOpenFileToolOverMCP(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	out, err := callOpenFileTool(ctx, srv.URL, http.DefaultClient, openFileIn{Path: doc, Line: 2})
+	out, err := callOpenFileTool(ctx, srv.URL, http.DefaultClient, openFileIn{Path: doc, Line: 2, App: "web"})
 	if err != nil {
 		t.Fatalf("callOpenFileTool: %v", err)
 	}
@@ -423,7 +425,7 @@ func TestCallOpenFileToolOverMCP(t *testing.T) {
 		t.Fatalf("out = %+v, events = %+v", out, *got)
 	}
 
-	_, err = callOpenFileTool(ctx, srv.URL, http.DefaultClient, openFileIn{Path: "relative.md"})
+	_, err = callOpenFileTool(ctx, srv.URL, http.DefaultClient, openFileIn{Path: "relative.md", App: "web"})
 	if err == nil || !strings.Contains(err.Error(), "relative") {
 		t.Errorf("err = %v, want the tool's relative-path refusal", err)
 	}

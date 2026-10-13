@@ -146,7 +146,7 @@ usage:
   lasso doctor             check the local install
   lasso closeme            close the calling agent itself (uses $HERDR_PANE_ID)
   lasso notify <message>   push a notification to the human running lasso
-  lasso open <path>        show a file in the human's lasso sidebar file viewer
+  lasso open <path>        show the human a file (-app web|mac, required)
   lasso mcp [tool] [flags] call lasso's MCP tools (no tool = list them)
   lasso connect [flags]    register lasso's MCP servers with this machine's agent CLIs
   lasso mcp-client <cmd>   per-host MCP credentials: add|list|token|rm (see -h)

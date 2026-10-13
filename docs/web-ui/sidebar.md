@@ -46,7 +46,7 @@ Enabled [plugins](../plugins/index.md) add their own tabs to the same strip.
 
 **Downloads and HTTPS.** A download is an ordinary link to the file, served with `Content-Disposition: attachment`. Some browsers warn about or block downloads from a plain-HTTP page, so if a download does not arrive, reach lasso over HTTPS (see [Why HTTPS matters](../deployment/index.md#why-https-matters)).
 
-**When an agent opens a file for you.** An agent can put a file or folder in front of you with the `open_file` MCP tool or the `lasso open <path>` command (see [MCP tools](../mcp/tools.md) and [CLI tools for agents](../mcp/cli.md)), unless it asked for the Mac app only (`app: "mac"`). Every visible lasso tab reveals the Files tab, opening the sidebar if it is collapsed, and shows the file, scrolled to a line if one was given. A folder re-roots the tree there. If you have unsaved edits open, lasso does not replace them: a notice offers to open the agent's file, and taking it asks before discarding your changes. A tab in the background ignores the request.
+**When an agent opens a file for you.** An agent can put a file or folder in front of you with the `open_file` MCP tool or the `lasso open <path>` command (see [MCP tools](../mcp/tools.md) and [CLI tools for agents](../mcp/cli.md)), asking for the web app (`app: "web"`). Every visible lasso tab reveals the Files tab, opening the sidebar if it is collapsed, and shows the file, scrolled to a line if one was given. A folder re-roots the tree there. If you have unsaved edits open, lasso does not replace them: a notice offers to open the agent's file, and taking it asks before discarding your changes. A tab in the background ignores the request.
 
 ### Diff
 
