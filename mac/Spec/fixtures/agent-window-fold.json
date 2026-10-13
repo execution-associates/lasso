@@ -1,0 +1,40 @@
+{
+  "about": "An agent window with a long message folded: its first 224 pt fading out, Show more under it (chat.fold), as the web folds a long plan.",
+  "state": "agent-window-fold",
+  "extends": "agent-window",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "window": "local\u0000w4:p1"
+  },
+  "chats": {
+    "local\u0000w4:p1": {
+      "pane_id": "w4:p1",
+      "agent": "claude",
+      "host": "local",
+      "title": "lasso-desktop-mac",
+      "model": "claude-opus-5-5",
+      "path": "/home/stephan/.claude/projects/x/session.jsonl",
+      "start_offset": 0,
+      "tokens": 48211,
+      "running": false,
+      "items": [
+        {
+          "kind": "user",
+          "id": "u1",
+          "at": "2026-10-11T22:41:10Z",
+          "text": "what went out today?"
+        },
+        {
+          "kind": "agent",
+          "id": "a1",
+          "at": "2026-10-11T22:41:40Z",
+          "text": "## What changed in the release\n\n**1.** The agents column filters as you type, the composer grows to six lines, pasted images ride as thumbnails, and a chat reads back past the newest page so a compacted conversation is still there to scroll.\n\n**2.** The agents column filters as you type, the composer grows to six lines, pasted images ride as thumbnails, and a chat reads back past the newest page so a compacted conversation is still there to scroll.\n\n**3.** The agents column filters as you type, the composer grows to six lines, pasted images ride as thumbnails, and a chat reads back past the newest page so a compacted conversation is still there to scroll.\n\n**4.** The agents column filters as you type, the composer grows to six lines, pasted images ride as thumbnails, and a chat reads back past the newest page so a compacted conversation is still there to scroll.\n\n**5.** The agents column filters as you type, the composer grows to six lines, pasted images ride as thumbnails, and a chat reads back past the newest page so a compacted conversation is still there to scroll.\n\n**6.** The agents column filters as you type, the composer grows to six lines, pasted images ride as thumbnails, and a chat reads back past the newest page so a compacted conversation is still there to scroll.\n\n**7.** The agents column filters as you type, the composer grows to six lines, pasted images ride as thumbnails, and a chat reads back past the newest page so a compacted conversation is still there to scroll.\n\n**8.** The agents column filters as you type, the composer grows to six lines, pasted images ride as thumbnails, and a chat reads back past the newest page so a compacted conversation is still there to scroll.\n\n**9.** The agents column filters as you type, the composer grows to six lines, pasted images ride as thumbnails, and a chat reads back past the newest page so a compacted conversation is still there to scroll.\n\n**10.** The agents column filters as you type, the composer grows to six lines, pasted images ride as thumbnails, and a chat reads back past the newest page so a compacted conversation is still there to scroll.\n\n**11.** The agents column filters as you type, the composer grows to six lines, pasted images ride as thumbnails, and a chat reads back past the newest page so a compacted conversation is still there to scroll.\n\n**12.** The agents column filters as you type, the composer grows to six lines, pasted images ride as thumbnails, and a chat reads back past the newest page so a compacted conversation is still there to scroll."
+        }
+      ],
+      "cwd": "/home/stephan/.lasso/worktrees/lasso/lasso-desktop-mac"
+    }
+  }
+}

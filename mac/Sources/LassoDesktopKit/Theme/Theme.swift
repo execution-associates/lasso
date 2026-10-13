@@ -349,6 +349,10 @@ public enum Theme {
     public enum Chat {
         public static let bubble = Token(
             "chat.bubble", ["fill": "#2D1D3C", "radius": 18, "pad_h": 19, "pad_v": 9, "table_cell": 220, "dot": 6, "dot_lag": 0.9, "pending": 0.55], .measured("ref a5 shape; EXA --secondary"))
+        /// When an agent's message folds, and how much of it shows folded.
+        public static let fold = Token(
+            "chat.fold", ["chars": 1200, "lines": 24, "height": 224, "fade": 48],
+            .inferred("src/web/src/components/ChatView.tsx PlanCard: over 1200 characters, max-h-56 (224 px)"), proposed: true)
     }
 
 
@@ -527,7 +531,7 @@ public enum Theme {
         Text.primary, Text.secondary, Text.placeholder, accent, dangerText,
         Row.hover, Row.selected, Row.radius,
         Fonts.display, Fonts.title, Fonts.body, Fonts.chat, Fonts.name, Fonts.label, Fonts.header, Fonts.small, Fonts.terminal,
-        List.size, List.row, Chat.bubble, focusRing,
+        List.size, List.row, Chat.bubble, Chat.fold, focusRing,
         spaceScale, Layout.card, Layout.chat,
         avatar, icon, lucide,
         Motion.railExpand, Motion.railCollapse, Motion.cardOpen, Motion.cardClose, Motion.toastIn, Motion.cardPaging,

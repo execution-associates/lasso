@@ -940,6 +940,8 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
 
 **An agent's prose is rendered as Markdown** (`Agent/Markdown.swift`), in the window, the hover preview and the inbox card. That covers headings, bullet and numbered lists (nested), fenced code in the terminal face, pipe tables (right-aligned where the delimiter row says so; short cells keep their width, long ones wrap; sideways scrolling only when the table cannot fit), quotes and rules. Inline Markdown (bold, inline code in the terminal face, links) is AttributedString's. Your own messages stay plain.
 
+**A long message folds** (`Agent/Fold.swift`, token `chat.fold`), in the window, the card and the bot chat, as the web folds a long plan: past 1,200 characters or 24 lines an agent's message (or a plan) shows its first 224 pt, fading out over the last 48, with **Show more** / **Show less** under it. It is laid out whole and clipped, so the fold never re-wraps the text, and whether a row is open lives in `Unfolded` by row id, so a poll does not fold it again. In the card and the bot chat an agent's thinking is one line, "Thinking" and its opening words (the first line, at most 140 characters), that a click unfolds, as the web's `ThinkingRow`; a window leaves thinking out. Parity state `agent-window-fold`.
+
 **Waits are visible.** The conversation's foot shows three pulsing dots and what it waits on (`CardModel.phase`):
 - **Loading the conversation** before the first answer.
 - **Starting <harness>** while a new agent has no transcript yet.

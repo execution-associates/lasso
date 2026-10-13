@@ -13,6 +13,8 @@ struct PlanRow: View {
     /// In a bubble like the agent's messages (a window's conversation); the
     /// card's conversation is already a box, so there it sits bare.
     var boxed = true
+    /// The row's id, so a long plan folds (and stays open across polls).
+    var foldID: String?
 
     var body: some View {
         let b = Theme.Chat.bubble
@@ -26,8 +28,10 @@ struct PlanRow: View {
             .font(Theme.Fonts.small.font)
             .foregroundStyle(Theme.Text.secondary.color)
             .lineLimit(1)
-            MarkdownView(text: tool.plan?.text ?? "", font: font)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Folding(id: foldID, long: Fold.isLong(tool.plan?.text ?? "")) {
+                MarkdownView(text: tool.plan?.text ?? "", font: font)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             if let fb = tool.plan?.feedback, !fb.isEmpty {
                 Text("→ Sent back: " + fb)
                     .font(font)

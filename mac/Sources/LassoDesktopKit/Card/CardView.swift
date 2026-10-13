@@ -366,7 +366,7 @@ struct ChatRow: View {
         switch item.kind {
         case "tool":
             if let t = item.tool, t.plan != nil {
-                PlanRow(tool: t, font: font, boxed: false)
+                PlanRow(tool: t, font: font, boxed: false, foldID: item.id)
             } else if let ask = item.tool?.ask { AskRow(ask: ask, font: font) } else if let t = item.tool { ToolRow(tool: t) }
         case "marker":
             Text("— \(item.marker ?? "marker") —")
@@ -384,13 +384,11 @@ struct ChatRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         default:
             if item.thinking == true {
-                Text(item.text ?? "")
-                    .font(font)
-                    .foregroundStyle(Theme.Text.secondary.color)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                ThinkingRow(id: item.id, text: item.text ?? "", font: font)
             } else {
-                MarkdownView(text: item.text ?? "", font: font).frame(maxWidth: .infinity, alignment: .leading)
+                Folding(id: item.id, long: Fold.isLong(item.text ?? "")) {
+                    MarkdownView(text: item.text ?? "", font: font).frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
     }
