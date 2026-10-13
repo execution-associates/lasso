@@ -77,6 +77,8 @@ struct MessageBubble: View {
     let mine: Bool
     /// Yours, sent but not yet in the transcript.
     var sending = false
+    /// The agent's message's row id: a long one folds.
+    var foldID: String?
 
     var body: some View {
         let b = Theme.Chat.bubble
@@ -85,7 +87,7 @@ struct MessageBubble: View {
                 LinkText(Self.styled(text)).font(Theme.Fonts.chat.font).foregroundStyle(Theme.Text.primary.color)
                     .textSelection(.enabled)
             } else {
-                MarkdownView(text: text)
+                Folding(id: foldID, long: Fold.isLong(text)) { MarkdownView(text: text) }
             }
         }
         .opacity(sending ? b.number("pending") : 1)
@@ -304,7 +306,7 @@ struct AgentConversation: View {
         switch e {
         case .message(let item, let text, let mine):
             VStack(alignment: mine ? .trailing : .leading, spacing: Theme.space("xs")) {
-                MessageBubble(text: text, mine: mine)
+                MessageBubble(text: text, mine: mine, foldID: mine ? nil : item.id)
                 if last, let t = messageTime(item.at) {
                     Text(t)
                         .font(Theme.Fonts.small.font)
@@ -318,7 +320,7 @@ struct AgentConversation: View {
         case .incoming(let item, let msg): ChannelCard(id: item.id, msg: msg)
         case .media(_, let version, let files): SharedFilesView(files: files, host: host, version: version)
         case .ask(_, let ask): AskRow(ask: ask, font: Theme.Fonts.chat.font)
-        case .plan(_, let tool): PlanRow(tool: tool)
+        case .plan(let item, let tool): PlanRow(tool: tool, foldID: item.id)
         case .marker(let item):
             Text("— \(item.marker ?? "marker") —")
                 .font(Theme.Fonts.small.font)
