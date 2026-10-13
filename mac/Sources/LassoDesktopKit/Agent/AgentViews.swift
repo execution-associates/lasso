@@ -82,7 +82,7 @@ struct MessageBubble: View {
         let b = Theme.Chat.bubble
         Group {
             if mine {
-                Text(Self.styled(text)).font(Theme.Fonts.chat.font).foregroundStyle(Theme.Text.primary.color)
+                LinkText(Self.styled(text)).font(Theme.Fonts.chat.font).foregroundStyle(Theme.Text.primary.color)
                     .textSelection(.enabled)
             } else {
                 MarkdownView(text: text)
