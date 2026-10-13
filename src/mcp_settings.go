@@ -22,11 +22,13 @@ import (
 // per-field merges, the rev bumps and the fan-outs are the browser's exactly —
 // a second copy of those rules would drift from the first.
 //
-// Plugins are the exception and stay read-only here. Enabling one approves its
-// permissions, trusting one runs it on the host outside its sandbox, and
-// installing or updating one changes what an approval covers: those need a
-// human looking at the approval dialog, and /mcp is open by default, so an
-// agent (or a page an agent read) must not be able to grant them.
+// Plugin approvals are the exception. Enabling one approves its permissions,
+// trusting one runs it on the host outside its sandbox, choosing its isolation
+// moves it between sandboxes, and installing or updating one changes what an
+// approval covers: those need a human looking at the approval dialog, and /mcp
+// is open by default, so an agent (or a page an agent read) must not be able
+// to grant them. What only takes power away or reads is here: disable,
+// restart, uninstall, unlink, reload and the log.
 
 // settingsSections are what get_settings can return, in display order.
 var settingsSections = []string{"ui", "agents", "repos", "theme", "notifications", "browser", "transcribe", "telemetry", "plugins"}
@@ -107,11 +109,13 @@ func requireSettingsReach(req *mcp.CallToolRequest, host string) error {
 
 // ---- get_settings -------------------------------------------------------------
 
-const getSettingsDescription = "Read lasso's settings — everything the Settings tab shows. Sections: `ui` (the synced UI preferences: appearance_mode, palette_light/palette_dark, theme_atmosphere, typography, chat_text, terminal_text, phone_text, browser_mode, terminal_links_in_sidebar, files_click_navigates, sidebar_tabs, usage_hidden/usage_order/usage_compact, creator_default_host, agents_group_host/agents_group_repo, chat_sidebar, onboarding_done, …), `agents` (the creator defaults of `host` — repos_root, branch_prefix, default_agent, default_terminal_workspace, scratch_setup — plus `auto_title`), `repos` (each repo under `host`'s repo roots with its copy_files and setup), `theme` (herdr's current theme, the selectable `themes`, sync_agent_themes, theme_sync_off hosts, and the installable theme `catalog`), `notifications` (registered push devices by id and label; endpoints are never shown), `browser` (the browsers' status; list_browsers and the other browser tools manage them), `transcribe` (the speech-to-text provider /api/transcribe uses — provider, model, base_url and the NAME of the key's variable, never a key), `telemetry` (anonymous usage analytics: `enabled` is the setting, `active` whether anything is actually sent, `env_off` the environment variable holding it off), and `plugins` (READ-ONLY: plugin state; enabling, trusting, installing and updating plugins is done by a human in lasso's Settings tab, never over MCP). Omit `section` for all of them. update_settings changes them."
+const getSettingsDescription = "Read lasso's settings — everything the Settings tab shows. Sections: `ui` (the synced UI preferences: appearance_mode, palette_light/palette_dark, theme_atmosphere, typography, chat_text, terminal_text, phone_text, browser_mode, terminal_links_in_sidebar, files_click_navigates, sidebar_tabs, usage_hidden/usage_order/usage_compact, creator_default_host, agents_group_host/agents_group_repo, chat_sidebar, onboarding_done, …), `agents` (the creator defaults of `host` — repos_root, branch_prefix, default_agent, default_terminal_workspace, scratch_setup — plus `auto_title`), `repos` (each repo under `host`'s repo roots with its copy_files and setup), `theme` (herdr's current theme, the selectable `themes`, sync_agent_themes, theme_sync_off hosts, and the installable theme `catalog`), `notifications` (registered push devices by id and label; endpoints are never shown), `browser` (the browsers' status; list_browsers and the other browser tools manage them), `transcribe` (the speech-to-text provider /api/transcribe uses — provider, model, base_url and the NAME of the key's variable, never a key), `telemetry` (anonymous usage analytics: `enabled` is the setting, `active` whether anything is actually sent, `env_off` the environment variable holding it off), and `plugins` (plugin state; with `plugin_log` a plugin's server log. Enabling, trusting, choosing isolation for, installing and updating plugins is done by a human in lasso's Settings tab, never over MCP; update_settings `plugin` disables, restarts, uninstalls or unlinks one). Omit `section` for all of them. update_settings changes them."
 
 type getSettingsIn struct {
-	Section string `json:"section,omitempty" jsonschema:"One of ui, agents, repos, theme, notifications, browser, transcribe, telemetry, plugins. Omit for every section."`
-	Host    string `json:"host,omitempty" jsonschema:"Whose per-host settings the agents and repos sections show: a host from list_hosts. Omit for lasso's own host."`
+	Section   string `json:"section,omitempty" jsonschema:"One of ui, agents, repos, theme, notifications, browser, transcribe, telemetry, plugins. Omit for every section."`
+	Host      string `json:"host,omitempty" jsonschema:"Whose per-host settings the agents and repos sections show: a host from list_hosts. Omit for lasso's own host."`
+	PluginLog string `json:"plugin_log,omitempty" jsonschema:"A plugin's name: add its server's recent log lines (stderr) under plugin_log."`
+	Lines     int    `json:"lines,omitempty" jsonschema:"How many plugin_log lines, default 200, at most 500."`
 }
 
 func getSettingsTool(ctx context.Context, req *mcp.CallToolRequest, in getSettingsIn) (*mcp.CallToolResult, map[string]any, error) {
@@ -142,6 +146,20 @@ func getSettingsTool(ctx context.Context, req *mcp.CallToolRequest, in getSettin
 			return nil, nil, errors.New(strings.Join(errs, "; "))
 		}
 		out["errors"] = errs
+	}
+	if name := strings.TrimSpace(in.PluginLog); name != "" {
+		if plugins == nil || !pluginNameRE.MatchString(name) {
+			return nil, nil, fmt.Errorf("no plugin named %q", name)
+		}
+		lines := in.Lines
+		if lines <= 0 {
+			lines = 200
+		}
+		v, err := callSettingsAPI(ctx, plugins.serveAPI, http.MethodGet, fmt.Sprintf("/api/plugins/%s/log?lines=%d", name, min(lines, 500)), nil)
+		if err != nil {
+			return nil, nil, err
+		}
+		out["plugin_log"] = v
 	}
 	return nil, out, nil
 }
@@ -187,6 +205,21 @@ func readSettingsSection(ctx context.Context, section, host string) (any, error)
 			return nil, err
 		}
 		m, _ := cfg.(map[string]any)
+		// Each device's notification kinds, which update_settings notify_device
+		// changes (its id is the device's "device").
+		devs, _ := m["devices"].([]any)
+		for _, d := range devs {
+			dm, _ := d.(map[string]any)
+			id, _ := dm["device"].(string)
+			if dm == nil || id == "" {
+				continue
+			}
+			if v, err := callSettingsAPI(ctx, serveNotify, http.MethodGet, "/api/notify?device="+url.QueryEscape(id), nil); err == nil {
+				if vm, ok := v.(map[string]any); ok {
+					dm["kinds"] = vm["kinds"]
+				}
+			}
+		}
 		return map[string]any{"devices": m["devices"]}, nil
 	case "browser":
 		if sharedBrowsers == nil {
@@ -206,7 +239,7 @@ func readSettingsSection(ctx context.Context, section, host string) (any, error)
 			return nil, err
 		}
 		if m, ok := v.(map[string]any); ok {
-			m["note"] = "read-only over MCP: a human enables, trusts, installs and updates plugins in lasso's Settings tab"
+			m["note"] = "a human enables, trusts, picks isolation for, installs and updates plugins in lasso's Settings tab; update_settings plugin disables, restarts, uninstalls or unlinks one"
 		}
 		return v, nil
 	}
@@ -215,7 +248,7 @@ func readSettingsSection(ctx context.Context, section, host string) (any, error)
 
 // ---- update_settings ----------------------------------------------------------
 
-const updateSettingsDescription = "Change lasso's settings — what the Settings tab changes, with the same validation; every open lasso tab updates live. Pass only what changes; an omitted field is left alone. `ui` is a PATCH of the synced UI preferences get_settings shows under `ui` (only the keys you send change; typography/chat_text/terminal_text/phone_text/theme_atmosphere merge per field, \"\" or null deletes one; sidebar_tabs is replaced whole; pinned agents change only through `agent_pins: {<key>: true|false}`, dismissed agent cards through `card_dismiss: {<key>: <transcript_at ms>|null}`, the background gallery through `remember_background`/`forget_background`). `agent_defaults` and `repo` write `host`'s own creator settings (\"\" clears a field). `theme` switches herdr's theme fleet-wide (refused while an appearance palette is set — change ui.palette_light/palette_dark/appearance_mode instead); `sync_theme_now` pushes the current theme to every host; `install_theme_url` installs an Omarchy theme from a URL. `remove_push_device` forgets a notification device by the id get_settings lists. `transcribe` picks the speech-to-text provider (key NAMES only, never a key). `telemetry` turns lasso's anonymous usage analytics on or off. Plugin approvals and trust are NOT settable here: they need a human in lasso's Settings tab. Returns the affected sections as they now read."
+const updateSettingsDescription = "Change lasso's settings — what the Settings tab changes, with the same validation; every open lasso tab updates live. Pass only what changes; an omitted field is left alone. `ui` is a PATCH of the synced UI preferences get_settings shows under `ui` (only the keys you send change; typography/chat_text/terminal_text/phone_text/theme_atmosphere merge per field, \"\" or null deletes one; sidebar_tabs is replaced whole; pinned agents change only through `agent_pins: {<key>: true|false}`, dismissed agent cards through `card_dismiss: {<key>: <transcript_at ms>|null}`, the background gallery through `remember_background`/`forget_background`). `agent_defaults` and `repo` write `host`'s own creator settings (\"\" clears a field). `theme` switches herdr's theme fleet-wide (refused while an appearance palette is set — change ui.palette_light/palette_dark/appearance_mode instead); `sync_theme_now` pushes the current theme to every host; `install_theme_url` installs an Omarchy theme from a URL. `remove_push_device` forgets a notification device by the id get_settings lists. `transcribe` picks the speech-to-text provider (key NAMES only, never a key). `telemetry` turns lasso's anonymous usage analytics on or off. `notify_device` sets one device's label and notification kinds; `test_push` sends a test notification. `browser` starts, stops or restarts one of lasso's browsers. `plugin` disables, restarts, uninstalls or unlinks a plugin and `reload_plugins` rescans; enabling, trusting, isolation, install and update are NOT settable here: they need a human looking at lasso's approval dialog. Returns the affected sections as they now read."
 
 type agentDefaultsIn struct {
 	ReposRoot                *string `json:"repos_root,omitempty" jsonschema:"Directories scanned for git repos, one per line."`
@@ -250,6 +283,28 @@ type updateSettingsIn struct {
 	RemovePushDevice string                 `json:"remove_push_device,omitempty" jsonschema:"Forget the notification device with this id (from get_settings section notifications)."`
 	Transcribe       *transcribeConfigPatch `json:"transcribe,omitempty" jsonschema:"The speech-to-text provider; only the fields given change."`
 	Telemetry        *bool                  `json:"telemetry,omitempty" jsonschema:"Anonymous usage analytics on or off (docs/reference/analytics.md says what is sent)."`
+	NotifyDevice     *notifyDeviceIn        `json:"notify_device,omitempty" jsonschema:"One notification device's label and which kinds interrupt it."`
+	TestPush         bool                   `json:"test_push,omitempty" jsonschema:"Send one test notification to every subscribed device and report each one's result."`
+	Browser          *browserPowerIn        `json:"browser,omitempty" jsonschema:"Start, stop or restart one of lasso's browsers (the Settings tab's buttons)."`
+	Plugin           *pluginActionIn        `json:"plugin,omitempty" jsonschema:"Disable, restart, uninstall or unlink one plugin. Enabling, trusting, isolation, install and update stay with the human."`
+	ReloadPlugins    bool                   `json:"reload_plugins,omitempty" jsonschema:"Rescan the plugins directory now."`
+}
+
+type notifyDeviceIn struct {
+	ID    string           `json:"id" jsonschema:"The device's id: the device field of a notifications device in get_settings."`
+	Label *string          `json:"label,omitempty"`
+	Kinds map[string]*bool `json:"kinds,omitempty" jsonschema:"kind: true (interrupts this device), false (does not), null (back to the default). get_settings shows each device's kinds."`
+}
+
+type browserPowerIn struct {
+	Browser string `json:"browser,omitempty" jsonschema:"A browser's id or name (list_browsers); omit for the default one."`
+	Action  string `json:"action" jsonschema:"start, stop or restart"`
+}
+
+type pluginActionIn struct {
+	Name      string `json:"name" jsonschema:"The plugin's name."`
+	Action    string `json:"action" jsonschema:"disable, restart, uninstall (a GitHub install only) or unlink (a linked one only)"`
+	PurgeData bool   `json:"purge_data,omitempty" jsonschema:"uninstall: also delete its data directory."`
 }
 
 func updateSettingsTool(ctx context.Context, req *mcp.CallToolRequest, in updateSettingsIn) (*mcp.CallToolResult, map[string]any, error) {
@@ -390,6 +445,72 @@ func updateSettingsTool(ctx context.Context, req *mcp.CallToolRequest, in update
 			return nil, nil, err
 		}
 		out["telemetry"] = v
+		did = true
+	}
+
+	if d := in.NotifyDevice; d != nil {
+		v, err := callSettingsAPI(ctx, serveNotifyDevice, http.MethodPost, "/api/notify/device", d)
+		if err != nil {
+			return nil, nil, err
+		}
+		out["notify_device"] = v
+		did = true
+	}
+
+	if in.TestPush {
+		v, err := callSettingsAPI(ctx, servePushTest, http.MethodPost, "/api/push/test", map[string]any{})
+		if err != nil {
+			return nil, nil, err
+		}
+		out["test_push"] = v
+		did = true
+	}
+
+	if bp := in.Browser; bp != nil {
+		if sharedBrowsers == nil {
+			return nil, nil, errors.New("lasso's browsers are not available")
+		}
+		v, err := callSettingsAPI(ctx, sharedBrowsers.serveStatus, http.MethodPost, "/api/browser", map[string]any{"action": bp.Action, "profile": bp.Browser})
+		if err != nil {
+			return nil, nil, err
+		}
+		out["browser"] = v
+		did = true
+	}
+
+	if pa := in.Plugin; pa != nil || in.ReloadPlugins {
+		if pa != nil {
+			switch pa.Action {
+			case "disable", "restart", "uninstall", "unlink":
+			default:
+				return nil, nil, fmt.Errorf("plugin action must be disable, restart, uninstall or unlink: enabling, trusting, isolation, install and update need a human in lasso's Settings tab")
+			}
+		}
+		if plugins == nil {
+			return nil, nil, errors.New("plugins are not available")
+		}
+		if pa != nil {
+			if !pluginNameRE.MatchString(pa.Name) {
+				return nil, nil, fmt.Errorf("bad plugin name %q", pa.Name)
+			}
+			var body any = map[string]any{}
+			if pa.Action == "uninstall" {
+				body = map[string]any{"purge_data": pa.PurgeData}
+			}
+			if _, err := callSettingsAPI(ctx, plugins.serveAPI, http.MethodPost, "/api/plugins/"+pa.Name+"/"+pa.Action, body); err != nil {
+				return nil, nil, err
+			}
+		}
+		if in.ReloadPlugins {
+			if _, err := callSettingsAPI(ctx, plugins.serveAPI, http.MethodPost, "/api/plugins/reload", map[string]any{}); err != nil {
+				return nil, nil, err
+			}
+		}
+		v, err := readSettingsSection(ctx, "plugins", "")
+		if err != nil {
+			return nil, nil, err
+		}
+		out["plugins"] = v
 		did = true
 	}
 

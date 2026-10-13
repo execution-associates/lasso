@@ -403,7 +403,7 @@ Returns `closed` (the tab id) and `browser`.
 
 ## Bots
 
-These manage lasso's [bots](../web-ui/bots.md): long-lived agent sessions lasso keeps running. A bot's runtime is `omp` (omp in a herdr pane, driven through lasso's bridge) or `claude` (Claude Code in a herdr pane), on any host lasso drives. A bot is named by `name`, as `list_bots` shows it. A bot on a host outside your reach is answered as if it did not exist. Every bot on lasso's own machine has these tools through an MCP server named `lasso`, so a bot can change its own settings when its human asks. Creating and deleting a bot, and signing one in to an OAuth server, stay in the Bots view. Design: [bots.md](../design/bots.md).
+These manage lasso's [bots](../web-ui/bots.md): long-lived agent sessions lasso keeps running. A bot's runtime is `omp` (omp in a herdr pane, driven through lasso's bridge) or `claude` (Claude Code in a herdr pane), on any host lasso drives. A bot is named by `name`, as `list_bots` shows it. A bot on a host outside your reach is answered as if it did not exist. Every bot on lasso's own machine has these tools through an MCP server named `lasso`, so a bot can change its own settings when its human asks. Everything the Bots view does has a tool here; signing in to an OAuth server still ends with the human approving at the provider. Design: [bots.md](../design/bots.md).
 
 To talk to a running bot, use [`send_agent`](#send_agent) with its name as `to`.
 
@@ -422,10 +422,12 @@ Changes a bot's settings. Only the fields you pass change.
 | parameter | type | | description |
 | --- | --- | --- | --- |
 | `name` | string | | The bot. |
+| `runtime` | string | optional | `omp` or `claude`. Only while the bot is stopped (refused otherwise: `stop_bot`, `update_bot`, `start_bot`). Model and permission mode reset to the new runtime's default unless passed in the same call; effort is kept when the new runtime has that level. MCP servers (signed-in ones too), env, jobs and `.claude/skills` carry over, and the next start is a new conversation. A switch to claude with only an `AGENTS.md` writes a `CLAUDE.md` of `@AGENTS.md`; a switch to omp with only a `CLAUDE.md` copies it to `AGENTS.md`. |
+| `dir` | string | optional | The bot's folder on its host. Only while the bot is stopped. |
 | `model` | string | optional | A claude bot's Claude model (alias or full name), or an omp bot's provider/model selector such as `anthropic/claude-opus-5`. `""` for the default. |
 | `effort` | string | optional | claude: `low`, `medium`, `high`, `xhigh` or `max`. omp: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` or `auto`. `""` for the default. |
 | `permission_mode` | string | optional | claude: `acceptEdits`, `auto`, `bypassPermissions`, `manual`, `dontAsk` or `plan`. omp (its approval mode): `yolo`, `write` or `always-ask`. `""` for the default. |
-| `mcp` | array | optional | The **complete** list of MCP servers. It replaces the current one, so read it with `get_bot` first. `channel: true` makes a server a channel; a server that needs OAuth takes `oauth: true` and the human signs in from the Bots view. |
+| `mcp` | array | optional | The **complete** list of MCP servers. It replaces the current one, so read it with `get_bot` first. `channel: true` makes a server a channel; a server that needs OAuth takes `oauth: true` and is signed in with `begin_bot_oauth`. |
 | `strict_mcp` | boolean | optional | claude bots: only these MCP servers, without claude.ai connectors or user-level servers. |
 | `extra_args` | array | optional | Extra `claude` or `omp` arguments, one element per argument. |
 | `launch_task` | string | optional | The mise task in the bot's folder that launches it: a mode, such as another provider, that sets its environment and ends with `exec mise run bot -- "$@"`. `""` or `bot` for the generated one. Refused unless the folder defines it. |
@@ -433,7 +435,9 @@ Changes a bot's settings. Only the fields you pass change.
 | `notify` | boolean | optional | Push a notification to the human's devices each time the bot finishes a reply. |
 | `workspace` | string | optional | The herdr workspace it opens in, from its next start. |
 
-lasso rewrites the bot's launch script and MCP config. Returns `ok` and `restart_needed`, true when the bot is running and reads the change only at launch. A bot restarting itself runs `mise run restart` in its folder. Its instructions (`AGENTS.md` for an omp bot, `CLAUDE.md` for a claude bot) and skills are files in its folder, edited directly rather than through this tool. The runtime is the human's to change, in the Bots view.
+lasso rewrites the bot's launch script and MCP config. Returns `ok` and `restart_needed`, true when the bot is running and reads the change only at launch. A bot restarting itself runs `mise run restart` in its folder. Its instructions (`AGENTS.md` for an omp bot, `CLAUDE.md` for a claude bot) and skills are files in its folder, edited directly rather than through this tool.
+
+A claude bot signs in to Claude with its host's Claude Code login. On a host with none, give it a `CLAUDE_CODE_OAUTH_TOKEN` secret with `set_bot_env` (the value `claude setup-token` prints, run once by the human wherever they are logged in); its launch marks Claude Code's first-run setup done on that host, so nothing waits on a screen.
 
 ### `set_bot_env`
 
@@ -453,7 +457,7 @@ Sets a bot's picture, shown in the Bots view and on its notifications, from an i
 | `path` | string | optional | An absolute or `~/` path to a PNG, JPEG, WebP or GIF of at most 2 MB. The type is read from the file's content. |
 | `clear` | boolean | optional | Remove the picture, back to the text avatar. |
 
-### `list_bot_jobs`, `create_bot_job`, `update_bot_job`, `delete_bot_job`, `run_bot_job`
+### `list_bot_jobs`, `create_bot_job`, `update_bot_job`, `delete_bot_job`, `run_bot_job`, `rotate_bot_job_key`, `list_bot_job_events`, `preview_bot_schedule`
 
 A bot's jobs: messages lasso delivers into its session (a claude bot's through its `lasso-channel`, an omp bot's as prompts), on a schedule, from a webhook, or when run by hand. A job with a `command` is a watch: each firing runs the command in the bot's folder on the bot's host (as lasso's user, or on another host the user lasso connects as; minimal environment) and delivers only what it prints, with failures reported damped (1st, 2nd, 4th, 8th… in a row, plus one recovery notice). Each takes the bot's `name`, and all but `list_bot_jobs` take `job`. Changes apply at once, with no restart.
 
@@ -462,7 +466,35 @@ A bot's jobs: messages lasso delivers into its session (a claude bot's through i
 - `update_bot_job` changes only what it is passed: `rename`, `message`, `cron`, `once_at`, `timezone`, `webhook`, `enabled`, `command` (empty makes it an ordinary job), `timeout`.
 - `run_bot_job` fires the job now (a paused one too) and returns `event_id` and `status`: `pending`, or `dropped` when the bot is stopped. A watch runs its command, waiting up to 20 seconds, and can also answer `quiet` (no output, nothing delivered), `failed` (with `exit` and `detail`; `event_id` is set when the failure was reported rather than damped), `running` (still going; it delivers only if it prints) or `busy`.
 
+- `rotate_bot_job_key` gives a webhook job a new key (the old URL stops working) and returns the job; `list_bot_job_events` returns its last 20 firings; `preview_bot_schedule` takes `cron` or `once_at` and `timezone` and answers `next` (the next fires) or `error`.
+
 A claude bot on another host has jobs when that host's lasso can deliver them (`channel.available` says why not); lasso writes them into the bot's folder over SSH and nothing on that host connects to lasso. Such a bot has no `lasso` server, so these tools are its human's to call, not its own.
+
+### `create_bot`, `delete_bot`, `reorder_bots`
+
+- `create_bot` makes a bot as the Bots view does: `name`, and optionally `host`, `runtime` (`omp` by default), `dir` (default `~/bots/<name>`; an existing folder keeps its instructions and skills), `workspace`, `model`, `effort`, `permission_mode`, `mcp`, `strict_mcp`, `extra_args`, `keep_running` and `notify` (both default true), `instructions` (its first `AGENTS.md` or `CLAUDE.md`) and `start`. Returns `bot`, plus `error` when the row was made but its folder or first start failed, and `note`.
+- `delete_bot` stops the bot if it runs and forgets it, with its jobs. `delete_folder: true` also deletes its folder, refused for a folder that holds the host's home or lasso's own directory.
+- `reorder_bots` takes `names`, the Bots view's order.
+
+### `set_bot_model`
+
+The chat header's model and thinking pickers: `name`, `model`, `thinking`. A running omp bot switches at once; anything else is saved for the next start (`restart_needed`).
+
+### `list_bot_sessions`, `switch_bot_session`
+
+A bot's conversations, newest first (`id`, `title`, `preview`, `updated_at`, `messages`, `current`), and switching: `new: true` or an `id` to resume. An omp bot switches in place, a claude bot restarts onto it; refused mid-turn.
+
+### `read_bot_chat`, `send_bot`, `stop_bot_turn`, `answer_bot`
+
+An omp bot's chat, as the Bots view shows it. `read_bot_chat` returns the newest page (`before` pages back) and `pending_ui`, the questions and approvals it waits on; `answer_bot` answers one by `id` with `value` (an option's label, or text), `confirmed`, or `cancelled`. `send_bot` sends a message (a steer while it works), and `stop_bot_turn` stops the current turn. Each answers `outcome`, `refused` with `detail` when it did not land. A claude bot's chat is its pane's: use `read_agent` and `send_agent`.
+
+### `list_skill_library`, `add_bot_skill`, `remove_bot_skill`
+
+`list_skill_library` lists a `host`'s `~/.claude/skills`. `add_bot_skill` copies a skill directory (`from`, with a `SKILL.md`, on the bot's host) into the bot's `.claude/skills`; `remove_bot_skill` deletes one by `skill`. Both return the bot's `skills`.
+
+### `begin_bot_oauth`, `finish_bot_oauth`, `sign_out_bot_oauth`
+
+Signing one of a bot's MCP servers (`oauth: true`) in. `begin_bot_oauth` takes `name`, `server` and optionally `origin`, the address the human opens lasso at (default: the one this MCP request reached lasso on). It returns `authorize_url` for the human to open and approve; the provider sends the browser back to lasso, which completes the sign-in. When `localhost` is true the browser lands on an address that does not load, and `finish_bot_oauth` takes that whole address as `url`. `sign_out_bot_oauth` deletes a server's tokens. The tokens stay in the bot's fnox and never appear in a reply; `get_bot`'s `oauth` shows the status.
 
 ### `start_bot`, `stop_bot`, `restart_bot`
 
@@ -472,7 +504,7 @@ Each takes `name`. `start_bot` and `restart_bot` resume the bot's last conversat
 
 These tools read and change what lasso's Settings tab shows. Each write runs through the same handler the Settings tab calls, so the validation is the same and every open lasso tab updates live. Both require a caller whose reach includes lasso's own host, because the settings live in lasso's own database; `agents` and `repos` also need the `host` they name.
 
-**Plugins are read-only here.** Enabling a plugin approves its permissions, trusting one runs it outside its sandbox, and installing or updating one changes what an approval covers. Those need a human in the Settings tab, so no MCP tool does them.
+**Plugin approvals stay with the human.** Enabling a plugin approves its permissions, trusting one runs it outside its sandbox, its isolation moves it between sandboxes, and installing or updating one changes what an approval covers. Those need a human looking at the approval dialog in the Settings tab, and `/mcp` is open by default, so no MCP tool does them: an agent, or a page an agent read, must not be able to grant itself a plugin. What only takes power away or reads is here: disable, restart, uninstall, unlink, reload and the log.
 
 ### `get_settings`
 
@@ -480,6 +512,8 @@ These tools read and change what lasso's Settings tab shows. Each write runs thr
 | --- | --- | --- | --- |
 | `section` | string | optional | One of `ui`, `agents`, `repos`, `theme`, `notifications`, `browser`, `transcribe`, `plugins`. Omit for all of them. |
 | `host` | string | optional | Whose creator settings `agents` and `repos` show. Defaults to lasso's own host. |
+| `plugin_log` | string | optional | A plugin's name: also return its server's recent log lines under `plugin_log`. |
+| `lines` | integer | optional | How many `plugin_log` lines, default 200, at most 500. |
 
 Returns one key per section:
 
@@ -489,10 +523,10 @@ Returns one key per section:
 | `agents` | `host`'s creator defaults (`repos_root`, `branch_prefix`, `default_agent`, `default_terminal_workspace`, `scratch_setup`) and `auto_title`. |
 | `repos` | Each repo under `host`'s repo roots with its `copy_files` and `setup`. |
 | `theme` | herdr's current theme, the selectable `themes`, `sync_agent_themes`, `theme_sync_off` and the installable `catalog`. |
-| `notifications` | Registered push `devices`, by id and label. Endpoints are never returned. |
+| `notifications` | Registered push `devices`, by id and label, each with its notify `device` id and `kinds`. Endpoints are never returned. |
 | `browser` | The browsers' status. `list_browsers` and the other browser tools manage them. |
 | `transcribe` | The speech-to-text provider `/api/transcribe` uses: `provider` (`off`, `groq`, `openai`, `openai-compatible`), `model`, `base_url` and `key_name`, the NAME of the key's variable. Never a key. |
-| `plugins` | Each plugin's state, read-only. |
+| `plugins` | Each plugin's state. |
 
 A section that fails (an unreachable host, say) is listed under `errors` and the others are still returned.
 
@@ -516,6 +550,12 @@ Pass only what changes; an omitted field is left alone. Returns the affected sec
 | `install_theme_url` | string | optional | Install an Omarchy theme from a URL. |
 | `remove_push_device` | string | optional | Forget the notification device with this id. |
 | `transcribe` | object | optional | Any of `provider`, `model`, `base_url`, `key_name`; only the fields given change, `""` resets one to the provider's default, and changing `provider` resets the fields not given. `key_name` names a variable or secret; it never holds a key. |
+| `telemetry` | boolean | optional | Anonymous usage analytics on or off. |
+| `notify_device` | object | optional | `{id, label?, kinds?}`: one device's label and which notification kinds interrupt it (`kind: true\|false\|null`, null back to the default). `id` is a device's `device` in `notifications`. |
+| `test_push` | boolean | optional | Send a test notification to every subscribed device; returns each one's result. |
+| `browser` | object | optional | `{browser?, action}`: `start`, `stop` or `restart` one of lasso's browsers (default the default one). |
+| `plugin` | object | optional | `{name, action, purge_data?}`: `disable`, `restart`, `uninstall` (a GitHub install; `purge_data` also deletes its data) or `unlink` (a linked one). Anything else is refused. |
+| `reload_plugins` | boolean | optional | Rescan the plugins directory. |
 
 ## Plugin tools
 

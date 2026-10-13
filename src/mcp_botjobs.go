@@ -1,13 +1,15 @@
 package main
 
 // The bot-jobs tools on /mcp: list_bot_jobs, create_bot_job, update_bot_job,
-// delete_bot_job and run_bot_job. Like the other bot tools they resolve the
+// delete_bot_job, run_bot_job, rotate_bot_job_key, list_bot_job_events and
+// preview_bot_schedule: everything the Jobs tab does. Like the other bot tools they resolve the
 // bot through botForCaller, so a bot out of the caller's reach reads as
 // missing. A bot manages its own jobs with them when its human asks.
 
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -141,6 +143,60 @@ func registerBotJobTools(s *mcp.Server) {
 		}
 		return nil, runBotJobOut{EventID: res.EventID, Status: res.Status, Exit: res.Exit, Detail: res.Detail}, nil
 	})
+}
+
+type botJobEventsOut struct {
+	Events []botEvent `json:"events" jsonschema:"the job's last 20 firings, newest first"`
+}
+
+type previewScheduleIn struct {
+	Cron     string `json:"cron,omitempty" jsonschema:"the schedule to check"`
+	OnceAt   string `json:"once_at,omitempty" jsonschema:"a one-time run to check instead"`
+	Timezone string `json:"timezone,omitempty" jsonschema:"IANA time zone; default UTC"`
+}
+
+func registerBotJobExtraTools(s *mcp.Server) {
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "rotate_bot_job_key",
+		Description: "Give a bot's webhook job a new key: its old webhook URL stops working at once, and the returned job carries the new one.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in botJobOneIn) (*mcp.CallToolResult, botJobOut, error) {
+		j, err := botJobForCaller(req, in.Name, in.Job)
+		if err != nil {
+			return nil, botJobOut{}, err
+		}
+		if err := rotateBotJobKey(j); err != nil {
+			return nil, botJobOut{}, err
+		}
+		return nil, botJobOut{Job: botJobViews([]*botJob{j})[0]}, nil
+	})
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_bot_job_events",
+		Description: "A bot job's history: its last 20 firings, newest first, with how each was triggered and whether it was delivered, merged, dropped or (for a watch) quiet or failed.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in botJobOneIn) (*mcp.CallToolResult, botJobEventsOut, error) {
+		j, err := botJobForCaller(req, in.Name, in.Job)
+		if err != nil {
+			return nil, botJobEventsOut{}, err
+		}
+		events, err := listBotJobEvents(j.ID, 20)
+		if err != nil {
+			return nil, botJobEventsOut{}, err
+		}
+		if events == nil {
+			events = []botEvent{}
+		}
+		return nil, botJobEventsOut{Events: events}, nil
+	})
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "preview_bot_schedule",
+		Description: "Check a job schedule before saving it: whether it is valid, and its next three fire times. " + botJobScheduleHelp,
+	}, previewBotScheduleTool)
+}
+
+func previewBotScheduleTool(ctx context.Context, req *mcp.CallToolRequest, in previewScheduleIn) (*mcp.CallToolResult, map[string]any, error) {
+	if strings.TrimSpace(in.OnceAt) != "" {
+		return nil, botOncePreview(in.OnceAt, in.Timezone, time.Now()), nil
+	}
+	return nil, botSchedulePreview(in.Cron, in.Timezone, time.Now()), nil
 }
 
 func botJobForCaller(req *mcp.CallToolRequest, bot, job string) (*botJob, error) {

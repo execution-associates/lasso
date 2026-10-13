@@ -178,8 +178,7 @@ A bot can change its own settings when you ask it to in its conversation: "switc
 
 It edits its `CLAUDE.md` and `.claude/skills` directly, as files in its folder. Most changes take effect after a restart, and the bot restarts itself to apply them. Some things stay with you:
 
-- **Signing in** to an OAuth server. The bot can add the server, but you sign in from **Connections**.
-- **Creating and deleting** bots.
+- **Approving a sign-in** to an OAuth server. The bot can start it (`begin_bot_oauth`), but you open the address it gives you and approve it, or sign in from **Connections**.
 - **Bots on other hosts and gated servers.** A bot on another host doesn't get the `lasso` server, and neither does any bot while lasso's `/mcp` requires OAuth (`MCP_OAUTH`). Add the server by hand under **Connections** in that case. A server you named `lasso` yourself is kept as is.
 
 It is safer to type a secret into **Environment** yourself than to paste it into a conversation.
