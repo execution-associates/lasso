@@ -195,11 +195,11 @@ struct MarkdownView: View {
     @ViewBuilder private func block(_ b: MDBlock) -> some View {
         switch b {
         case .heading(let level, let t):
-            Text(MessageBubble.styled(t))
+            LinkText(MessageBubble.styled(t))
                 .font(level <= 2 ? Theme.Fonts.title.font : Theme.Fonts.chat.font(weight: Theme.Fonts.label.weightNumber))
                 .padding(.top, level <= 2 ? Theme.space("xs") : 0)
         case .paragraph(let t):
-            Text(MessageBubble.styled(t)).font(font).fixedSize(horizontal: false, vertical: true)
+            LinkText(MessageBubble.styled(t)).font(font).fixedSize(horizontal: false, vertical: true)
         case .list(_, let items):
             VStack(alignment: .leading, spacing: Theme.space("xs")) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
@@ -207,7 +207,7 @@ struct MarkdownView: View {
                         Text(item.marker ?? (item.level == 0 ? "•" : "◦"))
                             .foregroundStyle(Theme.Text.secondary.color)
                             .monospacedDigit()
-                        Text(MessageBubble.styled(item.text)).fixedSize(horizontal: false, vertical: true)
+                        LinkText(MessageBubble.styled(item.text)).fixedSize(horizontal: false, vertical: true)
                     }
                     .font(font)
                     .padding(.leading, CGFloat(item.level) * Theme.space("2xl"))
@@ -225,7 +225,7 @@ struct MarkdownView: View {
         case .quote(let t):
             HStack(alignment: .top, spacing: Theme.space("l")) {
                 Rectangle().fill(Theme.accent.color).frame(width: Theme.space("2xs"))
-                Text(MessageBubble.styled(t)).font(font).foregroundStyle(Theme.Text.secondary.color)
+                LinkText(MessageBubble.styled(t)).font(font).foregroundStyle(Theme.Text.secondary.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -283,7 +283,7 @@ struct MarkdownTable: View {
     /// no column grows to fill the message.
     @ViewBuilder private func cell(_ s: String, _ c: Int) -> some View {
         let w = Theme.Chat.bubble.number("table_cell")
-        let text = Text(MessageBubble.styled(s))
+        let text = LinkText(MessageBubble.styled(s))
         if Theme.Fonts.body.nsFont.pointSize * CGFloat(s.count) / 2 <= w {
             text.fixedSize()
         } else {

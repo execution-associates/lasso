@@ -66,6 +66,9 @@ public enum OAuthError: Error, CustomStringConvertible, Equatable {
     case registration(String)
     case authorization(String)
     case token(String)
+    /// The sign-in server refused the grant itself: signed out, until the
+    /// user signs in again.
+    case refused(String)
     case cancelled
 
     public var description: String {
@@ -74,6 +77,7 @@ public enum OAuthError: Error, CustomStringConvertible, Equatable {
         case .registration(let s): "the sign-in server refused this app: \(s)"
         case .authorization(let s): "sign-in did not finish: \(s)"
         case .token(let s): "the sign-in server gave no token: \(s)"
+        case .refused(let s): "the sign-in server refused this Mac's sign-in: \(s)"
         case .cancelled: "sign-in was cancelled"
         }
     }
@@ -189,16 +193,20 @@ public enum LassoAuth {
 
     /// Trade the refresh token for a fresh access token.
     public static func refresh(_ g: OAuthGrant, session: URLSession = .shared) async throws -> OAuthGrant {
-        guard let rt = g.refreshToken else { throw OAuthError.token("no refresh token") }
+        guard let rt = g.refreshToken else { throw OAuthError.refused("no refresh token") }
         var r = URLRequest(url: g.tokenEndpoint)
         r.httpMethod = "POST"
         r.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         r.httpBody = form(["grant_type": "refresh_token", "refresh_token": rt, "client_id": g.clientID, "resource": g.resource])
         let (data, resp) = try await session.data(for: r)
-        guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
-            throw OAuthError.token("refresh refused (HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0))")
-        }
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        // Only an answer about the grant (OAuth's 400 invalid_grant, or an
+        // edge's 401/403) means signed out. A lasso restarting behind its
+        // tunnel answers 502 for a few seconds, and a network error throws
+        // URLError: both pass, and the next request refreshes again.
+        if [400, 401, 403].contains(code) { throw OAuthError.refused("HTTP \(code)") }
+        guard code == 200 else { throw OAuthError.token("refresh failed (HTTP \(code))") }
         return try grant(data, clientID: g.clientID, tokenEndpoint: g.tokenEndpoint, resource: g.resource, keepRefresh: rt)
     }
 }

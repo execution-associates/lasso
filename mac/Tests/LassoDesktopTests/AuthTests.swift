@@ -89,6 +89,27 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
         #expect(r.value(forHTTPHeaderField: "X-Lasso-Token") == "old" && r.value(forHTTPHeaderField: "Authorization") == nil)
         #expect(r.value(forHTTPHeaderField: "CF-Access-Client-Id") == "id")
     }
+
+    /// A refresh that fails on the way (a lasso restarting behind its tunnel
+    /// answers 502) keeps the Mac signed in; only the server refusing the
+    /// grant signs it out.
+    @MainActor @Test func onlyARefusedRefreshSignsOut() async throws {
+        let base = URL(string: "https://lasso.example.com")!
+        let grant = OAuthGrant(
+            clientID: "c1", tokenEndpoint: URL(string: "https://auth.example.com/token")!, resource: "https://lasso.example.com",
+            accessToken: "old", refreshToken: "r1", expiresAt: Date().addingTimeInterval(900))
+        AuthState.shared.signedIn()
+        defer { AuthState.shared.signedIn() }
+        var tokenCode = 502
+        StubProtocol.respond = { r in r.url?.path == "/token" ? (tokenCode, [:], Data()) : (401, [:], Data()) }
+        let c = LassoClient(baseURL: base, grant: grant, protocolClasses: [StubProtocol.self])
+        struct P: Decodable { var panes: [String] }
+        _ = try? await c.get("/api/all-panes") as P
+        #expect(AuthState.shared.expired == nil)
+        tokenCode = 400
+        _ = try? await c.get("/api/all-panes") as P
+        #expect(AuthState.shared.expired == base)
+    }
 }
 
 private final class Box: @unchecked Sendable { var grant: OAuthGrant? }

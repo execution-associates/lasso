@@ -277,7 +277,8 @@ public final class TokenAuth: @unchecked Sendable {
         if current.stale() { _ = await refresh() }
     }
 
-    /// lasso refused the token: refresh once. False: signed out.
+    /// lasso refused the token: refresh once. False: not refreshed (signed
+    /// out only when the sign-in server refused the grant).
     func refreshAfterRefusal() async -> Bool { await refresh() }
 
     private func refresh() async -> Bool {
@@ -290,8 +291,10 @@ public final class TokenAuth: @unchecked Sendable {
                     self.persist(fresh, base)
                     self.lock.withLock { self.grant = fresh }
                     return true
-                } catch {
+                } catch OAuthError.refused {
                     await AuthState.shared.signedOut(base)
+                    return false
+                } catch {
                     return false
                 }
             }

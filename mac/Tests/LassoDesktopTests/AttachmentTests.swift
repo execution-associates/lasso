@@ -30,13 +30,6 @@ private let tiff = Data([0x4D, 0x4D, 0x00, 0x2A])
     #expect(Attachments.plan(PasteContents()) == .text)
 }
 
-@Test func uploadedPathsGoAtTheCaret() {
-    #expect(Attachments.insert(["/r/a.png"], into: "what's this", at: 0) == ("/r/a.png what's this", 9))
-    #expect(Attachments.insert(["/r/a.png"], into: "see  now", at: 4) == ("see /r/a.png now", 12))
-    #expect(Attachments.insert(["/r/a.png", "/r/b.png"], into: "x", at: nil) == ("x /r/a.png /r/b.png", 19))
-    #expect(Attachments.insert(["/r/a.png"], into: "", at: 99) == ("/r/a.png", 8))
-}
-
 private func scratchFile(_ name: String, bytes: Int) throws -> URL {
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lasso-attach-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -271,7 +264,10 @@ private func keyEvent(_ c: String, _ code: UInt16, _ flags: NSEvent.ModifierFlag
     #expect(m.composer == "" && f.string == "")
 }
 
-/// The New Agent prompt has no agent yet: a paste goes to the chosen machine.
+/// The New Agent prompt has no agent yet: a paste goes to the chosen
+/// machine as a preview, never text. Its path follows the prompt after a
+/// blank line (the first line still names the agent), a command's after
+/// the command; the x or another machine takes it out.
 @MainActor @Test func newAgentPasteUploadsToTheChosenHost() async throws {
     let source = FixtureNewAgentSource()
     let m = NewAgentModel(kind: .scratch, source: source)
@@ -282,7 +278,18 @@ private func keyEvent(_ c: String, _ code: UInt16, _ flags: NSEvent.ModifierFlag
     #expect(!m.canCreate)
     try await Task.sleep(nanoseconds: 100_000_000)
     #expect(source.uploads == ["minime:y.png"])
-    #expect(m.prompt == "look at /fixture/minime/y.png" && m.notice == "Attached y.png")
+    #expect(m.prompt == "look at" && m.notice == "Attached y.png")
+    #expect(m.attachments.map(\.path) == ["/fixture/minime/y.png"])
+    #expect(m.request.prompt == "look at\n\n/fixture/minime/y.png" && m.title == "look at")
+    m.kind = .terminal
+    #expect(m.sentPrompt == "look at /fixture/minime/y.png")
+    m.kind = .scratch
     m.prompt += "!"
     #expect(m.notice == nil)
+    m.removeAttachment(m.attachments[0].id)
+    #expect(m.request.prompt == "look at!")
+    m.attach([try scratchFile("z.png", bytes: 8)], at: nil)
+    try await Task.sleep(nanoseconds: 100_000_000)
+    m.host = "local"
+    #expect(m.attachments.isEmpty && m.notice?.hasPrefix("Attachments dropped") == true)
 }
