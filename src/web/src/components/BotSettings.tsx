@@ -1889,14 +1889,19 @@ function InstructionsTab({ bot, path }: { bot: BotView; path: string }) {
   const name = path.split("/").pop() || "CLAUDE.md"
   const file = useQuery({
     queryKey: ["bot-claude-md", bot.host, path],
-    queryFn: () => api.fileText(path, bot.host),
+    queryFn: () => api.fileTextStamped(path, bot.host),
     staleTime: 0,
   })
   const [text, setText] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
-  const value = text ?? file.data ?? ""
-  const dirty = text !== null && text !== (file.data ?? "")
+  const disk = file.data?.text ?? ""
+  // The server's "too large to preview" placeholder, not the file: never
+  // editable, or saving would replace the real file with it.
+  const tooLarge = file.data?.tooLarge ?? false
+  const value = text ?? disk
+  const dirty = text !== null && text !== disk && !tooLarge
   const save = async () => {
+    if (tooLarge) return
     setSaving(true)
     try {
       await api.writeFile(path, value, bot.host)
@@ -1925,6 +1930,7 @@ function InstructionsTab({ bot, path }: { bot: BotView; path: string }) {
         <textarea
           {...NO_AUTOCORRECT}
           value={value}
+          readOnly={tooLarge}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if ((e.metaKey || e.ctrlKey) && e.key === "s") {

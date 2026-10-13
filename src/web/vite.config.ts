@@ -19,14 +19,17 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  // Two pages: the app, and the Mac app's Browser window (the Agent view
-  // alone, src/desktop/browser-window.tsx), which lasso serves as the file
-  // /desktop-browser.html.
+  // Three pages: the app, and two of the Mac app's windows, which lasso serves
+  // as plain files: the Browser window (the Agent view alone,
+  // src/desktop/browser-window.tsx) as /desktop-browser.html, and the file
+  // window (one file's editor or rendered markdown,
+  // src/desktop/file-window.tsx) as /desktop-file.html.
   build: {
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, "index.html"),
         "desktop-browser": path.resolve(__dirname, "desktop-browser.html"),
+        "desktop-file": path.resolve(__dirname, "desktop-file.html"),
       },
     },
   },

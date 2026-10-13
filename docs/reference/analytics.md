@@ -27,7 +27,7 @@ These are all the events, each with every property it can carry:
 | event | when | properties |
 | --- | --- | --- |
 | `install_active` | at most once a day per install, while the server or the Mac app is running | `hosts_count` (`1`, `2-3`, `4+`), `agents_running` and `bots_count` (each `0`, `1-5`, `6-20`, `21+`) |
-| `view_opened` | a view or window is opened, at most once per view every 10 minutes | `view`: `terminal`, `chat`, `grid`, `bots`, `browser`, `files`, `scratch`, `settings`, `simple_inbox`, `simple_agents`, `inbox_card`, `agents_column`, `bots_column`, `agent_window`, `bot_window`, `terminal_window`, `browser_window` or `new_form` |
+| `view_opened` | a view or window is opened, at most once per view every 10 minutes | `view`: `terminal`, `chat`, `grid`, `bots`, `browser`, `files`, `scratch`, `settings`, `simple_inbox`, `simple_agents`, `inbox_card`, `agents_column`, `bots_column`, `agent_window`, `bot_window`, `terminal_window`, `browser_window`, `file_window` or `new_form` |
 | `agent_created` | an agent is created | `harness` (`claude`, `codex`, `opencode`, `omp`, `pi`, or `other` for any other command), `kind` (`git` or `scratch`), `from` (`web`, `phone`, `mac` or `mcp`) |
 | `inbox_action` | a card in an inbox is acted on | `action` (`acknowledge`, `kill`, `reply`, `answer`, `stop`, `rename`), `from` (`web`, `phone` or `mac`) |
 | `feature_used` | one of a fixed list of features is used | `feature`: `shortcut_used`, `paste_upload`, `terminal_zoom`, `browser_new_tab`, `plugin_enabled`, `theme_changed`, `voice_input`, `file_saved`, `bot_created` or `agent_pinned` |

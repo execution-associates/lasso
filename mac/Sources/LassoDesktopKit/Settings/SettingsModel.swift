@@ -120,6 +120,20 @@ public final class SettingsModel: ObservableObject {
         onPresence()
     }
 
+    /// A file an agent shows the human opens in a window here, when they
+    /// are at this Mac (PLAN 26): UserDefaults `openAgentFiles`, absent = on.
+    public nonisolated static let openAgentFilesKey = "openAgentFiles"
+    @Published public private(set) var openAgentFiles = SettingsModel.openAgentFilesOn()
+
+    public nonisolated static func openAgentFilesOn(_ d: UserDefaults = .standard) -> Bool {
+        d.object(forKey: openAgentFilesKey) as? Bool ?? true
+    }
+
+    public func setOpenAgentFiles(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: Self.openAgentFilesKey)
+        openAgentFiles = on
+    }
+
     /// Anonymous usage analytics (PLAN 25): this Mac's own choice.
     public var analytics: Analytics = .shared { didSet { objectWillChange.send() } }
     public var analyticsOn: Bool { analytics.enabled }

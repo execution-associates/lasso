@@ -66,8 +66,9 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 
 | route | purpose |
 | --- | --- |
-| `/api/files`, `/api/file` | List a directory; read a file. |
-| `/api/file-write`, `/api/file-rename`, `/api/file-delete`, `/api/file-upload` | Write, rename, delete, upload. |
+| `/api/files`, `/api/file` | List a directory; read a file. `/api/file` sends `X-Lasso-Mtime` (unix ms). `within=<dir>` answers 403 unless the file is under that folder with no hidden or symlinked segment below it, and only directly in it when the folder is `/` or at or above the home directory: the Mac app's rendered HTML loads its sibling files through it. |
+| `/api/file-write`, `/api/file-rename`, `/api/file-delete`, `/api/file-upload` | Write, rename, delete, upload. `/api/file-write` takes an optional `base_mtime` (the `X-Lasso-Mtime` the editor loaded) and answers 409 `{error, mtime}` without writing when the file has changed since; it answers `{ok, mtime}`. |
+| `/api/file-stat` | POST `{host, paths}` (1-64): each path's `exists`, `dir`, `size` and `mtime` (unix ms) in request order, a missing file `exists: false`. What the Mac app's file windows poll. |
 | `/api/paste-file` | Save a pasted or dropped file into `uploads/dropped-files` on the target host. |
 | `/api/diff`, `/api/diff-file` | The focused repo's changed files; one file's diff. |
 

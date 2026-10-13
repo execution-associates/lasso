@@ -42,6 +42,12 @@ func TestDesktopContract(t *testing.T) {
 		"browser_status": filled(&browserStatus{}),
 		// The SSE "browser-open" frame's data: an agent showing the human a page.
 		"browser_open": filled(&browserOpenEvent{}),
+		// The SSE "open-file" frame's data: an agent showing the human a file,
+		// which the app opens in a file window (PLAN 26).
+		"open_file": filled(&openFileEvent{}),
+		// POST /api/file-stat, both ways: the file windows' watcher.
+		"file_stat":         filled(&fileStatResp{}),
+		"file_stat_request": filled(&fileStatReq{}),
 	}
 	dir := filepath.Join("..", "mac", "Spec", "contract")
 	update := os.Getenv("LASSO_UPDATE_CONTRACT") == "1"

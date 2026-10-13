@@ -251,6 +251,14 @@ public struct SettingsView: View {
                 .parityAnchor("settings.sound.upload")
             }
         }
+        group("Files") {
+            row(
+                "Open files agents show you",
+                detail: "When an agent opens a file for you and you are at this Mac, it opens in a window here.", last: true
+            ) {
+                toggle(model.openAgentFiles, "Open files agents show you") { model.setOpenAgentFiles(!model.openAgentFiles) }
+            }
+        }
         if let n = model.notify() {
             group("Notify me about", footnote: "A kind that is off makes no sound and no notification on this Mac. The inbox still lists everything waiting.") {
                 ForEach(Array(n.kinds.enumerated()), id: \.element.id) { i, k in

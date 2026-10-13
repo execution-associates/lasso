@@ -24,9 +24,13 @@ public enum Lucide: String, CaseIterable, Sendable {
     case chevronUp = "chevron-up"
     case clock
     case codeXml = "code-xml"
+    case copy
     case cpu
     case ellipsis
+    case externalLink = "external-link"
     case file
+    case fileCode = "file-code"
+    case fileText = "file-text"
     case film
     case folder
     case folderGit2 = "folder-git-2"
@@ -52,6 +56,7 @@ public enum Lucide: String, CaseIterable, Sendable {
     case pin
     case play
     case plus
+    case refreshCw = "refresh-cw"
     case search
     case server
     case settings

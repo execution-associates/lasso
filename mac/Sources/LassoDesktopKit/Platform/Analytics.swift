@@ -37,7 +37,7 @@ public enum AnalyticsConfig {
 public enum AnalyticsView: String, CaseIterable, Sendable {
     case terminal, chat, grid, bots, browser, files, scratch, settings
     case simple_inbox, simple_agents, inbox_card, agents_column, bots_column
-    case agent_window, bot_window, terminal_window, browser_window, new_form
+    case agent_window, bot_window, terminal_window, browser_window, file_window, new_form
 }
 
 public enum AnalyticsHarness: String, CaseIterable, Sendable {

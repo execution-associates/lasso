@@ -24,11 +24,16 @@ import Testing
 
 /// The herdr window and the Browser window on a lasso that answers nothing
 /// (their pages never load: these tests are about their windows).
-@MainActor private func pageWindows() -> (HerdrTerminalController, BrowserWindowController) {
+@MainActor private func pageWindows() -> (HerdrTerminalController, BrowserWindowController, FileWindowController) {
     let client = LassoClient(baseURL: URL(string: "http://127.0.0.1:9")!, protocolClasses: [RightClickStub.self])
+    let source = FakeFileSource()
+    source.put("/r/notes.md")
     return (
         HerdrTerminalController(source: SpacesTermSource(), client: client, fleet: FleetModel()),
-        BrowserWindowController(source: FixtureBrowserSource(nil), client: client)
+        BrowserWindowController(source: FixtureBrowserSource(nil), client: client),
+        FileWindowController(
+            open: FileOpen(path: "/r/notes.md", from: "olivia"), kind: .markdown, stat: source.files["/r/notes.md"], hostLabel: "titan",
+            client: client, source: source)
     )
 }
 
@@ -245,9 +250,11 @@ private let pageOffer = BrowserOpen(profile: "default", tab_id: "T1", url: "http
         tab_id: "w1:t9", tab_label: "spaces", cwd: "/", agent: "claude", agent_status: "idle", has_agent: true, focused: false)
     let w = AgentWindowController(model: app.cardModel(p), near: app.rail.panel.frame, media: nil)
     check(w.panel, "an agent's window", level: .floating)
-    let (term, browser) = pageWindows()
+    let (term, browser, file) = pageWindows()
     check(term.hostWindow, "the herdr window", level: .floating)
     check(browser.hostWindow, "the Browser window", level: .floating)
+    check(file.panel, "a file window", level: .floating)
+    file.close()
 }
 
 /// The herdr window and the Browser window are agent windows' panels: the
@@ -260,10 +267,20 @@ private let pageOffer = BrowserOpen(profile: "default", tab_id: "T1", url: "http
         host: "local", host_label: "titan", pane_id: "w1:p9", workspace_id: "w1", workspace_label: "Agents",
         tab_id: "w1:t9", tab_label: "spaces", cwd: "/", agent: "claude", agent_status: "idle", has_agent: true, focused: false)
     let agent = AgentWindowController(model: app.cardModel(p), near: app.rail.panel.frame, media: nil).panel
-    let (term, browser) = pageWindows()
+    let (term, browser, file) = pageWindows()
     defer {
         term.close()
         browser.close()
+        file.close()
+    }
+    // A file window is the same panel, and an agent's file opens without the keyboard.
+    file.show()
+    for w in [file.panel] {
+        #expect(w.styleMask == agent.styleMask && w.collectionBehavior == agent.collectionBehavior, "a file window")
+        #expect(w.level == agent.level && w.hidesOnDeactivate == agent.hidesOnDeactivate, "a file window")
+        #expect(w.collectionBehavior.isDisjoint(with: [.fullScreenPrimary, .fullScreenAllowsTiling, .moveToActiveSpace]))
+        #expect(w.isVisible && !w.isKeyWindow, "a file window opens without the keyboard")
+        w.toggleFullScreen(nil)
     }
     for (c, name) in [(term as AnyObject, "the herdr window"), (browser as AnyObject, "the Browser window")] {
         let w: NSWindow
@@ -288,7 +305,8 @@ private let pageOffer = BrowserOpen(profile: "default", tab_id: "T1", url: "http
     }
     await wait(1.5)
     #expect(!term.hostWindow.styleMask.contains(.fullScreen) && !browser.hostWindow.styleMask.contains(.fullScreen))
-    #expect(term.hostWindow.isOnActiveSpace && browser.hostWindow.isOnActiveSpace)
+    #expect(!file.panel.styleMask.contains(.fullScreen))
+    #expect(term.hostWindow.isOnActiveSpace && browser.hostWindow.isOnActiveSpace && file.panel.isOnActiveSpace)
 }
 
 /// The user's report: the herdr and Browser windows opened in front of a
@@ -303,12 +321,14 @@ private let pageOffer = BrowserOpen(profile: "default", tab_id: "T1", url: "http
     let policy = NSApp.activationPolicy()
     NSApp.setActivationPolicy(.accessory)
     defer { NSApp.setActivationPolicy(policy) }
-    let (term, browser) = pageWindows()
+    let (term, browser, file) = pageWindows()
     term.open()
     browser.open()
+    file.show()
     defer {
         term.close()
         browser.close()
+        file.close()
     }
     guard let other = FullScreenApp() else { return }
     guard await other.fullScreen(within: 10) else {
@@ -317,7 +337,7 @@ private let pageOffer = BrowserOpen(profile: "default", tab_id: "T1", url: "http
     }
     await wait(5) { NSWorkspace.shared.frontmostApplication?.processIdentifier == other.process.processIdentifier }
     await wait(1.5)
-    for (c, name) in [(term.hostWindow, "the herdr window"), (browser.hostWindow, "the Browser window")] {
+    for (c, name) in [(term.hostWindow, "the herdr window"), (browser.hostWindow, "the Browser window"), (file.panel, "a file window")] {
         #expect(c.isVisible && c.isOnActiveSpace, "\(name) came along")
     }
 
@@ -431,7 +451,16 @@ private let pageOffer = BrowserOpen(profile: "default", tab_id: "T1", url: "http
 
     // The herdr window and the Browser window: their page and header move
     // over, the keyboard is the page's, and ⌘W still closes them.
-    let (term, browser) = pageWindows()
+    let (term, browser, file) = pageWindows()
+    // A file window, pinned, is replaced as it is shown, without the keyboard.
+    let oldFile = file.panel
+    let fileContent = oldFile.contentView
+    pinned.insert(ObjectIdentifier(oldFile))
+    file.show()
+    expectReplaced(oldFile, by: file.panel, content: fileContent, keys: false, "a file window")
+    #expect(file.panel.level == .floating && !file.panel.isKeyWindow)
+    file.panel.onCloseKey()
+    #expect(!file.isOpen, "a file window: ⌘W")
     for (name, panel, open, page, isOpen) in [
         ("the herdr window", { term.hostWindow }, { term.open() }, { term.pageView as NSView? }, { term.isOpen }),
         ("the Browser window", { browser.hostWindow }, { browser.open() }, { browser.pageView as NSView? }, { browser.isOpen }),

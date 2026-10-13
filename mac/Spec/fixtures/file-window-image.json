@@ -1,0 +1,16 @@
+{
+  "about": "A PNG an agent made, in the Mac's own image viewer (Spec/fixtures/media/build-times.png): no Save and no mode toggle, only more.",
+  "state": "file-window-image",
+  "extends": "rail-expanded",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "file_window": {
+      "path": "/home/stephan/projects/lasso/dist/build-times.png",
+      "host": "local",
+      "from": "olivia"
+    }
+  }
+}

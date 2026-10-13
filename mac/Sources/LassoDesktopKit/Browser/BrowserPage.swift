@@ -131,9 +131,7 @@ public enum BrowserPage {
             return path + (c.percentEncodedQuery.map { "?" + $0 } ?? "")
         case ("GET", "/api/browser"), ("POST", "/api/browser"):
             return path
-        case ("GET", _) where path.hasPrefix("/assets/"):
-            let name = path.dropFirst("/assets/".count)
-            guard !name.isEmpty, !name.contains("/"), !name.contains("%"), !name.hasPrefix(".") else { return nil }
+        case ("GET", _) where LassoPageAssets.isAsset(path):
             return path
         default:
             return nil

@@ -1,0 +1,17 @@
+{
+  "about": "A markdown file an agent opened for the human (PLAN 26), with unsaved edits: the bar (kind, name, the unsaved dot, host and agent, Rendered/Source, Save, more) over the page's place. The page itself is lasso's /desktop-file.html from a live lasso, so it is not drawn.",
+  "state": "file-window-markdown",
+  "extends": "rail-expanded",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "file_window": {
+      "path": "/home/stephan/projects/lasso/docs/design/file-windows.md",
+      "host": "local",
+      "from": "olivia"
+    },
+    "file_dirty": true
+  }
+}

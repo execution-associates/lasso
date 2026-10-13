@@ -853,6 +853,27 @@ export class ApiError extends Error {
   }
 }
 
+// A save refused because the file changed on disk after the buffer was read
+// (POST /api/file-write with base_mtime answering 409). `mtime` is the disk's
+// current one, or null when the server did not say.
+export class FileConflictError extends ApiError {
+  mtime: number | null
+  constructor(message: string, mtime: number | null) {
+    super(message, 409)
+    this.name = "FileConflictError"
+    this.mtime = mtime
+  }
+}
+
+// X-Lasso-Mtime (unix ms) off a /api/file response, or null when it is
+// missing or not a number.
+function mtimeHeader(r: Response): number | null {
+  const raw = r.headers.get("x-lasso-mtime")
+  if (!raw) return null
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : null
+}
+
 async function httpError(r: Response): Promise<Error> {
   const body = (await r.text().catch(() => "")).trim()
   const isHTML =
@@ -2449,6 +2470,26 @@ export const api = {
     return r.text()
   },
 
+  // The file's text with the mtime it was read at (X-Lasso-Mtime, unix ms;
+  // null from a lasso too old to send it). The mtime is what a save hands back
+  // as base_mtime, so the server can refuse a write over a version this buffer
+  // never saw. tooLarge means the text is the server's "too large to preview"
+  // placeholder (X-Lasso-Too-Large), not the file: saving it would replace the
+  // real file, so an editor must open it read-only.
+  fileTextStamped: async (
+    path: string,
+    host?: string
+  ): Promise<{ text: string; mtime: number | null; tooLarge: boolean }> => {
+    const r = await hostFetch(api.fileURL(path, host))
+    if (!r.ok) throw await httpError(r)
+    const text = await r.text()
+    return {
+      text,
+      mtime: mtimeHeader(r),
+      tooLarge: r.headers.has("x-lasso-too-large"),
+    }
+  },
+
   // A cheap change signature (Last-Modified + size) fetched via HEAD — no body
   // download — so a binary preview can poll for on-disk changes and only reload
   // when the file actually changed. Returns null on any failure (the caller
@@ -2467,13 +2508,40 @@ export const api = {
 
   // Overwrite an existing file on `host` (omitted = the active backend) with
   // new content (preserving its mode).
-  writeFile: (path: string, content: string, host?: string) =>
-    postJSON<{ ok: boolean }>("/api/file-write", { path, content, host }).then(
-      (r) => {
-        trackFeature("file_saved")
-        return r
-      }
-    ),
+  //
+  // With baseMtime (the mtime the buffer was read at, from fileTextStamped) the
+  // server refuses the write when the file has changed since, which closes the
+  // gap between the last look at the disk and the save: that is a
+  // FileConflictError carrying the disk's mtime, and the file is untouched.
+  // The answer's mtime is the file's new one, absent from an older lasso.
+  writeFile: async (
+    path: string,
+    content: string,
+    host?: string,
+    baseMtime?: number | null
+  ): Promise<{ ok: boolean; mtime?: number }> => {
+    const body: Record<string, unknown> = { path, content, host }
+    if (baseMtime != null) body.base_mtime = baseMtime
+    const r = await hostFetch("/api/file-write", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+    if (r.status === 409 && baseMtime != null) {
+      const v = (await r.json().catch(() => null)) as {
+        error?: string
+        mtime?: number
+      } | null
+      throw new FileConflictError(
+        v?.error || "changed on disk",
+        typeof v?.mtime === "number" ? v.mtime : null
+      )
+    }
+    if (!r.ok) throw await httpError(r)
+    const res = (await r.json()) as { ok: boolean; mtime?: number }
+    trackFeature("file_saved")
+    return res
+  },
 
   // Delete a file or directory on `host` (directories recursively).
   deleteFile: (path: string, host?: string) =>
