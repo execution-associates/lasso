@@ -13,6 +13,7 @@ public final class ParityRunner {
     public static let implemented: Set<String> = [
         "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "rail-hover-terminal", "inbox-open", "inbox-empty", "card-open", "card-blocked", "card-plan", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "settings-shortcuts", "new-agent", "new-agent-menu", "new-terminal", "bots-column", "bot-window", "bot-window-stopped", "bot-preview", "agent-window-markdown",
         "card-killing", "first-run", "first-run-connected", "rail-offline", "browser-window", "browser-banner", "rail-browser-pulse",
+        "file-window-markdown", "file-window-changed", "file-window-image",
     ]
 
     let spec: Spec
@@ -285,6 +286,33 @@ public final class ParityRunner {
             card = c
             surface = CardKeys.cardSet
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(CardView(model: c), size: Theme.Card.size.size) }
+            cap = try await make()
+        } else if let o = fixture.ui.file_window {
+            // A file window's own parts: the bar and the banner over the
+            // page's place (the page comes from a live lasso), or over a
+            // native viewer showing the fixture's file.
+            let kind = FileKind.classify(path: o.path, size: nil)
+            let m = FileWindowModel(open: o, kind: kind, hostLabel: fleet.panes.first { $0.host == o.hostKey }?.host_label)
+            var viewer: FileViewer?
+            if kind.isWeb {
+                var s = FilePageState()
+                s.loaded = true
+                s.mode = m.mode
+                s.dirty = fixture.ui.file_dirty == true
+                s.conflict = ["changed", "conflict"].contains(fixture.ui.file_banner ?? "")
+                if fixture.ui.file_banner == "conflict" { s.saveError = "Changed on disk" }
+                m.take(s)
+            } else {
+                let v = FileViewers.make(kind)
+                v.show(specDir.appendingPathComponent("fixtures/media").appendingPathComponent(m.name))
+                viewer = v
+                m.phase = .live
+            }
+            if fixture.ui.file_banner == "deleted" { m.deleted = true }
+            if fixture.ui.file_banner == "confirm_close" { m.confirmingClose = true }
+            let make: @MainActor () async throws -> Capture = {
+                try await Capturer.capture(FileWindowView(model: m, viewer: viewer), size: Theme.File.window.size2("size"))
+            }
             cap = try await make()
         } else if fixture.ui.browser_window == true {
             // The Browser window's own parts while its page opens: the page

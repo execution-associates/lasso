@@ -48,6 +48,14 @@ public struct Fixture: Decodable, Sendable {
         /// with the rail, its Browser button pulsing.
         public var browser_offer: BrowserOpen?
         public var browser_banner: Bool?
+        /// A file window (PLAN 26): the file an agent opened. A native kind
+        /// shows the file of its name in Spec/fixtures/media; a web kind's
+        /// page comes from a live lasso, so only its bar and banner draw.
+        public var file_window: FileOpen?
+        /// The page's buffer has unsaved edits.
+        public var file_dirty: Bool?
+        /// The strip under the bar: "changed", "conflict", "deleted", "confirm_close".
+        public var file_banner: String?
     }
 
     public struct Server: Decodable, Sendable {

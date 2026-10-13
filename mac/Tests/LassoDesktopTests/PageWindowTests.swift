@@ -250,3 +250,41 @@ final class FieldPageStub: URLProtocol, @unchecked Sendable {
     await until(2) { !c.isOpen }
     #expect(!c.isOpen, "the click went to \(hitView(root, at: NSPoint(x: x, y: root.bounds.height - y)).map { String(describing: type(of: $0)) } ?? "nothing")")
 }
+
+/// A file window an agent opened does not take the keyboard; a click on it
+/// does, without activating the app, and typing then reaches its page.
+/// ⌘W with unsaved edits asks first (in the window), and the second closes.
+/// (⌘S, ⌘Z and ⌘F against lasso's real editor are FilePageTests'.)
+@MainActor @Test func aFileWindowTakesTheKeyboardOnlyWhenClicked() async throws {
+    let source = FakeFileSource()
+    source.put("/r/notes.txt")
+    let client = LassoClient(baseURL: URL(string: "http://127.0.0.1:9")!, protocolClasses: [FilePageStub.self])
+    let c = FileWindowController(
+        open: FileOpen(path: "/r/notes.txt", from: "olivia"), kind: .text, stat: source.files["/r/notes.txt"], hostLabel: "titan",
+        client: client, source: source)
+    defer { c.close() }
+    c.show()
+    let w = c.panel
+    let web = try #require(c.pageView)
+    await until(10) { c.model.page.loaded }
+    #expect(w.isVisible && !w.isKeyWindow, "an agent's file never takes the keyboard")
+
+    let at = web.convert(NSPoint(x: web.bounds.midX, y: web.bounds.midY), to: nil)
+    for t in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+        w.sendEvent(
+            NSEvent.mouseEvent(
+                with: t, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: w.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
+    }
+    #expect(w.isKeyWindow && w.firstResponder === web, "a click gives it the keyboard")
+    await until(3) { await focused(web) }
+    press(w, "h", 4)
+    press(w, "i", 34)
+    await until(3) { c.model.dirty }
+    #expect(await field(web) == "hi" && c.model.dirty)
+
+    press(w, "w", 13, .command)
+    #expect(c.isOpen && c.model.banner == .confirmClose, "⌘W with edits asks first")
+    press(w, "w", 13, .command)
+    #expect(!c.isOpen && !w.isVisible, "the second closes")
+}

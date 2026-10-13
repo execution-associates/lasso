@@ -3,7 +3,7 @@ import Foundation
 import WebKit
 
 // How one of lasso's own pages runs in the app: the herdr window's terminal
-// (PLAN 22) and the Browser window (PLAN 24). A WKWebView cannot put a bearer
+// (PLAN 22), the Browser window (PLAN 24) and a file window's editor (PLAN 26). A WKWebView cannot put a bearer
 // token on a websocket, and Cloudflare Access would want its own cookie, so
 // the page never touches the network:
 //
@@ -94,6 +94,20 @@ class LassoPageBridge: NSObject {
 
     /// A message the page sent that is not one of the bridge's own.
     func handle(_ op: String, _ body: [String: Any]) {}
+
+    /// The largest request body the page may send; a larger one is refused
+    /// whole, never cut short (a cut file write would be a cut file).
+    var maxBody: Int { 1 << 20 }
+
+    /// A request `lassoPath` allowed, once its body is read: false refuses
+    /// it (a write the page may make only about its own file).
+    func admit(path: String, method: String, body: Data?) -> Bool { true }
+
+    /// lasso's response headers the page sees, besides its Content-Type:
+    /// an editor's mtime for its next save (/api/file's X-Lasso-Mtime), and
+    /// whether lasso sent its "too large to preview" line instead of the file
+    /// (X-Lasso-Too-Large: the editor then must not save it over the file).
+    nonisolated static let passedHeaders = ["X-Lasso-Mtime", "X-Lasso-Too-Large", "Last-Modified"]
 
     // MARK: calling the page
 
@@ -231,11 +245,38 @@ extension LassoPageBridge: WKURLSchemeHandler {
             urlSchemeTask.didFailWithError(URLError(.noPermissionsToReadFile))
             return
         }
+        var body: Data?
+        if method != "GET", method != "HEAD" {
+            if let b = req.httpBody {
+                body = b.count <= maxBody ? b : nil
+            } else if let stream = req.httpBodyStream {
+                body = Self.drain(stream, limit: maxBody)
+            } else {
+                body = Data()
+            }
+            guard body != nil else {
+                urlSchemeTask.didFailWithError(URLError(.dataLengthExceedsMaximum))
+                return
+            }
+        }
+        guard admit(path: path, method: method, body: body) else {
+            urlSchemeTask.didFailWithError(URLError(.noPermissionsToReadFile))
+            return
+        }
+        let assetKey = method == "GET" && LassoPageAssets.isAsset(path) ? client.baseURL.absoluteString + path : nil
+        if let assetKey, let hit = LassoPageAssets.shared.get(assetKey) {
+            let out = HTTPURLResponse(
+                url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": hit.type, "Cache-Control": "no-store"])!
+            urlSchemeTask.didReceive(out)
+            urlSchemeTask.didReceive(hit.data)
+            urlSchemeTask.didFinish()
+            return
+        }
         var r = client.request(raw: path)
         r.httpMethod = method
         r.setValue("*/*", forHTTPHeaderField: "Accept")
-        if method != "GET", method != "HEAD" {
-            r.httpBody = req.httpBody ?? req.httpBodyStream.map(Self.drain)
+        if let body {
+            r.httpBody = body
             if let type = req.value(forHTTPHeaderField: "Content-Type") { r.setValue(type, forHTTPHeaderField: "Content-Type") }
         }
         let box = SchemeTask(task: urlSchemeTask)
@@ -250,9 +291,13 @@ extension LassoPageBridge: WKURLSchemeHandler {
                     return
                 }
                 let type = http?.value(forHTTPHeaderField: "Content-Type") ?? "application/octet-stream"
+                var headers = ["Content-Type": type, "Cache-Control": "no-store"]
+                for h in Self.passedHeaders {
+                    if let v = http?.value(forHTTPHeaderField: h) { headers[h] = v }
+                }
+                if let assetKey, code == 200 { LassoPageAssets.shared.put(assetKey, data: data, type: type) }
                 let out = HTTPURLResponse(
-                    url: url, statusCode: code == 0 ? 502 : code, httpVersion: "HTTP/1.1",
-                    headerFields: ["Content-Type": type, "Cache-Control": "no-store"])!
+                    url: url, statusCode: code == 0 ? 502 : code, httpVersion: "HTTP/1.1", headerFields: headers)!
                 box.task.didReceive(out)
                 box.task.didReceive(data)
                 box.task.didFinish()
@@ -267,18 +312,55 @@ extension LassoPageBridge: WKURLSchemeHandler {
         stopped.insert(ObjectIdentifier(urlSchemeTask))
     }
 
-    /// A request body WebKit handed over as a stream, at most 1 MB.
-    nonisolated private static func drain(_ s: InputStream) -> Data {
+    /// A request body WebKit handed over as a stream; nil past `limit`.
+    nonisolated static func drain(_ s: InputStream, limit: Int) -> Data? {
         var out = Data()
         var buf = [UInt8](repeating: 0, count: 16 << 10)
         s.open()
         defer { s.close() }
-        while s.hasBytesAvailable, out.count < 1 << 20 {
+        while s.hasBytesAvailable {
             let n = s.read(&buf, maxLength: buf.count)
             if n <= 0 { break }
             out.append(buf, count: n)
+            if out.count > limit { return nil }
         }
         return out
+    }
+}
+
+/// A build's `/assets/` files: what every lasso page loads its scripts and
+/// styles from. Their names carry their content's hash, so one never changes
+/// under its name, and the app keeps them in memory (per lasso, up to
+/// `capacity` bytes, the oldest going first): a file window opened for each
+/// file an agent shows loads them once, not once a window.
+@MainActor
+final class LassoPageAssets {
+    static let shared = LassoPageAssets()
+    let capacity: Int
+    private var files: [String: (data: Data, type: String)] = [:]
+    private var order: [String] = []
+    private var bytes = 0
+
+    init(capacity: Int = 32 << 20) { self.capacity = capacity }
+
+    /// The page may load `/assets/<name>`: one level, no escapes, nothing hidden.
+    nonisolated static func isAsset(_ path: String) -> Bool {
+        guard path.hasPrefix("/assets/") else { return false }
+        let name = path.dropFirst("/assets/".count)
+        return !name.isEmpty && !name.contains("/") && !name.contains("%") && !name.contains("?") && !name.hasPrefix(".")
+    }
+
+    func get(_ key: String) -> (data: Data, type: String)? { files[key] }
+
+    func put(_ key: String, data: Data, type: String) {
+        guard files[key] == nil, data.count <= capacity / 4 else { return }
+        files[key] = (data, type)
+        order.append(key)
+        bytes += data.count
+        while bytes > capacity, let old = order.first {
+            order.removeFirst()
+            bytes -= files.removeValue(forKey: old)?.data.count ?? 0
+        }
     }
 }
 

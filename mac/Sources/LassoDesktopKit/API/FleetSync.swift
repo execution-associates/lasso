@@ -21,6 +21,8 @@ public final class FleetSync: ObservableObject {
     public var onBotChat: (String) -> Void = { _ in }
     /// Told when an agent opens a page for the human (`browser-open`).
     public var onBrowserOpen: (BrowserOpen) -> Void = { _ in }
+    /// Told when an agent opens a file for the human (`open-file`).
+    public var onOpenFile: (FileOpen) -> Void = { _ in }
 
     private var events: EventStream?
     private var loops: [Task<Void, Never>] = []
@@ -98,7 +100,7 @@ public final class FleetSync: ObservableObject {
         }
     }
 
-    private func handle(_ e: SSEEvent) {
+    func handle(_ e: SSEEvent) {
         switch e.event {
         case "active":
             guard let f = try? JSONDecoder().decode(ActiveFrame.self, from: Data(e.data.utf8)) else { return }
@@ -118,6 +120,8 @@ public final class FleetSync: ObservableObject {
             fleet.add(notice: InboxNotice(live: n))
         case "browser-open":
             if let o = try? JSONDecoder().decode(BrowserOpen.self, from: Data(e.data.utf8)) { onBrowserOpen(o) }
+        case "open-file":
+            if let o = try? JSONDecoder().decode(FileOpen.self, from: Data(e.data.utf8)) { onOpenFile(o) }
         case "bot-chat":
             struct B: Decodable { var bot: String }
             Task { await refreshBots() }

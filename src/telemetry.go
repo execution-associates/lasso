@@ -78,7 +78,7 @@ var (
 	telemetryViews        = []string{
 		"terminal", "chat", "grid", "bots", "browser", "files", "scratch", "settings",
 		"simple_inbox", "simple_agents", "inbox_card", "agents_column", "bots_column",
-		"agent_window", "bot_window", "terminal_window", "browser_window", "new_form",
+		"agent_window", "bot_window", "terminal_window", "browser_window", "file_window", "new_form",
 	}
 	telemetryHarnesses = []string{"claude", "codex", "opencode", "omp", "pi", "other"}
 	telemetryFeatures  = []string{

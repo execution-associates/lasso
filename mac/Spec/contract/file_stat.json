@@ -1,0 +1,13 @@
+{
+  "host": "x",
+  "files": [
+    {
+      "path": "x",
+      "exists": true,
+      "dir": true,
+      "size": 1,
+      "mtime": 1,
+      "error": "x"
+    }
+  ]
+}

@@ -47,6 +47,13 @@ public final class AppCoordinator {
     private var browser: BrowserWindowController?
     let browserAttention = BrowserAttention()
     private(set) var banner: BrowserBanner!
+    /// The files agents open for the human, each in a window (PLAN 26);
+    /// made on first use, live lassos only.
+    private(set) var files: FileWindows?
+    /// Whether the person is at this Mac (tests stand one in).
+    var filePresence: UserPresence?
+    /// What an agent's file needs of lasso (tests stand one in).
+    var fileSource: FileSource?
     /// The first-run panel: connect, sign in, three tips.
     private var firstRun: FirstRunController?
     private var presence: AppPresence?
@@ -310,6 +317,7 @@ public final class AppCoordinator {
             .sink { [weak self] on in self?.browserAttention.rail(expanded: on) }
             .store(in: &subs)
         sync?.onBrowserOpen = { [weak self] o in self?.browserOpened(o) }
+        sync?.onOpenFile = { [weak self] o in self?.fileOpened(o) }
         if client != nil { card.showInHerdr = { [weak self] p in self?.showInHerdr(p) } }
         card.openWindow = { [weak self] p in self?.openWindowFromCard(p) }
 
@@ -904,6 +912,8 @@ public final class AppCoordinator {
         terminal = nil
         browser?.close()
         browser = nil
+        files?.closeAll()
+        files = nil
         browserAttention.clear()
         banner.hide()
         chat?.model.stopPolling()
@@ -1000,6 +1010,32 @@ public final class AppCoordinator {
         browserAttention.arrived(o)
         banner.show()
         Trace.event("browser offer from an agent")
+    }
+
+    /// The file windows, made on first use (a fixture app has none).
+    func fileWindows() -> FileWindows? {
+        if let f = files { return f }
+        guard let client else { return nil }
+        let f = FileWindows(
+            client: client, source: fileSource ?? LiveFileSource(client: client), presence: filePresence ?? SystemPresence())
+        f.hostLabel = { [weak self] h in self?.fleet.panes.first { $0.host == h }?.host_label }
+        files = f
+        return f
+    }
+
+    /// An agent opened a file for the human (`open-file`). Every Mac on this
+    /// lasso hears it; one whose person is at it opens it in a window, which
+    /// never takes the keyboard. Nothing opens with the setting off, for a
+    /// folder, or from a lasso too old to watch and save the file safely.
+    func fileOpened(_ o: FileOpen) {
+        guard let f = fileWindows() else { return }
+        Task {
+            if let skip = await f.opened(o) {
+                Trace.event("agent's file not opened: \(skip)")
+            } else {
+                viewed(.file_window)
+            }
+        }
     }
 
     /// The inbox card's chat button: the inbox goes, as it does for T, and

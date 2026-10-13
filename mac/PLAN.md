@@ -1231,7 +1231,7 @@ The app sends anonymous usage analytics straight to PostHog's capture API (`POST
 
 **What it sends.** Every event carries `app` = `mac`, `app_version`, `os` = `darwin`, `arch`, `$lib` = `lasso`, and PostHog's `$geoip_disable` = true and `$process_person_profile` = false. Its `distinct_id` is a random UUID made on the first send (UserDefaults `analyticsInstallId`). Never a name, address, path, hostname, prompt, message, bot or agent name, token, or anything typed.
 - `install_active`, once per UTC day while the app runs on a live lasso (UserDefaults `analyticsActiveDay`): `hosts_count` (1, 2-3, 4+), `agents_running` and `bots_count` (0, 1-5, 6-20, 21+), from the fleet the app already holds.
-- `view_opened` with `view`: `inbox_card` (an inbox card, or the empty inbox), `agents_column`, `bots_column`, `chat` (a bot's chat panel), `agent_window`, `bot_window`, `terminal_window`, `browser_window`, `new_form`, `settings`. At most once per view per ten minutes.
+- `view_opened` with `view`: `inbox_card` (an inbox card, or the empty inbox), `agents_column`, `bots_column`, `chat` (a bot's chat panel), `agent_window`, `bot_window`, `terminal_window`, `browser_window`, `file_window` (a window an agent's file opened, §26), `new_form`, `settings`. At most once per view per ten minutes.
 - `agent_created` (`harness`: claude, codex, opencode, omp, pi, other; `kind`: git, scratch; `from`: mac) when the New form creates an agent.
 - `inbox_action` (`action`: acknowledge, kill, reply, answer, stop, rename; `from`: mac) when lasso took one from a card or an agent window (`Card/LiveCardActions.swift`).
 - `feature_used` (`feature`): `shortcut_used` (a global shortcut, the summon key, ⌘O/⇧⌘O/⌘I), `paste_upload` (a file pasted or dropped onto a composer or the New form), `terminal_zoom` (the herdr window's text size).
@@ -1246,3 +1246,69 @@ A fixture or parity run and the test process never send (`Analytics.inert`), and
 **Never in the way.** Events queue in memory, capped at 200 (the oldest go), and go out in batches of up to 100, 30 s after the first or at once when 20 wait. One request at a time on a detached utility task, an ephemeral `URLSession` (no cookies, no cache) with 5 s request and resource timeouts. A failure or an error status drops the batch: no retry, nothing shown, a debug log line at most. Quitting does not wait for it.
 
 **Tests:** `AnalyticsTests` (a fake transport): every off path sends nothing; every event the enums can make carries only the listed keys and values; an error status, an unreachable host and a hanging one leave one request in flight and a bounded queue; the view throttle and the daily ping; the first-run and Settings switches.
+
+## 26. Files agents show you, in a window
+
+An agent's `open_file` (or `lasso open`) puts the file on the human's screen. On the web it goes to the Files sidebar (`docs/design/file-viewer-host.md`). The Mac app opens it in a window of its own, on the Mac the human is at. The window shows text, markdown and SVG (rendered or source), rendered HTML with the files beside it, images, audio, video, PDFs and anything QuickLook previews. It follows changes to the file on its machine, local or remote, and it edits and saves text.
+
+**Which Mac opens it** (`App/AppCoordinator.fileOpened`, `File/FileWindows.opened`). Every Mac app on the lasso hears lasso's `open-file` event (`FleetSync.onOpenFile`). Nothing opens unless all of these hold:
+- the app is on a live lasso;
+- Settings › Notifications › Files › **Open files agents show you** is on (UserDefaults `openAgentFiles`, on when absent);
+- the path is not a folder;
+- the person is at this Mac (`File/FilePresence.swift`'s `SystemPresence`): HID input within `file.presence`'s 120 s (`CGEventSource`), a login session on the console whose screen is not locked (`CGSessionCopyCurrentDictionary`), and no lock or screensaver notice since. An idle Mac mini or a locked laptop on the same lasso opens nothing;
+- `POST /api/file-stat` answers for the file. An older lasso answers its web app with a 200 there (`LassoClient.send`'s "no such route"), so a lasso without the routes the window relies on (`within`, `base_mtime`) opens nothing.
+
+The stat's size also chooses the window's kind.
+
+**The window** (`File/FileWindow.swift`) is a page window (§22, `Page/PageWindow.swift`): an `AgentWindowPanel` at the floating level on every Space, over full-screen apps, shown through `RailPanel.orderIn`, collapsing to its bar, resized by its corner, never full screen.
+- **It never takes the keyboard by itself** (`show(takeKey: false)`). An agent's file appearing must not steal typing from another app. The person's click does take it (`LassoPageWebView.acceptsFirstMouse`), without activating the app.
+- **Its bar** (`file.bar`, 40 pt, parity anchor `file`) shows the kind's icon, the file's name with an accent dot while it has unsaved edits, and "host · opened by agent" under it. Then come **Rendered / Source** (markdown, HTML and SVG), **Save** (text kinds, hidden while lasso sent its too-large line), **⋯** (Reload, Open a copy in default app, Copy path), minimize and close.
+- **The banner** (`file.banner`) is a strip under the bar, never over the file. It shows "changed on disk while you were editing" with Reload or Keep mine; "not saved: it changed since you opened it" (a 409); "no longer on <host>"; and the close confirm.
+- **⌘W or close with unsaved edits** arms the confirm in the banner (Keep editing, Discard, Save). A second ⌘W closes. There is no alert (`PageWindow.shouldClose`).
+- **One window per file per machine** (`File/FileWindows.swift`). Opening a file again brings its window forward and expands it, and a line opens the source scrolled to that line. New windows cascade by `file.window`'s `cascade` from the newest. Past its `max` (8), the oldest window without unsaved edits gives its place to the new one; a window with edits is never closed for another.
+- **Switching to another lasso closes them all**, edits or not, so a save cannot land on the new lasso (`use(_:)`).
+
+**What shows the file** (`FileKind.classify`, by UTType from the extension, then the size):
+- **Text, markdown and SVG** run in lasso's page `/desktop-file.html` (`src/web/src/desktop/file-window.tsx`): the web viewer's CodeMirror and markdown renderer, with no controls of its own. The window drives it through `window.__lassoFile` (`changed`, `assetsChanged`, `setMode`, `save`, `takeDisk`, `keepMine`, `draft`, `load`), and it reports `ready`, `file-state` and `file-saved`. ⌘S, ⌘Z and ⌘F are CodeMirror's.
+- **A text file over 2 MiB** (`FileKind.textLimit`, lasso's preview cap) is shown read-only by QuickLook. `/api/file` would send a "too large to preview" line instead, and saving that line would overwrite the file. A file that grows past the cap while it is open turns its editor read-only (`X-Lasso-Too-Large`).
+- **Rendered HTML** (`File/DocPage.swift`) gets a separate top-level `WKWebView`: a non-persistent store, no lasso scheme and no message handler. An iframe inside the file page could otherwise POST to `lasso-file:` and write.
+  - Its files come through `lasso-doc://<window token>/<absolute path>`, GET and HEAD only. The handler checks the token and lexical confinement to the HTML file's folder: no `.` or `..` segment (encoded ones included), no encoded slash or backslash, no hidden segment below the folder.
+  - It fetches `/api/file?download=1&within=<folder>`, so lasso refuses dot folders, symlinks and a folder at or above home as well.
+  - Files are streamed with Range passed through (206, Content-Range, Accept-Ranges). HTML files get the web preview's CSP (`lib/html-preview.ts`), with the folder and https allowed, inserted after the doctype.
+  - A `WKContentRuleList` blocks every load except `lasso-doc://<token>/`, https, data:, blob: and about:. Links open in the Mac's browser.
+  - Unsaved source edits are what it renders (`draft()`). A reload keeps the scroll position.
+- **Images, audio and video, and PDFs** use the Mac's own viewers (`File/FileViewers.swift`), each keeping its place across a reload:
+  - an image in a magnifying scroll view (an animated GIF plays);
+  - `AVPlayerView`, with no full-screen button;
+  - `PDFView`.
+- **Everything else** uses `QLPreviewView`: Word, Excel, Keynote, Pages, usdz.
+- **webm, mkv and ogg** say "Can't play here" and offer **Open a copy in default app**.
+- Native kinds are downloaded whole (`LassoClient.download`, written straight to disk, with the 401 refresh-and-retry) into `~/Library/Caches/Lasso/Files/<sha(host, path)>/<mtime>-<size>.<ext>` (`File/FileCache.swift`). The old version goes once the new one is in, and the folder goes when the window closes.
+
+**What the page may reach** (`File/FilePage.swift`, `FileBridge`, a lasso page under `lasso-file:`, §22's machinery):
+- its document;
+- the build's `/assets/` files (kept in memory per lasso, `LassoPageAssets`);
+- `GET /api/file` with only `path`, `host` and `v`, where the host is the window's own (never `download` or `within`);
+- `POST /api/file-write`, only when `admit` finds the body names the window's own path and host and nothing else.
+
+A body over 2 MiB of text plus its escapes is refused whole, never cut short. Every other route is refused. lasso's `X-Lasso-Mtime` and `X-Lasso-Too-Large` reach the page, and every save carries `base_mtime`, so a write over a file that changed since it was read is a 409 and never lands.
+
+**Live updates** (`File/FileWatcher.swift`). lasso has no change feed for files, so the app asks:
+- one `POST /api/file-stat` per machine per tick, covering every window on it;
+- a window's document, plus every file its page or rendered HTML loaded (a markdown's images), up to `file.watch`'s `max_paths` (64, the server's cap per request);
+- every second while a window is in view, every 5 s while collapsed or covered, and at once when one is expanded.
+
+A change fires once. Text kinds call `changed()`: the page compares content, so a clean buffer takes the disk's version and an edited one raises the banner without touching the edits. An asset's change bumps the page's image `v=`. Native kinds fetch the new version and keep their place. A file that is gone shows the deleted banner.
+
+**Parity:** `file-window-markdown` (the bar, unsaved), `file-window-changed` (the banner), `file-window-image` (the image viewer over `Spec/fixtures/media/build-times.png`). The pages come from a live lasso, so they are not drawn.
+
+**Tests:**
+- `FileWindowTests` covers classification and the 2 MiB rule, the page's reach and its writes, the doc scheme's confinement, the CSP and content rules, the watcher (once per change, once per machine, the cap), the gate (setting, folder, presence, an old lasso, a missing file), reopen and cascade, the cap, the close confirm, a lasso switch, the image window and the download's retry.
+- `FilePageTests` drives lasso's real built page (when `src/web/dist` is beside the package) through load, typing, ⌘S with `base_mtime`, ⌘Z, ⌘F, a rewrite under edits and a 409, and runs a rendered report against a stand-in lasso.
+- `PageWindowTests` and `SpacesTests` cover the keyboard and the panel.
+
+**Known limits:**
+- Video plays only once it has downloaded whole.
+- `<video>` inside a rendered HTML page is best effort (WebKit media over a custom scheme).
+- SFTP mtimes are whole seconds; the page compares content, so a same-size rewrite still shows.
+- A rendered page can read its own folder and send it out over https: CDN scripts working is the reason, and the folder, dot and home rules are the bound.

@@ -1,17 +1,11 @@
-import { EditorView } from "@codemirror/view"
-import CodeMirror from "@uiw/react-codemirror"
 import { Eye, Pencil, Save, X } from "lucide-react"
 import * as React from "react"
+import { CodeEditor } from "@/components/CodeEditor"
 import { Markdown, resolveMarkdownSrc } from "@/components/Markdown"
 import { Button } from "@/components/ui/button"
 import { Orb } from "@/components/ui/orb"
 import { api } from "@/lib/api"
 import { useApp } from "@/lib/app-store"
-import {
-  changedLinesHighlight,
-  editorTheme,
-  languageExtension,
-} from "@/lib/codemirror"
 import { changedNewLines } from "@/lib/diff"
 import {
   isAudio,
@@ -23,10 +17,6 @@ import {
 } from "@/lib/format"
 import { useDiff } from "@/lib/git"
 import { HTML_PREVIEW_SANDBOX, htmlPreviewDoc } from "@/lib/html-preview"
-
-// Above this size we skip the language extension (and its parsing cost) but
-// still open the file in the editor.
-const HILITE_CAP = 400 * 1024
 
 // Imported STATICALLY, and it has to stay that way. It was a lazy chunk, which
 // made the first file click in a tab fetch new code — and lasso self-updates by
@@ -103,6 +93,10 @@ export function FileViewer({
   const [error, setError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
   const [saveError, setSaveError] = React.useState<string | null>(null)
+  // The server sent its "too large to preview" placeholder instead of the
+  // file: shown read-only and never saved, or the placeholder would replace
+  // the real file on disk.
+  const [tooLarge, setTooLarge] = React.useState(false)
   const [preview, setPreview] = React.useState(previewable)
   // Line numbers (1-based) that differ from HEAD, barred gold in the editor when
   // the working tree is dirty for this file.
@@ -169,14 +163,16 @@ export function FileViewer({
     setDraft(null)
     setError(null)
     setSaveError(null)
+    setTooLarge(false)
     api
-      .fileText(path, host ?? undefined)
-      .then((t) => {
+      .fileTextStamped(path, host ?? undefined)
+      .then((r) => {
         if (cancelled) return
         const restored = carry.current
         carry.current = null
-        setText(t)
-        setDraft(restored ?? t)
+        setTooLarge(r.tooLarge)
+        setText(r.text)
+        setDraft(r.tooLarge ? r.text : (restored ?? r.text))
       })
       .catch((e: Error) => !cancelled && setError(e.message))
     return () => {
@@ -227,14 +223,15 @@ export function FileViewer({
     const id = setInterval(() => {
       if (document.hidden || dirtyRef.current) return
       api
-        .fileText(path, host ?? undefined)
-        .then((t) => {
+        .fileTextStamped(path, host ?? undefined)
+        .then((r) => {
           // Re-check the guards: the initial load must have landed, the editor
           // must still be clean, and the content must have actually changed.
           if (dirtyRef.current || textRef.current === null) return
-          if (t === textRef.current) return
-          setText(t)
-          setDraft(t)
+          if (r.text === textRef.current) return
+          setTooLarge(r.tooLarge)
+          setText(r.text)
+          setDraft(r.text)
         })
         .catch(() => {
           /* transient (file gone / host blip); keep the last good content */
@@ -274,7 +271,7 @@ export function FileViewer({
   }, [path, host, binary])
 
   const save = React.useCallback(async () => {
-    if (draft == null || saving) return
+    if (draft == null || saving || tooLarge) return
     setSaving(true)
     setSaveError(null)
     try {
@@ -285,7 +282,7 @@ export function FileViewer({
     } finally {
       setSaving(false)
     }
-  }, [path, host, draft, saving])
+  }, [path, host, draft, saving, tooLarge])
 
   // Closing discards unsaved edits, so confirm first.
   const requestClose = React.useCallback(() => {
@@ -439,6 +436,7 @@ export function FileViewer({
             value={draft}
             path={path}
             onChange={setDraft}
+            readOnly={tooLarge}
             changedLines={changedLines}
             line={line}
             lineSeq={lineSeq}
@@ -446,72 +444,5 @@ export function FileViewer({
         )}
       </div>
     </div>
-  )
-}
-
-// A CodeMirror 6 editor themed to the live herdr palette (see lib/codemirror).
-// basicSetup gives line numbers, the fold gutter, bracket matching and in-editor
-// search (⌘/Ctrl+F). For very large files we drop the language extension to skip
-// the parsing cost — editing still works, just without highlighting.
-function CodeEditor({
-  value,
-  path,
-  onChange,
-  changedLines,
-  line,
-  lineSeq,
-}: {
-  value: string
-  path: string
-  onChange: (v: string) => void
-  changedLines: number[]
-  line: number | null
-  lineSeq: number
-}) {
-  // Recompute only when the file, the large-file threshold, or the changed-line
-  // set changes — not on every keystroke — so CodeMirror isn't reconfigured as
-  // the user types.
-  const big = value.length > HILITE_CAP
-  const extensions = React.useMemo(() => {
-    const lang = big ? null : languageExtension(path)
-    return [
-      editorTheme,
-      EditorView.lineWrapping,
-      ...(lang ? [lang] : []),
-      ...(changedLines.length ? [changedLinesHighlight(changedLines)] : []),
-    ]
-  }, [path, big, changedLines])
-
-  // Scroll a requested line into the middle of the view and put the cursor on
-  // it, which the active-line band highlights. Not focused: on a phone that
-  // would pop the keyboard over a file the human only asked to look at. The
-  // view arrives through onCreateEditor, so this also runs once the editor
-  // exists when the line was asked for before the text had loaded.
-  const [view, setView] = React.useState<EditorView | null>(null)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: lineSeq is the re-request trigger
-  React.useEffect(() => {
-    if (!view || !line) return
-    const doc = view.state.doc
-    const at = doc.line(Math.min(Math.max(1, line), doc.lines))
-    view.dispatch({
-      selection: { anchor: at.from },
-      effects: EditorView.scrollIntoView(at.from, { y: "center" }),
-    })
-  }, [view, line, lineSeq])
-
-  return (
-    <CodeMirror
-      value={value}
-      onChange={onChange}
-      theme="none"
-      // Use the browser's native selection (styled in lib/codemirror) instead of
-      // CodeMirror's drawn one — the drawn band can't recolor selected text and
-      // read as nearly invisible on light themes.
-      basicSetup={{ drawSelection: false }}
-      extensions={extensions}
-      height="100%"
-      className="cm-host"
-      onCreateEditor={setView}
-    />
   )
 }

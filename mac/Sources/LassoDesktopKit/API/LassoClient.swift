@@ -170,6 +170,32 @@ public final class LassoClient: @unchecked Sendable {
         }
     }
 
+    /// A file's bytes straight to `dest`, never held in memory (a video can
+    /// be gigabytes), with the same refresh-and-retry on a 401 as every
+    /// other request. `progress` hears bytes so far and the expected total
+    /// (-1 when lasso did not say). An error status throws, its first words
+    /// kept, and leaves `dest` as it was.
+    public func download(_ r: URLRequest, to dest: URL, progress: (@Sendable (Int64, Int64) -> Void)? = nil) async throws {
+        var r = r
+        r.timeoutInterval = 600
+        let (tmp, resp) = try await perform(r) { req -> (URL, URLResponse) in
+            let (file, resp) = try await DownloadTask.run(self.session, req, progress: progress)
+            // A refused first try's body is not the file: drop it before the retry.
+            if (resp as? HTTPURLResponse)?.statusCode == 401 { try? FileManager.default.removeItem(at: file) }
+            return (file, resp)
+        }
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code) else {
+            let head = (try? Data(contentsOf: tmp, options: .mappedIfSafe).prefix(300)) ?? Data()
+            throw LassoError.http(code, String(decoding: head, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        let fm = FileManager.default
+        try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+        try fm.moveItem(at: tmp, to: dest)
+    }
+
     /// A request whose answer is not JSON (a file): its body and status.
     public func raw(_ r: URLRequest) async throws -> (Data, Int) {
         let (data, resp) = try await perform(r) { try await self.session.data(for: $0) }
@@ -187,7 +213,7 @@ public final class LassoClient: @unchecked Sendable {
 
     /// Send with the freshest token; a 401 refreshes once and retries, and a
     /// refresh that fails leaves the user a "Sign in again" (AuthState).
-    func perform(_ r: URLRequest, _ go: (URLRequest) async throws -> (Data, URLResponse)) async throws -> (Data, URLResponse) {
+    func perform<T>(_ r: URLRequest, _ go: (URLRequest) async throws -> (T, URLResponse)) async throws -> (T, URLResponse) {
         guard let t = auth else { return try await go(r) }
         var r = r
         await t.freshen()
@@ -225,6 +251,59 @@ public final class LassoClient: @unchecked Sendable {
         r.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         r.timeoutInterval = 90
         return r
+    }
+}
+
+/// One download task, its file moved somewhere it stays before URLSession
+/// deletes it, and its progress reported as it goes.
+private final class DownloadTask: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<(URL, URLResponse), Error>?
+    private var file: URL?
+    private let progress: (@Sendable (Int64, Int64) -> Void)?
+
+    private init(progress: (@Sendable (Int64, Int64) -> Void)?) { self.progress = progress }
+
+    static func run(_ session: URLSession, _ r: URLRequest, progress: (@Sendable (Int64, Int64) -> Void)?) async throws -> (URL, URLResponse) {
+        let d = DownloadTask(progress: progress)
+        let task = session.downloadTask(with: r)
+        task.delegate = d
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { c in
+                d.lock.withLock { d.continuation = c }
+                task.resume()
+            }
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData _: Int64, totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        progress?(totalBytesWritten, totalBytesExpectedToWrite)
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        // URLSession deletes `location` when this returns.
+        let keep = FileManager.default.temporaryDirectory.appendingPathComponent("lasso-download-" + UUID().uuidString)
+        if (try? FileManager.default.moveItem(at: location, to: keep)) != nil { lock.withLock { file = keep } }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
+        let (c, f) = lock.withLock { () -> (CheckedContinuation<(URL, URLResponse), Error>?, URL?) in
+            defer { continuation = nil }
+            return (continuation, file)
+        }
+        if let error {
+            if let f { try? FileManager.default.removeItem(at: f) }
+            c?.resume(throwing: error)
+        } else if let f, let resp = task.response {
+            c?.resume(returning: (f, resp))
+        } else {
+            c?.resume(throwing: URLError(.cannotCreateFile))
+        }
     }
 }
 

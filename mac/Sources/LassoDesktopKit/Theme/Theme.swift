@@ -476,6 +476,30 @@ public enum Theme {
             proposed: true)
     }
 
+    /// A file an agent shows the human, in a window of its own (PLAN 26).
+    public enum File {
+        public static let window = Token(
+            "file.window", ["size": [880, 720], "min": [420, 280], "cascade": 26, "max": 8],
+            .inferred("a page of text at the editor's 14 px face, about 100 columns; each new one steps down and right by the bar's height less a margin, eight before the oldest unedited one is reused"),
+            proposed: true)
+        public static let bar = Token(
+            "file.bar", ["height": 40],
+            .inferred("one row, the Browser window's bar (browser.bar)"),
+            proposed: true)
+        public static let banner = Token(
+            "file.banner", ["height": 36],
+            .inferred("one line of small text and a row of pills (control.pill) with room above and below"),
+            proposed: true)
+        public static let watch = Token(
+            "file.watch", ["visible_s": 1, "hidden_s": 5, "max_paths": 64],
+            .inferred("an edit shows within about two seconds while the window is in view; /api/file-stat takes at most 64 paths a request"),
+            proposed: true)
+        public static let presence = Token(
+            "file.presence", ["idle_s": 120],
+            .inferred("someone reading or thinking at the Mac has touched it within two minutes; an unattended Mac has not"),
+            proposed: true)
+    }
+
     public static let summonKey = Token(
         "keys.summon", ["key": "l", "modifiers": ["option", "command"]], .unmeasured("global summon"), proposed: true)
     /// The inbox shortcut's double tap: two taps of the modifier alone, each
@@ -509,6 +533,7 @@ public enum Theme {
         Motion.railExpand, Motion.railCollapse, Motion.cardOpen, Motion.cardClose, Motion.toastIn, Motion.cardPaging,
         Live.pollAllPanes, Live.pollBots, Live.pollChat, Live.focusGrace, Live.stopWait, Live.sseWatchdog, Live.backoff, Live.arrivalSound,
         Live.termClaim, Live.scrollBack, Terminal.window, Terminal.zoom, Browser.window, Browser.bar, Browser.banner,
+        File.window, File.bar, File.banner, File.watch, File.presence,
         summonKey, inboxDoubleTap,
     ]
 }

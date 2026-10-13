@@ -1,0 +1,18 @@
+{
+  "about": "The same file changed on disk under unsaved edits: the banner strip under the bar (never over the file) with Reload and Keep mine.",
+  "state": "file-window-changed",
+  "extends": "rail-expanded",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "file_window": {
+      "path": "/home/stephan/projects/lasso/docs/design/file-windows.md",
+      "host": "local",
+      "from": "olivia"
+    },
+    "file_dirty": true,
+    "file_banner": "changed"
+  }
+}

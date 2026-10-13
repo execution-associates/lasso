@@ -371,6 +371,7 @@ func runServer() {
 	mux.HandleFunc("/api/file-rename", serveFileRename)
 	mux.HandleFunc("/api/file-write", serveFileWrite)
 	mux.HandleFunc("/api/file-upload", serveFileUpload)
+	mux.HandleFunc("/api/file-stat", serveFileStat)
 	mux.HandleFunc("/api/panes", servePanes)
 	mux.HandleFunc("/api/chat", serveChat)
 	mux.HandleFunc("/api/chat/send", serveChatSend)
@@ -3223,6 +3224,11 @@ func serveFileWrite(w http.ResponseWriter, r *http.Request) {
 		Path    string `json:"path"`
 		Content string `json:"content"`
 		Host    string `json:"host"` // host to write on (default active)
+		// BaseMtime is the X-Lasso-Mtime the editor loaded (unix ms). When
+		// given and the file has moved on since, the write is refused, so a
+		// save cannot silently undo an agent's edit that landed between the
+		// editor's last poll and the click.
+		BaseMtime *int64 `json:"base_mtime"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -3247,11 +3253,21 @@ func serveFileWrite(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not a file", http.StatusBadRequest)
 		return
 	}
+	if req.BaseMtime != nil && *req.BaseMtime != info.ModTime().UnixMilli() {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]any{"error": "changed on disk", "mtime": info.ModTime().UnixMilli()})
+		return
+	}
 	if err := be.WriteFile(path, []byte(req.Content), info.Mode().Perm()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"ok": true})
+	out := map[string]any{"ok": true}
+	if after, err := be.Stat(path); err == nil {
+		out["mtime"] = after.ModTime().UnixMilli()
+	}
+	writeJSON(w, out)
 }
 
 // maxUpload caps the total multipart body so a runaway/hostile upload can't
@@ -3351,11 +3367,21 @@ func serveFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path must be absolute", http.StatusBadRequest)
 		return
 	}
+	if root := r.URL.Query().Get("within"); root != "" {
+		if err := fileWithin(be, root, path); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+	}
 	info, err := be.Stat(path)
 	if err != nil || info.IsDir() {
 		http.Error(w, "not a file", http.StatusNotFound)
 		return
 	}
+	// The mtime a later /api/file-write names as base_mtime, on the clock
+	// /api/file-stat reports, so an editor can tell "the file I loaded" from
+	// "the file someone has since rewritten" without a second request.
+	w.Header().Set("X-Lasso-Mtime", strconv.FormatInt(info.ModTime().UnixMilli(), 10))
 	f, err := be.Open(path)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -3385,6 +3411,10 @@ func serveFile(w http.ResponseWriter, r *http.Request) {
 	// (images, PDFs, video, audio) render in-browser regardless of size, so
 	// serve them whole.
 	if info.Size() > maxPreview && !isPreviewMedia(path) {
+		// The placeholder is not the file: an editor that loaded it as the
+		// file's text and saved would overwrite the real file with it. The
+		// header lets an editor tell, and open it read-only.
+		w.Header().Set("X-Lasso-Too-Large", strconv.FormatInt(info.Size(), 10))
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		fmt.Fprintf(w, "[%s is %d bytes — too large to preview (limit %d)]", filepath.Base(path), info.Size(), maxPreview)
 		return

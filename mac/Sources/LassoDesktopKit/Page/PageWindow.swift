@@ -39,6 +39,9 @@ final class PageWindow {
     weak var focus: NSView?
     /// It closed (its close button, ⌘W, or `close()`).
     var onClosed: () -> Void = {}
+    /// Asked before the close button or ⌘W closes it: false keeps it open
+    /// (a file window with unsaved edits asks first). `close()` never asks.
+    var shouldClose: () -> Bool = { true }
     /// It took the keyboard.
     var onBecameKey: () -> Void = {}
     nonisolated(unsafe) private var keyWatch: NSObjectProtocol?
@@ -50,15 +53,17 @@ final class PageWindow {
     private var forgotten = false
 
     /// `header` draws the window's header from its chrome; `page` fills the rest.
+    /// `frame` places it instead of where it was left (a file window cascades
+    /// from the last one).
     init<Header: View>(
-        name: String, size: NSSize, min: NSSize, headerHeight: CGFloat, page: NSView,
+        name: String, size: NSSize, min: NSSize, headerHeight: CGFloat, page: NSView, frame placed: NSRect? = nil,
         header makeHeader: (AgentWindowChrome) -> Header
     ) {
         self.name = name
         self.size = size
         minSize = min
         header = headerHeight
-        let frame = Self.initialFrame(name: name, size: size)
+        let frame = placed.map { Self.onScreen($0) } ?? Self.initialFrame(name: name, size: size)
         expandedFrame = frame
         let bounds = NSRect(origin: .zero, size: frame.size)
 
@@ -92,9 +97,9 @@ final class PageWindow {
 
         panel = AgentWindowPanel(content: root, frame: frame)
         panel.isReleasedWhenClosed = false
-        panel.onCloseKey = { [weak self] in self?.close() }
+        panel.onCloseKey = { [weak self] in self?.requestClose() }
         chrome.onToggle = { [weak self] in self?.toggle() }
-        chrome.onClose = { [weak self] in self?.close() }
+        chrome.onClose = { [weak self] in self?.requestClose() }
         chrome.onDrag = { [weak self] ended in self?.drag(ended, resize: false) }
         chrome.onResize = { [weak self] ended in self?.drag(ended, resize: true) }
         chrome.onDefaultSize = { [weak self] in self?.defaultSize() }
@@ -119,13 +124,19 @@ final class PageWindow {
     /// that screen is there, else `size` centred on the screen under the
     /// pointer. Kept on the screen's visible frame.
     static func initialFrame(name: String, size: NSSize) -> NSRect {
-        var frame: NSRect
+        let frame: NSRect
         if let saved = storedFrame(name), saved.width > 0, NSScreen.screens.contains(where: { $0.visibleFrame.intersects(saved) }) {
             frame = saved
         } else {
             let vis = Screens.underPointer
             frame = NSRect(x: vis.midX - size.width / 2, y: vis.midY - size.height / 2, width: size.width, height: size.height)
         }
+        return onScreen(frame)
+    }
+
+    /// `frame` kept on the visible frame of the screen it is on.
+    static func onScreen(_ frame: NSRect) -> NSRect {
+        var frame = frame
         let vis = Screens.visibleFrame(for: frame)
         frame.size.width = min(frame.width, vis.width)
         frame.size.height = min(frame.height, vis.height)
@@ -150,6 +161,11 @@ final class PageWindow {
     func show(takeKey: Bool) {
         panel.orderIn(takeKey: takeKey) { if let p = $0 as? AgentWindowPanel { panel = p } }
         if takeKey, let focus { panel.makeFirstResponder(focus) }
+    }
+
+    /// The close button or ⌘W: closed, unless `shouldClose` keeps it.
+    func requestClose() {
+        if shouldClose() { close() }
     }
 
     /// Close it: put away, its frame remembered, then `onClosed`.
