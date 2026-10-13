@@ -51,9 +51,14 @@ public final class FleetModel: ObservableObject {
     /// (another mark) brings the entry back.
     @Published public private(set) var acknowledged: [String: String] = [:]
 
+    /// Counts the fleet listings applied: what follows lasso's own polls,
+    /// and not a local edit of a row (a rename).
+    @Published public private(set) var listings = 0
+
     public func apply(panes: AllPanes) {
         self.panes = panes.panes
         hostErrors = panes.errors ?? [:]
+        listings += 1
         // A killed pane is remembered until the fleet stops listing it.
         let listed = Set(panes.panes.map(\.key))
         if !killed.isSubset(of: listed) { killed.formIntersection(listed) }

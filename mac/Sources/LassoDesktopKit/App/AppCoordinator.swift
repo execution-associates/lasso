@@ -27,6 +27,8 @@ public final class AppCoordinator {
     /// The hover preview beside the agents list, and each agent's own window.
     private(set) var preview: AgentPreviewController!
     private(set) var windows: [String: AgentWindowController] = [:]
+    /// Closes the windows of agents that ended elsewhere (`GoneWindows`).
+    private var goneWindows = GoneWindows()
     /// The Bots column and each bot's own window (PLAN 23).
     let bots: BotsController
     private let botActions2: BotActions
@@ -287,6 +289,9 @@ public final class AppCoordinator {
         }
         bots.model.onManage = { [weak self] in self?.openWeb("/bots/manage") }
         fleet.$bots.sink { [weak self] b in self?.avatars.refresh(b) }.store(in: &subs)
+        // On the main queue's next turn: the sink runs as the count is about
+        // to change, and reads the listing it counts.
+        fleet.$listings.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.closeGoneWindows() }.store(in: &subs)
         rail.model.onSettings = { [weak self] in self?.openSettings() }
         rail.model.onNewAgent = { [weak self] in self?.openNewAgent(.git) }
         rail.model.onTerminal = { [weak self] in self?.openTerminal() }
@@ -925,6 +930,18 @@ public final class AppCoordinator {
         windows[p.key] = w
         w.show(focusReply: focusReply)
         Trace.event("agent window opened")
+    }
+
+    /// An agent that ended (closed itself, or was closed elsewhere) takes its
+    /// window with it.
+    func closeGoneWindows() {
+        guard fleet.heard.contains(.panes) else { return }
+        let gone = goneWindows.listing(
+            open: Set(windows.keys), agents: Set(fleet.agents.map(\.key)), hostErrors: Set(fleet.hostErrors.keys))
+        for key in gone {
+            Trace.event("agent window closed: its agent ended")
+            windows[key]?.close()
+        }
     }
 
     /// The herdr window, made on first use (a fixture app has none).

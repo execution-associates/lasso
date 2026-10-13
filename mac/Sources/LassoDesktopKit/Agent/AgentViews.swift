@@ -246,7 +246,8 @@ enum ConversationEntry: Identifiable {
 }
 
 /// The conversation, newest at the bottom, with the time under the last
-/// message of each turn.
+/// message of each turn. It follows the newest row while the reader is at
+/// the bottom, and reaching the top reads further back (`ScrollBack`).
 struct AgentConversation: View {
     let entries: [ConversationEntry]
     var pending: ChatPayload.PendingUI?
@@ -256,11 +257,13 @@ struct AgentConversation: View {
     var outgoing: String?
     /// The machine holding the transcript, whose files media are read from.
     var host = "local"
+    var back = ScrollBack()
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: Theme.Layout.chat.number("message_gap")) {
+                    if back.loading { OlderRow() }
                     ForEach(Array(entries.enumerated()), id: \.element.id) { i, e in
                         entry(e, last: i == entries.count - 1 || isMessage(entries[i + 1]) != isMessage(e))
                             .id(e.id)
@@ -279,14 +282,10 @@ struct AgentConversation: View {
                 }
                 .padding(.horizontal, Theme.Panel.inset.pt)
                 .padding(.vertical, Theme.space("m"))
+                .scrollBack(back, top: entries.first?.id ?? "")
             }
-            .onAppear { proxy.scrollTo("end", anchor: .bottom) }
-            .onChange(of: entries.last?.id) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
-            .onChange(of: outgoing) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
-            .onChange(of: phase) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
-            .onReceive(NotificationCenter.default.publisher(for: .lassoMediaLoaded)) { _ in
-                proxy.scrollTo("end", anchor: .bottom)
-            }
+            // Your own message is followed down whatever was being read.
+            .onChange(of: outgoing) { _, o in if o != nil { proxy.scrollTo("end", anchor: .bottom) } }
         }
         .parityAnchor("agent.conversation")
     }
