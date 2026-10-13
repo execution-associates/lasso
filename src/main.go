@@ -2747,8 +2747,25 @@ type hub struct {
 	// than folded into Active because these are EVENTS, not state: Active is
 	// snapshot-replaced on every poll and re-sent on connect, which would replay
 	// (or silently drop) a toast instead of delivering it exactly once. Global,
-	// not per feed: both are about lasso, not about a host.
-	eventClients map[chan sseEvent]struct{}
+	// not per feed: both are about lasso, not about a host. The value is the
+	// client's app (eventAppWeb or eventAppMac), so an event meant for one app
+	// (open_file's `app`) reaches and is counted against that app only.
+	eventClients map[chan sseEvent]string
+}
+
+// The apps an event stream can belong to. The Mac app names itself with
+// `?app=mac` on /api/events; anything else is the web app.
+const (
+	eventAppWeb = "web"
+	eventAppMac = "mac"
+)
+
+// eventAppOf reads which app opened a /api/events stream.
+func eventAppOf(r *http.Request) string {
+	if r.URL.Query().Get("app") == eventAppMac {
+		return eventAppMac
+	}
+	return eventAppWeb
 }
 
 // sseEvent is one named, one-shot SSE event: `name` becomes the stream's
@@ -2767,7 +2784,7 @@ func newHub() *hub {
 		rootCtx:      context.Background(),
 		curTheme:     theme,
 		feeds:        map[string]*hostFeed{},
-		eventClients: map[chan sseEvent]struct{}{},
+		eventClients: map[chan sseEvent]string{},
 	}
 }
 
@@ -2831,10 +2848,18 @@ func (h *hub) eventClientCount() int {
 // state frames are pushed — which is also why the count is of tabs that TOOK
 // it, not of tabs connected: a dropped event was not delivered.
 func (h *hub) broadcast(name string, data any) int {
+	return h.broadcastTo(name, data, "")
+}
+
+// broadcastTo is broadcast limited to one app's streams (eventAppWeb or
+// eventAppMac); "" is every stream.
+func (h *hub) broadcastTo(name string, data any, app string) int {
 	h.mu.RLock()
 	clients := make([]chan sseEvent, 0, len(h.eventClients))
-	for c := range h.eventClients {
-		clients = append(clients, c)
+	for c, a := range h.eventClients {
+		if app == "" || a == app {
+			clients = append(clients, c)
+		}
 	}
 	h.mu.RUnlock()
 	ev, n := sseEvent{name: name, data: data}, 0
@@ -2848,12 +2873,13 @@ func (h *hub) broadcast(name string, data any) int {
 	return n
 }
 
-// subscribeEvents registers one tab for the one-shot events; the returned func
-// unregisters it. serveSSE holds one for the life of each stream.
-func (h *hub) subscribeEvents() (chan sseEvent, func()) {
+// subscribeEvents registers one stream of the given app for the one-shot
+// events; the returned func unregisters it. serveSSE holds one for the life of
+// each stream.
+func (h *hub) subscribeEvents(app string) (chan sseEvent, func()) {
 	ch := make(chan sseEvent, 8)
 	h.mu.Lock()
-	h.eventClients[ch] = struct{}{}
+	h.eventClients[ch] = app
 	h.mu.Unlock()
 	return ch, func() {
 		h.mu.Lock()
@@ -3038,7 +3064,7 @@ func (h *hub) serveSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	nch, unsubscribe := h.subscribeEvents()
+	nch, unsubscribe := h.subscribeEvents(eventAppOf(r))
 	defer unsubscribe()
 
 	send := func(a Active) {

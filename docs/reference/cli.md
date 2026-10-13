@@ -27,7 +27,7 @@ lasso serve -h    # every server flag
 | `lasso connect [flags]` | | Register lasso's MCP servers with this machine's agent CLIs. |
 | `lasso mcp [tool] [flags]` | | Call any of lasso's MCP tools from a shell. |
 | `lasso notify [flags] <message>` | | Push a notification to the human running lasso. |
-| `lasso open [flags] <path>` | | Show a file in the human's sidebar file viewer. |
+| `lasso open [flags] <path>` | | Show a file to the human, in the web app's sidebar file viewer and the Mac app. |
 | `lasso closeme` | | Close the calling agent itself. |
 | `lasso skill [path]` | | Print lasso's agent skill, or a doc it links to. |
 | `lasso telemetry [on\|off]` | | Turn anonymous usage analytics on or off, or show whether they are on. |
@@ -180,7 +180,7 @@ Exits 0 only when a device actually took the notification. When nothing is subsc
 
 ### `lasso open`
 
-Shows a file in the sidebar file viewer of every visible lasso tab, through the `open_file` MCP tool. Flags may come before or after the path.
+Shows a file in the sidebar file viewer of every visible lasso tab and in a window of the Lasso Mac app, through the `open_file` MCP tool. Flags may come before or after the path.
 
 ```bash
 lasso open notes.md -line 40
@@ -191,8 +191,9 @@ lasso open notes.md -line 40
 | `-line <n>` | | Scroll to and select this 1-based line. |
 | `-host <alias>` | your own host | The host the file lives on. |
 | `-pane <id>` | `$HERDR_PANE_ID` | Your pane id, to say who opened it. |
+| `-app <app>` | both | `web` or `mac`, to open it in just one of the two. |
 
-A relative path is resolved against this shell's working directory before the call. A `~/` path is passed through and expanded against the target host's home. A directory opens the file tree there instead of the viewer. Without a per-host credential (`LASSO_MCP_TOKEN`), "your own host" is lasso's own machine, so on a remote machine pass `-host`. Exits 1 when no lasso tab is open to show it.
+A relative path is resolved against this shell's working directory before the call. A `~/` path is passed through and expanded against the target host's home. A directory opens the file tree there instead of the viewer. Without a per-host credential (`LASSO_MCP_TOKEN`), "your own host" is lasso's own machine, so on a remote machine pass `-host`. Exits 1 when no lasso tab or Mac app it was meant for is open to show it.
 
 ### `lasso closeme`
 

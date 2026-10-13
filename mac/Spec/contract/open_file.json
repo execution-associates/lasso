@@ -3,5 +3,6 @@
   "host": "x",
   "line": 1,
   "dir": true,
-  "from": "x"
+  "from": "x",
+  "app": "x"
 }

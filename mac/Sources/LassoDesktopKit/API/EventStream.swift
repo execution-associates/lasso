@@ -115,7 +115,9 @@ public final class EventStream: @unchecked Sendable {
         // The stream carries the token like any request; a refusal refreshes
         // it for the reconnect.
         await client.auth?.freshen()
-        let req = client.streamRequest("/api/events", query: ["host": host, "client": clientID])
+        // `app=mac` is what makes an agent's open_file with app "mac" reach
+        // this stream, and one with app "web" skip it.
+        let req = client.streamRequest("/api/events", query: ["host": host, "client": clientID, "app": "mac"])
         let last = LastSeen()
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {

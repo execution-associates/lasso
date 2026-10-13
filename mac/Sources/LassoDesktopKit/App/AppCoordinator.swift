@@ -1028,7 +1028,7 @@ public final class AppCoordinator {
     /// never takes the keyboard. Nothing opens with the setting off, for a
     /// folder, or from a lasso too old to watch and save the file safely.
     func fileOpened(_ o: FileOpen) {
-        guard let f = fileWindows() else { return }
+        guard !o.webOnly, let f = fileWindows() else { return }
         Task {
             if let skip = await f.opened(o) {
                 Trace.event("agent's file not opened: \(skip)")
