@@ -76,12 +76,13 @@ self.addEventListener("push", (event) => {
           type: "window",
           includeUncontrolled: true,
         })
+        // The simple app shows the same chat under /m.
         const target = new URL(url, self.location.origin).pathname
         const watching = windows.some(
           (c) =>
             c.focused &&
             c.visibilityState === "visible" &&
-            new URL(c.url).pathname === target
+            [target, `/m${target}`].includes(new URL(c.url).pathname)
         )
         if (watching) return
       }
@@ -117,7 +118,9 @@ self.addEventListener("notificationclick", (event) => {
         // far better than a second window.
         try {
           const at = new URL(client.url)
-          if (data.url ? at.pathname !== target.pathname : host && at.searchParams.get("host") !== host) {
+          // A bot's link (/bots/<name>) lands a simple-app window on /m/bots/<name>.
+          const there = [target.pathname, `/m${target.pathname}`].includes(at.pathname)
+          if (data.url ? !there : host && at.searchParams.get("host") !== host) {
             await client.navigate(target.href)
           }
         } catch {}

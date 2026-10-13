@@ -400,9 +400,7 @@ function BotSwitcher({
 }
 
 // NotifyBell turns notifications on or off for THIS device, right where bots
-// are read. An installed Bots app is its own device to the browser (its own
-// permission and subscription), so it needs a switch of its own rather than
-// only lasso's Settings, which it never shows.
+// are read, so turning them on does not mean a trip to Settings.
 function NotifyBell({ active }: { active: boolean }) {
   const config = useQuery({
     queryKey: qk.push,
@@ -597,7 +595,7 @@ export function BotsView({
   // its chat header or its settings).
   onShowTerminal: () => void
   // The phone's view picker (App's), since this view covers the input dial
-  // that otherwise opens it. Absent in the Bots app, which has no other view.
+  // that otherwise opens it.
   onOpenViews?: () => void
   className?: string
 }) {

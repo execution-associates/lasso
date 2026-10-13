@@ -22,7 +22,7 @@ Code:
 - `cron.go`: the 5-field cron parser and next-fire calculation.
 - `mcp_botjobs.go`: `list_bot_jobs`, `create_bot_job`, `update_bot_job`, `delete_bot_job` and `run_bot_job`.
 
-The frontend is `BotsView.tsx`, `BotSettings.tsx`, `BotJobs.tsx` (with `lib/cron.ts`), `BotsManage.tsx` and `BotParts.tsx`, with `lib/bots.ts` (the list poll, unread) and the `/bots/…` routes in `lib/url.ts`. The Bots app is `public/manifest-bots.json`, the manifest swap in `main.tsx` and `BotsApp` in `App.tsx`. Notifications ride the shared Web Push path (`notifications.md`), with `sw.js` honouring the payload's `url` and `icon`.
+The frontend is `BotsView.tsx`, `BotSettings.tsx`, `BotJobs.tsx` (with `lib/cron.ts`), `BotsManage.tsx` and `BotParts.tsx`, with `lib/bots.ts` (the list poll, unread) and the `/bots/…` routes in `lib/url.ts`. Notifications ride the shared Web Push path (`notifications.md`), with `sw.js` honouring the payload's `url` and `icon`.
 
 ## What a bot is
 
@@ -106,7 +106,7 @@ The whole launch is `mise run bot` in the folder. mise asks fnox for the variabl
   - **Payload:** kind `bot_message`, title the bot's name, body the message preview, tag `bot:<name>` so a run of answers leaves the newest, `url` `/bots/<name>`, and `icon` the picture's URL when there is one.
   - **Delivery:** it goes to every registered device, through the same path as a blocked agent. Since only one lasso runs the loop, it is sent once.
   - **Skip:** the service worker drops one whose chat is focused and visible in some window, except on iOS, where a push that shows nothing costs the origin its permission.
-- **The Bots app is a second manifest for the same origin.** Under `/bots`, `main.tsx` points the manifest link at `/manifest-bots.json` (id and scope `/bots`, start URL `/bots?app=bots`, name "Lasso Bots") and the iOS title at "Bots" before render. It is done client-side so it works under Vite as well as from the embedded bundle, and is in place before a browser reads it at install time. App mode is decided once at boot: a `/bots` path in a standalone window, or `?app=bots`, renders `BotsApp`, the Bots view alone with no Shell, footer or terminal. An installed app is its own device to the browser, with its own permission and push subscription, so the list header carries a bell (`NotifyBell`) that runs `enablePush`/`disablePush` from the click.
+- **A bot's link opens the device's own app.** The notification's `url` is `/bots/<name>`. On a device that wants the simple app (`wantsSimple`), `App.tsx` replaces `/bots` and `/bots/<name>` with their `/m` pages before render, and `sw.js` counts a window on `/m/bots/<name>` as already on that chat, both for the skip and for reusing a window. The list header's bell (`NotifyBell`) runs `enablePush`/`disablePush` from the click, so a device can turn notifications on where it reads its bots.
 - **The compact layout follows the view's own width.** `BotsView` measures itself with a `ResizeObserver` and folds the list away below 760 px. A wide right sidebar or a narrow window then gets the phone layout as well, which a viewport query would miss. Folded, the list is its own page, the other pages carry **‹ Bots**, and the chat's title becomes `BotSwitcher`: every bot with its state, then All bots, Manage bots and New bot.
 
 ## Jobs

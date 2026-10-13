@@ -61,7 +61,7 @@ Each device picks from the same list, and starts with these defaults:
 
 A choice decides only what interrupts the phone. The Inbox lists everything that is waiting either way. Opening a notification lands lasso on the host the agent runs on, or in the bot's conversation.
 
-To get your [bots](../web-ui/bots.md) as an app of their own, install the [Bots app](../web-ui/bots.md#the-bots-app) the same way from lasso's `/bots` page, then press the bell inside it. [Notifications](../concepts/notifications.md) explains exactly when one is sent and how delivery is reported.
+A bot's notification opens its conversation in whichever app the phone uses, simple or full. [Notifications](../concepts/notifications.md) explains exactly when one is sent and how delivery is reported.
 
 ## The simple app
 
