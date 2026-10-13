@@ -77,15 +77,17 @@ struct MessageBubble: View {
     let mine: Bool
     /// Yours, sent but not yet in the transcript.
     var sending = false
-    /// The agent's message's row id: a long one folds.
+    /// The message's row id: a long one folds.
     var foldID: String?
 
     var body: some View {
         let b = Theme.Chat.bubble
         Group {
             if mine {
-                LinkText(Self.styled(text)).font(Theme.Fonts.chat.font).foregroundStyle(Theme.Text.primary.color)
-                    .textSelection(.enabled)
+                Folding(id: foldID, long: Fold.isLong(text)) {
+                    LinkText(Self.styled(text)).font(Theme.Fonts.chat.font).foregroundStyle(Theme.Text.primary.color)
+                        .textSelection(.enabled)
+                }
             } else {
                 Folding(id: foldID, long: Fold.isLong(text)) { MarkdownView(text: text) }
             }
@@ -306,7 +308,7 @@ struct AgentConversation: View {
         switch e {
         case .message(let item, let text, let mine):
             VStack(alignment: mine ? .trailing : .leading, spacing: Theme.space("xs")) {
-                MessageBubble(text: text, mine: mine, foldID: mine ? nil : item.id)
+                MessageBubble(text: text, mine: mine, foldID: item.id)
                 if last, let t = messageTime(item.at) {
                     Text(t)
                         .font(Theme.Fonts.small.font)
