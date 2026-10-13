@@ -30,6 +30,13 @@ public protocol Conversation: ComposerModel {
     var items: [ChatItem] { get }
     var cwd: String? { get }
     var mediaHost: String { get }
+    /// Everything read of the conversation: whether there is more above,
+    /// whether it is on its way, whether a preview shows past its latest turn.
+    var history: ChatHistory { get }
+    /// The reader reached the top: read the page above.
+    func loadOlder()
+    /// A preview's reader scrolled above its latest turn: show what came before.
+    func revealEarlier()
     /// An omp agent's or bot's open request.
     var pendingUI: ChatPayload.PendingUI? { get }
     var phase: ConversationPhase { get }
@@ -109,20 +116,24 @@ struct ConversationHeader<M: Conversation, Trailing: View>: View {
     }
 }
 
-/// The conversation as a window or a preview shows it: everything in the
-/// window (its last 160 items), the latest turn in a preview.
+/// The conversation as a window or a preview shows it: everything read in
+/// the window, the latest turn in a preview. Scrolling to the top reads
+/// further back: a preview first shows what came before its latest turn,
+/// then, like a window, the page above.
 struct ConversationBody<M: Conversation>: View {
     @ObservedObject var model: M
     let window: Bool
 
     var body: some View {
         let items = model.items
-        let entries =
-            window
-            ? ConversationEntry.fold(Array(items.suffix(160)), cwd: model.cwd)
-            : ConversationEntry.latestTurn(items, cwd: model.cwd)
+        let start = window || model.history.earlier ? 0 : ConversationEntry.turnStart(items)
+        let entries = ConversationEntry.fold(Array(items[start...]), cwd: model.cwd)
+        let back = ScrollBack(model, more: start > 0 || model.history.hasMore, fill: window) { [model] in
+            if start > 0 { model.revealEarlier() } else { model.loadOlder() }
+        }
         AgentConversation(
-            entries: entries, pending: model.pendingUI, phase: model.phase, outgoing: model.outgoing, host: model.mediaHost
+            entries: entries, pending: model.pendingUI, phase: model.phase, outgoing: model.outgoing, host: model.mediaHost,
+            back: back
         )
         .opacity(model.waiting != nil ? Theme.Card.killing.number("dim") : 1)
         .overlay(alignment: .bottomLeading) {
@@ -214,11 +225,19 @@ struct ConversationPreviewView<M: Conversation>: View {
     var body: some View {
         VStack(spacing: 0) {
             ConversationHeader(model: model) {
-                Circle()
-                    .fill(StateStyle.color(model.dotState))
-                    .frame(width: Theme.space("l"), height: Theme.space("l"))
-                    .parityAnchor("preview.state")
-                    .accessibilityLabel(model.dotState.label)
+                // The window's terminal button, so a preview reaches the pane
+                // without opening the window first.
+                HStack(spacing: Theme.space("m")) {
+                    WindowButton(glyph: .lucide(.squareTerminal), label: model.herdrLabel, enabled: model.canShowInHerdr) {
+                        model.showInHerdr()
+                    }
+                    .parityAnchor("preview.herdr")
+                    Circle()
+                        .fill(StateStyle.color(model.dotState))
+                        .frame(width: Theme.space("l"), height: Theme.space("l"))
+                        .parityAnchor("preview.state")
+                        .accessibilityLabel(model.dotState.label)
+                }
             }
             model.aboveView()
             ConversationBody(model: model, window: false)
@@ -235,9 +254,14 @@ extension ConversationEntry {
     /// The other side of the latest turn: everything after the last message
     /// you sent, folded. A background task's notice is not one of yours.
     static func latestTurn(_ items: [ChatItem], cwd: String? = nil) -> [ConversationEntry] {
+        fold(Array(items[turnStart(items)...]), cwd: cwd)
+    }
+
+    /// Where the latest turn starts: after the last message you sent, or at
+    /// the last row when nothing follows it.
+    static func turnStart(_ items: [ChatItem]) -> Int {
         let start = items.lastIndex { $0.kind == "user" && TaskNotification.parse($0.text ?? "") == nil }.map { $0 + 1 } ?? 0
-        let turn = Array(items[min(start, items.count)...])
-        return fold(turn.isEmpty ? Array(items.suffix(1)) : turn, cwd: cwd)
+        return start < items.count ? start : max(0, items.count - 1)
     }
 }
 

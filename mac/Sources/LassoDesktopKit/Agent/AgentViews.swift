@@ -186,6 +186,8 @@ enum ConversationEntry: Identifiable {
     case incoming(ChatItem, ChannelMessage)
     case tools(id: String, [ChatTool])
     case ask(ChatItem, ChatTool.Ask)
+    /// A plan up for approval (ExitPlanMode), read in full (PlanRow).
+    case plan(ChatItem, ChatTool)
     case marker(ChatItem)
     /// Files shown to the human: a SendUserFile call's, or the images an
     /// agent's message wrote as markdown. `version` is the item they came with.
@@ -193,7 +195,7 @@ enum ConversationEntry: Identifiable {
 
     var id: String {
         switch self {
-        case .message(let i, _, _), .ask(let i, _), .marker(let i), .task(let i, _), .incoming(let i, _): i.id
+        case .message(let i, _, _), .ask(let i, _), .plan(let i, _), .marker(let i), .task(let i, _), .incoming(let i, _): i.id
         case .tools(let id, _), .media(let id, _, _): id
         }
     }
@@ -214,6 +216,9 @@ enum ConversationEntry: Identifiable {
                 if let files = t.files, !files.isEmpty {
                     flush()
                     out.append(.media(id: item.id, version: item.id, files))
+                } else if t.plan != nil {
+                    flush()
+                    out.append(.plan(item, t))
                 } else if let ask = t.ask {
                     flush()
                     out.append(.ask(item, ask))
@@ -246,7 +251,8 @@ enum ConversationEntry: Identifiable {
 }
 
 /// The conversation, newest at the bottom, with the time under the last
-/// message of each turn.
+/// message of each turn. It follows the newest row while the reader is at
+/// the bottom, and reaching the top reads further back (`ScrollBack`).
 struct AgentConversation: View {
     let entries: [ConversationEntry]
     var pending: ChatPayload.PendingUI?
@@ -256,11 +262,13 @@ struct AgentConversation: View {
     var outgoing: String?
     /// The machine holding the transcript, whose files media are read from.
     var host = "local"
+    var back = ScrollBack()
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: Theme.Layout.chat.number("message_gap")) {
+                    if back.loading { OlderRow() }
                     ForEach(Array(entries.enumerated()), id: \.element.id) { i, e in
                         entry(e, last: i == entries.count - 1 || isMessage(entries[i + 1]) != isMessage(e))
                             .id(e.id)
@@ -279,14 +287,10 @@ struct AgentConversation: View {
                 }
                 .padding(.horizontal, Theme.Panel.inset.pt)
                 .padding(.vertical, Theme.space("m"))
+                .scrollBack(back, top: entries.first?.id ?? "")
             }
-            .onAppear { proxy.scrollTo("end", anchor: .bottom) }
-            .onChange(of: entries.last?.id) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
-            .onChange(of: outgoing) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
-            .onChange(of: phase) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
-            .onReceive(NotificationCenter.default.publisher(for: .lassoMediaLoaded)) { _ in
-                proxy.scrollTo("end", anchor: .bottom)
-            }
+            // Your own message is followed down whatever was being read.
+            .onChange(of: outgoing) { _, o in if o != nil { proxy.scrollTo("end", anchor: .bottom) } }
         }
         .parityAnchor("agent.conversation")
     }
@@ -314,6 +318,7 @@ struct AgentConversation: View {
         case .incoming(let item, let msg): ChannelCard(id: item.id, msg: msg)
         case .media(_, let version, let files): SharedFilesView(files: files, host: host, version: version)
         case .ask(_, let ask): AskRow(ask: ask, font: Theme.Fonts.chat.font)
+        case .plan(_, let tool): PlanRow(tool: tool)
         case .marker(let item):
             Text("— \(item.marker ?? "marker") —")
                 .font(Theme.Fonts.small.font)
@@ -387,7 +392,9 @@ struct AnswerExtras: View {
                 .parityAnchor("agent.blocked")
             } else if model.answeringCustom {
                 HStack(spacing: Theme.space("m")) {
-                    Text("Answering in your own words: type it below, ⏎ sends it to the question.")
+                    Text(
+                        model.captured?.other.map { "\($0): type it below, ⏎ sends the plan back with it." }
+                            ?? "Answering in your own words: type it below, ⏎ sends it to the question.")
                         .font(Theme.Fonts.small.font)
                         .foregroundStyle(Theme.Text.secondary.color)
                     Spacer(minLength: Theme.space("m"))
@@ -397,7 +404,7 @@ struct AnswerExtras: View {
                 Button { model.answerInOwnWords() } label: {
                     HStack(spacing: Theme.space("m")) {
                         Text("\(model.nextSteps.count + 1).").foregroundStyle(Theme.Text.secondary.color)
-                        Text("Other: answer in your own words").foregroundStyle(Theme.Text.primary.color)
+                        Text(model.captured?.other ?? "Other: answer in your own words").foregroundStyle(Theme.Text.primary.color)
                         Spacer(minLength: Theme.space("m"))
                     }
                     .font(Theme.Fonts.body.font)

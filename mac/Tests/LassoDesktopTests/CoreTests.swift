@@ -218,6 +218,40 @@ private let specDir = packageDir.appendingPathComponent("Spec")
     #expect(!m.allowsCustom)
 }
 
+/// A plan up for approval is a question like any other once the server has
+/// read its dialog: its choices are the next steps, its feedback field is the
+/// Other row under the dialog's own name, and nothing reads "no choices".
+/// Without the dialog on screen it is the plan alone, and the card says to
+/// answer it in herdr.
+@MainActor @Test func planApprovalIsAQuestion() throws {
+    func chat(dialog: Bool) throws -> ChatPayload {
+        let ask =
+            dialog
+            ? #","ask":{"questions":[{"question":"Claude has written up a plan and is ready to execute. Would you like to proceed?","options":[{"label":"Yes, and auto-accept edits"},{"label":"Yes, manually approve edits"}],"other":"Tell Claude what to change"}]}"#
+            : ""
+        return try JSONDecoder().decode(
+            ChatPayload.self,
+            from: Data(
+                ##"{"pane_id":"w1:p1","agent":"claude","host":"local","items":[{"kind":"tool","id":"tp","tool":{"name":"ExitPlanMode","title":"Plan","family":"plan","state":"running","plan":{"text":"# Plan\n\n1. Write it.","path":"/p.md"}\##(ask)}}]}"##
+                    .utf8))
+    }
+    let pane = HostPane(
+        host: "local", host_label: "titan", pane_id: "w1:p1", workspace_id: "w1", workspace_label: "Agents",
+        tab_id: "w1:t1", tab_label: "stub", cwd: "/", agent: "claude", agent_status: "blocked", has_agent: true, focused: false)
+    let m = CardModel(pane: pane, fleet: FleetModel(), actions: FixtureCardActions(chats: [:], canAcknowledge: true))
+    m.show(chat: try chat(dialog: true))
+    #expect(m.nextSteps.map(\.label) == ["Yes, and auto-accept edits", "Yes, manually approve edits"])
+    #expect(m.captured?.other == "Tell Claude what to change" && m.allowsCustom && !m.blockedWithoutChoices)
+    let entries = ConversationEntry.fold(try chat(dialog: true).items)
+    guard case .plan(_, let tool) = entries.first else {
+        Issue.record("the plan is not its own entry: \(entries)")
+        return
+    }
+    #expect(tool.plan?.text.hasPrefix("# Plan") == true)
+    m.show(chat: try chat(dialog: false))
+    #expect(m.captured == nil && m.nextSteps.isEmpty)
+}
+
 /// Run the main run loop (SwiftUI's updates, AppKit's focus changes) until
 /// `done`, for at most two seconds.
 @MainActor func spin(until done: () -> Bool) {

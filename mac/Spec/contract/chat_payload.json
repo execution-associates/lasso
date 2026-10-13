@@ -53,7 +53,8 @@
               "selected": [
                 "x"
               ],
-              "custom": "x"
+              "custom": "x",
+              "other": "x"
             }
           ]
         },
@@ -63,7 +64,12 @@
             "kind": "x",
             "caption": "x"
           }
-        ]
+        ],
+        "plan": {
+          "text": "x",
+          "path": "x",
+          "feedback": "x"
+        }
       },
       "source": "x",
       "meta": {

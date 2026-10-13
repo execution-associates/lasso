@@ -40,14 +40,18 @@ public final class LiveCardActions: CardActions {
         "/api/bots/\(b.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? b.name)/\(tail)"
     }
 
-    public func chat(_ pane: HostPane) async throws -> ChatPayload { try await chat(pane, incoming: false) }
+    public func chat(_ pane: HostPane, before: Int64?) async throws -> ChatPayload {
+        try await chat(pane, incoming: false, before: before)
+    }
 
     /// `incoming` adds the messages Claude Code channels delivered (mail,
     /// texts, a bot's scheduled loops) as `incoming` rows: a bot's chat
     /// reads them, as the web's Bots view does (`?incoming=1`).
-    public func chat(_ pane: HostPane, incoming: Bool) async throws -> ChatPayload {
-        if let b = ompBot(pane) { return try await client.get(botPath(b, "chat")) }
-        var q = ["pane": pane.pane_id, "host": pane.host]
+    public func chat(_ pane: HostPane, incoming: Bool, before: Int64? = nil) async throws -> ChatPayload {
+        var q = before.map { ["before": String($0)] } ?? [:]
+        if let b = ompBot(pane) { return try await client.get(botPath(b, "chat"), query: q) }
+        q["pane"] = pane.pane_id
+        q["host"] = pane.host
         if incoming { q["incoming"] = "1" }
         return try await client.get("/api/chat", query: q)
     }
@@ -96,6 +100,10 @@ public final class LiveCardActions: CardActions {
             var options: Int
             /// Free text for the dialog's Other row (S4).
             var custom: String?
+            /// The question's own name for that row, sent with `custom`: a
+            /// plan's feedback field is typed into only while it still shows
+            /// that placeholder.
+            var other: String?
         }
 
         var pane_id: String
@@ -108,7 +116,8 @@ public final class LiveCardActions: CardActions {
         let labels = (question.options ?? []).map(\.label)
         let body = AnswerBody(
             pane_id: pane.pane_id, expect: question.question ?? "", labels: labels,
-            answers: [.init(selected: option.map { [$0] } ?? [], multi: question.multi ?? false, options: labels.count, custom: custom)])
+            answers: [.init(selected: option.map { [$0] } ?? [], multi: question.multi ?? false, options: labels.count, custom: custom,
+                other: custom == nil ? nil : question.other)])
         return Self.counted(try await client.post("/api/chat/answer", query: ["host": pane.host], json: body), .answer)
     }
 
@@ -224,8 +233,19 @@ public final class FixtureCardActions: CardActions {
         self.canAcknowledge = canAcknowledge
     }
 
-    public func chat(_ pane: HostPane) async throws -> ChatPayload {
-        chats[pane.key] ?? ChatPayload(pane_id: pane.pane_id, agent: pane.agent, host: pane.host, items: [])
+    /// The pages above the fixture's chat, by the offset each ends at; a
+    /// read of any other fails, as a dropped connection would.
+    public var olderPages: [Int64: ChatPayload] = [:]
+    /// The `before` of each read of a page above, in order.
+    public private(set) var befores: [Int64] = []
+
+    public func chat(_ pane: HostPane, before: Int64?) async throws -> ChatPayload {
+        guard let before else {
+            return chats[pane.key] ?? ChatPayload(pane_id: pane.pane_id, agent: pane.agent, host: pane.host, items: [])
+        }
+        befores.append(before)
+        guard let page = olderPages[before] else { throw FixtureError(message: "no page before \(before)") }
+        return page
     }
 
     public func rename(_ pane: HostPane, to name: String) async throws { calls.append("rename:\(name)") }

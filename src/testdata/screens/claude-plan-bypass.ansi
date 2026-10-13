@@ -1,0 +1,42 @@
+
+[0m[38;2;56;74;91m  ⎿  /plan to preview[0m
+[0m[38;2;93;16;0m▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔[0m
+
+  [0m[38;2;80;25;60m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+   [0m[1m[38;2;93;16;0mReady to code?[0m
+
+   Here is Claude's plan:
+  [0m[38;2;56;74;91m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌[0m
+   [0m[1m[3m[4mPlan: write "hi there" to hello.txt[0m
+
+   [0m[1mContext[0m
+
+   Create [0m[38;2;87;105;247mhello.txt [0min [0m[38;2;87;105;247m/home/dev/scratch/plan-probe [0mcontaining [0m[38;2;87;105;247mhi there[0m.
+
+   [0m[1mSteps[0m
+
+   1. Run [0m[38;2;87;105;247mprintf 'hi there\n' > hello.txt [0min the working directory.
+   2. Run [0m[38;2;87;105;247mcat hello.txt [0mto confirm the content.
+   3. Stop.
+
+   [0m[1mVerification[0m
+
+   [0m[38;2;87;105;247mcat hello.txt [0mprints [0m[38;2;87;105;247mhi there[0m.
+  [0m[38;2;56;74;91m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌[0m
+
+
+
+
+
+
+
+
+  [0m[38;2;80;25;60m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+   [0m[38;2;56;74;91mClaude has written up a plan and is ready to execute. Would you like to proceed?[0m
+
+   [0m[38;2;57;75;88m❯ [0m[38;2;56;74;91m1. [0m[38;2;57;75;88mYes, and switch to [0m[1m[38;2;57;75;88mBYPASS PERMISSIONS (no further prompts)[0m[38;2;57;75;88m for this session[0m
+     [0m[38;2;56;74;91m2. [0mYes, manually approve edits
+     [0m[38;2;56;74;91m3. Tell Claude what to change[0m
+        [0m[38;2;56;74;91mshift+tab to approve with this feedback[0m
+
+   [0m[38;2;56;74;91mctrl+g to edit in Hx · ~/.claude/plans/plan-how-to-print-cheerful-taco.md[0m

@@ -19,6 +19,8 @@ private func golden<T: Decodable>(_ name: String, _ type: T.Type) throws -> T {
     #expect(bot.name == "x" && bot.runtime == "x" && bot.waiting_for == "x")
     let chat = try golden("chat_payload", ChatPayload.self)
     #expect(chat.items.first?.tool?.ask?.questions.first?.options?.first?.label == "x")
+    #expect(chat.items.first?.tool?.ask?.questions.first?.other == "x")
+    #expect(chat.items.first?.tool?.plan == ChatTool.Plan(text: "x", path: "x", feedback: "x"))
     #expect(chat.items.first?.meta?["x"] == "x")
     #expect(chat.pending_ui?.first?.options == ["x"])
     let ui = try golden("ui_state", UIStateSlice.self)

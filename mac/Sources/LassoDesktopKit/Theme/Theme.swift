@@ -438,6 +438,12 @@ public enum Theme {
         public static let termClaim = Token(
             "live.term_claim", ["renew": 15],
             .inferred("src/web/src/lib/term-claim.ts RENEW_MS, a third of the server's 45 s lease"), proposed: true)
+        /// A conversation's scroll: within `older` pt of its top the page
+        /// above is read; within `follow` pt of its bottom it follows the
+        /// newest row.
+        public static let scrollBack = Token(
+            "live.scroll_back", ["older": 120, "follow": 40],
+            .inferred("src/web/src/components/ChatView.tsx, the transcript's onScroll"), proposed: true)
     }
 
     /// lasso's herdr in a window of its own (PLAN 22).
@@ -526,7 +532,7 @@ public enum Theme {
         avatar, icon, lucide,
         Motion.railExpand, Motion.railCollapse, Motion.cardOpen, Motion.cardClose, Motion.toastIn, Motion.cardPaging,
         Live.pollAllPanes, Live.pollBots, Live.pollChat, Live.focusGrace, Live.stopWait, Live.sseWatchdog, Live.backoff, Live.arrivalSound,
-        Live.termClaim, Terminal.window, Terminal.zoom, Browser.window, Browser.bar, Browser.banner,
+        Live.termClaim, Live.scrollBack, Terminal.window, Terminal.zoom, Browser.window, Browser.bar, Browser.banner,
         File.window, File.bar, File.banner, File.watch, File.presence,
         summonKey, inboxDoubleTap,
     ]

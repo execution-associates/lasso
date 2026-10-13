@@ -263,6 +263,19 @@ public struct ChatTool: Codable, Sendable, Equatable {
         public var recommended: Int?
         public var selected: [String]?
         public var custom: String?
+        /// The dialog's own name for its free-text row (a plan approval's
+        /// "Tell Claude what to change"); nil where it is the generic Other.
+        public var other: String?
+    }
+
+    /// The plan Claude Code's ExitPlanMode put up for approval: Markdown, its
+    /// file on the pane's host, and what the human asked to change once it
+    /// was sent back. While the dialog is up the tool also carries `ask`,
+    /// with the dialog's own choices (src/chatplan.go).
+    public struct Plan: Codable, Sendable, Equatable {
+        public var text: String
+        public var path: String?
+        public var feedback: String?
     }
 
     public var call_id: String?
@@ -282,6 +295,7 @@ public struct ChatTool: Codable, Sendable, Equatable {
     public var ask: Ask?
     /// What the call put in front of the human (Claude Code's SendUserFile).
     public var files: [SharedFile]?
+    public var plan: Plan?
 }
 
 /// A file an agent showed the human: src/chatview.go chatFile.

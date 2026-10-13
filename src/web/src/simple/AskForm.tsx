@@ -1,6 +1,7 @@
 import { Check } from "lucide-react"
 import * as React from "react"
 
+import { Markdown } from "@/components/Markdown"
 import { api, type BotPendingUI, type ChatTool } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
@@ -81,6 +82,7 @@ export function PaneAskForm({
     host,
     paneID,
     questions: tool.ask?.questions ?? [],
+    plan: tool.plan,
   }))
   const qs = capture.questions
   const [picks, setPicks] = React.useState<number[][]>(() => qs.map(() => []))
@@ -88,6 +90,10 @@ export function PaneAskForm({
   const [sending, setSending] = React.useState(false)
   const [sent, setSent] = React.useState(false)
   const [notice, setNotice] = React.useState<string | null>(null)
+  // A plan is what the answer approves, so it is on the card; a long one is
+  // clamped until opened.
+  const [planOpen, setPlanOpen] = React.useState(false)
+  const planLong = (capture.plan?.text.length ?? 0) > 900
 
   const hasPreviews = (qi: number) =>
     (qs[qi]?.options ?? []).some((o) => Boolean(o.preview))
@@ -127,6 +133,9 @@ export function PaneAskForm({
             multi: Boolean(q.multi),
             options: q.options.length,
             ...(text ? { custom: text } : {}),
+            // A plan's feedback field is typed into only while it still
+            // shows the placeholder this card drew.
+            ...(text && q.other ? { other: q.other } : {}),
             ...(hasPreviews(i) ? { previews: true } : {}),
           }
         })
@@ -144,6 +153,27 @@ export function PaneAskForm({
 
   return (
     <div className="flex flex-col gap-4">
+      {capture.plan && (
+        <div className="flex flex-col gap-1.5">
+          <div
+            className={cn(
+              "md-body md-chat overflow-hidden rounded-2xl bg-background/40 px-3.5 py-3",
+              planLong && !planOpen && "max-h-64"
+            )}
+          >
+            <Markdown source={capture.plan.text} />
+          </div>
+          {planLong && (
+            <button
+              type="button"
+              onClick={() => setPlanOpen((v) => !v)}
+              className="self-start text-[13px] text-muted-foreground"
+            >
+              {planOpen ? "Show less" : "Show the whole plan"}
+            </button>
+          )}
+        </div>
+      )}
       {qs.map((q, qi) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: questions are positional and fixed for the capture's life.
         <div key={qi} className="flex flex-col gap-2.5">
@@ -211,7 +241,7 @@ export function PaneAskForm({
                 if (v && !q.multi)
                   setPicks((all) => all.map((p, i) => (i === qi ? [] : p)))
               }}
-              placeholder="Or type your own answer"
+              placeholder={q.other ?? "Or type your own answer"}
               enterKeyHint="done"
               className="h-11 rounded-2xl border border-border bg-background/40 px-3.5 text-[15px] text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/60"
               {...NO_AUTOCORRECT}
