@@ -693,6 +693,7 @@ public final class CardModel: ComposerModel {
 
     public var composerPlaceholder: String {
         guard answeringCustom else { return "Reply to \(current.displayName)" }
+        if let other = captured?.other { return other }
         return "Your answer: \(captured?.question ?? pending?.title ?? "")"
     }
 

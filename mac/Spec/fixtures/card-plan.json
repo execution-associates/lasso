@@ -1,0 +1,79 @@
+{
+  "about": "stub has finished planning and is waiting on Claude Code's plan approval: the card shows the plan itself, rendered, and the dialog's own choices (read off the pane's screen) as numbered next steps, with the dialog's feedback field as the Other row under its own name. Nothing says there are no choices lasso can read.",
+  "state": "card-plan",
+  "extends": "card-open",
+  "ui": {
+    "rail": "expanded",
+    "card": "local\u0000w1:p1",
+    "list": false,
+    "chat": false,
+    "recording": null
+  },
+  "chats": {
+    "local\u0000w1:p1": {
+      "pane_id": "w1:p1",
+      "agent": "claude",
+      "host": "local",
+      "title": "lasso-desktop-mac",
+      "model": "claude-opus-5-5",
+      "path": "/home/stephan/.claude/projects/x/session.jsonl",
+      "start_offset": 0,
+      "tokens": 48211,
+      "running": true,
+      "items": [
+        {
+          "kind": "user",
+          "id": "u1",
+          "at": "2026-10-11T18:52:10Z",
+          "text": "Plan a rail badge for blocked agents."
+        },
+        {
+          "kind": "tool",
+          "id": "t1",
+          "at": "2026-10-11T18:52:31Z",
+          "tool": {
+            "call_id": "c1",
+            "name": "Read",
+            "title": "Read",
+            "subject": "mac/Sources/LassoDesktopKit/Rail/RailView.swift",
+            "state": "completed",
+            "result_line": "412 lines"
+          }
+        },
+        {
+          "kind": "tool",
+          "id": "t2",
+          "at": "2026-10-11T18:53:40Z",
+          "tool": {
+            "call_id": "c2",
+            "name": "ExitPlanMode",
+            "title": "Plan",
+            "family": "plan",
+            "subject": "Rail badge for blocked agents",
+            "state": "running",
+            "plan": {
+              "text": "# Rail badge for blocked agents\n\n## Context\nThe rail shows a dot for unread turns but nothing for an agent **waiting on a question**.\n\n## Steps\n1. Count blocked panes in `FleetModel.inbox`.\n2. Draw the count on the rail's inbox button.\n3. Cover it with a parity state.\n\n## Verification\n`dev.sh parity` stays green.",
+              "path": "/home/stephan/.claude/plans/rail-badge-quiet-otter.md"
+            },
+            "ask": {
+              "questions": [
+                {
+                  "question": "Claude has written up a plan and is ready to execute. Would you like to proceed?",
+                  "options": [
+                    {
+                      "label": "Yes, and auto-accept edits"
+                    },
+                    {
+                      "label": "Yes, manually approve edits"
+                    }
+                  ],
+                  "other": "Tell Claude what to change"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

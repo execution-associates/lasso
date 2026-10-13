@@ -273,6 +273,19 @@ export interface ChatTool {
   // Files the agent showed the human (Claude Code's SendUserFile), each
   // classified by extension so a viewer is picked before anything is fetched.
   files?: ChatFile[]
+  // The plan Claude Code's ExitPlanMode put up for approval. While its dialog
+  // is on the pane's screen the same tool also carries `ask`, with the
+  // dialog's own choices read off that screen.
+  plan?: ChatPlan
+}
+
+export interface ChatPlan {
+  // Markdown, as the agent wrote it.
+  text: string
+  // The plan file on the pane's host (~/.claude/plans/…).
+  path?: string
+  // What the human asked to change, once the plan was sent back with some.
+  feedback?: string
 }
 
 export interface ChatFile {
@@ -301,6 +314,10 @@ export interface ChatAskQuestion {
   selected?: string[]
   // A free-text answer typed into the dialog's "Other".
   custom?: string
+  // The dialog's own name for its free-text row, when it has one (a plan
+  // approval's "Tell Claude what to change"); the text field takes it as its
+  // label, and an answer sends it back as `other`.
+  other?: string
 }
 
 export interface ChatAskOption {
@@ -2169,6 +2186,9 @@ export const api = {
       // The question's options carry previews (claude lays those out with no
       // "Other" row, so the server refuses `custom` there).
       previews?: boolean
+      // The question's `other`, sent with `custom`: the server types only into
+      // a field still showing that placeholder.
+      other?: string
     }[]
   ) =>
     postJSON<ChatAnswerResult>(withHost("/api/chat/answer", host), {

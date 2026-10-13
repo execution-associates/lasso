@@ -12,7 +12,8 @@
       "multi": true,
       "options": 1,
       "custom": "x",
-      "previews": true
+      "previews": true,
+      "other": "x"
     }
   ]
 }

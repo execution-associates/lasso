@@ -100,6 +100,10 @@ public final class LiveCardActions: CardActions {
             var options: Int
             /// Free text for the dialog's Other row (S4).
             var custom: String?
+            /// The question's own name for that row, sent with `custom`: a
+            /// plan's feedback field is typed into only while it still shows
+            /// that placeholder.
+            var other: String?
         }
 
         var pane_id: String
@@ -112,7 +116,8 @@ public final class LiveCardActions: CardActions {
         let labels = (question.options ?? []).map(\.label)
         let body = AnswerBody(
             pane_id: pane.pane_id, expect: question.question ?? "", labels: labels,
-            answers: [.init(selected: option.map { [$0] } ?? [], multi: question.multi ?? false, options: labels.count, custom: custom)])
+            answers: [.init(selected: option.map { [$0] } ?? [], multi: question.multi ?? false, options: labels.count, custom: custom,
+                other: custom == nil ? nil : question.other)])
         return Self.counted(try await client.post("/api/chat/answer", query: ["host": pane.host], json: body), .answer)
     }
 
