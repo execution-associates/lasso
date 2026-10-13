@@ -5,7 +5,9 @@ import Foundation
 /// or recorded as no-ops (the parity fixtures).
 @MainActor
 public protocol CardActions: AnyObject {
-    func chat(_ pane: HostPane) async throws -> ChatPayload
+    /// The pane's conversation: its newest page, or with `before` the page
+    /// that ends at that transcript offset (the page above one on screen).
+    func chat(_ pane: HostPane, before: Int64?) async throws -> ChatPayload
     func send(_ pane: HostPane, text: String) async throws -> Outcome
     /// Answer `question` (as captured when it was drawn) with an option, or
     /// with free text in the dialog's own Other row (S4).
@@ -26,6 +28,11 @@ public protocol CardActions: AnyObject {
     var canAcknowledge: Bool { get }
     /// herdr's custom agent label; "" clears it.
     func rename(_ pane: HostPane, to name: String) async throws
+}
+
+extension CardActions {
+    /// The newest page of the pane's conversation.
+    public func chat(_ pane: HostPane) async throws -> ChatPayload { try await chat(pane, before: nil) }
 }
 
 /// lasso's answer to a send/answer/stop: confirmed | sent | refused | uncertain.
@@ -65,7 +72,10 @@ public struct NextStep: Equatable, Sendable, Identifiable {
 @MainActor
 public final class CardModel: ComposerModel {
     @Published public private(set) var pane: HostPane
-    @Published public private(set) var chat: ChatPayload?
+    /// Everything read of this agent's conversation, older pages included.
+    @Published public internal(set) var history = ChatHistory()
+    /// The conversation as drawn: the newest page with every row read so far.
+    public var chat: ChatPayload? { history.payload }
     @Published public private(set) var loadError: String?
     @Published public var composer = ""
     @Published public var attachments: [ComposerAttachment] = []
@@ -245,9 +255,17 @@ public final class CardModel: ComposerModel {
     }
 
     public func show(chat: ChatPayload?) {
-        self.chat = chat
+        var h = ChatHistory()
+        if let chat { h.take(chat, key: pane.key) }
+        history = h
         recapture()
     }
+
+    /// Reaching the top of the conversation: the page above it.
+    public func loadOlder() { Task { await readOlder() } }
+
+    /// A hover preview scrolled above the latest turn shows what came before.
+    public func revealEarlier() { if !history.earlier { history.revealEarlier() } }
 
     /// Take the question as it is drawn now, if it is a new one: a changed
     /// question drops a pick in progress.
@@ -367,9 +385,14 @@ public final class CardModel: ComposerModel {
     public func stopPolling() { poll?.cancel() }
 
     public func load() async {
+        let p = pane
         do {
-            let c = try await actions.chat(pane)
-            if c != chat { chat = c }
+            let c = try await actions.chat(p)
+            // Read for the card before a page to another (J/K): not this one's.
+            guard p.key == pane.key else { return }
+            var h = history
+            h.take(c, key: p.key)
+            if h != history { history = h }
             if let o = outgoing,
                 c.items.contains(where: { ($0.kind == "user" || $0.kind == "incoming") && $0.text?.trimmingCharacters(in: .whitespacesAndNewlines) == o })
             {
@@ -379,6 +402,7 @@ public final class CardModel: ComposerModel {
             loadError = nil
             if stopping, !isWorking { stopping = false }
         } catch {
+            guard p.key == pane.key else { return }
             loadError = String(describing: error)
         }
     }
@@ -685,7 +709,7 @@ public final class CardModel: ComposerModel {
         pageDirection = delta
         withAnimationToken(Theme.Motion.cardPaging, probe: animationProbe) { [self] in
             pane = next
-            chat = nil
+            history.reset()
             read.insert(next.key)
         }
         inbox?.markSeen(next)
@@ -696,4 +720,8 @@ public final class CardModel: ComposerModel {
         stopping = false
         Task { await load() }
     }
+}
+
+extension CardModel: ChatPaging {
+    func olderPage(before: Int64) async throws -> ChatPayload { try await actions.chat(pane, before: before) }
 }

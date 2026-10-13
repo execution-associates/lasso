@@ -251,6 +251,9 @@ extension BotWindowModel: Conversation {
     public var dotState: AgentState { standing.state }
     public var items: [ChatItem] { chat.chat?.items ?? [] }
     public var cwd: String? { chat.chat?.cwd }
+    public var history: ChatHistory { chat.history }
+    public func loadOlder() { chat.loadOlder() }
+    public func revealEarlier() { chat.revealEarlier() }
     public var mediaHost: String { chat.chat?.served_by ?? chat.chat?.host ?? bot.host }
     public var pendingUI: ChatPayload.PendingUI? { chat.pending }
     public var outgoing: String? { nil }

@@ -6,18 +6,28 @@ import Foundation
 /// its chat is the pane chat the card uses (/api/chat… on its pane).
 @MainActor
 public protocol BotChatActions: AnyObject {
-    func chat(_ bot: BotView) async throws -> ChatPayload
+    /// The bot's conversation: its newest page, or with `before` the page
+    /// that ends at that transcript offset.
+    func chat(_ bot: BotView, before: Int64?) async throws -> ChatPayload
     func send(_ bot: BotView, text: String) async throws -> Outcome
     func answer(_ bot: BotView, pending: ChatPayload.PendingUI, value: String) async throws -> Outcome
     func stop(_ bot: BotView) async throws -> Outcome
     func attach(_ file: URL, to bot: BotView) async throws -> String
 }
 
+extension BotChatActions {
+    /// The newest page of the bot's conversation.
+    public func chat(_ bot: BotView) async throws -> ChatPayload { try await chat(bot, before: nil) }
+}
+
 /// The chat with a lasso bot: the same composer and keys as a card.
 @MainActor
 public final class ChatModel: ComposerModel {
     @Published public private(set) var bot: BotView
-    @Published public private(set) var chat: ChatPayload?
+    /// Everything read of the bot's conversation, older pages included.
+    @Published public internal(set) var history = ChatHistory()
+    /// The conversation as drawn: the newest page with every row read so far.
+    public var chat: ChatPayload? { history.payload }
     @Published public private(set) var loadError: String?
     @Published public var composer = ""
     @Published public var attachments: [ComposerAttachment] = []
@@ -41,7 +51,20 @@ public final class ChatModel: ComposerModel {
     public var composerPlaceholder: String { "Message \(bot.name)…" }
 
     public func update(bot: BotView) { if bot != self.bot { self.bot = bot } }
-    public func show(chat: ChatPayload?) { self.chat = chat }
+    public func show(chat: ChatPayload?) {
+        var h = ChatHistory()
+        if let chat { h.take(chat, key: historyKey) }
+        history = h
+    }
+
+    /// The bot whose conversation this is, as its history is keyed.
+    private var historyKey: String { bot.host + "\u{0}" + bot.name }
+
+    /// Reaching the top of the conversation: the page above it.
+    public func loadOlder() { Task { await readOlder() } }
+
+    /// A hover preview scrolled above the latest turn shows what came before.
+    public func revealEarlier() { if !history.earlier { history.revealEarlier() } }
 
     /// The bot's open question or approval, as numbered options.
     public var pending: ChatPayload.PendingUI? { chat?.pending_ui?.first }
@@ -77,7 +100,9 @@ public final class ChatModel: ComposerModel {
     public func load() async {
         do {
             let c = try await actions.chat(bot)
-            if c != chat { chat = c }
+            var h = history
+            h.take(c, key: historyKey)
+            if h != history { history = h }
             loadError = nil
             if stopping, !isWorking { stopping = false }
         } catch {
@@ -237,9 +262,9 @@ public final class LiveBotChatActions: BotChatActions {
         "/api/bots/\(bot.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? bot.name)/\(tail)"
     }
 
-    public func chat(_ bot: BotView) async throws -> ChatPayload {
-        if bot.runtime == "omp" { return try await client.get(path(bot, "chat")) }
-        return try await card.chat(pane(bot), incoming: true)
+    public func chat(_ bot: BotView, before: Int64?) async throws -> ChatPayload {
+        if bot.runtime == "omp" { return try await client.get(path(bot, "chat"), query: before.map { ["before": String($0)] } ?? [:]) }
+        return try await card.chat(pane(bot), incoming: true, before: before)
     }
 
     struct Send: Encodable { var text: String }
@@ -282,8 +307,16 @@ public final class FixtureBotChatActions: BotChatActions {
 
     public init(payload: ChatPayload?) { self.payload = payload }
 
-    public func chat(_ bot: BotView) async throws -> ChatPayload {
-        payload ?? ChatPayload(pane_id: "bot:\(bot.name)", agent: bot.runtime, host: bot.host, items: [])
+    /// The pages above the fixture's chat, by the offset each ends at; a
+    /// read of any other fails.
+    public var olderPages: [Int64: ChatPayload] = [:]
+
+    public func chat(_ bot: BotView, before: Int64?) async throws -> ChatPayload {
+        guard let before else {
+            return payload ?? ChatPayload(pane_id: "bot:\(bot.name)", agent: bot.runtime, host: bot.host, items: [])
+        }
+        guard let page = olderPages[before] else { throw FixtureCardActions.FixtureError(message: "no page before \(before)") }
+        return page
     }
 
     /// The text of each send, in order.
@@ -309,4 +342,8 @@ public final class FixtureBotChatActions: BotChatActions {
         calls.append("attach")
         return "/fixture/" + file.lastPathComponent
     }
+}
+
+extension ChatModel: ChatPaging {
+    func olderPage(before: Int64) async throws -> ChatPayload { try await actions.chat(bot, before: before) }
 }

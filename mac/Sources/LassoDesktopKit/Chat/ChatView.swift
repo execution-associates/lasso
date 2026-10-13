@@ -57,33 +57,30 @@ public struct ChatView: View {
         }
     }
 
+    /// Everything read of the conversation; reaching its top reads the page
+    /// above, and the reader's place is kept (`ScrollBack`).
     private var conversation: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: Theme.Layout.chat.number("message_gap")) {
-                    if let chat = model.chat {
-                        ForEach(chat.items.suffix(80)) { item in
-                            message(item).id(item.id)
-                        }
-                        if chat.items.isEmpty {
-                            hint("Say hello: type, or hold V to talk.")
-                        }
-                    } else if let err = model.loadError {
-                        hint("Could not read the conversation: \(err)")
-                    } else {
-                        hint("Loading…")
+        let back = ScrollBack(model.history) { [model] in model.loadOlder() }
+        return ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: Theme.Layout.chat.number("message_gap")) {
+                if let chat = model.chat {
+                    if back.loading { OlderRow() }
+                    ForEach(chat.items) { item in
+                        message(item).id(item.id)
                     }
+                    if chat.items.isEmpty {
+                        hint("Say hello: type, or hold V to talk.")
+                    }
+                } else if let err = model.loadError {
+                    hint("Could not read the conversation: \(err)")
+                } else {
+                    hint("Loading…")
                 }
-                .padding(.horizontal, textX)
-                .padding(.vertical, Theme.space("m"))
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .onChange(of: model.chat?.items.last?.id) { _, last in
-                if let last { proxy.scrollTo(last, anchor: .bottom) }
-            }
-            .onAppear {
-                if let last = model.chat?.items.last?.id { proxy.scrollTo(last, anchor: .bottom) }
-            }
+            .padding(.horizontal, textX)
+            .padding(.vertical, Theme.space("m"))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .scrollBack(back, top: model.chat?.items.first?.id ?? "")
         }
         .frame(maxHeight: .infinity)
         .parityAnchor("chat.conversation")
