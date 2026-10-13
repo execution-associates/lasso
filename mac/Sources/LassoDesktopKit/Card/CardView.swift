@@ -377,11 +377,8 @@ struct ChatRow: View {
         case "incoming":
             ChannelCard(id: item.id, msg: ChannelMessage.parse(item.text ?? "", source: item.source))
         case "user":
-            Text("› " + (item.text ?? ""))
-                .font(font)
-                .foregroundStyle(Theme.Text.primary.color)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            MessageBubble(text: item.text ?? "", mine: true, foldID: item.id)
+                .parityAnchor("card.bubble[\(item.id)]")
         default:
             if item.thinking == true {
                 ThinkingRow(id: item.id, text: item.text ?? "", font: font)
