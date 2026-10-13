@@ -676,3 +676,22 @@ final class DownloadStub: URLProtocol, @unchecked Sendable {
     }
     #expect((try Data(contentsOf: dest)).count == 300_000, "the file it had stays")
 }
+
+/// ⋯'s Download takes the first free name in Downloads, as Safari does.
+@Test func aDownloadTakesTheFirstFreeName() {
+    let dir = URL(fileURLWithPath: "/d", isDirectory: true)
+    let taken: Set<String> = ["/d/plan.md", "/d/plan 2.md", "/d/README"]
+    let at = { (name: String) in FileDownloads.destination(for: name, in: dir) { taken.contains($0) }.path }
+    #expect(at("notes.md") == "/d/notes.md")
+    #expect(at("plan.md") == "/d/plan 3.md")
+    #expect(at("README") == "/d/README 2")
+}
+
+/// A failed Download is the banner's last kind, under everything else.
+@MainActor @Test func aFailedDownloadIsTheLastBanner() {
+    let m = FileWindowModel(open: FileOpen(path: "/a/plan.md"), kind: .markdown)
+    m.downloadError = "offline"
+    #expect(m.banner == .downloadFailed && m.bannerText == "Could not download plan.md: offline")
+    m.deleted = true
+    #expect(m.banner == .deleted)
+}

@@ -35,6 +35,8 @@ public final class FileWindowModel: ObservableObject {
         /// The file changed on disk under unsaved edits.
         case changed
         case deleted
+        /// ⋯'s Download did not finish.
+        case downloadFailed
     }
 
     public let path: String
@@ -49,11 +51,16 @@ public final class FileWindowModel: ObservableObject {
     @Published var page = FilePageState()
     @Published public internal(set) var deleted = false
     @Published public internal(set) var confirmingClose = false
+    /// ⋯'s Download is fetching the file.
+    @Published public internal(set) var downloading = false
+    /// Why the last Download failed, until it is dismissed or retried.
+    @Published public internal(set) var downloadError: String?
 
     var onSave: () -> Void = {}
     var onMode: (FileMode) -> Void = { _ in }
     var onReload: () -> Void = {}
     var onOpenCopy: () -> Void = {}
+    var onDownload: () -> Void = {}
     var onTakeDisk: () -> Void = {}
     var onKeepMine: () -> Void = {}
     var onDiscard: () -> Void = {}
@@ -77,6 +84,7 @@ public final class FileWindowModel: ObservableObject {
         if confirmingClose { return .confirmClose }
         if page.conflict { return page.saveError != nil ? .conflict : .changed }
         if deleted { return .deleted }
+        if downloadError != nil { return .downloadFailed }
         return nil
     }
 
@@ -87,6 +95,7 @@ public final class FileWindowModel: ObservableObject {
         case .conflict?: "Not saved: \(name) changed on \(hostLabel) since you opened it."
         case .changed?: "\(name) changed on \(hostLabel) while you were editing."
         case .deleted?: "\(name) is no longer on \(hostLabel)."
+        case .downloadFailed?: "Could not download \(name): \(downloadError ?? "")"
         case nil: ""
         }
     }
@@ -190,10 +199,10 @@ struct FileControls: View {
                 Button { model.onOpenCopy() } label: {
                     Label("Open a copy in default app", lucide: .externalLink, size: Theme.Fonts.small.number("size"))
                 }
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(model.path, forType: .string)
-                } label: { Label("Copy path", lucide: .copy, size: Theme.Fonts.small.number("size")) }
+                Button { model.onDownload() } label: {
+                    Label(model.downloading ? "Downloading…" : "Download", lucide: .download, size: Theme.Fonts.small.number("size"))
+                }
+                .disabled(model.downloading)
             } label: {
                 Image(nsImage: Self.tinted(.ellipsis, size: Theme.Agent.window.number("icon"), color: Theme.Text.primary.nsColor))
             }
@@ -203,7 +212,7 @@ struct FileControls: View {
             .frame(width: Theme.Agent.window.number("button"), height: Theme.Agent.window.number("button"))
             .parityAnchor("file.more")
             .accessibilityLabel("More")
-            .help("Reload, open a copy, copy the path")
+            .help("Reload, open a copy, download")
         }
     }
 }
@@ -264,6 +273,9 @@ struct FileBannerView: View {
                 PillButton(title: "Keep mine", primary: true, label: "Keep your edits; the next save replaces the file") { model.onKeepMine() }
             case .deleted:
                 EmptyView()
+            case .downloadFailed:
+                PillButton(title: "Dismiss", label: "Dismiss") { model.downloadError = nil }
+                PillButton(title: "Try again", primary: true, label: "Try downloading \(model.name) again") { model.onDownload() }
             }
         }
     }
@@ -442,6 +454,7 @@ final class FileWindowController: NSObject {
         model.onMode = { [weak self] m in self?.switchMode(m) }
         model.onReload = { [weak self] in self?.reload() }
         model.onOpenCopy = { [weak self] in self?.openCopy() }
+        model.onDownload = { [weak self] in self?.download() }
         model.onTakeDisk = { [weak self] in
             self?.model.deleted = false
             self?.bridge?.takeDisk()
@@ -648,6 +661,36 @@ final class FileWindowController: NSObject {
         }
     }
 
+    /// ⋯'s Download: the file into ~/Downloads, as a browser saves one. It
+    /// comes down beside the cache first, so Downloads never holds half a
+    /// file, then takes the first free name ("plan.md", "plan 2.md", …),
+    /// carries the quarantine a browser's download does, and bounces the
+    /// Dock's Downloads stack.
+    private func download() {
+        guard !model.downloading else { return }
+        model.downloading = true
+        model.downloadError = nil
+        let model = self.model
+        Task {
+            defer { model.downloading = false }
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("Lasso Downloads/" + UUID().uuidString, isDirectory: true)
+            do {
+                let got = tmp.appendingPathComponent(model.name)
+                try await source.download(host: model.host, path: model.path, to: got) { _, _ in }
+                let dir = try FileManager.default.url(for: .downloadsDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+                let dest = FileDownloads.destination(for: model.name, in: dir)
+                try FileManager.default.moveItem(at: got, to: dest)
+                FileDownloads.quarantine(dest)
+                DistributedNotificationCenter.default().post(name: .init("com.apple.DownloadFileFinished"), object: dest.resolvingSymlinksInPath().path)
+                Trace.event("file downloaded")
+            } catch {
+                model.downloadError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                Trace.event("file download failed: \(error)")
+            }
+            try? FileManager.default.removeItem(at: tmp)
+        }
+    }
+
     private func teardown() {
         fetching?.cancel()
         bridge?.shutdown()
@@ -720,5 +763,35 @@ extension FileWindowController: WKUIDelegate {
             NSWorkspace.shared.open(url)
         }
         return nil
+    }
+}
+
+/// Where ⋯'s Download puts a file.
+enum FileDownloads {
+    /// The first name in `dir` nothing holds yet: `name`, then Safari's
+    /// "name 2.ext", "name 3.ext", ….
+    static func destination(for name: String, in dir: URL, exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> URL {
+        let first = dir.appendingPathComponent(name)
+        guard exists(first.path) else { return first }
+        let ext = (name as NSString).pathExtension
+        let stem = ext.isEmpty ? name : (name as NSString).deletingPathExtension
+        var n = 2
+        while true {
+            let next = dir.appendingPathComponent(ext.isEmpty ? "\(stem) \(n)" : "\(stem) \(n).\(ext)")
+            if !exists(next.path) { return next }
+            n += 1
+        }
+    }
+
+    /// The quarantine a browser's download carries, so Gatekeeper treats a
+    /// downloaded app or script as it would one from the web.
+    static func quarantine(_ url: URL) {
+        var u = url
+        var v = URLResourceValues()
+        v.quarantineProperties = [
+            kLSQuarantineAgentNameKey as String: "Lasso",
+            kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload as String,
+        ]
+        try? u.setResourceValues(v)
     }
 }
