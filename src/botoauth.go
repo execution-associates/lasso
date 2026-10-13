@@ -402,6 +402,17 @@ func startBotOAuth(rec *botRecord, server, origin string) (*botOAuthStart, error
 
 // finishBotOAuth completes a sign-in from the redirect's query: the callback
 // route's own, or the address a human pasted.
+// botOAuthPendingBot names the bot a pending sign-in is for, "" for an
+// unknown state. It spends nothing.
+func botOAuthPendingBot(state string) string {
+	botOAuthPend.Lock()
+	defer botOAuthPend.Unlock()
+	if p := botOAuthPend.m[state]; p != nil {
+		return p.bot
+	}
+	return ""
+}
+
 func finishBotOAuth(q url.Values) (*botOAuthPending, error) {
 	state := q.Get("state")
 	botOAuthPend.Lock()

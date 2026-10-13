@@ -75,12 +75,31 @@ func botOmpMaterialize(b Backend, r *botRecord) error {
 	if err := botOmpWriteMCP(b, r, dir); err != nil {
 		return err
 	}
-	md := filepath.Join(dir, "AGENTS.md")
-	if _, err := b.Stat(md); err != nil {
-		stub := "# " + r.Name + "\n\nDescribe what this bot does, who it works for, and what it must never do.\n"
-		if err := b.WriteFile(md, []byte(stub), 0o644); err != nil {
-			return fmt.Errorf("write AGENTS.md: %w", err)
+	return botSeedInstructionsFile(b, r, dir)
+}
+
+// botSeedInstructionsFile writes the runtime's instructions file when the
+// folder has none. A bot that switched runtimes keeps the other one's
+// instructions: a claude bot's CLAUDE.md imports AGENTS.md (Claude Code's
+// @path import, so the two never drift), and an omp bot's AGENTS.md starts as
+// a copy of CLAUDE.md. Only a folder with neither gets the stub.
+func botSeedInstructionsFile(b Backend, r *botRecord, dir string) error {
+	name := botInstructionsFile(r)
+	md := filepath.Join(dir, name)
+	if _, err := b.Stat(md); err == nil {
+		return nil
+	}
+	body := "# " + r.Name + "\n\nDescribe what this bot does, who it works for, and what it must never do.\n"
+	if r.isOmp() {
+		// A CLAUDE.md that only imports AGENTS.md has nothing to copy.
+		if prev, err := b.ReadFile(filepath.Join(dir, "CLAUDE.md")); err == nil && !strings.Contains(string(prev), "@AGENTS.md") {
+			body = string(prev)
 		}
+	} else if _, err := b.Stat(filepath.Join(dir, "AGENTS.md")); err == nil {
+		body = "@AGENTS.md\n"
+	}
+	if err := b.WriteFile(md, []byte(body), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", name, err)
 	}
 	return nil
 }
@@ -299,7 +318,7 @@ func botOmpSystemPrompt(r *botRecord, dir string) string {
 - AGENTS.md in that folder is your standing instructions. Project skills go in .claude/skills/ there.
 - lasso generates .omp/mcp.json, .mise/config.toml, .mise/tasks/bot, .mise/tasks/restart and .lasso/omp-bridge.ts from its Bots settings and overwrites them on every save: change those through lasso, not by editing the files. Any other task in .mise/tasks/ is the human's: a launch task (a mode, such as another provider) sets its environment and ends with `+"`exec mise run bot -- \"$@\"`"+`.
 - Your environment and secrets come from fnox.toml through mise, and only reach you at launch.
-- You can configure yourself when your human asks. Lasso's MCP tools (server "lasso") take your name, %q: get_bot reads your settings, update_bot changes your model, effort, approval mode, MCP servers, extra args, launch task, keep-running and avatar, set_bot_avatar sets your picture from an image file, and set_bot_env / unset_bot_env manage your variables (secret ones encrypted). Edit AGENTS.md and the files in .claude/skills/ directly. A server that needs OAuth must be signed in by your human in lasso's Bots view. Settings, MCP servers and variables take effect after you restart.
+- You can configure yourself when your human asks. Lasso's MCP tools (server "lasso") take your name, %q: get_bot reads your settings, update_bot changes your model, effort, approval mode, MCP servers, extra args, launch task, keep-running and avatar, set_bot_avatar sets your picture from an image file, and set_bot_env / unset_bot_env manage your variables (secret ones encrypted). Edit AGENTS.md and the files in .claude/skills/ directly (add_bot_skill copies one in from a skill library). To sign in a server that needs OAuth, call begin_bot_oauth and give your human the address it returns to open and approve. Settings, MCP servers and variables take effect after you restart.
 - You CAN restart yourself, and it is safe: run `+"`mise run restart`"+` in %s with your shell tool. That is the supported way, made for exactly this. You restart once your turn finishes, on this same conversation. Do it whenever your human asks you to restart, and when you need a new skill, MCP server, setting or variable to take effect; say you are restarting before you run it.
 
 %s`,

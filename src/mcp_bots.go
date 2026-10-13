@@ -3,9 +3,8 @@ package main
 // Bots over MCP: listing them, switching them on and off, and — so a bot can
 // configure itself when its human asks — reading and changing one bot's
 // settings and environment. Every bot reaches these through the "lasso" server
-// lasso puts in its MCP config (botLassoMCP). Creating and deleting a bot stay
-// in lasso's Bots view, behind a human: those
-// settings decide what the bot can reach.
+// lasso puts in its MCP config (botLassoMCP). The rest of the Bots view
+// (create, delete, conversations, chat, skills, OAuth) is mcp_botsmanage.go.
 
 import (
 	"context"
@@ -58,6 +57,8 @@ func summarizeBot(v botView) botSummary {
 
 func registerBotTools(s *mcp.Server) {
 	registerBotJobTools(s)
+	registerBotJobExtraTools(s)
+	registerBotManageTools(s)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_bots",
 		Description: "List lasso's bots: long-lived agent sessions, each with its own folder and MCP servers, that lasso keeps running. A bot's runtime is omp (omp itself in a herdr pane, driven through lasso's bridge) or claude (Claude Code in a herdr pane). Each entry has its live state (stopped/starting/idle/working/blocked) and the newest line of its conversation. Only bots on hosts your credential reaches are listed. Talk to a running bot with send_agent, its name as `to`.",
@@ -67,8 +68,12 @@ func registerBotTools(s *mcp.Server) {
 		Description: "Read one bot's whole configuration: runtime, model, effort, permission mode, MCP servers (and which are channels), extra args, its folder, its environment variables (a secret's value is never shown), its own skills and its OAuth sign-ins. A bot asked to change itself reads this first.",
 	}, getBotTool)
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "update_bot",
-		Description: "Change a bot's settings: model, effort, permission mode, MCP servers (the complete list, replacing the current one), strict MCP, extra args, keep-running, notifications, workspace. Only the fields you pass change. Lasso rewrites the bot's launch script and MCP config; a running bot picks the change up when it restarts (restart_needed). Its instructions (AGENTS.md for an omp bot, CLAUDE.md for a claude bot) and skills are files in its folder, edited directly, not through this tool. The runtime is changed only by the human, in lasso's Bots view.",
+		Name: "update_bot",
+		Description: "Change a bot's settings: runtime, folder, model, effort, permission mode, MCP servers (the complete list, replacing the current one), strict MCP, extra args, launch task, keep-running, notifications, workspace. Only the fields you pass change. Lasso rewrites the bot's launch script and MCP config; a running bot picks the change up when it restarts (restart_needed). " +
+			"runtime and dir change only while the bot is stopped: the call is refused while it runs, so stop_bot first, update_bot, then start_bot. A runtime switch rewrites the launch task and MCP config for the new runtime and keeps the MCP servers (signed-in OAuth ones included), the environment and secrets, the jobs and .claude/skills; " +
+			"model and permission mode reset to the new runtime's default unless passed in the same call, and effort is kept only when the new runtime has that level. The bot starts a new conversation on its next start (the two keep different session files). " +
+			"Switching to claude with only an AGENTS.md writes a CLAUDE.md that imports it (@AGENTS.md), and switching to omp with only a CLAUDE.md copies it to AGENTS.md. A claude bot signs in to Claude with the host's own Claude Code login, or with a CLAUDE_CODE_OAUTH_TOKEN secret (from `claude setup-token`) set with set_bot_env. " +
+			"Its instructions (AGENTS.md for an omp bot, CLAUDE.md for a claude bot) and skills are files in its folder, edited directly or with add_bot_skill / remove_bot_skill.",
 	}, updateBotTool)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "set_bot_env",
@@ -108,11 +113,13 @@ type getBotOut struct {
 	Folder string         `json:"folder" jsonschema:"the bot's folder on its host: its instructions (AGENTS.md for omp, CLAUDE.md for claude) and .claude/skills/ are files there to edit directly"`
 	Env    []botEnvVar    `json:"env" jsonschema:"the bot's environment variables; a secret's value is never shown"`
 	Skills []botSkill     `json:"skills" jsonschema:"the bot's own project skills"`
-	OAuth  map[string]any `json:"oauth,omitempty" jsonschema:"OAuth sign-ins by MCP server; signing in needs the human, in lasso's Bots view"`
+	OAuth  map[string]any `json:"oauth,omitempty" jsonschema:"OAuth sign-ins by MCP server; begin_bot_oauth starts one, which the human approves in their browser"`
 }
 
 type updateBotIn struct {
 	Name           string          `json:"name" jsonschema:"the bot's name"`
+	Runtime        *string         `json:"runtime,omitempty" jsonschema:"omp or claude; only while the bot is stopped"`
+	Dir            *string         `json:"dir,omitempty" jsonschema:"the bot's folder on its host (absolute or ~/...); only while the bot is stopped"`
 	Model          *string         `json:"model,omitempty" jsonschema:"model: a claude alias or full name for a claude bot, an omp provider/model selector (e.g. anthropic/claude-opus-5) for an omp bot; empty for the default"`
 	Effort         *string         `json:"effort,omitempty" jsonschema:"claude: low, medium, high, xhigh or max. omp: off, minimal, low, medium, high, xhigh, max or auto. Empty for the default"`
 	PermissionMode *string         `json:"permission_mode,omitempty" jsonschema:"claude: acceptEdits, auto, bypassPermissions, manual, dontAsk or plan. omp (its approval mode): yolo, write or always-ask. Empty for the default"`
@@ -190,6 +197,25 @@ func updateBotTool(ctx context.Context, req *mcp.CallToolRequest, in updateBotIn
 			*dst = *v
 		}
 	}
+	if in.Runtime != nil {
+		next.Runtime = strings.TrimSpace(*in.Runtime)
+		if next.Runtime != botRuntimeClaude && next.Runtime != botRuntimeOmp {
+			return nil, botChangeOut{}, fmt.Errorf("runtime must be omp or claude")
+		}
+	}
+	set(&next.Dir, in.Dir)
+	switched := next.Runtime != rec.Runtime
+	if (switched || next.Dir != rec.Dir) && botRunning(b, rec) {
+		return nil, botChangeOut{}, fmt.Errorf("%s is running: stop_bot it before changing its runtime or folder, then start_bot it", rec.Name)
+	}
+	if switched {
+		// The model, permission mode and effort names are the runtime's own,
+		// like the Bots view's runtime picker clears them.
+		next.Model, next.PermissionMode = "", ""
+		if next.Effort != "" && normalizeEffort(next.Runtime, next.Effort) == "" {
+			next.Effort = ""
+		}
+	}
 	set(&next.Model, in.Model)
 	set(&next.Effort, in.Effort)
 	set(&next.PermissionMode, in.PermissionMode)
@@ -219,10 +245,19 @@ func updateBotTool(ctx context.Context, req *mcp.CallToolRequest, in updateBotIn
 	if err := updateBot(&next); err != nil {
 		return nil, botChangeOut{}, err
 	}
+	note := ""
+	if switched {
+		// The other runtime's session is no conversation for this one.
+		next.LastSessionID = ""
+		if err := setBotSession(next.Name, ""); err != nil {
+			return nil, botChangeOut{}, err
+		}
+		note = fmt.Sprintf("%s now runs %s; start_bot starts it on a new conversation", next.Name, next.Runtime)
+	}
 	if err := botMaterialize(b, &next); err != nil {
 		return nil, botChangeOut{}, err
 	}
-	return nil, botChangeOut{OK: true, RestartNeeded: botRunning(b, &next)}, nil
+	return nil, botChangeOut{OK: true, RestartNeeded: botRunning(b, &next), Note: note}, nil
 }
 
 func setBotEnvTool(ctx context.Context, req *mcp.CallToolRequest, in botEnvIn) (*mcp.CallToolResult, botChangeOut, error) {

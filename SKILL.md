@@ -91,7 +91,7 @@ lasso's browsers are real Chromiums on lasso's machine (or remote browsers lasso
 
 ## Settings
 
-`get_settings` reads everything lasso's Settings tab shows (UI preferences, agent defaults, per-repo setup, theme, notification devices, browser, plugins) and `update_settings` changes it, with the same validation the tab applies. Pass only what changes; `ui` is a patch. Plugins are read-only: enabling, trusting, installing or updating one needs the human in the Settings tab, so ask them.
+`get_settings` reads everything lasso's Settings tab shows (UI preferences, agent defaults, per-repo setup, theme, notification devices, browser, plugins) and `update_settings` changes it, with the same validation the tab applies. Pass only what changes; `ui` is a patch. Plugin approvals are the human's: enabling, trusting, choosing isolation for, installing or updating one needs them in the Settings tab, so ask them; `update_settings` `plugin` disables, restarts, uninstalls or unlinks one, and `get_settings` `plugin_log` reads its log.
 
 ## Plugin tools
 

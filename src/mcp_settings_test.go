@@ -119,7 +119,14 @@ func TestUpdateSettingsCannotTouchPlugins(t *testing.T) {
 		for i := range rt.NumField() {
 			f := rt.Field(i)
 			tag := strings.ToLower(f.Tag.Get("json") + f.Name)
-			if strings.Contains(tag, "plugin") || strings.Contains(tag, "trust") {
+			// plugin and reload_plugins are the actions that only take
+			// power away; TestUpdateSettingsRefusesPluginApprovals pins
+			// that plugin refuses every approval.
+			if rt == reflect.TypeOf(updateSettingsIn{}) && (f.Name == "Plugin" || f.Name == "ReloadPlugins") {
+				walk(f.Type)
+				continue
+			}
+			if strings.Contains(tag, "plugin") || strings.Contains(tag, "trust") || strings.Contains(tag, "fingerprint") || strings.Contains(tag, "isolation") {
 				t.Errorf("update_settings field %s.%s reaches plugins; those need a human", rt.Name(), f.Name)
 			}
 			walk(f.Type)
