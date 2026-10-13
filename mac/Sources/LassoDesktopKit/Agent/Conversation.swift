@@ -214,11 +214,19 @@ struct ConversationPreviewView<M: Conversation>: View {
     var body: some View {
         VStack(spacing: 0) {
             ConversationHeader(model: model) {
-                Circle()
-                    .fill(StateStyle.color(model.dotState))
-                    .frame(width: Theme.space("l"), height: Theme.space("l"))
-                    .parityAnchor("preview.state")
-                    .accessibilityLabel(model.dotState.label)
+                // The window's terminal button, so a preview reaches the pane
+                // without opening the window first.
+                HStack(spacing: Theme.space("m")) {
+                    WindowButton(glyph: .lucide(.squareTerminal), label: model.herdrLabel, enabled: model.canShowInHerdr) {
+                        model.showInHerdr()
+                    }
+                    .parityAnchor("preview.herdr")
+                    Circle()
+                        .fill(StateStyle.color(model.dotState))
+                        .frame(width: Theme.space("l"), height: Theme.space("l"))
+                        .parityAnchor("preview.state")
+                        .accessibilityLabel(model.dotState.label)
+                }
             }
             model.aboveView()
             ConversationBody(model: model, window: false)
