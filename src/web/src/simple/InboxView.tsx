@@ -56,7 +56,7 @@ function CardFooter({ children }: { children: React.ReactNode }) {
 }
 
 // The Inbox opens on its newest message, never a list, and pages through the
-// rest in Inbox order: the arrows, or a horizontal swipe. Landing on a card is
+// rest in Inbox order: the arrows, or a horizontal swipe or drag. Landing on a card is
 // what marks it seen.
 export function InboxView({ go }: { go: (r: SimpleRoute) => void }) {
   const inbox = useInbox()
@@ -161,27 +161,76 @@ export function InboxView({ go }: { go: (r: SimpleRoute) => void }) {
           </EmptyState>
         )
       ) : (
-        <FooterSlot.Provider value={footer}>
-          {/* The card under the finger: it follows a horizontal drag (the
-              browser keeps the vertical scroll), and the ScrollBody inside is
-              keyed by the card, so each one opens at its top. */}
+        <>
+          {/* A strip of three cards, the one on screen between its
+              neighbours, that follows a horizontal drag (the browser keeps the
+              vertical scroll). Each card scrolls on its own and is keyed by
+              its item, so the card that slides in is the one that was beside
+              it, already at its top. */}
           <div
             ref={swipe.ref}
-            style={swipe.style}
             {...swipe.handlers}
-            className="flex min-h-0 flex-1 touch-pan-y flex-col will-change-transform"
+            className="flex min-h-0 flex-1 touch-pan-y flex-col overflow-hidden"
           >
-            <ScrollBody key={item.key} className="phone-cards pt-2 pb-4">
-              <ItemCard item={item} go={openFromCard} />
-            </ScrollBody>
+            <div
+              style={swipe.style}
+              className="flex min-h-0 w-full flex-1 will-change-transform"
+            >
+              {[items[index - 1], item, items[index + 1]].map((it, slot) =>
+                it ? (
+                  <Slide
+                    key={it.key}
+                    item={it}
+                    current={slot === 1}
+                    footer={footer}
+                    go={openFromCard}
+                  />
+                ) : (
+                  <div
+                    // biome-ignore lint/suspicious/noArrayIndexKey: the slot is the identity of an empty edge
+                    key={`edge-${slot}`}
+                    className="w-full flex-none"
+                  />
+                )
+              )}
+            </div>
           </div>
           <div
             ref={setFooter}
             className="flex flex-none flex-col gap-2.5 border-border/60 border-t px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+96px)]"
           />
-        </FooterSlot.Provider>
+        </>
       )}
     </Screen>
+  )
+}
+
+// One card in the strip. Only the card on screen gets the footer, so its
+// reply box and actions are the only ones in the bar; its neighbours are inert
+// until they slide in.
+function Slide({
+  item,
+  current,
+  footer,
+  go,
+}: {
+  item: InboxItem
+  current: boolean
+  footer: HTMLElement | null
+  go: (r: SimpleRoute) => void
+}) {
+  return (
+    <div
+      inert={!current}
+      aria-hidden={!current || undefined}
+      className="flex min-h-0 w-full flex-none flex-col"
+    >
+      <FooterSlot.Provider value={current ? footer : null}>
+        <ScrollBody className="phone-cards pt-2 pb-4">
+          <ItemCard item={item} go={go} />
+        </ScrollBody>
+      </FooterSlot.Provider>
+    </div>
   )
 }
 
