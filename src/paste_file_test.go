@@ -148,3 +148,88 @@ func TestServePasteFileDropsAnEmptyBody(t *testing.T) {
 		t.Errorf("removed %q, want the created %q", be.removed, be.createPath)
 	}
 }
+
+// A file bigger than one request body goes in parts: the first names the
+// whole size and opens the upload, each next part appends at its offset, and
+// the last answers the path alone.
+func TestServePasteFileInParts(t *testing.T) {
+	be := &recordingPasteBackend{name: "local", dir: "/home/local/.lasso/uploads/dropped-files"}
+	swapBackend(t, be)
+	post := func(url, body string) (int, map[string]any) {
+		req := httptest.NewRequest(http.MethodPost, url, strings.NewReader(body))
+		req.Header.Set("Content-Type", "video/quicktime")
+		rec := httptest.NewRecorder()
+		servePasteFile(rec, req)
+		var out map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		return rec.Code, out
+	}
+
+	code, first := post("/api/paste-file?name=rec.mov&size=9", "abc")
+	if code != http.StatusOK || first["upload"] == nil || first["received"] != float64(3) {
+		t.Fatalf("first part = %d %v, want an open upload at 3", code, first)
+	}
+	tok := first["upload"].(string)
+	if be.created.closed {
+		t.Fatal("the file was closed with parts still to come")
+	}
+	code, mid := post("/api/paste-file?upload="+tok+"&offset=3", "def")
+	if code != http.StatusOK || mid["received"] != float64(6) || mid["path"] != first["path"] {
+		t.Fatalf("middle part = %d %v", code, mid)
+	}
+	code, last := post("/api/paste-file?upload="+tok+"&offset=6", "ghi")
+	if code != http.StatusOK || last["upload"] != nil || last["path"] != first["path"] {
+		t.Fatalf("last part = %d %v, want the path alone", code, last)
+	}
+	if be.created.String() != "abcdefghi" || !be.created.closed {
+		t.Errorf("wrote %q (closed %v)", be.created.String(), be.created.closed)
+	}
+	if code, _ := post("/api/paste-file?upload="+tok+"&offset=9", "x"); code != http.StatusNotFound {
+		t.Errorf("a part after the end = %d, want 404", code)
+	}
+}
+
+// A part at the wrong offset (a retry, a reorder) or past the declared size
+// ends the upload and removes its file, rather than writing bytes twice.
+func TestServePasteFilePartRefusals(t *testing.T) {
+	for _, tc := range []struct {
+		name, url, body string
+		want            int
+	}{
+		{"wrong offset", "offset=1", "def", http.StatusConflict},
+		{"past the size", "offset=3", "defghijk", http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			be := &recordingPasteBackend{name: "local", dir: "/d"}
+			swapBackend(t, be)
+			req := httptest.NewRequest(http.MethodPost, "/api/paste-file?name=a.bin&size=6", strings.NewReader("abc"))
+			rec := httptest.NewRecorder()
+			servePasteFile(rec, req)
+			var first struct{ Upload, Path string }
+			_ = json.Unmarshal(rec.Body.Bytes(), &first)
+			req = httptest.NewRequest(http.MethodPost, "/api/paste-file?upload="+first.Upload+"&"+tc.url, strings.NewReader(tc.body))
+			rec = httptest.NewRecorder()
+			servePasteFile(rec, req)
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d", rec.Code, tc.want)
+			}
+			if be.removed != first.Path || !be.created.closed {
+				t.Errorf("removed %q (closed %v), want %q removed", be.removed, be.created.closed, first.Path)
+			}
+			if pasteUploads.get(first.Upload) != nil {
+				t.Error("the upload is still open")
+			}
+		})
+	}
+}
+
+func TestServePasteFileRefusesOversizeDeclaration(t *testing.T) {
+	be := &recordingPasteBackend{name: "local", dir: "/d"}
+	swapBackend(t, be)
+	req := httptest.NewRequest(http.MethodPost, "/api/paste-file?size=99999999999", strings.NewReader("abc"))
+	rec := httptest.NewRecorder()
+	servePasteFile(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge || be.createPath != "" {
+		t.Errorf("status = %d, created %q; want 413 and nothing created", rec.Code, be.createPath)
+	}
+}

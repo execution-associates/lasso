@@ -2108,10 +2108,34 @@ func pasteFileName(raw, contentType string) string {
 // absolute path it was written to. The browser inserts that path — at the
 // terminal's cursor, or into the mobile input buffer being composed — so the
 // agent reads the file from the host it runs on.
+//
+// A file too big for one request body (Cloudflare refuses bodies over 100 MB in
+// front of lasso.orangecountyai.com) goes in parts: the first request also
+// names the whole file's ?size= and is answered {path, upload, received} while
+// bytes are still to come; each next part is POSTed with ?upload=<token> and
+// ?offset=<bytes so far> and appended (servePasteChunk). See pasteupload.go.
 func servePasteFile(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
+	}
+	q := r.URL.Query()
+	if tok := q.Get("upload"); tok != "" {
+		servePasteChunk(w, r, tok)
+		return
+	}
+	var size int64
+	if s := q.Get("size"); s != "" {
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil || n <= 0 {
+			http.Error(w, "bad size", http.StatusBadRequest)
+			return
+		}
+		if n > maxUpload {
+			http.Error(w, "file too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		size = n
 	}
 	// Target the selected host (?host=, default active) so the file lands where
 	// the agent will run and the path we hand back resolves on that host.
@@ -2126,16 +2150,27 @@ func servePasteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ct, _, _ := strings.Cut(r.Header.Get("Content-Type"), ";")
-	path := filepath.Join(dir, pasteFileName(r.URL.Query().Get("name"), ct))
+	path := filepath.Join(dir, pasteFileName(q.Get("name"), ct))
 	// Streamed rather than read into memory: a picker on a phone will hand over
 	// a video as happily as a screenshot. Capped at the same maxUpload as the
-	// multipart file endpoint — one ceiling for "bytes the browser sent us".
+	// multipart file endpoint — one ceiling for "bytes the browser sent us" —
+	// or at the declared size, so a part cannot run past the file it began.
 	out, err := be.Create(path)
 	if err != nil {
 		http.Error(w, "create: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	written, copyErr := io.Copy(out, http.MaxBytesReader(w, r.Body, maxUpload))
+	limit := int64(maxUpload)
+	if size > 0 {
+		limit = size
+	}
+	written, copyErr := io.Copy(out, http.MaxBytesReader(w, r.Body, limit))
+	if copyErr == nil && written > 0 && size > written {
+		// More parts to come: the file stays open for them.
+		tok := pasteUploads.begin(be, path, out, size, written)
+		writeJSON(w, pasteUploadReply{Path: path, Upload: tok, Received: written})
+		return
+	}
 	closeErr := out.Close()
 	switch {
 	case copyErr != nil:

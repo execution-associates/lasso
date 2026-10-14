@@ -206,15 +206,44 @@ public final class LiveCardActions: CardActions {
 }
 
 extension LassoClient {
-    struct Pasted: Decodable { var path: String }
+    struct Pasted: Decodable {
+        var path: String
+        /// Set while parts are still to come: the token the next part names.
+        var upload: String?
+        var received: Int64?
+    }
+
+    /// The part size a big file is sent in (src/pasteupload.go
+    /// pasteChunkBytes): Cloudflare refuses a request body over 100 MB in
+    /// front of lasso, so a screen recording sent whole never arrives.
+    static let pasteChunkBytes = 50 << 20
 
     /// Upload a file to `host`'s machine (lasso's paste-file route) and
-    /// answer the path it was written to there.
-    func pasteFile(_ file: URL, host: String) async throws -> String {
-        var req = request("/api/paste-file", query: ["host": host, "name": file.lastPathComponent], method: "POST")
+    /// answer the path it was written to there. A file over one part goes
+    /// in parts, each read from disk as it is sent.
+    func pasteFile(_ file: URL, host: String, chunk: Int = pasteChunkBytes) async throws -> String {
         let type = UTType(filenameExtension: file.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-        req.setValue(type, forHTTPHeaderField: "Content-Type")
-        let r: Pasted = try await upload(req, fromFile: file)
+        func post(_ query: [String: String]) -> URLRequest {
+            var req = request("/api/paste-file", query: query.merging(["host": host]) { a, _ in a }, method: "POST")
+            req.setValue(type, forHTTPHeaderField: "Content-Type")
+            return req
+        }
+        let size = Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        let name = file.lastPathComponent
+        guard size > chunk else {
+            let r: Pasted = try await upload(post(["name": name]), fromFile: file)
+            Analytics.shared.track(.featureUsed(.paste_upload))
+            return r.path
+        }
+        let h = try FileHandle(forReadingFrom: file)
+        defer { try? h.close() }
+        var r: Pasted = try await upload(
+            post(["name": name, "size": String(size)]), from: h.read(upToCount: chunk) ?? Data())
+        while let tok = r.upload, let off = r.received {
+            try h.seek(toOffset: UInt64(off))
+            r = try await upload(
+                post(["upload": tok, "offset": String(off)]), from: h.read(upToCount: chunk) ?? Data())
+        }
         Analytics.shared.track(.featureUsed(.paste_upload))
         return r.path
     }

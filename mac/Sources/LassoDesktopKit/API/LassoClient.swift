@@ -161,6 +161,19 @@ public final class LassoClient: @unchecked Sendable {
         var r = r
         r.timeoutInterval = 600
         let (data, resp) = try await perform(r) { try await self.session.upload(for: $0, fromFile: file) }
+        return try decodeUpload(r, data, resp)
+    }
+
+    /// Send `body` (one part of a bigger file) as the request body and decode
+    /// the JSON answer.
+    public func upload<T: Decodable>(_ r: URLRequest, from body: Data) async throws -> T {
+        var r = r
+        r.timeoutInterval = 600
+        let (data, resp) = try await perform(r) { try await self.session.upload(for: $0, from: body) }
+        return try decodeUpload(r, data, resp)
+    }
+
+    private func decodeUpload<T: Decodable>(_ r: URLRequest, _ data: Data, _ resp: URLResponse) throws -> T {
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else {
             throw LassoError.http(code, String(decoding: data.prefix(300), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
