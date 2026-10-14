@@ -891,6 +891,10 @@ function mtimeHeader(r: Response): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+// The part size a big pasted file is sent in (src/pasteupload.go
+// pasteChunkBytes): under Cloudflare's 100 MB request-body cap.
+const PASTE_CHUNK_BYTES = 50 * 1024 * 1024
+
 async function httpError(r: Response): Promise<Error> {
   const body = (await r.text().catch(() => "")).trim()
   const isHTML =
@@ -2666,17 +2670,40 @@ export const api = {
     name?: string
   ): Promise<{ path: string }> => {
     // name first, so withHost's own separator logic stays correct either way.
-    const named = name
-      ? `/api/paste-file?name=${encodeURIComponent(name)}`
-      : "/api/paste-file"
-    const r = await hostFetch(withHost(named, host), {
-      method: "POST",
-      headers: { "Content-Type": file.type || "application/octet-stream" },
-      body: file,
-    })
-    if (!r.ok) throw await httpError(r)
+    const params = new URLSearchParams()
+    if (name) params.set("name", name)
+    // Over one part, the file goes in parts: Cloudflare refuses a request
+    // body over 100 MB in front of lasso, so a screen recording sent whole
+    // never arrives. The first part names the whole size.
+    const chunked = file.size > PASTE_CHUNK_BYTES
+    if (chunked) params.set("size", String(file.size))
+    const qs = params.toString()
+    const type = file.type || "application/octet-stream"
+    const send = async (
+      url: string,
+      body: Blob
+    ): Promise<{ path: string; upload?: string; received?: number }> => {
+      const r = await hostFetch(withHost(url, host), {
+        method: "POST",
+        headers: { "Content-Type": type },
+        body,
+      })
+      if (!r.ok) throw await httpError(r)
+      return r.json()
+    }
+    let res = await send(
+      qs ? `/api/paste-file?${qs}` : "/api/paste-file",
+      chunked ? file.slice(0, PASTE_CHUNK_BYTES) : file
+    )
+    while (res.upload && res.received !== undefined) {
+      const off = res.received
+      res = await send(
+        `/api/paste-file?upload=${encodeURIComponent(res.upload)}&offset=${off}`,
+        file.slice(off, off + PASTE_CHUNK_BYTES)
+      )
+    }
     trackFeature("paste_upload")
-    return r.json()
+    return { path: res.path }
   },
 
   // --- Agent creation ---
