@@ -17,7 +17,8 @@ import (
 
 // herdrFixtureSchema is a trimmed `herdr api schema --json`: a no-arg method,
 // one whose source parameter is an enum behind a $ref, one with a nested
-// object, a client-local method, an alias-bearing method, and two that the
+// object, one whose destination is a type-less union of objects (herdr's
+// internally tagged enum), a client-local method, an alias-bearing method, and two that the
 // deny list must drop (a streaming subscription and an agent's self-report).
 const herdrFixtureSchema = `{
   "protocol": 22,
@@ -29,6 +30,7 @@ const herdrFixtureSchema = `{
         {"type": "object", "properties": {"method": {"const": "pane.list", "type": "string"}, "params": {"$ref": "#/schemas/request/$defs/EmptyParams"}}},
         {"type": "object", "properties": {"method": {"const": "pane.read", "type": "string"}, "params": {"$ref": "#/schemas/request/$defs/PaneReadParams"}}},
         {"type": "object", "properties": {"method": {"const": "pane.close", "type": "string"}, "params": {"$ref": "#/schemas/request/$defs/PaneTarget"}}},
+        {"type": "object", "properties": {"method": {"const": "pane.move", "type": "string"}, "params": {"$ref": "#/schemas/request/$defs/PaneMoveParams"}}},
         {"type": "object", "properties": {"method": {"const": "agent.prompt", "type": "string"}, "params": {"$ref": "#/schemas/request/$defs/AgentPromptParams"}}},
         {"type": "object", "properties": {"method": {"const": "popup.close", "type": "string"}, "params": {"$ref": "#/schemas/request/$defs/EmptyParams"}}},
         {"type": "object", "properties": {"method": {"const": "events.subscribe", "type": "string"}, "params": {"$ref": "#/schemas/request/$defs/EmptyParams"}}},
@@ -48,6 +50,15 @@ const herdrFixtureSchema = `{
           "properties": {"target": {"type": "string"}, "text": {"type": "string"}, "wait": {"$ref": "#/schemas/request/$defs/AgentPromptWaitOptions"}},
           "required": ["target", "text"]
         },
+        "PaneMoveParams": {
+          "type": "object",
+          "properties": {"pane_id": {"type": "string"}, "destination": {"$ref": "#/schemas/request/$defs/PaneMoveDestination"}},
+          "required": ["pane_id", "destination"]
+        },
+        "PaneMoveDestination": {"oneOf": [
+          {"type": "object", "properties": {"type": {"const": "tab", "type": "string"}, "tab_id": {"type": "string"}}, "required": ["type", "tab_id"]},
+          {"type": "object", "properties": {"type": {"const": "new_tab", "type": "string"}, "label": {"type": ["string", "null"]}}, "required": ["type"]}
+        ]},
         "AgentPromptWaitOptions": {"type": "object", "properties": {"timeout_ms": {"type": "integer"}}},
         "Unused": {"type": "string"}
       }
@@ -216,7 +227,7 @@ func TestHerdrToolsFromFixtureSchema(t *testing.T) {
 	}
 	sort.Strings(names)
 	// herdr-mcp's naming, the deny list applied, and machine_list alongside.
-	want := []string{"agent_prompt", "machine_list", "pane_close", "pane_list", "pane_read", "ping", "popup_close"}
+	want := []string{"agent_prompt", "machine_list", "pane_close", "pane_list", "pane_move", "pane_read", "ping", "popup_close"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}
@@ -357,6 +368,49 @@ func TestHerdrToolsValidateAndAliasArguments(t *testing.T) {
 	}
 }
 
+// A union-of-objects parameter is advertised as an object, and one a client
+// sends as a JSON string still reaches herdr as an object.
+func TestHerdrToolsObjectUnionArguments(t *testing.T) {
+	local := newHerdrFakeHost("local")
+	stubHerdrHosts(t, local)
+	sess := herdrMCPTestSession(t, newHerdrMCPForTest(t), "")
+
+	schema, _ := json.Marshal(herdrToolsByName(t, sess)["pane_move"].InputSchema)
+	var in struct {
+		Properties map[string]map[string]any `json:"properties"`
+	}
+	if err := json.Unmarshal(schema, &in); err != nil {
+		t.Fatal(err)
+	}
+	if d := in.Properties["destination"]; d["type"] != "object" || d["$ref"] != "#/$defs/PaneMoveDestination" {
+		t.Errorf("destination schema = %v, want type object beside its $ref", d)
+	}
+	if !strings.Contains(string(schema), `"PaneMoveDestination"`) {
+		t.Errorf("destination's definition was dropped: %s", schema)
+	}
+
+	want := map[string]any{"type": "new_tab", "label": "logs"}
+	for _, dest := range []any{want, `{"type":"new_tab","label":"logs"}`} {
+		res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "pane_move",
+			Arguments: map[string]any{"pane_id": "w1:p1", "destination": dest}})
+		if err != nil || res.IsError {
+			t.Fatalf("pane_move with destination %#v: %v %s", dest, err, toolErrorText(res))
+		}
+		got, ok := local.lastCall(t).Params["destination"].(map[string]any)
+		if !ok || got["type"] != "new_tab" || got["label"] != "logs" {
+			t.Errorf("destination %#v reached herdr as %#v, want an object", dest, local.lastCall(t).Params["destination"])
+		}
+	}
+
+	// A string that is not an object is left for herdr to reject.
+	if _, errMsg := callHerdrTool(t, sess, "pane_move", map[string]any{"pane_id": "w1:p1", "destination": "new_tab"}); errMsg != "" {
+		t.Fatalf("pane_move with a bare string: %s", errMsg)
+	}
+	if d := local.lastCall(t).Params["destination"]; d != "new_tab" {
+		t.Errorf("bare string destination became %#v", d)
+	}
+}
+
 // Over the real endpoint with MCP_OAUTH on: no credential is refused at the
 // door, and a host-scoped credential reaches exactly what it reaches on /mcp.
 func TestHerdrMCPAuthAndReach(t *testing.T) {
@@ -470,8 +524,8 @@ func TestHerdrMCPReload(t *testing.T) {
 	if err := h.refresh(context.Background()); err == nil {
 		t.Error("a malformed schema reported success")
 	}
-	if n := h.toolCount(); n != 6 {
-		t.Errorf("tools after failed reloads = %d, want the 6 that were registered", n)
+	if n := h.toolCount(); n != 7 {
+		t.Errorf("tools after failed reloads = %d, want the 7 that were registered", n)
 	}
 }
 
