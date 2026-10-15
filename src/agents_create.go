@@ -1422,9 +1422,18 @@ func paneShowsTrustPrompt(b Backend, paneID string) bool {
 // id + the stored filenames. create-agent later moves these into the new agent's
 // work dir on that same host, so the file never makes a cross-host hop and the
 // flow is identical regardless of which host the agent runs on.
+//
+// A body that is not multipart is one file, ?name= its filename, staged into
+// ?dir= (an id an earlier upload answered) or a fresh directory. That form is
+// what the web dialog sends: a file over one request body (Cloudflare refuses
+// bodies over 100 MB) goes in parts exactly as /api/paste-file takes them.
 func serveAgentUpload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	if ct, _, _ := strings.Cut(r.Header.Get("Content-Type"), ";"); !strings.EqualFold(strings.TrimSpace(ct), "multipart/form-data") {
+		serveAgentUploadFile(w, r)
 		return
 	}
 	be, err := reqHostBackend(r)
@@ -1470,4 +1479,55 @@ func serveAgentUpload(w http.ResponseWriter, r *http.Request) {
 		saved = append(saved, name)
 	}
 	writeJSON(w, map[string]any{"upload_dir": id, "files": saved})
+}
+
+// agentUploadDirRE is the shape of a staging id serveAgentUpload makes (a
+// base-36 timestamp): ?dir= is client-supplied, so nothing else may name one.
+var agentUploadDirRE = regexp.MustCompile(`^[0-9a-z]{1,20}$`)
+
+// serveAgentUploadFile stages one raw-body file (see serveAgentUpload). A
+// first part is answered {upload_dir, files, upload, received}; each next part
+// is POSTed with ?upload=<token>&offset=<received> (servePasteChunk).
+func serveAgentUploadFile(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	if tok := q.Get("upload"); tok != "" {
+		servePasteChunk(w, r, tok)
+		return
+	}
+	name := filepath.Base(filepath.FromSlash(strings.TrimSpace(q.Get("name"))))
+	switch name {
+	case "", ".", "..", string(filepath.Separator):
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+	id := q.Get("dir")
+	if id == "" {
+		id = strconv.FormatInt(time.Now().UnixNano(), 36)
+	} else if !agentUploadDirRE.MatchString(id) {
+		http.Error(w, "bad dir", http.StatusBadRequest)
+		return
+	}
+	size, ok := uploadSize(w, q.Get("size"))
+	if !ok {
+		return
+	}
+	be, err := reqHostBackend(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	staging := filepath.Join(lassoUploadsDirFor(be), id)
+	if err := be.MkdirAll(staging, 0o755); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tok, received, ok := writeUploadBody(w, r, be, filepath.Join(staging, name), size)
+	if tok == "" && !ok {
+		return
+	}
+	reply := map[string]any{"upload_dir": id, "files": []string{name}}
+	if tok != "" {
+		reply["upload"], reply["received"] = tok, received
+	}
+	writeJSON(w, reply)
 }

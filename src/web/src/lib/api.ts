@@ -2757,14 +2757,49 @@ export const api = {
     files: File[],
     host?: string
   ): Promise<{ upload_dir: string; files: string[] }> => {
-    const form = new FormData()
-    for (const f of files) form.append("files", f, f.name)
-    const r = await hostFetch(withHost("/api/agent-upload", host), {
-      method: "POST",
-      body: form,
-    })
-    if (!r.ok) throw new Error(await r.text())
-    return r.json()
+    // One file per request, each into the same staging dir, and a file over
+    // one part in parts: Cloudflare refuses a request body over 100 MB in
+    // front of lasso, so a screen recording sent whole never arrives.
+    type Reply = {
+      upload_dir?: string
+      files?: string[]
+      upload?: string
+      received?: number
+    }
+    const send = async (url: string, f: File, body: Blob): Promise<Reply> => {
+      const r = await hostFetch(withHost(url, host), {
+        method: "POST",
+        headers: { "Content-Type": f.type || "application/octet-stream" },
+        body,
+      })
+      if (!r.ok) throw await httpError(r)
+      return r.json()
+    }
+    let dir = ""
+    const saved: string[] = []
+    for (const f of files) {
+      const params = new URLSearchParams({ name: f.name })
+      if (dir) params.set("dir", dir)
+      const chunked = f.size > PASTE_CHUNK_BYTES
+      if (chunked) params.set("size", String(f.size))
+      const res = await send(
+        `/api/agent-upload?${params}`,
+        f,
+        chunked ? f.slice(0, PASTE_CHUNK_BYTES) : f
+      )
+      dir = res.upload_dir ?? dir
+      saved.push(...(res.files ?? []))
+      let part = res
+      while (part.upload && part.received !== undefined) {
+        const off = part.received
+        part = await send(
+          `/api/agent-upload?upload=${encodeURIComponent(part.upload)}&offset=${off}`,
+          f,
+          f.slice(off, off + PASTE_CHUNK_BYTES)
+        )
+      }
+    }
+    return { upload_dir: dir, files: saved }
   },
 
   // Create + launch an agent (git worktree or scratch workspace).

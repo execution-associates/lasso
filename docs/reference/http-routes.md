@@ -78,7 +78,7 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 
 | route | purpose |
 | --- | --- |
-| `/api/create-agent`, `/api/agent-upload` | Create an agent; stage its attachments. |
+| `/api/create-agent`, `/api/agent-upload` | Create an agent; stage its attachments. `agent-upload` takes multipart `files`, or one file as the raw body with `?name=` and `?dir=` (the `upload_dir` an earlier upload answered, to stage beside it), answering `{upload_dir, files}`; a raw file over one request body goes in parts exactly as `/api/paste-file` takes them (`?size=`, then `?upload=&offset=`). The web dialog sends each file raw, in 50 MiB parts. |
 | `/api/agent/close`, `/api/agent/reopen`, `/api/agent-history` | Close an agent (what `lasso closeme` calls); reopen a closed agent's directory; past agents for the pane switcher. |
 | `/api/agent/rename` | Set or clear an agent's custom label (herdr's `agent.rename`), `{pane_id, name}` with `?host=`; an empty name clears it. The name is made a herdr agent name first ("Check HN page" is `check-hn-page`). A bot's pane is refused (409): lasso finds a bot by that name. |
 | `/api/create-terminal`, `/api/workspaces` | Open a plain terminal; list workspaces to put it in. |
