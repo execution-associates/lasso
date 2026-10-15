@@ -2124,18 +2124,9 @@ func servePasteFile(w http.ResponseWriter, r *http.Request) {
 		servePasteChunk(w, r, tok)
 		return
 	}
-	var size int64
-	if s := q.Get("size"); s != "" {
-		n, err := strconv.ParseInt(s, 10, 64)
-		if err != nil || n <= 0 {
-			http.Error(w, "bad size", http.StatusBadRequest)
-			return
-		}
-		if n > maxUpload {
-			http.Error(w, "file too large", http.StatusRequestEntityTooLarge)
-			return
-		}
-		size = n
+	size, ok := uploadSize(w, q.Get("size"))
+	if !ok {
+		return
 	}
 	// Target the selected host (?host=, default active) so the file lands where
 	// the agent will run and the path we hand back resolves on that host.
@@ -2151,6 +2142,37 @@ func servePasteFile(w http.ResponseWriter, r *http.Request) {
 	}
 	ct, _, _ := strings.Cut(r.Header.Get("Content-Type"), ";")
 	path := filepath.Join(dir, pasteFileName(q.Get("name"), ct))
+	switch tok, received, ok := writeUploadBody(w, r, be, path, size); {
+	case tok != "":
+		writeJSON(w, pasteUploadReply{Path: path, Upload: tok, Received: received})
+	case ok:
+		writeJSON(w, map[string]string{"path": path})
+	}
+}
+
+// uploadSize parses an optional ?size= (the whole file's bytes, sent with the
+// first of several parts), answering the error itself when it is bad.
+func uploadSize(w http.ResponseWriter, s string) (int64, bool) {
+	if s == "" {
+		return 0, true
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n <= 0 {
+		http.Error(w, "bad size", http.StatusBadRequest)
+		return 0, false
+	}
+	if n > maxUpload {
+		http.Error(w, "file too large", http.StatusRequestEntityTooLarge)
+		return 0, false
+	}
+	return n, true
+}
+
+// writeUploadBody streams the request body into path on be: a whole file, or
+// the first part of one declared `size` bytes long. A first part answers the
+// open upload's token (pasteupload.go), a whole file ok; on an error it has
+// answered already and reports neither.
+func writeUploadBody(w http.ResponseWriter, r *http.Request, be Backend, path string, size int64) (tok string, received int64, ok bool) {
 	// Streamed rather than read into memory: a picker on a phone will hand over
 	// a video as happily as a screenshot. Capped at the same maxUpload as the
 	// multipart file endpoint — one ceiling for "bytes the browser sent us" —
@@ -2158,7 +2180,7 @@ func servePasteFile(w http.ResponseWriter, r *http.Request) {
 	out, err := be.Create(path)
 	if err != nil {
 		http.Error(w, "create: "+err.Error(), http.StatusInternalServerError)
-		return
+		return "", 0, false
 	}
 	limit := int64(maxUpload)
 	if size > 0 {
@@ -2167,28 +2189,26 @@ func servePasteFile(w http.ResponseWriter, r *http.Request) {
 	written, copyErr := io.Copy(out, http.MaxBytesReader(w, r.Body, limit))
 	if copyErr == nil && written > 0 && size > written {
 		// More parts to come: the file stays open for them.
-		tok := pasteUploads.begin(be, path, out, size, written)
-		writeJSON(w, pasteUploadReply{Path: path, Upload: tok, Received: written})
-		return
+		return pasteUploads.begin(be, path, out, size, written), written, false
 	}
 	closeErr := out.Close()
 	switch {
 	case copyErr != nil:
 		_ = be.RemoveAll(path)
 		http.Error(w, "write: "+copyErr.Error(), http.StatusBadRequest)
-		return
+		return "", 0, false
 	case closeErr != nil:
 		_ = be.RemoveAll(path)
 		http.Error(w, "write: "+closeErr.Error(), http.StatusInternalServerError)
-		return
+		return "", 0, false
 	case written == 0:
 		// An empty file is never what the user meant to attach, and leaving it
 		// would put a dead path in their prompt.
 		_ = be.RemoveAll(path)
 		http.Error(w, "empty body", http.StatusBadRequest)
-		return
+		return "", 0, false
 	}
-	writeJSON(w, map[string]string{"path": path})
+	return "", written, true
 }
 
 // ---------------------------------------------------------------------------

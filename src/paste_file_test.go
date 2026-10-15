@@ -233,3 +233,49 @@ func TestServePasteFileRefusesOversizeDeclaration(t *testing.T) {
 		t.Errorf("status = %d, created %q; want 413 and nothing created", rec.Code, be.createPath)
 	}
 }
+
+// The New Agent dialog stages each attachment as its own raw body, a big one
+// in parts, all into the one staging dir create-agent later reads.
+func TestServeAgentUploadFileInParts(t *testing.T) {
+	t.Setenv("LASSO_DIR", "/lasso")
+	be := &recordingPasteBackend{name: "local"}
+	swapBackend(t, be)
+	post := func(url, body string) (int, map[string]any) {
+		req := httptest.NewRequest(http.MethodPost, url, strings.NewReader(body))
+		req.Header.Set("Content-Type", "video/quicktime")
+		rec := httptest.NewRecorder()
+		serveAgentUpload(rec, req)
+		var out map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		return rec.Code, out
+	}
+
+	code, first := post("/api/agent-upload?name=Screen%20Recording.mov&size=6", "abc")
+	if code != http.StatusOK || first["upload"] == nil || first["received"] != float64(3) {
+		t.Fatalf("first part = %d %v, want an open upload at 3", code, first)
+	}
+	dir, _ := first["upload_dir"].(string)
+	want := filepath.Join("/lasso/uploads", dir, "Screen Recording.mov")
+	if dir == "" || be.createPath != want {
+		t.Fatalf("created %q in dir %q, want %q", be.createPath, dir, want)
+	}
+	code, last := post("/api/agent-upload?upload="+first["upload"].(string)+"&offset=3", "def")
+	if code != http.StatusOK || last["upload"] != nil {
+		t.Fatalf("last part = %d %v", code, last)
+	}
+	if be.created.String() != "abcdef" || !be.created.closed {
+		t.Errorf("wrote %q (closed %v)", be.created.String(), be.created.closed)
+	}
+
+	// A second file joins the first one's dir, whole.
+	code, second := post("/api/agent-upload?name=notes.txt&dir="+dir, "hi")
+	if code != http.StatusOK || second["upload_dir"] != dir || be.createPath != filepath.Join("/lasso/uploads", dir, "notes.txt") {
+		t.Fatalf("second file = %d %v at %q", code, second, be.createPath)
+	}
+
+	// ?dir= is client-supplied: it may only name a staging id.
+	be.createPath = ""
+	if code, _ := post("/api/agent-upload?name=x&dir=..%2Fworktrees", "x"); code != http.StatusBadRequest || be.createPath != "" {
+		t.Errorf("a traversing dir = %d, created %q; want 400 and nothing", code, be.createPath)
+	}
+}
