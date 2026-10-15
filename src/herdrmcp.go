@@ -227,6 +227,7 @@ func (s *herdrSchema) methods(deny []string) ([]herdrMethod, error) {
 		}
 		herdrRewriteRefs(input)
 		herdrInlineEnums(input, defs)
+		herdrTypeUnions(input, defs)
 		defs = herdrReferencedDefs(input, defs)
 		if len(defs) > 0 {
 			input["$defs"] = defs
@@ -342,6 +343,84 @@ func herdrInlineEnums(v any, defs map[string]any) {
 			herdrInlineEnums(child, defs)
 		}
 	}
+}
+
+// herdrTypeUnions gives a parameter whose value is a union of objects (herdr's
+// internally tagged enums, such as pane.move's destination) the "type" herdr's
+// schema leaves off. A client that finds no type on a parameter sends the value
+// as a JSON string, which herdr rejects.
+func herdrTypeUnions(input, defs map[string]any) {
+	props, _ := input["properties"].(map[string]any)
+	for _, v := range props {
+		prop, ok := v.(map[string]any)
+		if !ok || prop["type"] != nil {
+			continue
+		}
+		kind, nullable := herdrSchemaKind(prop, defs, 0)
+		if kind == "" {
+			continue
+		}
+		if nullable {
+			prop["type"] = []any{kind, "null"}
+		} else {
+			prop["type"] = kind
+		}
+	}
+}
+
+// herdrSchemaKind reports whether a schema always describes an object or always
+// an array (through $refs and oneOf/anyOf branches), and whether null is also
+// allowed. Anything mixed or scalar is "".
+func herdrSchemaKind(s map[string]any, defs map[string]any, depth int) (kind string, nullable bool) {
+	if s == nil || depth > 8 {
+		return "", false
+	}
+	switch t := s["type"].(type) {
+	case string:
+		if t == "object" || t == "array" {
+			return t, false
+		}
+		return "", false
+	case []any:
+		for _, e := range t {
+			switch e {
+			case "null":
+				nullable = true
+			case "object", "array":
+				if kind != "" && kind != e {
+					return "", false
+				}
+				kind = e.(string)
+			default:
+				return "", false
+			}
+		}
+		return kind, nullable
+	}
+	if r, ok := s["$ref"].(string); ok {
+		def, _ := defs[strings.TrimPrefix(r, "#/$defs/")].(map[string]any)
+		return herdrSchemaKind(def, defs, depth+1)
+	}
+	for _, key := range []string{"oneOf", "anyOf"} {
+		branches, ok := s[key].([]any)
+		if !ok || len(branches) == 0 {
+			continue
+		}
+		for _, b := range branches {
+			bm, _ := b.(map[string]any)
+			if bm["type"] == "null" {
+				nullable = true
+				continue
+			}
+			k, n := herdrSchemaKind(bm, defs, depth+1)
+			if k == "" || (kind != "" && k != kind) {
+				return "", false
+			}
+			kind, nullable = k, nullable || n
+		}
+		return kind, nullable
+	}
+	return "", false
 }
 
 // herdrReferencedDefs keeps only the definitions still reachable once leaf
@@ -993,11 +1072,49 @@ func herdrNormalizeArguments(method string, input map[string]any, raw json.RawMe
 		delete(args, alias)
 		notes = append(notes, fmt.Sprintf("Mapped argument %q to %q.", alias, canonical))
 	}
+	notes = append(notes, herdrDecodeStringified(input, args)...)
 	sort.Strings(notes)
 	if err := herdrValidateArguments(input, args); err != nil {
 		return nil, nil, fmt.Errorf("invalid arguments for %s: %w", herdrToolName(method), err)
 	}
 	return args, notes, nil
+}
+
+// herdrDecodeStringified decodes an object or array argument a client sent as
+// a JSON string, the form some clients fall back to for a structured
+// parameter. A string that does not decode to the right shape is left for
+// herdr to reject.
+func herdrDecodeStringified(schema, args map[string]any) []string {
+	props, _ := schema["properties"].(map[string]any)
+	defs, _ := schema["$defs"].(map[string]any)
+	var notes []string
+	for name, v := range args {
+		str, ok := v.(string)
+		if !ok {
+			continue
+		}
+		prop, _ := props[name].(map[string]any)
+		var decoded any
+		switch kind, _ := herdrSchemaKind(prop, defs, 0); kind {
+		case "object":
+			var m map[string]any
+			if json.Unmarshal([]byte(str), &m) != nil || m == nil {
+				continue
+			}
+			decoded = m
+		case "array":
+			var a []any
+			if json.Unmarshal([]byte(str), &a) != nil || a == nil {
+				continue
+			}
+			decoded = a
+		default:
+			continue
+		}
+		args[name] = decoded
+		notes = append(notes, fmt.Sprintf("Decoded argument %q from a JSON string.", name))
+	}
+	return notes
 }
 
 func herdrValidateArguments(schema map[string]any, args map[string]any) error {
