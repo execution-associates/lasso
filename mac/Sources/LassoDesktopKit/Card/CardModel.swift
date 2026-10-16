@@ -109,11 +109,20 @@ public final class CardModel: ComposerModel {
 
     public enum KeyMode: Sendable { case none, lent, full }
     @Published public var highlighted: Int?
+    /// The highlight was put on a choice on purpose (↑/↓, 1–9, a click, or
+    /// a first ⏎ under a lent keyboard): only then does a lent keyboard's ⏎
+    /// answer with it.
+    @Published public private(set) var chosen = false
     /// The open question as it was when drawn (PLAN 13.4): an answer is
     /// built from this, never from the chat re-read at send time, so one
     /// cannot land on a question the agent has moved past.
     @Published public private(set) var captured: ChatTool.Question?
     private var capturedID: String?
+    /// The captured question's tool item, and how many questions its ask
+    /// holds: one alone is drawn in the footer instead of the conversation,
+    /// and answering it moves the inbox card on.
+    @Published public private(set) var capturedItem: String?
+    private var capturedCount = 0
     /// The composer is answering the question in its own words (Other).
     @Published public var answeringCustom = false
     /// Cards seen this session, for the unread bar.
@@ -241,6 +250,53 @@ public final class CardModel: ComposerModel {
         }
     }
 
+    /// An open question waits on the human with choices to pick from.
+    public var hasChoices: Bool { !nextSteps.isEmpty }
+
+    /// The open question, as the footer heads it.
+    public var question: (header: String?, text: String)? {
+        if let p = pending { return (nil, [p.title, p.message].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")) }
+        guard let q = captured else { return nil }
+        return (q.header, q.question ?? "")
+    }
+
+    /// The choice ⏎ answers with: the highlighted one, else the agent's
+    /// recommendation, else the first.
+    public var selectedStep: Int {
+        if let h = highlighted, nextSteps.indices.contains(h) { return h }
+        if pending == nil, let r = captured?.recommended, nextSteps.indices.contains(r) { return r }
+        return 0
+    }
+
+    /// ⏎ answers the open question (rather than going to the composer):
+    /// there are choices, nothing is typed, and the composer is not the
+    /// answer in your own words.
+    public var answersOnReturn: Bool { hasChoices && composerIsEmpty && !answeringCustom }
+
+    /// ↑/↓: move the highlight, stopping at either end.
+    public func moveChoice(_ delta: Int) {
+        guard hasChoices else { return }
+        highlighted = min(max(selectedStep + delta, 0), nextSteps.count - 1)
+        chosen = true
+    }
+
+    /// A click on a choice: highlight it, never answer with it.
+    public func choose(_ index: Int) {
+        guard nextSteps.indices.contains(index) else { return }
+        highlighted = index
+        chosen = true
+    }
+
+    /// A lent keyboard's first ⏎ with nothing chosen: pick the highlighted
+    /// choice and say that ⏎ again answers with it.
+    public func offerChoice() {
+        guard hasChoices else { return }
+        let i = selectedStep
+        highlighted = i
+        chosen = true
+        notice = "Press ⏎ again to answer: \(nextSteps[i].label)"
+    }
+
     /// The bindings live in this card's current state (the parity harness
     /// checks each is routed by the surface's key handler).
     public var activeBindings: Set<KeyBinding> {
@@ -250,7 +306,7 @@ public final class CardModel: ComposerModel {
         if isWorking { b.insert(Keys.stop) }
         if canShowInHerdr { b.insert(Keys.herdr) }
         if canAcknowledgeNow { b.insert(Keys.acknowledge) }
-        if !nextSteps.isEmpty { b.formUnion([Keys.editStep, Keys.takeStep]) }
+        if !nextSteps.isEmpty { b.formUnion([Keys.editStep, Keys.takeStep, Keys.choiceUp, Keys.choiceDown]) }
         return b
     }
 
@@ -273,14 +329,17 @@ public final class CardModel: ComposerModel {
         guard let item = chat?.items.last(where: { $0.tool?.ask != nil }), item.tool?.state != "completed",
               item.tool?.state != "error", let q = item.tool?.ask?.questions.first
         else {
-            if captured != nil { captured = nil; capturedID = nil; answeringCustom = false }
+            if captured != nil { captured = nil; capturedID = nil; capturedItem = nil; answeringCustom = false }
             return
         }
         let id = item.id + "\u{0}" + (q.question ?? "")
         guard id != capturedID else { return }
         captured = q
         capturedID = id
+        capturedItem = item.tool?.ask?.questions.count == 1 ? item.id : nil
+        capturedCount = item.tool?.ask?.questions.count ?? 0
         highlighted = nil
+        chosen = false
         answeringCustom = false
     }
 
@@ -463,53 +522,74 @@ public final class CardModel: ComposerModel {
         attachments.removeAll { sent.contains($0.id) }
     }
 
-    /// → : take the highlighted step (or the first): answer the open question
-    /// with that option.
+    /// ⏎ or → : answer the open question with the highlighted choice (the
+    /// recommended one, or the first, when none is).
     public func takeStep() {
-        let i = highlighted ?? 0
+        let i = selectedStep
         guard nextSteps.indices.contains(i) else { return }
-        if let p = pending {
-            let value = pendingOptions[i]
+        let label = nextSteps[i].label
+        let p = pane
+        let order = pages.map(\.key)
+        // The whole question is answered: the inbox card goes on to the next
+        // entry. A multi-question ask stays, since its dialog shows the next.
+        let whole = pending != nil || capturedCount == 1
+        if let ui = pending {
             run("Answer") { [self] in
-                let o = try await actions.answer(pane, pending: p, value: value)
+                let o = try await actions.answer(p, pending: ui, value: label)
                 highlighted = nil
                 await load()
-                return o.ok ? "Answered: \(value)" : "Refused: \(o.detail ?? "")"
+                guard o.ok else { return "Refused: \(o.detail ?? "")" }
+                return answered(p, label: label, order: order, whole: whole)
             }
             return
         }
         guard let q = captured else { return }
         run("Answer") { [self] in
-            let o = try await actions.answer(pane, question: q, option: i, custom: nil)
+            let o = try await actions.answer(p, question: q, option: i, custom: nil)
             highlighted = nil
             await load()
-            return o.ok ? "Answered: \(nextSteps.first { $0.index == i }?.label ?? "")" : "Refused: \(o.detail ?? "")"
+            guard o.ok else { return "Refused: \(o.detail ?? "")" }
+            return answered(p, label: label, order: order, whole: whole)
         }
+    }
+
+    /// An answer went through: in the inbox, the card moves on to the next
+    /// entry, saying what was answered. The entry is not acknowledged: the
+    /// agent is working again, and its finished turn comes back as new.
+    private func answered(_ p: HostPane, label: String, order: [String], whole: Bool) -> String {
+        guard whole, inbox != nil, pane.key == p.key else { return "Answered: \(label)" }
+        moveOn(from: p, order: order)
+        return "Answered \(p.displayName): \(label)"
     }
 
     /// Send the composer's message as the answer itself.
     private func answer(custom text: String, attached sent: Set<ComposerAttachment.ID>) {
-        if let p = pending {
+        let p = pane
+        let order = pages.map(\.key)
+        let whole = pending != nil || capturedCount == 1
+        if let ui = pending {
             run("Answer") { [self] in
-                let o = try await actions.answer(pane, pending: p, value: text)
+                let o = try await actions.answer(p, pending: ui, value: text)
                 if o.ok { clear(sent); answeringCustom = false }
                 await load()
-                return o.ok ? "Answered" : "Refused: \(o.detail ?? "")"
+                guard o.ok else { return "Refused: \(o.detail ?? "")" }
+                return answered(p, label: "in your words", order: order, whole: whole)
             }
             return
         }
         guard let q = captured else { return }
         run("Answer") { [self] in
-            let o = try await actions.answer(pane, question: q, option: nil, custom: text)
+            let o = try await actions.answer(p, question: q, option: nil, custom: text)
             if o.ok { clear(sent); answeringCustom = false }
             await load()
-            return o.ok ? "Answered in your words" : "Refused: \(o.detail ?? "")"
+            guard o.ok else { return "Refused: \(o.detail ?? "")" }
+            return answered(p, label: "in your words", order: order, whole: whole)
         }
     }
 
     /// ↳ : put the highlighted step into the composer to edit.
     public func editStep() {
-        let i = highlighted ?? 0
+        let i = selectedStep
         guard let step = nextSteps.first(where: { $0.index == i }) else { return }
         composer = step.label
         // Edited, it is the answer in your own words where the dialog takes one.
@@ -520,6 +600,7 @@ public final class CardModel: ComposerModel {
     public func highlight(_ n: Int) {
         guard nextSteps.indices.contains(n - 1) else { return }
         highlighted = n - 1
+        chosen = true
     }
 
     /// X once arms, X again kills: killing an agent is not undoable.
@@ -598,6 +679,13 @@ public final class CardModel: ComposerModel {
             if killed { onClose() }
             return
         }
+        moveOn(from: p, order: before)
+    }
+
+    /// Show the entry after `p` in the Inbox order `before` (taken when the
+    /// key was pressed), the one before it when it was the last, or the
+    /// empty inbox when none remain.
+    private func moveOn(from p: HostPane, order before: [String]) {
         let rest = pages.filter { $0.key != p.key }
         guard !rest.isEmpty else {
             onInboxEmpty()
@@ -668,8 +756,12 @@ public final class CardModel: ComposerModel {
         switch action {
         case .digit(let n): highlight(n)
         case .attach: attachFile()
-        // ⏎: to the composer, or send what it holds.
-        case .send: if composerIsEmpty { focusComposer() } else { send() }
+        // ⏎: answer the open question, else to the composer, or send what it holds.
+        case .send:
+            if answersOnReturn { takeStep() } else if composerIsEmpty { focusComposer() } else { send() }
+        case .choiceUp, .choiceDown:
+            guard hasChoices else { return false }
+            moveChoice(action == .choiceUp ? -1 : 1)
         case .reply: focusComposer()
         case .rename:
             guard canRename else { return false }
@@ -717,6 +809,7 @@ public final class CardModel: ComposerModel {
         killArmed = false
         killFailure = nil
         highlighted = nil
+        chosen = false
         notice = nil
         stopping = false
         Task { await load() }

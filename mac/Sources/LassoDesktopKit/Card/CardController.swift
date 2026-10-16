@@ -226,10 +226,22 @@ public final class CardController {
 
     private func handle(_ e: NSEvent) -> Bool {
         guard let m = holder.model else { return false }
-        let action = CardKeys.route(e, editing: m.composerHasKeys || panel.editingText, pointerKeyed: pointerKeyed)
+        let action = CardKeys.route(
+            e, editing: m.composerHasKeys || panel.editingText, pointerKeyed: pointerKeyed, choosing: m.hasChoices)
         guard let action else {
             // A focused composer's key: the field types it.
             return false
+        }
+        if CardKeys.answers(action, m), e.isARepeat {
+            // A held ⏎ must not answer the next card's question too.
+            return true
+        }
+        if pointerKeyed, CardKeys.answers(action, m), !m.chosen {
+            // A pointer resting on the inbox while you type elsewhere must not
+            // answer for you: under a lent keyboard the first ⏎ only picks the
+            // highlighted choice, and the next one answers with it.
+            m.offerChoice()
+            return true
         }
         if case .handBack = action {
             Trace.event("card key outside the hover set: keyboard handed back")
@@ -263,7 +275,8 @@ public final class CardController {
 /// What a key does in the card or an agent window, decided before anything
 /// acts (PLAN 13.7a).
 public enum CardKeyAction: Equatable, Sendable, CustomStringConvertible {
-    case close, attach, send, reply, rename, stop, kill, acknowledge, next, previous, editStep, takeStep, herdr, digit(Int)
+    case close, attach, send, reply, rename, stop, kill, acknowledge, next, previous, editStep, takeStep, herdr
+    case choiceUp, choiceDown, digit(Int)
     /// Not a card key: left to the system.
     case unbound
     /// A key outside the hover set while the pointer lent the card the
@@ -287,7 +300,7 @@ public enum CardKeys {
         (Keys.esc, .close), (Keys.kill, .kill), (Keys.acknowledge, .acknowledge), (Keys.next, .next),
         (Keys.previous, .previous), (Keys.attach, .attach), (Keys.send, .send), (Keys.reply, .reply),
         (Keys.rename, .rename), (Keys.editStep, .editStep), (Keys.takeStep, .takeStep), (Keys.stop, .stop),
-        (Keys.herdr, .herdr),
+        (Keys.herdr, .herdr), (Keys.choiceUp, .choiceUp), (Keys.choiceDown, .choiceDown),
     ]
 
     /// The keys a card answers when the pointer, not a click, gave it the
@@ -302,16 +315,30 @@ public enum CardKeys {
     /// as a click on it would, before they act.
     public static let takesKeyboard: [CardKeyAction] = [.rename, .reply]
 
+    /// Lent too while the card holds an open question: ↑/↓ (and 1–9) move
+    /// the highlight through its choices, and ⏎ (or →) answers with it.
+    public static let choiceSet: [KeyBinding] = [Keys.choiceUp, Keys.choiceDown, Keys.send, Keys.takeStep]
+
+    /// The key answers the card's open question with its highlighted choice.
+    @MainActor static func answers(_ action: CardKeyAction, _ m: CardModel) -> Bool {
+        switch action {
+        case .takeStep: m.hasChoices
+        case .send: m.answersOnReturn
+        default: false
+        }
+    }
+
     /// The inbox card's whole vocabulary.
     public static let cardSet: [KeyBinding] = [
         Keys.esc, Keys.kill, Keys.acknowledge, Keys.next, Keys.previous, Keys.attach, Keys.send, Keys.reply,
-        Keys.rename, Keys.editStep, Keys.takeStep, Keys.herdr,
+        Keys.rename, Keys.editStep, Keys.takeStep, Keys.herdr, Keys.choiceUp, Keys.choiceDown,
     ]
 
     /// An agent window's: the card's minus paging, Acknowledge and esc (it
     /// has no inbox entry to resolve and closes by its header).
     public static let windowSet: [KeyBinding] = [
         Keys.kill, Keys.attach, Keys.send, Keys.reply, Keys.rename, Keys.editStep, Keys.takeStep, Keys.herdr,
+        Keys.choiceUp, Keys.choiceDown,
     ]
 
     /// A bot's chat: no agent to kill, rename or page to.
@@ -332,14 +359,19 @@ public enum CardKeys {
     /// A hover preview's, once a click made it the user's: no Kill, and esc closes it.
     public static let previewSet: [KeyBinding] = [
         Keys.esc, Keys.attach, Keys.send, Keys.reply, Keys.rename, Keys.editStep, Keys.takeStep,
+        Keys.choiceUp, Keys.choiceDown,
     ]
 
     /// Route a key in the inbox card: ⌘. is Stop wherever the keyboard is;
     /// nil while text is being typed (the field takes it, a `j` stays a `j`);
-    /// the hover set only while the pointer lent the keyboard; else the
-    /// card's whole vocabulary.
-    public static func route(_ e: NSEvent, editing: Bool, pointerKeyed: Bool) -> CardKeyAction? {
-        if !editing, pointerKeyed, !Keys.stop.matches(e), !hoverSet.contains(where: { $0.matches(e) }) { return .handBack }
+    /// the hover set (and, while `choosing`, the choice keys) only while the
+    /// pointer lent the keyboard; else the card's whole vocabulary.
+    public static func route(_ e: NSEvent, editing: Bool, pointerKeyed: Bool, choosing: Bool = false) -> CardKeyAction? {
+        if !editing, pointerKeyed, !Keys.stop.matches(e), !hoverSet.contains(where: { $0.matches(e) }),
+            !(choosing && (choiceSet.contains { $0.matches(e) } || Keys.digit(e) != nil))
+        {
+            return .handBack
+        }
         return route(e, editing: editing, among: cardSet)
     }
 

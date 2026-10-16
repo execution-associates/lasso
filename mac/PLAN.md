@@ -633,8 +633,8 @@ The Inbox is the surface this app exists for: **the latest messages across lasso
 - If the bot chat's newest tool item carries a `chatAsk` whose question matches `title`, its descriptions and previews are shown too. The answer is still the `pending_ui` option string at the same index.
 
 **Keys** are the card's (Q1):
-- `1`–`9` highlight an option.
-- `→` takes the highlighted option.
+- `↑`/`↓` and `1`–`9` highlight an option. The highlight starts on `recommended`, else the first, and stops at either end.
+- `⏎` (with nothing typed in the composer) and `→` take the highlighted option.
 - `↳` puts it in the free-text field to edit, where the dialog has one (§13.4).
 - `esc` folds a picked preview, then closes.
 
@@ -750,14 +750,17 @@ When a pane is blocked but its chat carries no open ask, its row reads **blocked
 | `a` | Acknowledge (S1): writes the entry's own key, and nothing to the agent. It returns when the item has something new. Off while the reply composer holds a draft: the button is greyed with the hint "Send or clear your reply first", `a` does nothing, and a focused composer types it. |
 | `r` | Rename the agent in place, as a click on its name does (§17): ⏎ or a click away keeps the name, esc keeps the old one. A bot has none. |
 | `l` | Put the cursor in the reply composer, draft or not. Every key is then text until esc leaves the field. |
-| `1`–`9`, `→`, `↳` | Pick a choice, answer with it, or edit it into your own words. |
-| `⏎` | To the composer when it is empty, else send what it holds. |
+| `↑`/`↓`, `1`–`9` | Move the highlight through the open question's choices. |
+| `⏎`, `→` | Answer the open question with the highlighted choice (its **Answer** button). With no question, or with a draft in the composer, `⏎` goes to the composer when it is empty, else sends what it holds. |
+| `↳` | Put the highlighted choice in the composer to edit into your own words. |
 | `u` | Attach a file (the paperclip; U for upload, since `a` is Acknowledge). |
 | `t` | Show the agent in herdr: focus its pane and bring the terminal window forward (§22). Not in the hover-lent set, since the terminal takes the keyboard. |
 | `⌘.` | Stop: interrupts the agent's turn (one Escape through `/api/chat/stop`, or an omp bot's `chat/stop`). It works while the agent is working or starting, even with the composer focused, since a text field would take `⌘.` as esc. |
 | `esc` | Close. |
 
 The keys are `KeyBinding`s in `Theme/Keys.swift`; `CardKeys` (`Card/CardController.swift`) routes a key to a `CardKeyAction` among a surface's set (`cardSet`, `hoverSet`, `windowSet`, `previewSet`), and `CardModel.perform` does it, so the card, the agent window and the preview cannot drift apart.
+
+**An answered question moves the card on.** Once lasso confirms an answer that settles the whole question (a single-question ask, or an omp bot's `pending_ui`), the card shows the next entry by the same order rule as below and says "Answered <agent>: <choice>". It acknowledges nothing: the agent is working again, and its finished turn comes back as new. A multi-question ask stays on its card, since the dialog then shows its next question; a refused answer stays and says why.
 
 **A resolved entry moves the card on.** Kill and Acknowledge share one path (`CardModel.resolved`). Once the action succeeds:
 - The entry leaves the inbox at once, without waiting for a poll. A killed pane is in `FleetModel.killed`, hidden from the whole fleet until a poll stops listing it. An acknowledged entry is in `FleetModel.acknowledged` with the mark it had, hidden until ui_state catches up or something new gives it another mark. So a stale poll cannot bring either back.
@@ -767,6 +770,9 @@ The keys are `KeyBinding`s in `Theme/Keys.swift`; `CardKeys` (`Card/CardControll
 **How the card gets the keyboard:**
 - **By click or keyboard:** the inbox shortcut, ⏎ on the summoned rail's inbox button, or a click on the inbox button gives the card the keyboard in the same press. Opening never puts the cursor in the composer, so the next `j` pages. None of these pins the card: when the pointer leaves it closes (§16), and a shortcut's card first waits for the pointer to come (or esc, or a click elsewhere).
 - **By hover:** an inbox opened by hover is shown without the keyboard (§16). **While the pointer is over the inbox (the rail or its card)**, the card lends itself the keyboard for `j`, `k`, `x`, `a`, `esc`, `r` and `l` only. So `j`/`k` work the moment the inbox opens under the pointer, with no move onto the card.
+  - **While the card holds an open question**, the choice keys are lent too: `↑`, `↓`, `1`–`9`, `⏎` and `→` (`CardKeys.choiceSet`). So a hovered inbox is answered from the keyboard: move the highlight, answer, and the card moves on.
+    - **A lent `⏎` (or `→`) answers only a chosen choice** (`CardModel.chosen`: moved with `↑`/`↓`/`1`–`9`, or clicked). With nothing chosen it only selects the highlighted choice and says "Press ⏎ again to answer: …"; the next `⏎` answers. An answer reaches the agent and cannot be taken back, and a pointer resting on the inbox's edge must never answer for keys typed into another app. A keyboard the card took by click or shortcut answers on the first `⏎`.
+    - A held `⏎` (key repeat) never answers: it would answer the next card's question too.
   - **`r` and `l` take the keyboard** (`CardKeys.takesKeyboard`). They put the cursor in a field (the name, the reply), so the card first becomes the user's as a click would make it (`keyMode` full, nothing lent), then acts. The pointer drifting off the card onto the rail keeps it. The pointer leaving the rail and the card closes the card as ever: a rename in progress is committed, as a click away commits it, the reply stays as a draft for that agent's next card, and the keyboard goes back to your app. A bot's card has no rename, so its `r` hands the keyboard back like any key outside the set.
   - Any other key hands the keyboard straight back. That key is lost, since a key cannot be re-sent to another app without Accessibility, and the card keeps it back until the pointer leaves and returns.
   - The keyboard is lent **once per pointer visit**. If it goes away (a click in another app), the card does not take it again until the pointer leaves and comes back.
@@ -790,9 +796,9 @@ The keys are `KeyBinding`s in `Theme/Keys.swift`; `CardKeys` (`Card/CardControll
 - **Blocked with no readable choices** shows "Waiting on you in the terminal" and Focus in herdr.
 - **Acknowledge keys:** Acknowledge writes the entry's own key (§13.6).
 - **Notices** come from lasso's list (`/api/notices`) and the event stream, and list in the inbox panel, each acknowledged with × on every device.
+- **The open question is the footer's** (`CardView.askPanel`, token `card.ask`): under "Waiting on you" in the blocked state's colour, a panel with the question's header and words and every choice, the highlighted one lit in the accent and carrying the white **Answer** pill (Acknowledge goes plain while a question waits). A single-question ask is drawn there instead of in the conversation (`CardModel.capturedItem`); a plan stays in the conversation, with its dialog's choices in the panel.
 - **Not yet built:**
   - Answering a multi-question ask in one request; only the first question is answered, and the dialog then shows the next.
-  - The card's Other row, since the card shows three choices; ↳ covers it there.
 
 ### 13.9 Harness and tests
 
