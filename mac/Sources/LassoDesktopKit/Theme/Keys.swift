@@ -54,6 +54,13 @@ public enum Keys {
     public static let takeStep = KeyBinding(
         id: "right", legend: "→", action: "Take this step", keyCode: 124, character: nil)
 
+    /// Move the highlight through an open question's choices; ⏎ answers
+    /// with the highlighted one.
+    public static let choiceUp = KeyBinding(
+        id: "up", legend: "↑", action: "Previous choice", keyCode: 126, character: nil)
+    public static let choiceDown = KeyBinding(
+        id: "down", legend: "↓", action: "Next choice", keyCode: 125, character: nil)
+
     /// Interrupt the agent's turn: ⌘., the Mac's "stop", which a text field
     /// would otherwise take as esc, so every panel reads it before its field.
     public static let stop = KeyBinding(
@@ -65,6 +72,7 @@ public enum Keys {
 
     public static let all: [KeyBinding] = [
         esc, attach, send, reply, rename, stop, kill, acknowledge, next, previous, editStep, takeStep, herdr,
+        choiceUp, choiceDown,
     ]
 
     /// 1-9 highlight a next step.

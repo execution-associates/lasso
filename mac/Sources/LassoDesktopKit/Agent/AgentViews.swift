@@ -331,8 +331,8 @@ struct AgentConversation: View {
     }
 }
 
-/// The open question's choices. A click (or 1–9) only selects one; the
-/// selected choice shows Answer, and that button (or →) sends it. An answer
+/// The open question's choices. A click (or 1–9, ↑/↓) only selects one; the
+/// selected choice shows Answer, and that button (or ⏎, →) sends it. An answer
 /// cannot be taken back, and the preview appears under a moving pointer, so a
 /// stray click must never be one.
 struct StepList: View {
@@ -342,9 +342,9 @@ struct StepList: View {
         let steps = model.nextSteps
         VStack(alignment: .leading, spacing: Theme.space("2xs")) {
             ForEach(steps) { step in
-                    let on = (model.highlighted ?? 0) == step.index
+                    let on = model.selectedStep == step.index
                     HStack(spacing: Theme.space("m")) {
-                        Button { model.highlighted = step.index } label: {
+                        Button { model.choose(step.index) } label: {
                             HStack(spacing: Theme.space("m")) {
                                 Text("\(step.index + 1).").foregroundStyle(Theme.Text.secondary.color)
                                 Text(step.label).foregroundStyle(Theme.Text.primary.color).lineLimit(1).layoutPriority(1)

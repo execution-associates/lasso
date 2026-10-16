@@ -266,6 +266,16 @@ public enum Theme {
         /// A kill in flight: the conversation's opacity under "Killing <agent>…".
         public static let killing = Token(
             "card.killing", ["dim": 0.5], .unmeasured("a kill in flight dims the conversation"), proposed: true)
+        /// An open question waiting on the human: a panel in the blocked
+        /// state's colour, and its highlighted choice lit in the accent.
+        public static let ask = Token(
+            "card.ask",
+            [
+                "fill": "rgba(250,104,106,0.08)", "bar": "#FA686A", "bar_w": 3, "radius": 10, "pad": 10,
+                "choice_fill": "rgba(240,153,191,0.16)", "choice_ink": "#F099BF", "question_lines": 5,
+            ],
+            .unmeasured("the blocked state (EXA --destructive) at 8% behind the question, the accent (EXA --brand) at 16% on the highlighted choice"),
+            proposed: true)
     }
 
     public enum Text {
@@ -527,7 +537,7 @@ public enum Theme {
         Control.round, Control.composer, Control.composerGrow, Control.composerAttachment, Control.pill, Control.pillPrimary,
         Card.size, Card.titleX, Card.contentX, Card.unreadSegment, Card.unreadDot, Card.unreadGap,
         Card.toolRow, Card.machineChip,
-        Card.placement, Card.killing,
+        Card.placement, Card.killing, Card.ask,
         Text.primary, Text.secondary, Text.placeholder, accent, dangerText,
         Row.hover, Row.selected, Row.radius,
         Fonts.display, Fonts.title, Fonts.body, Fonts.chat, Fonts.name, Fonts.label, Fonts.header, Fonts.small, Fonts.terminal,

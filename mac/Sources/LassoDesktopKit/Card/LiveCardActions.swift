@@ -291,9 +291,15 @@ public final class FixtureCardActions: CardActions {
         return Outcome(outcome: sendOutcome)
     }
 
+    /// The option of each answer to a question (nil: in your own words), in order.
+    public private(set) var answered: [Int?] = []
+    /// What an answer answers (a test sets "refused").
+    public var answerOutcome = "sent"
+
     public func answer(_ pane: HostPane, question: ChatTool.Question, option: Int?, custom: String?) async throws -> Outcome {
         calls.append(custom == nil ? "answer" : "answer-custom")
-        return Outcome(outcome: "sent")
+        answered.append(option)
+        return Outcome(outcome: answerOutcome)
     }
 
     public func stop(_ pane: HostPane) async throws -> Outcome {

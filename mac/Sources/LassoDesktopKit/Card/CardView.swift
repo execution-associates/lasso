@@ -212,7 +212,10 @@ public struct CardView: View {
                 if let chat = model.chat {
                     if back.loading { OlderRow() }
                     ForEach(chat.items) { item in
-                        ChatRow(item: item).id(item.id)
+                        // The open question is the footer's, where it is answered.
+                        if item.id != model.capturedItem || item.tool?.plan != nil {
+                            ChatRow(item: item).id(item.id)
+                        }
                     }
                     if let p = model.pending { PendingRow(pending: p) }
                     if let says = model.phase.says {
@@ -246,11 +249,12 @@ public struct CardView: View {
 
     private var footer: some View {
         let steps = model.nextSteps
+        let asking = model.question != nil && (!steps.isEmpty || model.allowsCustom)
         return VStack(alignment: .leading, spacing: Theme.space("l")) {
             HStack(spacing: Theme.space("l")) {
-                Text("Next steps")
+                Text(asking ? "Waiting on you" : "Next steps")
                     .font(Theme.Fonts.label.font)
-                    .foregroundStyle(Theme.Text.secondary.color)
+                    .foregroundStyle(asking ? Theme.Card.ask.color("bar") : Theme.Text.secondary.color)
                 Spacer(minLength: 8)
                 if !model.isBot {
                     PillButton(
@@ -264,84 +268,31 @@ public struct CardView: View {
                 }
                 if model.actions.canAcknowledge {
                     PillButton(
-                        title: "Acknowledge", primary: true, enabled: model.canAcknowledgeNow,
+                        title: "Acknowledge", primary: !asking, enabled: model.canAcknowledgeNow,
                         hint: "Send or clear your reply first", label: "Acknowledge (\(Keys.acknowledge.legend))"
                     ) { model.acknowledge() }
                     .parityAnchor("action.acknowledge")
                 }
             }
             .padding(.leading, Theme.Card.titleX.pt - contentX)
-            if steps.isEmpty, !model.blockedWithoutChoices, !model.allowsCustom {
+            if asking {
+                // Its own height, always: the conversation above gives way.
+                askPanel(steps)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .opacity(model.killing ? Theme.Card.killing.number("dim") : 1)
+            } else if model.blockedWithoutChoices {
+                AnswerExtras(model: model)
+            } else {
                 Text(model.notice ?? (model.chat == nil ? " " : "No open question to answer."))
                     .font(Theme.Fonts.body.font)
                     .foregroundStyle(Theme.Text.secondary.color)
                     .lineLimit(1)
                     .padding(.leading, Theme.Card.titleX.pt - contentX)
-            } else if steps.isEmpty {
-                AnswerExtras(model: model)
-            } else {
-                VStack(alignment: .leading, spacing: Theme.space("2xs")) {
-                    ForEach(steps.prefix(3)) { step in
-                        let on = (model.highlighted ?? 0) == step.index
-                        Button { model.highlighted = step.index } label: {
-                            HStack(spacing: Theme.space("m")) {
-                                Text("\(step.index + 1).")
-                                    .foregroundStyle(Theme.Text.secondary.color)
-                                Text(step.label)
-                                    .foregroundStyle(Theme.Text.primary.color)
-                                    .lineLimit(1)
-                                    .layoutPriority(1)
-                                if let d = step.detail, !d.isEmpty {
-                                    Text(d)
-                                        .foregroundStyle(Theme.Text.secondary.color)
-                                        .lineLimit(1)
-                                }
-                                Spacer(minLength: 8)
-                                if on {
-                                    // The selected choice: → answers with it, ↳ edits it.
-                                    LucideIcon(.arrowRight, size: Theme.icon.number("step"))
-                                        .foregroundStyle(Theme.Text.secondary.color)
-                                }
-                            }
-                            .font(Theme.Fonts.body.font)
-                            .padding(.vertical, Theme.space("2xs"))
-                            .padding(.horizontal, Theme.Card.titleX.pt - contentX)
-                            .background(RoundedRectangle(cornerRadius: Theme.Row.radius.pt).fill(on ? Theme.Row.selected.color : .clear))
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Step \(step.index + 1): \(step.label)")
-                        .accessibilityHint("Right arrow answers with it; tab edits it first")
-                    }
-                    // A dialog's own free-text row, under its own name (a plan's
-                    // "Tell Claude what to change"): the composer then sends to it.
-                    if let other = model.captured?.other, model.allowsCustom {
-                        Button { model.answerInOwnWords() } label: {
-                            HStack(spacing: Theme.space("m")) {
-                                Text("\(min(steps.count, 3) + 1).")
-                                    .foregroundStyle(Theme.Text.secondary.color)
-                                Text(other)
-                                    .foregroundStyle(Theme.Text.primary.color)
-                                    .lineLimit(1)
-                                Spacer(minLength: 8)
-                            }
-                            .font(Theme.Fonts.body.font)
-                            .padding(.vertical, Theme.space("2xs"))
-                            .padding(.horizontal, Theme.Card.titleX.pt - contentX)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(other)
-                        .accessibilityHint("Type it in the composer; return sends it to the dialog")
-                    }
-                }
-                .opacity(model.killing ? Theme.Card.killing.number("dim") : 1)
-                .parityAnchor("card.steps")
             }
             // With choices or the answer fields on screen, the line above that
             // carries notices is not drawn, so an answer, send or stop that
             // failed would leave no trace. Say it under them.
-            if !(steps.isEmpty && !model.blockedWithoutChoices && !model.allowsCustom), let n = model.notice {
+            if asking || model.blockedWithoutChoices, let n = model.notice {
                 Text(n)
                     .font(Theme.Fonts.small.font)
                     .foregroundStyle(Theme.Text.secondary.color)
@@ -353,6 +304,102 @@ public struct CardView: View {
             }
         }
         .parityAnchor("card.footer")
+    }
+
+    /// The open question, in the blocked state's colour so it reads first:
+    /// its header and words, then every choice. The highlighted choice is lit
+    /// and carries Answer, which ⏎ (or →) presses; ↑/↓ and 1–9 move it.
+    private func askPanel(_ steps: [NextStep]) -> some View {
+        let ask = Theme.Card.ask
+        let selected = model.selectedStep
+        return VStack(alignment: .leading, spacing: Theme.space("s")) {
+            if let q = model.question {
+                VStack(alignment: .leading, spacing: Theme.space("2xs")) {
+                    if let h = q.header, !h.isEmpty {
+                        Text(h)
+                            .font(Theme.Fonts.small.font)
+                            .foregroundStyle(ask.color("bar"))
+                    }
+                    Text(q.text)
+                        .font(Theme.Fonts.label.font)
+                        .foregroundStyle(Theme.Text.primary.color)
+                        .lineLimit(Int(ask.number("question_lines")))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal, Theme.space("m"))
+                .accessibilityElement(children: .combine)
+                .parityAnchor("card.ask.question")
+            }
+            VStack(alignment: .leading, spacing: Theme.space("2xs")) {
+                ForEach(steps) { step in
+                    let on = selected == step.index
+                    HStack(spacing: Theme.space("m")) {
+                        Button { model.choose(step.index) } label: {
+                            HStack(alignment: .firstTextBaseline, spacing: Theme.space("m")) {
+                                Text("\(step.index + 1).")
+                                    .foregroundStyle(on ? ask.color("choice_ink") : Theme.Text.secondary.color)
+                                // The highlighted choice says all of what it means,
+                                // on its own line; the rest keep to one.
+                                VStack(alignment: .leading, spacing: Theme.space("2xs")) {
+                                    HStack(spacing: Theme.space("m")) {
+                                        Text(step.label)
+                                            .foregroundStyle(Theme.Text.primary.color)
+                                            .lineLimit(1)
+                                            .layoutPriority(1)
+                                        if !on, let d = step.detail, !d.isEmpty {
+                                            Text(d).foregroundStyle(Theme.Text.secondary.color).lineLimit(1)
+                                        }
+                                    }
+                                    if on, let d = step.detail, !d.isEmpty {
+                                        Text(d)
+                                            .font(Theme.Fonts.small.font)
+                                            .foregroundStyle(Theme.Text.secondary.color)
+                                            .lineLimit(2)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
+                                Spacer(minLength: Theme.space("m"))
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Choice \(step.index + 1): \(step.label)")
+                        .accessibilityAddTraits(on ? .isSelected : [])
+                        .accessibilityHint("Up and down arrows move between choices; return answers with the highlighted one")
+                        if on {
+                            PillButton(
+                                title: "Answer", primary: true, enabled: !model.busy, busy: model.busy,
+                                label: "Answer: \(step.label)"
+                            ) { model.takeStep() }
+                            .parityAnchor("card.ask.answer")
+                        }
+                    }
+                    .font(Theme.Fonts.body.font)
+                    .padding(.vertical, Theme.space("2xs"))
+                    .padding(.horizontal, Theme.space("m"))
+                    .frame(minHeight: Theme.Control.pill.number("height") + 2 * Theme.space("2xs"))
+                    .background(
+                        RoundedRectangle(cornerRadius: Theme.Row.radius.pt)
+                            .fill(on ? ask.color("choice_fill") : .clear)
+                    )
+                    .parityAnchor("card.ask.choice[\(step.index)]")
+                }
+                AnswerExtras(model: model)
+            }
+        }
+        .padding(.vertical, ask.number("pad"))
+        .padding(.leading, ask.number("bar_w"))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            ZStack(alignment: .leading) {
+                ask.color("fill")
+                ask.color("bar").frame(width: ask.number("bar_w"))
+            }
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ask.number("radius"), style: .continuous))
+        .parityAnchor("card.steps")
     }
 }
 
