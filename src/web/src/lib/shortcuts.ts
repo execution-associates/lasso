@@ -32,6 +32,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
         label:
           "Find a pane… (herdr's search, ⌃B G; in chat/agents: find an agent)",
       },
+      { keys: "⌘P", label: "Go to file… (searches the Files tab's folder)" },
       { keys: "⌘O", label: "New Git agent…" },
       { keys: "⌘⇧O", label: "New Scratch agent…" },
       { keys: "⌘I", label: "New terminal…" },
@@ -64,6 +65,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: "⌘↩", label: "Scratch: send to the terminal" },
       { keys: "⌘↩", label: "New agent/terminal: create" },
       { keys: "⌘S", label: "File viewer: save" },
+      { keys: "⌘F", label: "File viewer: find in the open file" },
     ],
   },
 ]
@@ -72,6 +74,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
 // LiveBrowser leaves exactly these to bubble instead of sending them to the page.
 export const APP_KEYS = new Set([
   "k",
+  "p",
   "o",
   "i",
   "\\",

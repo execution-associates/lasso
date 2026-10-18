@@ -1,7 +1,10 @@
+import { openSearchPanel } from "@codemirror/search"
+import type { EditorView } from "@codemirror/view"
 import { Eye, Pencil, Save, X } from "lucide-react"
 import * as React from "react"
 import { CodeEditor } from "@/components/CodeEditor"
 import { Markdown, resolveMarkdownSrc } from "@/components/Markdown"
+import { PreviewFind, previewFindSupported } from "@/components/PreviewFind"
 import { Button } from "@/components/ui/button"
 import { Orb } from "@/components/ui/orb"
 import { api } from "@/lib/api"
@@ -299,11 +302,108 @@ export function FileViewer({
         if (!binary) void save()
         return
       }
-      if (e.key === "Escape") requestClose()
+      // Not when something inside already answered it: Escape in a find bar
+      // closes the bar, not the file.
+      if (e.key === "Escape" && !e.defaultPrevented) requestClose()
     }
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
   }, [binary, save, requestClose])
+
+  // ⌘F searches the open file. CodeMirror answers it on its own only while
+  // the editor has the keyboard, which it rarely does: focus is usually in
+  // the terminal (whose frame forwards ⌘ chords to this document), or the
+  // file is a rendered preview with no editor at all, and either way the
+  // browser's find bar opened over the whole page instead. So the viewer
+  // takes ⌘F whenever it is on screen and the human is plausibly aiming at
+  // it: focus inside it or in the terminal, or their last click was in it.
+  // A text field elsewhere (the chat's composer, Scratch) keeps the
+  // browser's find, as does a page whose last click was somewhere else.
+  const rootRef = React.useRef<HTMLDivElement>(null)
+  const mdRef = React.useRef<HTMLDivElement>(null)
+  const cmView = React.useRef<EditorView | null>(null)
+  const pointerInside = React.useRef(false)
+  // Set when ⌘F had to leave a preview for the raw editor first: the search
+  // panel opens once that editor exists.
+  const searchOnMount = React.useRef(false)
+  const [find, setFind] = React.useState<{
+    seq: number
+    seed: string | null
+  } | null>(null)
+
+  const onView = React.useCallback((v: EditorView | null) => {
+    cmView.current = v
+    if (v && searchOnMount.current) {
+      searchOnMount.current = false
+      v.focus()
+      openSearchPanel(v)
+    }
+  }, [])
+
+  // A preview's find bar belongs to that file and that preview.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on file or mode change
+  React.useEffect(() => {
+    setFind(null)
+  }, [path, preview])
+
+  React.useEffect(() => {
+    const onPointer = (e: PointerEvent) => {
+      pointerInside.current =
+        rootRef.current?.contains(e.target as Node) ?? false
+    }
+    document.addEventListener("pointerdown", onPointer, true)
+    return () => document.removeEventListener("pointerdown", onPointer, true)
+  }, [])
+
+  React.useEffect(() => {
+    const aimedHere = () => {
+      const root = rootRef.current
+      // Hidden: the Diff subtab, a collapsed sidebar, another sidebar tab.
+      if (!root || root.offsetWidth === 0 || root.offsetHeight === 0)
+        return false
+      const active = document.activeElement
+      if (active && root.contains(active)) return true
+      if (active instanceof HTMLIFrameElement) return true
+      if (
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        (active instanceof HTMLElement && active.isContentEditable)
+      )
+        return false
+      return pointerInside.current
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
+      if (e.key.toLowerCase() !== "f" || e.defaultPrevented) return
+      if (binary || draft == null || error != null || !aimedHere()) return
+      e.preventDefault()
+      if (markdown && preview && previewFindSupported) {
+        const sel = window.getSelection()
+        const picked =
+          sel && mdRef.current?.contains(sel.anchorNode)
+            ? sel.toString().trim()
+            : ""
+        setFind((f) => ({
+          seq: (f?.seq ?? 0) + 1,
+          seed: picked && !picked.includes("\n") ? picked.slice(0, 200) : null,
+        }))
+        return
+      }
+      // An HTML preview is a sandboxed frame nothing can search into, so
+      // ⌘F shows its source.
+      if (preview) {
+        searchOnMount.current = true
+        setPreview(false)
+        return
+      }
+      const v = cmView.current
+      if (!v) return
+      v.focus()
+      openSearchPanel(v)
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [binary, draft, error, markdown, preview])
 
   // Rebuilt only when the file or its host moves: a new resolver identity on
   // every render would rebuild the preview's components map (and every mermaid
@@ -337,7 +437,10 @@ export function FileViewer({
   }, [dirty])
 
   return (
-    <div className="vsurface absolute inset-0 z-10 flex flex-col bg-background">
+    <div
+      ref={rootRef}
+      className="vsurface absolute inset-0 z-10 flex flex-col bg-background"
+    >
       <header className="vsurface-header flex flex-shrink-0 items-center gap-2 border-border border-b bg-card px-3 py-1">
         <span
           className="overflow-hidden text-ellipsis whitespace-nowrap text-[13px] text-foreground"
@@ -393,6 +496,15 @@ export function FileViewer({
         </div>
       </header>
 
+      {find && markdown && preview && draft != null && (
+        <PreviewFind
+          target={mdRef}
+          source={draft}
+          focusSeq={find.seq}
+          seed={find.seed}
+          onClose={() => setFind(null)}
+        />
+      )}
       <div className="vbody">
         {image ? (
           <div className="vimg">
@@ -420,7 +532,7 @@ export function FileViewer({
             loading…
           </div>
         ) : markdown && preview ? (
-          <div className="md-body">
+          <div ref={mdRef} className="md-body">
             <Markdown source={draft} resolveImageSrc={resolveImage} />
           </div>
         ) : html && preview && htmlDoc != null ? (
@@ -440,6 +552,7 @@ export function FileViewer({
             changedLines={changedLines}
             line={line}
             lineSeq={lineSeq}
+            onView={onView}
           />
         )}
       </div>

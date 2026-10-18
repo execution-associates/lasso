@@ -38,6 +38,7 @@ export const qk = {
   // The host is the cwd's host (which can differ from the active one; see
   // useDiff) so one host's diff is never served for another's cwd.
   diff: (host: string, path: string) => ["diff", host, path] as const,
+  fileFind: (host: string, root: string) => ["file-find", host, root] as const,
   uiState: ["ui-state"] as const,
   sidebarPct: ["sidebar-pct"] as const,
   version: ["version"] as const,

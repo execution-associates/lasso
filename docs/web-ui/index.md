@@ -84,6 +84,7 @@ Every app shortcut uses the `⌘` key only, never `Ctrl`, so none of them collid
 | Keys | Action |
 | --- | --- |
 | `⌘K` | In the terminal, opens herdr's own pane search (the same as herdr's `Ctrl-B g`). In Chat and Bots, opens a fleet-wide agent picker instead; in the Grid, focuses the Grid's own search box. |
+| `⌘P` | Go to file: find a file in the Files tab's folder by name and open it in the viewer (see [Files](./sidebar.md#files)) |
 | `⌘O` | New Git agent |
 | `⌘⇧O` | New Scratch agent |
 | `⌘I` | New terminal (from Chat, returns to the terminal first) |
@@ -113,6 +114,7 @@ Every app shortcut uses the `⌘` key only, never `Ctrl`, so none of them collid
 | `⌘↩` (or `Ctrl↩`) | Scratch | Send the buffer to the terminal |
 | `⌘↩` (or `Ctrl↩`) | New dialog | Create |
 | `⌘S` (or `Ctrl-S`) | File viewer | Save |
+| `⌘F` | File viewer | Find in the open file (the editor's search, or a find bar over a rendered Markdown preview) |
 | `Esc` | File viewer | Close |
 
 In the Grid, each card's composer sends on `↩` and breaks the line on `⇧↩`.

@@ -1,4 +1,4 @@
-import { Upload } from "lucide-react"
+import { Search, Upload } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { DiffTab } from "@/components/DiffTab"
@@ -9,6 +9,7 @@ import {
   type FilesTabState,
 } from "@/components/FilesTab"
 import { FileViewer } from "@/components/FileViewer"
+import { QuickOpen } from "@/components/QuickOpen"
 import { Orb } from "@/components/ui/orb"
 import { useApp } from "@/lib/app-store"
 import { useDiff } from "@/lib/git"
@@ -19,6 +20,7 @@ import {
   revealFiles,
 } from "@/lib/open-file"
 import { usePaneFocusPending } from "@/lib/pane-focus"
+import { onQuickOpenRequest } from "@/lib/quick-open"
 import { cn } from "@/lib/utils"
 
 type SubView = "files" | "diff"
@@ -228,6 +230,45 @@ export function FilesPanel() {
     []
   )
 
+  // Quick open (⌘P, or the search button) searches the folder the Files tree
+  // is showing, on its host: what the human is looking at, which is the
+  // focused pane's cwd unless they browsed elsewhere. Snapshotted when it
+  // opens, so the tree following focus meanwhile can't swap the list.
+  const [quick, setQuick] = React.useState<{
+    root: string | null
+    host: string | null
+  } | null>(null)
+  const openQuick = React.useRef(() => {})
+  openQuick.current = () => {
+    const tab = tabStates.current.get(pane)
+    setSub("files")
+    setQuick({
+      root: tab?.path ?? activeCwd,
+      host: tab ? tab.host : cwdHost,
+    })
+  }
+  React.useEffect(() => onQuickOpenRequest(() => openQuick.current()), [])
+  // A pick replaces the open file like a tree click would, but the viewer
+  // covers the tree, so only quick open can reach past a dirty editor: it
+  // asks first, as closing the viewer does.
+  const pickQuick = (
+    path: string,
+    host: string | null,
+    line: number | null
+  ) => {
+    const current = viewers.get(pane) ?? null
+    const same =
+      current != null && current.path === path && current.host === host
+    if (
+      !same &&
+      drafts.current.has(pane) &&
+      !window.confirm("Discard unsaved changes?")
+    )
+      return
+    if (!same) drafts.current.delete(pane)
+    setViewer({ path, host, line, seq: line != null ? Date.now() : undefined })
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex flex-none items-center gap-1 border-border border-b bg-background px-2 py-1">
@@ -251,9 +292,18 @@ export function FilesPanel() {
           <>
             <button
               type="button"
+              title="Go to file (⌘P)"
+              aria-label="Go to file"
+              className="ml-auto flex items-center rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              onClick={() => openQuick.current()}
+            >
+              <Search className="size-3.5" />
+            </button>
+            <button
+              type="button"
               title="Upload files to the open directory"
               aria-label="Upload files"
-              className="ml-auto flex items-center rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="flex items-center rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               onClick={() => {
                 if (!uploadRef.current) {
                   toast.error("No directory is open yet")
@@ -362,6 +412,16 @@ export function FilesPanel() {
             />
           </ErrorBoundary>
         )}
+
+        <QuickOpen
+          open={quick != null}
+          onOpenChange={(o) => {
+            if (!o) setQuick(null)
+          }}
+          root={quick?.root ?? null}
+          host={quick?.host ?? null}
+          onPick={(path, line) => pickQuick(path, quick?.host ?? null, line)}
+        />
 
         {focusing && (
           <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-background/70 text-muted-foreground text-xs">

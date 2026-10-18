@@ -1783,6 +1783,14 @@ let hostAttach: {
   promise: Promise<{ active: string; version: string; protocol: number }>
 } | null = null
 
+export interface FileFindListing {
+  root: string
+  files: string[]
+  // Cut short at the file cap or (outside a repository) the walk's time budget.
+  truncated: boolean
+  source: "git" | "walk"
+}
+
 export const api = {
   active: () => getJSON<ActiveState>("/api/active"),
   // The live theme, or — with `name` — that theme RESOLVED without switching
@@ -2455,6 +2463,13 @@ export const api = {
   files: (path: string, host?: string) =>
     getJSON<DirListing>(
       withHost(`/api/files?path=${encodeURIComponent(path)}`, host)
+    ),
+
+  // Every file under `root` on `host`, root-relative, for the file viewer's
+  // quick open (⌘P). git's list inside a repository, a capped walk elsewhere.
+  fileFind: (root: string, host?: string) =>
+    getJSON<FileFindListing>(
+      withHost(`/api/file-find?root=${encodeURIComponent(root)}`, host)
     ),
 
   // Optionally pass a host to read the file from that host (?host=); omitted =

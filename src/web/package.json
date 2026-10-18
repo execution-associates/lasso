@@ -30,6 +30,7 @@
     "@codemirror/lang-yaml": "^6.1.3",
     "@codemirror/language": "^6.12.3",
     "@codemirror/legacy-modes": "^6.5.3",
+    "@codemirror/search": "6.7.0",
     "@fontsource/doto": "^5.2.10",
     "@fontsource/geist-sans": "^5.2.5",
     "@fontsource/jetbrains-mono": "^5.2.8",
