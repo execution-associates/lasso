@@ -61,4 +61,10 @@ describe("reconcileQueued", () => {
       other,
     ])
   })
+
+  test("retires an echo whose row landed before the send confirmed", () => {
+    // The transcript poll can record the message while the send still waits
+    // on the pane; reconciling on insert keeps "sent…" off a message on screen.
+    expect(reconcileQueued([echo("u1")], "h\u0000p1", "u2")).toEqual([])
+  })
 })
