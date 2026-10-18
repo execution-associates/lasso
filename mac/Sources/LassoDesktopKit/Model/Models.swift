@@ -139,6 +139,11 @@ public struct UIStateSlice: Codable, Sendable, Equatable {
     public var inbox_since: Int64?
     /// The uploaded arrival sound, if any (src/desktopsound.go).
     public var desktop_sound: DesktopSound?
+    /// "system" (the default), "light", "dark" or "herdr" (lib/mode.ts).
+    public var appearance_mode: String?
+    /// The theme named for each scheme; "" or absent follows herdr's.
+    public var palette_light: String?
+    public var palette_dark: String?
 }
 
 /// ui_state.desktop_sound: what is stored at /api/desktop/sound.
