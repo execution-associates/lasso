@@ -162,3 +162,33 @@ private var enterHeld: NSEvent {
     try await Task.sleep(nanoseconds: settle)
     #expect(actions.answered == [1])
 }
+
+/// An agent's window opens with the cursor in its composer, so typing
+/// starts at once; one asking a question opens on the question, its keys
+/// (1–9, ⏎) left free to answer it.
+@MainActor @Test func aWindowOpensInItsComposerUnlessItAsks() async throws {
+    let near = NSRect(x: 900, y: 300, width: 10, height: 10)
+    let idle = blocked("w1:p3", at: 10)
+    let fleet = FleetModel()
+    fleet.apply(panes: AllPanes(panes: [idle]))
+    let plain = CardModel(pane: idle, fleet: fleet, actions: FixtureCardActions(chats: [:], canAcknowledge: true))
+    let a = AgentWindowController(model: plain, near: near, media: nil)
+    defer {
+        plain.stopPolling()
+        a.panel.orderOut(nil)
+    }
+    a.show()
+    for _ in 0..<40 where !plain.composerHasKeys { try await Task.sleep(nanoseconds: 25_000_000) }
+    #expect(plain.composerHasKeys)
+
+    let (asking, _) = try await askingInbox()
+    let b = AgentWindowController(model: asking, near: near, media: nil)
+    defer {
+        asking.stopPolling()
+        b.panel.orderOut(nil)
+    }
+    #expect(asking.asksQuestion)
+    b.show()
+    try await Task.sleep(nanoseconds: settle)
+    #expect(!asking.composerHasKeys)
+}

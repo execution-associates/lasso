@@ -282,6 +282,7 @@ extension BotWindowModel: Conversation {
     public var stopLabel: String { chat.stopLabel }
     public var hasDraft: Bool { !chat.composerIsEmpty }
     public var composerHasKeys: Bool { chat.composerHasKeys }
+    public var asksQuestion: Bool { !chat.pendingOptions.isEmpty }
     public func send() { chat.send() }
     public func stop() { chat.stop() }
     public func focusComposer() { chat.focusComposer() }

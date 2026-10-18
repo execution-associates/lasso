@@ -272,7 +272,7 @@ private var u: NSEvent { key("u", 32) }
         w.panel.orderOut(nil)
     }
     #expect(!m.composerHasKeys)
-    w.show(focusReply: true)
+    w.show()
     #expect(m.composerHasKeys)
     for (c, code) in [("u", UInt16(32)), ("x", 7), ("r", 15), ("l", 37)] {
         #expect(!w.handle(key(c, code)), "\(c) was taken as a window key")
