@@ -2083,6 +2083,11 @@ export function ChatView({
   // point of it — so the tab numbers them.
   const echoSeq = React.useRef(0)
   const newestUser = React.useMemo(() => newestUserID(items), [items])
+  // Read when a send confirms: the transcript poll can record the message
+  // while the send is still waiting on the pane, so the turn may have moved
+  // before its echo exists.
+  const newestUserRef = React.useRef(newestUser)
+  newestUserRef.current = newestUser
   React.useEffect(() => {
     if (!target) return
     setQueued((prev) => reconcileQueued(prev, target, newestUser))
@@ -2270,10 +2275,18 @@ export function ChatView({
         if (res.outcome === "confirmed") {
           // The pane has it and the transcript does not yet: the echo is the
           // only thing standing between "sent" and the row appearing.
-          setQueued((prev) => [
-            ...prev,
-            { id: echoSeq.current++, target: sentTo, text: message, after },
-          ])
+          // Reconciled on the way in: if the row landed during the round
+          // trip, the effect above already ran and will not run again until
+          // the next user turn, which left "sent…" under a message on screen.
+          const echo = {
+            id: echoSeq.current++,
+            target: sentTo,
+            text: message,
+            after,
+          }
+          setQueued((prev) =>
+            reconcileQueued([...prev, echo], sentTo, newestUserRef.current)
+          )
           void queryClient.invalidateQueries({ queryKey })
         }
         return res
