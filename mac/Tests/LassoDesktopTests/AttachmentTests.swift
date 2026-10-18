@@ -197,15 +197,27 @@ private func pngData() -> Data {
     #expect(n.composedMessage == "/r/a.png" && n.hasDraft)
 }
 
-/// Return sends; Shift- or Option-Return starts a new line; ⌘ and ⌃ go to the system.
-@Test func returnSendsAndShiftReturnStartsALine() {
-    #expect(ComposerReturn([]) == .send)
-    #expect(ComposerReturn(.capsLock) == .send)
+/// By default ⌘Return sends and Return (with Shift or Option too) starts a new line.
+@Test func commandReturnSendsAndReturnStartsALine() {
+    #expect(ComposerReturn([]) == .newline)
+    #expect(ComposerReturn(.capsLock) == .newline)
     #expect(ComposerReturn(.shift) == .newline)
     #expect(ComposerReturn(.option) == .newline)
-    #expect(ComposerReturn([.shift, .option]) == .newline)
-    #expect(ComposerReturn(.command) == nil)
-    #expect(ComposerReturn([.control, .shift]) == nil)
+    #expect(ComposerReturn(.command) == .send)
+    #expect(ComposerReturn([.command, .capsLock]) == .send)
+    #expect(ComposerReturn([.command, .shift]) == nil)
+    #expect(ComposerReturn(.control) == nil)
+}
+
+/// With Return sends on: Return sends; Shift- or Option-Return starts a new line; ⌘ and ⌃ go to the system.
+@Test func returnSendsAndShiftReturnStartsALine() {
+    #expect(ComposerReturn([], returnSends: true) == .send)
+    #expect(ComposerReturn(.capsLock, returnSends: true) == .send)
+    #expect(ComposerReturn(.shift, returnSends: true) == .newline)
+    #expect(ComposerReturn(.option, returnSends: true) == .newline)
+    #expect(ComposerReturn([.shift, .option], returnSends: true) == .newline)
+    #expect(ComposerReturn(.command, returnSends: true) == nil)
+    #expect(ComposerReturn([.control, .shift], returnSends: true) == nil)
 }
 
 private func keyEvent(_ c: String, _ code: UInt16, _ flags: NSEvent.ModifierFlags = []) -> NSEvent {
@@ -214,8 +226,8 @@ private func keyEvent(_ c: String, _ code: UInt16, _ flags: NSEvent.ModifierFlag
         characters: c, charactersIgnoringModifiers: c, isARepeat: false, keyCode: code)!
 }
 
-/// The composer field itself, typed into: Shift-Return and Option-Return put
-/// a newline in the message and send nothing; Return sends the lines as one
+/// The composer field itself, typed into: Return and Option-Return put a
+/// newline in the message and send nothing; ⌘Return sends the lines as one
 /// message. The field grows a line at a time and stops at `max_lines`.
 @MainActor @Test func theComposerTakesSeveralLines() async throws {
     let actions = FixtureCardActions(chats: [:], canAcknowledge: true)
@@ -237,7 +249,7 @@ private func keyEvent(_ c: String, _ code: UInt16, _ flags: NSEvent.ModifierFlag
     #expect(one == Theme.Control.composer.number("height"))
 
     f.keyDown(with: keyEvent("a", 0))
-    f.keyDown(with: keyEvent("\r", 36, .shift))
+    f.keyDown(with: keyEvent("\r", 36))
     f.keyDown(with: keyEvent("b", 11))
     f.keyDown(with: keyEvent("\r", 36, .option))
     f.keyDown(with: keyEvent("c", 8))
@@ -258,7 +270,7 @@ private func keyEvent(_ c: String, _ code: UInt16, _ flags: NSEvent.ModifierFlag
     #expect(abs(most - (line * Theme.Control.composerGrow.number("max_lines") + 2 * ComposerLayout.inset).rounded(.up)) < 0.5)
     #expect(ComposerLayout.height("", width: 300) == Theme.Control.composer.number("height"))
 
-    f.keyDown(with: keyEvent("\r", 36))
+    f.keyDown(with: keyEvent("\r", 36, .command))
     await settle { f.string.isEmpty }
     #expect(actions.sent == ["a\nb\nc\nd\ne"])
     #expect(m.composer == "" && f.string == "")

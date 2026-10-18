@@ -41,10 +41,11 @@ public struct LassoChoice: Identifiable, Equatable, Sendable, Codable {
 
 /// Settings' tabs.
 public enum SettingsTab: String, CaseIterable, Sendable {
-    case notifications, shortcuts, info
+    case general, notifications, shortcuts, info
 
     public var title: String {
         switch self {
+        case .general: "General"
         case .notifications: "Notifications"
         case .shortcuts: "Shortcuts"
         case .info: "Info"
@@ -106,7 +107,7 @@ public final class SettingsModel: ObservableObject {
     public var connector: LassoConnector?
     /// Forget the lasso in use's tokens.
     public var onSignOut: () -> Void = {}
-    @Published public var tab: SettingsTab = .notifications
+    @Published public var tab: SettingsTab = .general
     /// The address field is open (Change…, or a failed connect).
     @Published public var changingLasso = false
     /// The Dock and menu-bar icons (AppPresence), and applying a change.
@@ -132,6 +133,21 @@ public final class SettingsModel: ObservableObject {
     public func setOpenAgentFiles(_ on: Bool) {
         UserDefaults.standard.set(on, forKey: Self.openAgentFilesKey)
         openAgentFiles = on
+    }
+
+    /// What Return does in a composer: off (the default), ⌘Return sends and
+    /// Return starts a new line; on, Return sends. UserDefaults
+    /// `composerReturnSends`, absent = off.
+    public nonisolated static let returnSendsKey = "composerReturnSends"
+    @Published public private(set) var returnSends = SettingsModel.returnSendsOn()
+
+    public nonisolated static func returnSendsOn(_ d: UserDefaults = .standard) -> Bool {
+        d.bool(forKey: returnSendsKey)
+    }
+
+    public func setReturnSends(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: Self.returnSendsKey)
+        returnSends = on
     }
 
     /// Anonymous usage analytics (PLAN 25): this Mac's own choice.
@@ -192,12 +208,14 @@ public final class SettingsModel: ObservableObject {
         refreshLoginItem()
     }
 
-    /// The "This app" group's footnote: a dev build, approval pending, or a failure.
-    public var appFootnote: String? {
+    /// Under Info's version: a dev build does not update itself.
+    public var updatesFootnote: String? {
+        AppUpdates.checkNow == nil || loginItem == .devAgent ? "A development build: it does not update itself." : nil
+    }
+
+    /// Under General's app group: what macOS said about Start at login.
+    public var loginFootnote: String? {
         var lines: [String] = []
-        if AppUpdates.checkNow == nil || loginItem == .devAgent {
-            lines.append("A development build: it does not update itself.")
-        }
         if loginItem == .needsApproval {
             lines.append("macOS is waiting for you to allow Lasso in System Settings › General › Login Items.")
         }

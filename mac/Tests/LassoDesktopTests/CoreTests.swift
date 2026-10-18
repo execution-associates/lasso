@@ -259,9 +259,9 @@ private let specDir = packageDir.appendingPathComponent("Spec")
     while !done(), Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
 }
 
-func key(_ c: String, _ code: UInt16) -> NSEvent {
+func key(_ c: String, _ code: UInt16, _ flags: NSEvent.ModifierFlags = []) -> NSEvent {
     NSEvent.keyEvent(
-        with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+        with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
         characters: c, charactersIgnoringModifiers: c, isARepeat: false, keyCode: code)!
 }
 
@@ -323,7 +323,7 @@ func key(_ c: String, _ code: UInt16) -> NSEvent {
             model: CardModel(pane: pane, fleet: fleet, actions: FixtureCardActions(chats: [:], canAcknowledge: true)),
             near: NSRect(x: 900, y: 300, width: 10, height: 10), media: nil)
         window = w
-        w.show(focusReply: true)
+        w.show()
     }
     m.create()
     try await Task.sleep(nanoseconds: 100_000_000)

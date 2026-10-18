@@ -252,6 +252,7 @@ public final class CardModel: ComposerModel {
 
     /// An open question waits on the human with choices to pick from.
     public var hasChoices: Bool { !nextSteps.isEmpty }
+    public var asksQuestion: Bool { hasChoices }
 
     /// The open question, as the footer heads it.
     public var question: (header: String?, text: String)? {
