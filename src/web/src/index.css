@@ -683,6 +683,16 @@
   text-decoration: underline;
 }
 
+/* matches of the file viewer's ⌘F in a rendered preview (PreviewFind.tsx),
+   in the same colours as the raw editor's search matches */
+::highlight(lasso-find) {
+  background-color: var(--h-accent-dim);
+}
+::highlight(lasso-find-current) {
+  background-color: var(--h-accent);
+  color: var(--h-bg);
+}
+
 /* rendered markdown */
 .md-body {
   padding: 20px 26px 48px;

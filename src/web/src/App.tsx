@@ -84,6 +84,7 @@ import {
   pluginViewsOf,
   usePlugins,
 } from "@/lib/plugins"
+import { requestQuickOpen } from "@/lib/quick-open"
 import {
   markSidebarIntent,
   noteSidebarResize,
@@ -909,7 +910,7 @@ function Shell() {
       window.removeEventListener(MOBILE_COMMAND_EVENT, onMobileCommand)
   }, [])
 
-  // ⌘K → herdr's own pane search, ⌘O/⌘⇧O → a Git/Scratch agent and ⌘I → a
+  // ⌘K → herdr's own pane search, ⌘P → the file viewer's quick open, ⌘O/⌘⇧O → a Git/Scratch agent and ⌘I → a
   // terminal in the New dialog, ⌘;/⌘J/⌘E/⌘./⌘B → the left column's views and sidebar, ⌘\ and ⌘⇧F/S/B →
   // the right sidebar, ⌘⇧M → the simple app, ⌘/ → toggles the keyboard-shortcuts reference, ⌘, → Settings › General. Bound to the Cmd key only (not Ctrl) so it
   // never clobbers terminal control keys like Ctrl-H (backspace). The
@@ -966,6 +967,14 @@ function Shell() {
       } else if (k === "k") {
         e.preventDefault()
         openSearch()
+      } else if (k === "p") {
+        // ⌘P → the file viewer's quick open, VS Code's Go to File. It searches
+        // the Files tab's folder, so the tab (and a collapsed sidebar) comes
+        // into view first; the panel picks the request up once it mounts.
+        e.preventDefault()
+        setRightView("files")
+        if (rightPanel.current?.isCollapsed()) openSidebar()
+        requestQuickOpen()
       } else if (k === "o" || k === "i") {
         e.preventDefault()
         setNewTab(k === "o" ? "agent" : "terminal")
