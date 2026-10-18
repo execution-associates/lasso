@@ -49,7 +49,7 @@ private func commandW() -> NSEvent {
     let a = AgentWindowController(model: card, near: near, media: nil)
     var closed = 0
     a.onClosed = { closed += 1 }
-    a.show(focusReply: true)
+    a.show()
     spin { a.panel.editingText }
     #expect(a.panel.isVisible)
     #expect(a.panel.performKeyEquivalent(with: commandW()))

@@ -56,6 +56,9 @@ public protocol Conversation: ComposerModel {
     func showInHerdr()
 
     var hasDraft: Bool { get }
+    /// An open question its keys answer (1–9, ⏎): its window opens on the
+    /// question, not in the composer.
+    var asksQuestion: Bool { get }
     var composerHasKeys: Bool { get }
     func focusComposer()
     func attachFile()
@@ -459,13 +462,14 @@ final class ConversationWindowController<M: Conversation> {
     private var forgotten = false
     private var dragMoved = false
 
-    /// Bring it forward with the keyboard. `focusReply` puts the cursor in
-    /// the composer, as L does: a window opened on a new agent is for
-    /// writing to it, even while it is still starting.
-    func show(focusReply: Bool = false) {
+    /// Bring it forward with the keyboard and the cursor in the composer,
+    /// as L does, so typing starts at once (a new agent's too, while it is
+    /// still starting). An open question keeps the keys for answering it,
+    /// and a composer that takes no message (a stopped bot's) gets no cursor.
+    func show() {
         model.startPolling()
         panel.orderIn(takeKey: true) { if let p = $0 as? AgentWindowPanel { panel = p } }
-        if focusReply { model.focusComposer() }
+        if model.canCompose, !model.asksQuestion { model.focusComposer() }
     }
 
     func close() {

@@ -673,7 +673,7 @@ public final class AppCoordinator {
             Trace.event("agent created")
             // The form has let go of the keyboard; the window takes it with
             // the cursor in its composer, to write to the agent at once.
-            self.openWindow(pane, near: frame, focusReply: true)
+            self.openWindow(pane, near: frame)
         }
         // A terminal: the herdr window on its host, on its pane.
         m.onTerminal = { [weak self] pane, note in
@@ -924,13 +924,12 @@ public final class AppCoordinator {
     }
 
     /// An agent's own window: one per agent, brought forward if open. It
-    /// floats free of the rail, so opening one closes nothing. `focusReply`
-    /// puts the cursor in its composer (a new agent's window).
-    func openWindow(_ p: HostPane, near anchor: NSRect? = nil, focusReply: Bool = false) {
+    /// floats free of the rail, so opening one closes nothing.
+    func openWindow(_ p: HostPane, near anchor: NSRect? = nil) {
         preview.close()
         viewed(.agent_window)
         if let w = windows[p.key] {
-            w.show(focusReply: focusReply)
+            w.show()
             return
         }
         let model = cardModel(p)
@@ -938,7 +937,7 @@ public final class AppCoordinator {
             model: model, near: anchor ?? (list.isOpen ? list.panel.frame : rail.panel.frame), media: media)
         w.onClosed = { [weak self] in self?.windows[p.key] = nil }
         windows[p.key] = w
-        w.show(focusReply: focusReply)
+        w.show()
         Trace.event("agent window opened")
     }
 
