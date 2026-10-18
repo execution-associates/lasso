@@ -69,8 +69,9 @@ extension ComposerModel {
 /// needs to give it focus on demand, take it away on esc, and send on
 /// Return, and the focus API SwiftUI offers for that is a macro the Command
 /// Line Tools lack. It grows with the message (`control.composer.grow`):
-/// Return sends, Shift- or Option-Return starts a new line, and pasted text
-/// keeps its newlines. Files and images pasted or dropped on it are uploaded
+/// ⌘Return sends and Return starts a new line, or with Settings' Return
+/// sends on, Return sends (`ComposerReturn`), and pasted text keeps its
+/// newlines. Files and images pasted or dropped on it are uploaded
 /// to the agent's machine and shown as attachments over it, never as text.
 struct ComposerField<Model: ComposerModel>: NSViewRepresentable {
     @ObservedObject var model: Model
@@ -170,8 +171,8 @@ struct ComposerField<Model: ComposerModel>: NSViewRepresentable {
             t.enclosingScrollView?.invalidateIntrinsicContentSize()
         }
 
-        /// Return: send, and the inbox card's leaves the field once there was
-        /// something to send.
+        /// Send (⌘Return, or Return when it sends), and the inbox card's
+        /// leaves the field once there was something to send.
         func submit(_ t: NSTextView) {
             let sending = model.canSend
             model.send()
@@ -180,7 +181,7 @@ struct ComposerField<Model: ComposerModel>: NSViewRepresentable {
 
         func textView(_ t: NSTextView, doCommandBy sel: Selector) -> Bool {
             switch sel {
-            case #selector(NSResponder.insertNewline(_:)):
+            case #selector(NSResponder.insertNewline(_:)) where SettingsModel.returnSendsOn():
                 submit(t)
                 return true
             case #selector(NSResponder.cancelOperation(_:)), #selector(NSTextView.complete(_:)):
@@ -201,18 +202,22 @@ struct ComposerField<Model: ComposerModel>: NSViewRepresentable {
     }
 }
 
-/// What Return does in the composer: on its own it sends; with Shift or
-/// Option (or both) it starts a new line. ⌘ and ⌃ combinations are the
-/// system's (nil).
+/// What Return does in the composer. By default ⌘Return sends and Return
+/// on its own, or with Shift or Option, starts a new line, as in the web
+/// chat. With `returnSends` (Settings › General) Return on its own sends
+/// and Shift- or Option-Return starts a new line. Any other combination is
+/// the system's (nil).
 enum ComposerReturn: Equatable {
     case send, newline
 
-    init?(_ flags: NSEvent.ModifierFlags) {
+    init?(_ flags: NSEvent.ModifierFlags, returnSends: Bool = false) {
         let m = flags.intersection([.shift, .option, .command, .control])
         if m.isEmpty {
-            self = .send
+            self = returnSends ? .send : .newline
         } else if m.isSubset(of: [.shift, .option]) {
             self = .newline
+        } else if m == .command, !returnSends {
+            self = .send
         } else {
             return nil
         }
@@ -268,7 +273,7 @@ final class ComposerTextField: AttachingTextView {
 
     override func keyDown(with e: NSEvent) {
         if !hasMarkedText(), e.keyCode == KeyCode.returnKey || e.keyCode == KeyCode.keypadEnter,
-           let r = ComposerReturn(e.modifierFlags)
+           let r = ComposerReturn(e.modifierFlags, returnSends: SettingsModel.returnSendsOn())
         {
             switch r {
             case .send: onReturn?()

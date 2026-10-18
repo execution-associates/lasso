@@ -1,0 +1,13 @@
+{
+  "about": "Settings on its General tab, where it opens: Return sends (off, so ⌘Return sends), the Dock, menu bar, rail position and Start at login, analytics, and Quit.",
+  "state": "settings-general",
+  "extends": "settings",
+  "ui": {
+    "rail": "collapsed",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "settings": true,
+    "settings_tab": "general"
+  }
+}

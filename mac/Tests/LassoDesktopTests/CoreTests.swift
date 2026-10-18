@@ -259,9 +259,9 @@ private let specDir = packageDir.appendingPathComponent("Spec")
     while !done(), Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
 }
 
-func key(_ c: String, _ code: UInt16) -> NSEvent {
+func key(_ c: String, _ code: UInt16, _ flags: NSEvent.ModifierFlags = []) -> NSEvent {
     NSEvent.keyEvent(
-        with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+        with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
         characters: c, charactersIgnoringModifiers: c, isARepeat: false, keyCode: code)!
 }
 
