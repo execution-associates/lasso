@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Settings, in the panels' language and macOS's grouped layout: three tabs,
+/// Settings, in the panels' language and macOS's grouped layout: four tabs,
 /// each a column of titled groups, a group a card of rows split by hairlines,
 /// a row its name (and why) leading and its control trailing.
 public struct SettingsView: View {
@@ -31,6 +31,7 @@ public struct SettingsView: View {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: Theme.space("5xl")) {
                     switch model.tab {
+                    case .general: generalTab
                     case .notifications: notificationsTab
                     case .shortcuts: shortcutsTab
                     case .info: infoTab
@@ -51,6 +52,7 @@ public struct SettingsView: View {
 
     private func icon(_ t: SettingsTab) -> Lucide {
         switch t {
+        case .general: .settings
         case .notifications: .bell
         case .shortcuts: .keyboard
         case .info: .info
@@ -194,6 +196,60 @@ public struct SettingsView: View {
 
     private func dot(_ color: Color, anchor: String) -> some View {
         Circle().fill(color).frame(width: Theme.space("m"), height: Theme.space("m")).parityAnchor(anchor)
+    }
+
+    // MARK: General
+
+    @ViewBuilder private var generalTab: some View {
+        group("Messages") {
+            row(
+                "Return sends",
+                detail: model.returnSends
+                    ? "Shift-Return starts a new line." : "⌘Return sends, and Return starts a new line.",
+                last: true
+            ) {
+                toggle(model.returnSends, "Return sends") { model.setReturnSends(!model.returnSends) }
+            }
+            .parityAnchor("settings.return_sends")
+        }
+        group("This app", footnote: model.loginFootnote) {
+            row("Show in the Dock", detail: "With a menu bar of Settings and Quit.") {
+                toggle(model.inDock, "Show in the Dock") { model.setDock(!model.inDock) }
+            }
+            row("Show in the menu bar", detail: "The monogram, with the inbox's count.") {
+                toggle(model.inMenuBar, "Show in the menu bar") { model.setMenuBar(!model.inMenuBar) }
+            }
+            row(
+                "Rail position",
+                detail: model.railCentred ? "In the middle of the screen's edge." : "Where you dragged it along the edge."
+            ) {
+                PillButton(title: "Center vertically", enabled: !model.railCentred, hint: "The rail is already centered",
+                           label: "Move the rail to the middle of the screen's edge") { model.centreRailNow() }
+                    .parityAnchor("settings.rail_centre")
+            }
+            startAtLogin
+        }
+        group("Privacy", footnote: model.analyticsNote) {
+            row(
+                "Anonymous usage analytics",
+                detail: "Which parts of Lasso get used, as counts: never names, paths or anything you type.", last: true
+            ) {
+                HStack(spacing: Theme.space("m")) {
+                    PillButton(title: "Privacy policy", label: "Open the privacy policy") { model.openPrivacy() }
+                    toggle(model.analyticsOn, "Anonymous usage analytics") { model.setAnalytics(!model.analyticsOn) }
+                }
+            }
+        }
+        group(nil) {
+            row(
+                "Quit Lasso",
+                detail: model.loginItem.startsAtLogin
+                    ? "It starts again at your next login. The rail goes with it." : "Open Lasso again to bring the rail back.",
+                last: true
+            ) {
+                PillButton(title: "Quit", textColor: Theme.dangerText.color, label: "Quit Lasso") { model.quit() }
+            }
+        }
     }
 
     // MARK: Notifications
@@ -437,50 +493,14 @@ public struct SettingsView: View {
                 PillButton(title: "Advanced Settings", label: "Open lasso's settings in the browser") { model.openAdvancedSettings() }
             }
         }
-        group("This app", footnote: model.appFootnote) {
-            row("Version") {
+        group("This app", footnote: model.updatesFootnote) {
+            row("Version", last: true) {
                 HStack(spacing: Theme.space("m")) {
                     value(AppUpdates.version)
                     if let check = AppUpdates.checkNow {
                         PillButton(title: "Check for updates", label: "Check for a newer Lasso") { check() }
                     }
                 }
-            }
-            row("Show in the Dock", detail: "With a menu bar of Settings and Quit.") {
-                toggle(model.inDock, "Show in the Dock") { model.setDock(!model.inDock) }
-            }
-            row("Show in the menu bar", detail: "The monogram, with the inbox's count.") {
-                toggle(model.inMenuBar, "Show in the menu bar") { model.setMenuBar(!model.inMenuBar) }
-            }
-            row(
-                "Rail position",
-                detail: model.railCentred ? "In the middle of the screen's edge." : "Where you dragged it along the edge."
-            ) {
-                PillButton(title: "Center vertically", enabled: !model.railCentred, hint: "The rail is already centered",
-                           label: "Move the rail to the middle of the screen's edge") { model.centreRailNow() }
-                    .parityAnchor("settings.rail_centre")
-            }
-            startAtLogin
-        }
-        group("Privacy", footnote: model.analyticsNote) {
-            row(
-                "Anonymous usage analytics",
-                detail: "Which parts of Lasso get used, as counts: never names, paths or anything you type.", last: true
-            ) {
-                HStack(spacing: Theme.space("m")) {
-                    PillButton(title: "Privacy policy", label: "Open the privacy policy") { model.openPrivacy() }
-                    toggle(model.analyticsOn, "Anonymous usage analytics") { model.setAnalytics(!model.analyticsOn) }
-                }
-            }
-        }
-        group(nil) {
-            row(
-                "Quit Lasso",
-                detail: model.loginItem.startsAtLogin
-                    ? "It starts again at your next login. The rail goes with it." : "Open Lasso again to bring the rail back.",
-                last: true
-            ) {
-                PillButton(title: "Quit", textColor: Theme.dangerText.color, label: "Quit Lasso") { model.quit() }
             }
         }
     }

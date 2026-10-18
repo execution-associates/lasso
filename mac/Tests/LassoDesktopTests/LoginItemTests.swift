@@ -70,7 +70,7 @@ private func scratchDefaults() -> UserDefaults {
     let svc = FakeLoginItem(.requiresApproval)
     let m = SettingsModel(permissions: FixedPermissions([:]), baseURL: { "http://127.0.0.1:18090" })
     m.loginItems = LoginItems(service: svc, defaults: scratchDefaults(), devBuild: false)
-    #expect(m.loginItem == .needsApproval && m.appFootnote?.contains("Login Items") == true)
+    #expect(m.loginItem == .needsApproval && m.loginFootnote?.contains("Login Items") == true)
     m.openLoginItems()
     #expect(svc.calls == ["open"])
     m.setStartAtLogin(false)

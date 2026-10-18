@@ -147,8 +147,8 @@ private func commandW() -> NSEvent {
     spin { m.composer == "jo" }
     #expect(m.composer == "jo" && m.chat.composer == "jo")
     #expect(app.bots.model.selected == nil, "j moved the column")
-    // ⏎ sends through the bot's chat.
-    app.bots.preview.sendEvent(key("\r", 36))
+    // ⌘⏎ sends through the bot's chat.
+    app.bots.preview.sendEvent(key("\r", 36, .command))
     await settle { (m.chat.actions as? FixtureBotChatActions)?.calls.contains("send") == true }
     #expect((m.chat.actions as? FixtureBotChatActions)?.calls.contains("send") == true)
     // esc leaves the field; a second esc closes the preview.

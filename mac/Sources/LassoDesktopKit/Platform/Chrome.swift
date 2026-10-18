@@ -118,7 +118,7 @@ struct ComposerRow<Model: ComposerModel>: View {
                     RoundButton(
                         // The phone's send: an arrow, a little bolder (ReplyBox).
                         glyph: .lucide(.arrowUp, stroke: 2.5), enabled: model.canSend, size: h, fill: c.color("fill"),
-                        label: "Send (⏎)", action: model.send
+                        label: SettingsModel.returnSendsOn() ? "Send (⏎)" : "Send (⌘⏎)", action: model.send
                     )
                 }
             }
