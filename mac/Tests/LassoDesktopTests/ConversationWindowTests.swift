@@ -203,3 +203,18 @@ private func commandW() -> NSEvent {
     b.show()
     check(b)
 }
+
+/// Every corner resizes: the dragged one follows the pointer, the opposite
+/// one stays put, and neither side goes below the minimum.
+@Test func everyCornerResizesFromTheOppositeOne() {
+    let f = NSRect(x: 100, y: 100, width: 500, height: 400)
+    let min = NSSize(width: 360, height: 320)
+    // Out by 20 at each corner: right/up for the trailing/top edges.
+    #expect(WindowCorner.bottomTrailing.resized(f, dx: 20, dy: -20, min: min) == NSRect(x: 100, y: 80, width: 520, height: 420))
+    #expect(WindowCorner.bottomLeading.resized(f, dx: -20, dy: -20, min: min) == NSRect(x: 80, y: 80, width: 520, height: 420))
+    #expect(WindowCorner.topTrailing.resized(f, dx: 20, dy: 20, min: min) == NSRect(x: 100, y: 100, width: 520, height: 420))
+    #expect(WindowCorner.topLeading.resized(f, dx: -20, dy: 20, min: min) == NSRect(x: 80, y: 100, width: 520, height: 420))
+    // Dragged past the minimum, the opposite corner still holds.
+    let small = WindowCorner.topLeading.resized(f, dx: 400, dy: -400, min: min)
+    #expect(small == NSRect(x: 240, y: 100, width: 360, height: 320))
+}

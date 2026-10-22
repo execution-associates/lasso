@@ -339,7 +339,7 @@ public enum Theme {
     public enum Agent {
         public static let window = Token(
             "agent.window",
-            ["size": [488, 632], "min": [360, 320], "header_h": 60, "radius": 18, "avatar": 26, "button": 28, "icon": 15],
+            ["size": [488, 632], "min": [360, 320], "header_h": 60, "radius": 18, "avatar": 26, "button": 28, "icon": 15, "corner": 10],
             .measured("user screenshot of the detached window: 978x1268 px; header to 120 px; buttons 31 pt apart"))
         public static let collapsed = Token(
             "agent.window.collapsed", ["size": [416, 60]],

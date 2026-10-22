@@ -203,6 +203,7 @@ struct ConversationWindowView<M: Conversation>: View {
         .background(PanelBackground())
         .clipShape(RoundedRectangle(cornerRadius: w.number("radius"), style: .continuous))
         .overlay(alignment: .bottomTrailing) { if !chrome.collapsed { WindowGrip(chrome: chrome) } }
+        .overlay { if !chrome.collapsed { WindowCornerHandles(chrome: chrome) } }
         .parityAnchor(chrome.collapsed ? "\(a).window.collapsed" : "\(a).window")
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(model.title), \(a) window")
@@ -275,7 +276,7 @@ final class AgentWindowChrome: ObservableObject {
     var onToggle: () -> Void = {}
     var onClose: () -> Void = {}
     var onDrag: (_ ended: Bool) -> Void = { _ in }
-    var onResize: (_ ended: Bool) -> Void = { _ in }
+    var onResize: (_ corner: WindowCorner, _ ended: Bool) -> Void = { _, _ in }
     var onDefaultSize: () -> Void = {}
 }
 
@@ -308,14 +309,97 @@ struct WindowGrip: View {
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                    .onChanged { _ in chrome.onResize(false) }
-                    .onEnded { _ in chrome.onResize(true) })
+                    .onChanged { _ in chrome.onResize(.bottomTrailing, false) }
+                    .onEnded { _ in chrome.onResize(.bottomTrailing, true) })
+            .resizePointer(.bottomTrailing)
             .simultaneousGesture(TapGesture(count: 2).onEnded { chrome.onDefaultSize() })
             .accessibilityElement()
             .accessibilityLabel("Resize")
             .accessibilityHint("Drag to resize; double-click for the default size")
             .accessibilityAction(named: "Default size") { chrome.onDefaultSize() }
             .help("Drag to resize; double-click for the default size")
+    }
+}
+
+/// A corner a window resizes by: dragging it moves that corner, and the
+/// opposite one stays where it was.
+enum WindowCorner: CaseIterable {
+    case topLeading, topTrailing, bottomLeading, bottomTrailing
+
+    var alignment: Alignment {
+        switch self {
+        case .topLeading: .topLeading
+        case .topTrailing: .topTrailing
+        case .bottomLeading: .bottomLeading
+        case .bottomTrailing: .bottomTrailing
+        }
+    }
+
+    /// `frame` (screen coordinates, y up) with this corner dragged by
+    /// (`dx`, `dy`), no smaller than `min`.
+    func resized(_ frame: NSRect, dx: CGFloat, dy: CGFloat, min: NSSize) -> NSRect {
+        let leading = self == .topLeading || self == .bottomLeading
+        let top = self == .topLeading || self == .topTrailing
+        let width = max(min.width, frame.width + (leading ? -dx : dx))
+        let height = max(min.height, frame.height + (top ? dy : -dy))
+        return NSRect(
+            x: leading ? frame.maxX - width : frame.minX, y: top ? frame.minY : frame.maxY - height,
+            width: width, height: height)
+    }
+}
+
+/// The corners other than the grip's resize too. Each is an invisible
+/// `agent.window.corner` square, smaller than `panel.inset`, so it never
+/// covers a header button.
+struct WindowCornerHandles: View {
+    @ObservedObject var chrome: AgentWindowChrome
+
+    var body: some View {
+        ZStack {
+            ForEach([WindowCorner.topLeading, .topTrailing, .bottomLeading], id: \.self) { c in
+                WindowCornerHandle(chrome: chrome, corner: c)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: c.alignment)
+            }
+        }
+    }
+}
+
+/// One invisible resize corner (`WindowCornerHandles`, and a page window's
+/// own three).
+struct WindowCornerHandle: View {
+    @ObservedObject var chrome: AgentWindowChrome
+    let corner: WindowCorner
+
+    var body: some View {
+        let side = Theme.Agent.window.number("corner")
+        Color.clear
+            .frame(width: side, height: side)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                    .onChanged { _ in chrome.onResize(corner, false) }
+                    .onEnded { _ in chrome.onResize(corner, true) })
+            .resizePointer(corner)
+            .accessibilityHidden(true)
+    }
+}
+
+extension View {
+    /// The system's diagonal resize pointer over a corner, where the OS has
+    /// one (macOS 15).
+    @ViewBuilder func resizePointer(_ corner: WindowCorner) -> some View {
+        if #available(macOS 15, *) {
+            let p: FrameResizePosition =
+                switch corner {
+                case .topLeading: .topLeading
+                case .topTrailing: .topTrailing
+                case .bottomLeading: .bottomLeading
+                case .bottomTrailing: .bottomTrailing
+                }
+            pointerStyle(.frameResize(position: p))
+        } else {
+            self
+        }
     }
 }
 
@@ -430,8 +514,8 @@ final class ConversationWindowController<M: Conversation> {
         self.model.onClose = { [weak self] in self?.close() }
         chrome.onToggle = { [weak self] in self?.toggle() }
         chrome.onClose = { [weak self] in self?.close() }
-        chrome.onDrag = { [weak self] ended in self?.drag(ended, resize: false) }
-        chrome.onResize = { [weak self] ended in self?.drag(ended, resize: true) }
+        chrome.onDrag = { [weak self] ended in self?.drag(ended, resize: nil) }
+        chrome.onResize = { [weak self] corner, ended in self?.drag(ended, resize: corner) }
         chrome.onDefaultSize = { [weak self] in self?.defaultSize() }
     }
 
@@ -495,8 +579,8 @@ final class ConversationWindowController<M: Conversation> {
         }
     }
 
-    /// Header drags move it; the corner drags resize it, top-left fixed.
-    private func drag(_ ended: Bool, resize: Bool) {
+    /// Header drags move it; a corner's drag resizes it, the opposite corner fixed.
+    private func drag(_ ended: Bool, resize corner: WindowCorner?) {
         let p = NSEvent.mouseLocation
         if ended {
             // A real move or resize is remembered again; a click (a
@@ -514,11 +598,9 @@ final class ConversationWindowController<M: Conversation> {
         let dy = p.y - from.pointer.y
         guard dx != 0 || dy != 0 || dragMoved else { return }
         dragMoved = true
-        if resize, !chrome.collapsed {
-            let min = Theme.Agent.window.size2("min")
-            let width = max(min.width, from.frame.width + dx)
-            let height = max(min.height, from.frame.height - dy)
-            panel.setFrame(NSRect(x: from.frame.minX, y: from.frame.maxY - height, width: width, height: height), display: true)
+        if let corner {
+            guard !chrome.collapsed else { return }
+            panel.setFrame(corner.resized(from.frame, dx: dx, dy: dy, min: Theme.Agent.window.size2("min")), display: true)
         } else {
             panel.setFrameOrigin(NSPoint(x: from.frame.minX + dx, y: from.frame.minY + dy))
         }
