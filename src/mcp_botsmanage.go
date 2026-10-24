@@ -34,6 +34,7 @@ type createBotIn struct {
 	ExtraArgs      []string       `json:"extra_args,omitempty"`
 	KeepRunning    *bool          `json:"keep_running,omitempty" jsonschema:"relaunch it if it stops unexpectedly; default true"`
 	Notify         *bool          `json:"notify,omitempty" jsonschema:"push a notification when it finishes a reply; default true"`
+	AutoApprove    bool           `json:"auto_approve,omitempty" jsonschema:"as update_bot's auto_approve"`
 	Instructions   string         `json:"instructions,omitempty" jsonschema:"its first AGENTS.md (omp) or CLAUDE.md (claude), at most 256 KB; a folder that already has one keeps it"`
 	Start          bool           `json:"start,omitempty" jsonschema:"start it right away"`
 }
@@ -222,6 +223,7 @@ func createBotTool(ctx context.Context, req *mcp.CallToolRequest, in createBotIn
 		MCP: in.MCP, StrictMCP: in.StrictMCP, ExtraArgs: in.ExtraArgs,
 		KeepRunning: in.KeepRunning == nil || *in.KeepRunning,
 		Notify:      in.Notify == nil || *in.Notify,
+		AutoApprove: in.AutoApprove,
 	}
 	if runtime != botRuntimeOmp && runtime != botRuntimeClaude {
 		return nil, nil, fmt.Errorf("runtime must be omp or claude")

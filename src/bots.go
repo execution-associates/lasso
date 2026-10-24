@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS bots (
 	avatar_image    TEXT NOT NULL DEFAULT '',
 	notify          INTEGER NOT NULL DEFAULT 1,
 	runtime         TEXT NOT NULL DEFAULT 'claude',
+	auto_approve    INTEGER NOT NULL DEFAULT 0,
 	created_at      TEXT NOT NULL,
 	updated_at      TEXT NOT NULL
 );
@@ -109,6 +110,12 @@ type botRecord struct {
 	// message (botNotifyTick).
 	Notify      bool `json:"notify"`
 	KeepRunning bool `json:"keep_running"`
+	// AutoApprove (claude bots): answer every permission dialog Yes, so an
+	// unattended bot never sits on one. Bypass mode does not cover them all:
+	// Claude Code's own safety checks (an rm on a variable path, say) still
+	// ask, a subagent's included. Questions and plan approval still reach the
+	// human. See botAutoApproveSettings.
+	AutoApprove bool `json:"auto_approve"`
 	// Stopped is the human's Stop: keep-running leaves a stopped bot alone
 	// until Start clears it.
 	Stopped       bool   `json:"stopped"`
@@ -444,6 +451,9 @@ func botClaudeArgv(r *botRecord, dir string) []string {
 	if r.PermissionMode != "" {
 		argv = append(argv, "--permission-mode", r.PermissionMode)
 	}
+	if r.AutoApprove {
+		argv = append(argv, "--settings", botAutoApproveSettings)
+	}
 	argv = append(argv, "--name", r.Name)
 	// lasso's note about how the bot runs, with any --append-system-prompt of
 	// the human's own after it: claude takes one, so the two are joined.
@@ -465,6 +475,16 @@ func botClaudeArgv(r *botRecord, dir string) []string {
 	argv = append(argv, "--append-system-prompt", prompt)
 	return append(argv, extra...)
 }
+
+// botAutoApproveSettings is the --settings a claude bot with AutoApprove
+// launches with: a PermissionRequest hook, which Claude Code runs just before
+// it would show a permission dialog (in any mode, for subagents too) and which
+// answers allow. AskUserQuestion and ExitPlanMode go through the same hook, but
+// they are the bot asking its human something, so the hook stays silent for
+// them and the dialog shows as before. Plain sh, so it runs on any host.
+const botAutoApproveSettings = `{"hooks":{"PermissionRequest":[{"hooks":[{"type":"command","command":` +
+	`"t=$(cat); case \"$t\" in *'\"tool_name\":\"AskUserQuestion\"'*|*'\"tool_name\":\"ExitPlanMode\"'*) exit 0;; esac; ` +
+	`printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PermissionRequest\",\"decision\":{\"behavior\":\"allow\"}}}'"}]}]}}`
 
 // botSystemPrompt tells the bot what it is and how it runs, so it can answer
 // questions about itself and restart itself when its human asks.
@@ -742,18 +762,18 @@ func botWriteTask(b Backend, r *botRecord, dir string) error {
 
 // --- storage -----------------------------------------------------------------
 
-const botCols = `id, host, name, dir, workspace, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, created_at, updated_at, avatar_image, notify, launch_task, runtime`
+const botCols = `id, host, name, dir, workspace, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, created_at, updated_at, avatar_image, notify, launch_task, runtime, auto_approve`
 
 func scanBot(row interface{ Scan(...any) error }) (*botRecord, error) {
 	var r botRecord
 	var mcp, extra string
-	var strict, keep, stopped, notify int
+	var strict, keep, stopped, notify, autoApprove int
 	if err := row.Scan(&r.ID, &r.Host, &r.Name, &r.Dir, &r.Workspace, &r.Model, &r.Effort, &r.PermissionMode,
 		&mcp, &strict, &extra, &r.Avatar, &keep, &stopped, &r.LastSessionID, &r.CreatedAt, &r.UpdatedAt,
-		&r.AvatarImage, &notify, &r.LaunchTask, &r.Runtime); err != nil {
+		&r.AvatarImage, &notify, &r.LaunchTask, &r.Runtime, &autoApprove); err != nil {
 		return nil, err
 	}
-	r.Notify = notify != 0
+	r.Notify, r.AutoApprove = notify != 0, autoApprove != 0
 	r.StrictMCP, r.KeepRunning, r.Stopped = strict != 0, keep != 0, stopped != 0
 	_ = json.Unmarshal([]byte(mcp), &r.MCP)
 	_ = json.Unmarshal([]byte(extra), &r.ExtraArgs)
@@ -805,10 +825,10 @@ func insertBot(r *botRecord) error {
 	mcp, _ := json.Marshal(r.MCP)
 	extra, _ := json.Marshal(r.ExtraArgs)
 	// A new bot goes to the end of the list.
-	res, err := db.Exec(`INSERT INTO bots (host, name, dir, workspace, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, position, created_at, updated_at, notify, launch_task, runtime)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM bots), ?, ?, ?, ?, ?)`,
+	res, err := db.Exec(`INSERT INTO bots (host, name, dir, workspace, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, position, created_at, updated_at, notify, launch_task, runtime, auto_approve)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM bots), ?, ?, ?, ?, ?, ?)`,
 		r.Host, r.Name, r.Dir, r.Workspace, r.Model, r.Effort, r.PermissionMode, string(mcp), boolInt(r.StrictMCP),
-		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Stopped), r.LastSessionID, r.CreatedAt, r.UpdatedAt, boolInt(r.Notify), r.LaunchTask, r.Runtime)
+		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Stopped), r.LastSessionID, r.CreatedAt, r.UpdatedAt, boolInt(r.Notify), r.LaunchTask, r.Runtime, boolInt(r.AutoApprove))
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return fmt.Errorf("a bot named %q already exists", r.Name)
@@ -826,9 +846,9 @@ func updateBot(r *botRecord) error {
 	mcp, _ := json.Marshal(r.MCP)
 	extra, _ := json.Marshal(r.ExtraArgs)
 	_, err := db.Exec(`UPDATE bots SET dir = ?, workspace = ?, model = ?, effort = ?, permission_mode = ?, mcp = ?, strict_mcp = ?,
-		extra_args = ?, avatar = ?, keep_running = ?, notify = ?, launch_task = ?, runtime = ?, updated_at = ? WHERE name = ?`,
+		extra_args = ?, avatar = ?, keep_running = ?, notify = ?, launch_task = ?, runtime = ?, auto_approve = ?, updated_at = ? WHERE name = ?`,
 		r.Dir, r.Workspace, r.Model, r.Effort, r.PermissionMode, string(mcp), boolInt(r.StrictMCP),
-		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Notify), r.LaunchTask, r.Runtime, r.UpdatedAt, r.Name)
+		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Notify), r.LaunchTask, r.Runtime, boolInt(r.AutoApprove), r.UpdatedAt, r.Name)
 	return err
 }
 

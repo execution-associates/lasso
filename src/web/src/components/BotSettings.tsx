@@ -134,6 +134,7 @@ type Draft = {
   permission_mode: string
   keep_running: boolean
   notify: boolean
+  auto_approve: boolean
   extra_args: string
   strict_mcp: boolean
   mcp: DraftServer[]
@@ -179,6 +180,7 @@ function draftOf(b?: BotView): Draft {
     permission_mode: b?.permission_mode ?? "",
     keep_running: b?.keep_running ?? true,
     notify: b?.notify ?? true,
+    auto_approve: b?.auto_approve ?? false,
     extra_args: (b?.extra_args ?? []).join("\n"),
     strict_mcp: b?.strict_mcp ?? false,
     instructions: "",
@@ -210,6 +212,7 @@ function fieldsOf(d: Draft): BotFields {
     permission_mode: d.permission_mode,
     keep_running: d.keep_running,
     notify: d.notify,
+    auto_approve: d.auto_approve,
     extra_args: lines(d.extra_args),
     strict_mcp: d.strict_mcp,
     mcp: d.mcp.map(serverOf),
@@ -751,6 +754,21 @@ function GeneralTab({
             first (Bots list, the bell).
           </span>
         </Check>
+        {!omp && (
+          <Check
+            id="bot-auto-approve"
+            checked={draft.auto_approve}
+            onChange={(auto_approve) => set({ auto_approve })}
+          >
+            Approve permission prompts
+            <span className="block text-[11.5px] text-muted-foreground">
+              Answers Yes to every "Do you want to proceed?", its subagents'
+              included, so it never waits on one. Bypass mode still asks for
+              some commands (an rm on a variable path, say). Its questions
+              still reach you. Takes effect when it restarts.
+            </span>
+          </Check>
+        )}
       </section>
     </div>
   )

@@ -129,6 +129,7 @@ type updateBotIn struct {
 	LaunchTask     *string         `json:"launch_task,omitempty" jsonschema:"the mise task in the bot's folder that launches it (a mode, such as another provider); empty or bot for the generated one. It must exist, set its environment, and end with exec mise run bot -- \"$@\""`
 	KeepRunning    *bool           `json:"keep_running,omitempty" jsonschema:"relaunch the bot if it stops unexpectedly"`
 	Notify         *bool           `json:"notify,omitempty" jsonschema:"push a notification to the human's devices each time the bot finishes a reply"`
+	AutoApprove    *bool           `json:"auto_approve,omitempty" jsonschema:"claude bots: answer every permission prompt Yes (Claude Code's safety checks still ask in bypass mode), so the bot never waits on one; questions and plan approval still reach the human"`
 	Workspace      *string         `json:"workspace,omitempty" jsonschema:"the herdr workspace its tab opens in, on its next start"`
 }
 
@@ -235,6 +236,9 @@ func updateBotTool(ctx context.Context, req *mcp.CallToolRequest, in updateBotIn
 	}
 	if in.Notify != nil {
 		next.Notify = *in.Notify
+	}
+	if in.AutoApprove != nil {
+		next.AutoApprove = *in.AutoApprove
 	}
 	if err := next.normalize(); err != nil {
 		return nil, botChangeOut{}, err
