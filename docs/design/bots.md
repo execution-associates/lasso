@@ -41,6 +41,7 @@ The frontend is `BotsView.tsx`, `BotSettings.tsx`, `BotJobs.tsx` (with `lib/cron
 | `mise.toml` | the human | optional (tools, say). Lasso never writes or trusts it |
 | `.lasso/mcp.json` | lasso | the MCP servers, plus lasso's own as `lasso` and `lasso-channel` (below), regenerated on every save. Mode 0600: it holds the channel token |
 | `.lasso/avatar.<ext>` | lasso | the picture, written by `storeBotAvatar` only |
+| `.lasso/session` | lasso | the id of the conversation lasso last saw the bot in, rewritten when it changes; read by the task on a bare run |
 
 The whole launch is `mise run bot` in the folder. mise asks fnox for the variables the task lists (`#MISE secrets=[…]`) and hands them to that task alone, and the task execs claude with these flags:
 
@@ -54,6 +55,7 @@ The whole launch is `mise run bot` in the folder. mise asks fnox for the variabl
 ## Invariants
 
 - **The same short command launches and restores.** herdr restores a pane by typing its `resume_argv` into a fresh shell in the pane's saved folder. It restores no env and allows no path or quote in the argv. `mise run bot -- --resume <id>` fits all of that and is the full launch, so a restored bot comes back with its secrets and channel grants. A bare `claude --resume` would bring it back deaf.
+- **A bare `mise run bot` resumes; `--fresh` is the only way to ask for a new conversation.** A human relaunching by hand (to pick up a new claude, say) expects the bot's conversation, not a new session under the bot's name. With no session flag (`-c`/`--continue`, `-r`/`--resume`, `--session-id`, `--from-pr`) among its args, the task resumes the id in `.lasso/session` when that transcript is in the folder's project dir, else `--continue`s the folder's newest, else starts new. The file, not the generated script, carries the id, so the task is not rewritten every time the session moves; lasso writes it with every task write and whenever `botReportSession` sees a new id. `--fresh` is stripped before claude sees it, and lasso's own launch says `-- --fresh` whenever it has no session to resume (a first start, Restart new conversation, a transcript gone), since a bare run would resume. It is also the way back from a provider switch, where the old conversation will not resume (below).
 - **The task script does the unattended parts itself**, so a restore needs no lasso:
   - **Claim the herdr agent name,** with retries. A restored pane comes back unnamed, and the rename only succeeds after herdr detects claude.
   - **Answer the folder-trust dialog.** It starts on its decline option, so the script moves Down, re-reads the screen and presses Enter only on the `❯ Yes` line.

@@ -523,6 +523,9 @@ func botReportSession(b Backend, r *botRecord, p pane, sessions []claudeSessionE
 	if sid != r.LastSessionID {
 		_ = setBotSession(r.Name, sid)
 		r.LastSessionID = sid
+		if err := botWriteSession(b, expandTildeOn(b, r.Dir), sid); err != nil {
+			log.Printf("bots:     %s: %v", r.Name, err)
+		}
 	}
 	key := p.PaneID + "\x00" + sid
 	bots.mu.Lock()
