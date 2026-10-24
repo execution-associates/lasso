@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -173,6 +174,156 @@ func TestValidateResumeArgv(t *testing.T) {
 	}
 	if l := len(botLaunchCommand(strings.Repeat("t", 64), "4a8eb1d3-f2fb-4755-aa35-8fc5efac2e1e")); l > maxTypedLaunch {
 		t.Errorf("launch line %d bytes", l)
+	}
+}
+
+// A bare `mise run bot` (a human relaunching by hand) resumes the session
+// lasso last saw, falling back to the folder's newest, while an explicit
+// session flag is left alone and --fresh starts a new one without reaching
+// claude.
+func TestBotTaskScriptResumesByDefault(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "it's jess")
+	bin := t.TempDir()
+	argsLog := filepath.Join(bin, "args")
+	// The fake claude records the args the caller added after lasso's own,
+	// which end with the system prompt.
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(`#!/bin/sh
+while [ "$#" -gt 0 ]; do
+  [ "$1" = --append-system-prompt ] && shift 2 && break
+  shift
+done
+printf '%s\n' "$@" >`+shellQuote(argsLog)+`
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := &botRecord{Name: "jess"}
+	if err := r.normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".lasso"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(bin, "bot")
+	if err := os.WriteFile(script, []byte(botTaskScript(r, dir, nil)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	projects := filepath.Join(home, ".claude", "projects", claudeProjectSlug(dir))
+	if err := os.MkdirAll(projects, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	transcript := func(id string) {
+		if err := os.WriteFile(filepath.Join(projects, id+".jsonl"), []byte("{}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := func(args ...string) string {
+		t.Helper()
+		_ = os.Remove(argsLog)
+		cmd := exec.Command("sh", append([]string{script}, args...)...)
+		cmd.Dir = dir
+		cmd.Env = []string{"PATH=" + bin + ":" + os.Getenv("PATH"), "HOME=" + home}
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%q: %v %s", args, err, out)
+		}
+		got, err := os.ReadFile(argsLog)
+		if err != nil {
+			t.Fatalf("%q: claude did not run", args)
+		}
+		return strings.TrimSuffix(string(got), "\n")
+	}
+	b := &localBackend{}
+
+	// Nothing in the folder yet: a new conversation (--continue would exit).
+	if got := run(); got != "" {
+		t.Errorf("first bare run added %q", got)
+	}
+	// Some conversation, but lasso knows none: the newest.
+	transcript("aaaa")
+	if got := run(); got != "--continue" {
+		t.Errorf("bare run with no known session = %q", got)
+	}
+	// The session lasso saw, by id, even when another one is newer.
+	if err := botWriteSession(b, dir, "s-1"); err != nil {
+		t.Fatal(err)
+	}
+	transcript("s-1")
+	time.Sleep(10 * time.Millisecond)
+	transcript("stray")
+	if got := run(); got != "--resume\ns-1" {
+		t.Errorf("bare run = %q", got)
+	}
+	if got := run("--model", "sonnet thing"); got != "--resume\ns-1\n--model\nsonnet thing" {
+		t.Errorf("bare run with a mode's args = %q", got)
+	}
+	// herdr's restore, the self-restart and anything else naming a session.
+	for _, args := range [][]string{{"--resume", "zz"}, {"--continue"}, {"-c"}, {"-r"}, {"--resume=zz"}, {"--session-id", "u"}} {
+		if got := run(args...); got != strings.Join(args, "\n") {
+			t.Errorf("%q became %q", args, got)
+		}
+	}
+	// --fresh on purpose, wherever it sits, never reaches claude.
+	if got := run("--fresh"); got != "" {
+		t.Errorf("--fresh = %q", got)
+	}
+	if got := run("--model", "x", "--fresh", "a b"); got != "--model\nx\na b" {
+		t.Errorf("--fresh among args = %q", got)
+	}
+	// A session whose transcript is gone falls back to the newest.
+	if err := os.Remove(filepath.Join(projects, "s-1.jsonl")); err != nil {
+		t.Fatal(err)
+	}
+	if got := run(); got != "--continue" {
+		t.Errorf("missing transcript = %q", got)
+	}
+	// The file is lasso's, but never trusted into a path.
+	if err := os.WriteFile(botSessionPath(dir), []byte("../../x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	transcript("x")
+	if got := run(); got != "--continue" {
+		t.Errorf("unsafe id = %q", got)
+	}
+	if out, err := exec.Command("sh", "-n", script).CombinedOutput(); err != nil {
+		t.Fatalf("sh -n: %v %s", err, out)
+	}
+}
+
+// lasso keeps .lasso/session in step with the session it reports to herdr,
+// and every task write carries the stored one.
+func TestBotSessionFile(t *testing.T) {
+	b := useBotTestEnv(t)
+	dir := t.TempDir()
+	r := &botRecord{Name: "jess", Dir: dir}
+	if err := r.normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if err := insertBot(r); err != nil {
+		t.Fatal(err)
+	}
+	read := func() string {
+		got, _ := os.ReadFile(botSessionPath(dir))
+		return string(got)
+	}
+	botReportSession(b, r, pane{PaneID: "w1:p1"}, []claudeSessionEntry{{SessionID: "s-2", Cwd: dir, Name: "jess"}})
+	if got := read(); got != "s-2\n" {
+		t.Errorf("after a report: %q", got)
+	}
+	if got, _ := getBot(r.Name); got == nil || got.LastSessionID != "s-2" {
+		t.Errorf("stored session = %+v", got)
+	}
+	r.LastSessionID = ""
+	if err := os.MkdirAll(filepath.Dir(botTaskPath(dir)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := botWriteTask(b, r, dir); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(); got != "" {
+		t.Errorf("a cleared session left %q", got)
+	}
+	if got := botLaunchCommand("bot", ""); got != "mise run bot -- --fresh" {
+		t.Errorf("launch with no session = %q", got)
 	}
 }
 
@@ -552,7 +703,7 @@ func TestBotLaunchTask(t *testing.T) {
 	if got := botResumeArgv(r.task(), "s1"); strings.Join(got, " ") != "mise run deepseek -- --resume s1" {
 		t.Errorf("resume argv = %q", got)
 	}
-	if got := botLaunchCommand(r.task(), ""); got != "mise run deepseek" {
+	if got := botLaunchCommand(r.task(), ""); got != "mise run deepseek -- --fresh" {
 		t.Errorf("launch = %q", got)
 	}
 	script := botTaskScript(r, "/b/jess", nil)
@@ -974,5 +1125,57 @@ exit 0
 			t.Fatalf("the wrapped dev-channel menu was not answered (keys: %q)", got)
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// The auto-approve hook allows a real permission prompt and stays silent for
+// the bot's own questions, and it rides the launch line only when asked for.
+func TestBotAutoApproveHook(t *testing.T) {
+	var s struct {
+		Hooks struct {
+			PermissionRequest []struct {
+				Hooks []struct{ Type, Command string }
+			}
+		}
+	}
+	if err := json.Unmarshal([]byte(botAutoApproveSettings), &s); err != nil {
+		t.Fatalf("settings are not JSON: %v", err)
+	}
+	cmd := s.Hooks.PermissionRequest[0].Hooks[0].Command
+	run := func(tool string) string {
+		c := exec.Command("sh", "-c", cmd)
+		c.Stdin = strings.NewReader(`{"hook_event_name":"PermissionRequest","tool_name":"` + tool + `","tool_input":{}}`)
+		out, err := c.Output()
+		if err != nil {
+			t.Fatalf("%s: %v", tool, err)
+		}
+		return string(out)
+	}
+	var got struct {
+		HookSpecificOutput struct {
+			HookEventName string
+			Decision      struct{ Behavior string }
+		}
+	}
+	if err := json.Unmarshal([]byte(run("Bash")), &got); err != nil {
+		t.Fatalf("Bash: not JSON: %v", err)
+	}
+	if got.HookSpecificOutput.HookEventName != "PermissionRequest" || got.HookSpecificOutput.Decision.Behavior != "allow" {
+		t.Fatalf("Bash: %+v", got)
+	}
+	for _, tool := range []string{"AskUserQuestion", "ExitPlanMode"} {
+		if out := run(tool); out != "" {
+			t.Fatalf("%s answered %q", tool, out)
+		}
+	}
+
+	r := &botRecord{Name: "x", Runtime: botRuntimeClaude}
+	if slices.Contains(botClaudeArgv(r, "/tmp/x"), "--settings") {
+		t.Fatal("--settings without auto_approve")
+	}
+	r.AutoApprove = true
+	argv := botClaudeArgv(r, "/tmp/x")
+	if i := slices.Index(argv, "--settings"); i < 0 || argv[i+1] != botAutoApproveSettings {
+		t.Fatalf("argv %q", argv)
 	}
 }

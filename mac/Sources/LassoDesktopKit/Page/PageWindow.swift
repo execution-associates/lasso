@@ -34,7 +34,8 @@ final class PageWindow {
     private let minSize: NSSize
     private let header: CGFloat
     private let pageBox: NSView
-    private let grip: NSView
+    /// The resize corners, hidden while collapsed.
+    private let grips: [NSView]
     /// What takes the keyboard when it is shown (its web view).
     weak var focus: NSView?
     /// It closed (its close button, ⌘W, or `close()`).
@@ -93,15 +94,26 @@ final class PageWindow {
         corner.frame = NSRect(x: bounds.width - side, y: 0, width: side, height: side)
         corner.autoresizingMask = [.minXMargin, .maxYMargin]
         root.addSubview(corner)
-        grip = corner
+        let edge = Theme.Agent.window.number("corner")
+        let chrome = chrome
+        let others: [NSView] = [WindowCorner.topLeading, .topTrailing, .bottomLeading].map { c in
+            let v = OverlayHostingView(rootView: WindowCornerHandle(chrome: chrome, corner: c))
+            let trailing = c == .topTrailing
+            let top = c != .bottomLeading
+            v.frame = NSRect(x: trailing ? bounds.width - edge : 0, y: top ? bounds.height - edge : 0, width: edge, height: edge)
+            v.autoresizingMask = [trailing ? .minXMargin : .maxXMargin, top ? .minYMargin : .maxYMargin]
+            root.addSubview(v)
+            return v
+        }
+        grips = [corner] + others
 
         panel = AgentWindowPanel(content: root, frame: frame)
         panel.isReleasedWhenClosed = false
         panel.onCloseKey = { [weak self] in self?.requestClose() }
         chrome.onToggle = { [weak self] in self?.toggle() }
         chrome.onClose = { [weak self] in self?.requestClose() }
-        chrome.onDrag = { [weak self] ended in self?.drag(ended, resize: false) }
-        chrome.onResize = { [weak self] ended in self?.drag(ended, resize: true) }
+        chrome.onDrag = { [weak self] ended in self?.drag(ended, resize: nil) }
+        chrome.onResize = { [weak self] corner, ended in self?.drag(ended, resize: corner) }
         chrome.onDefaultSize = { [weak self] in self?.defaultSize() }
         keyWatch = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) {
             [weak self] n in
@@ -185,7 +197,7 @@ final class PageWindow {
             let e = NSRect(x: f.minX, y: f.maxY - expandedFrame.height, width: expandedFrame.width, height: expandedFrame.height)
             chrome.collapsed = false
             pageBox.isHidden = false
-            grip.isHidden = false
+            for g in grips { g.isHidden = false }
             panel.setFrame(e, display: true, animate: false)
             if let focus, panel.isKeyWindow { panel.makeFirstResponder(focus) }
         } else {
@@ -193,7 +205,7 @@ final class PageWindow {
             let width = Theme.Agent.collapsed.size2("size").width
             chrome.collapsed = true
             pageBox.isHidden = true
-            grip.isHidden = true
+            for g in grips { g.isHidden = true }
             panel.setFrame(NSRect(x: f.minX, y: f.maxY - header, width: width, height: header), display: true, animate: false)
         }
     }
@@ -216,8 +228,8 @@ final class PageWindow {
         forgotten = true
     }
 
-    /// Header drags move it; the corner drags resize it, top-left fixed.
-    private func drag(_ ended: Bool, resize: Bool) {
+    /// Header drags move it; a corner's drag resizes it, the opposite corner fixed.
+    private func drag(_ ended: Bool, resize corner: WindowCorner?) {
         let p = NSEvent.mouseLocation
         if ended {
             if dragMoved { forgotten = false }
@@ -233,10 +245,9 @@ final class PageWindow {
         let dy = p.y - from.pointer.y
         guard dx != 0 || dy != 0 || dragMoved else { return }
         dragMoved = true
-        if resize, !chrome.collapsed {
-            let width = max(minSize.width, from.frame.width + dx)
-            let height = max(minSize.height, from.frame.height - dy)
-            panel.setFrame(NSRect(x: from.frame.minX, y: from.frame.maxY - height, width: width, height: height), display: true)
+        if let corner {
+            guard !chrome.collapsed else { return }
+            panel.setFrame(corner.resized(from.frame, dx: dx, dy: dy, min: minSize), display: true)
         } else {
             panel.setFrameOrigin(NSPoint(x: from.frame.minX + dx, y: from.frame.minY + dy))
         }
