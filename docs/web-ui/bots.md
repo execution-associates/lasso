@@ -139,7 +139,7 @@ A host with no age key yet cannot store secrets. The page says so and offers **C
 
 ### Launch
 
-Start, stop and restart the bot: **Restart, same conversation** carries on where it was, **Restart, new conversation** begins an empty one (the old one stays on disk); and **Open terminal** to switch to its pane in the terminal. The bot can also restart itself: ask it to, and it runs `mise run restart`, which relaunches it in the same pane on the same conversation once its turn ends. Below them is the launch script lasso generates from the settings. The bot runs as `mise run bot` in its folder, and lasso rewrites the script on every save, so edit the settings rather than the file.
+Start, stop and restart the bot: **Restart, same conversation** carries on where it was, **Restart, new conversation** begins an empty one (the old one stays on disk); and **Open terminal** to switch to its pane in the terminal. The bot can also restart itself: ask it to, and it runs `mise run restart`, which relaunches it in the same pane on the same conversation once its turn ends. Below them is the launch script lasso generates from the settings. The bot runs as `mise run bot` in its folder, and lasso rewrites the script on every save, so edit the settings rather than the file. Run by hand in the folder (after updating Claude Code, say), a bare `mise run bot` resumes the bot's conversation; `mise run bot -- --fresh` starts a new one.
 
 **Launch task** picks the mise task that starts the bot: `bot`, or a mode of your own in its folder. Start, keep-running, herdr's restore and the bot's own restart all go through it. A mode is a task that sets an environment and hands off to `bot`, so the channel grants and launch dialogs stay lasso's. For example, `.mise/tasks/deepseek` runs the bot on DeepSeek's Anthropic-compatible API:
 
@@ -156,7 +156,7 @@ exec mise run bot -- --model sonnet "$@"
 
 Add `DEEPSEEK_API_KEY` as a secret under **Environment**, then pick `deepseek` here. `#MISE interactive=true` is required: without it a task that receives secrets loses the terminal. Keep `"$@"` last, since a restore appends `--resume <id>`. Two limits to know:
 
-- **A conversation started on Anthropic may not resume on another provider.** DeepSeek refuses some of the content Claude Code stores, so after switching, use **Restart, new conversation**.
+- **A conversation started on Anthropic may not resume on another provider.** DeepSeek refuses some of the content Claude Code stores, so after switching, use **Restart, new conversation** (by hand, `mise run deepseek -- --fresh`).
 - **claude.ai connectors are off under another provider's token.** Claude Code turns them off whenever `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY` is set, so put any connector the bot needs among its own MCP servers.
 
 A launch task that the folder doesn't define is refused when you save.

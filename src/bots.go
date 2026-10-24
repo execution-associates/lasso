@@ -351,7 +351,13 @@ func botRestartPath(dir string) string { return filepath.Join(dir, ".mise", "tas
 
 // botRestartMarker is the file mise run restart leaves for the bot task to find.
 func botRestartMarker(dir string) string { return filepath.Join(dir, ".lasso", "restart") }
-func botMCPPath(dir string) string       { return filepath.Join(dir, ".lasso", "mcp.json") }
+
+// botSessionPath holds the id of the conversation lasso last saw the bot in,
+// so a bare `mise run bot` typed by hand resumes the same one lasso's Start
+// would, without the task being regenerated each time the session changes.
+func botSessionPath(dir string) string { return filepath.Join(dir, ".lasso", "session") }
+
+func botMCPPath(dir string) string { return filepath.Join(dir, ".lasso", "mcp.json") }
 
 // botMCPJSON renders .lasso/mcp.json. Secrets never belong in it: a server that
 // needs one names it as ${VAR}, which Claude Code expands from its own env —
@@ -489,14 +495,14 @@ const botAutoApproveSettings = `{"hooks":{"PermissionRequest":[{"hooks":[{"type"
 // botSystemPrompt tells the bot what it is and how it runs, so it can answer
 // questions about itself and restart itself when its human asks.
 func botSystemPrompt(r *botRecord, dir string) string {
-	return fmt.Sprintf(`You are the bot %q: a long-lived Claude Code session that lasso manages. You run in a herdr pane (HERDR_PANE_ID) in %s, launched there with `+"`mise run %s`"+`. When herdr restarts it brings you back with `+"`mise run %s -- --resume <this session>`"+`, and lasso relaunches you if you stop unexpectedly, so this conversation outlives any one process.
+	return fmt.Sprintf(`You are the bot %q: a long-lived Claude Code session that lasso manages. You run in a herdr pane (HERDR_PANE_ID) in %s, launched there with `+"`mise run %s`"+`. When herdr restarts it brings you back with `+"`mise run %s -- --resume <this session>`"+`, and lasso relaunches you if you stop unexpectedly, so this conversation outlives any one process. A bare `+"`mise run %s`"+` resumes this conversation too; `+"`mise run %s -- --fresh`"+` starts a new one.
 
 - CLAUDE.md in that folder is your standing instructions. Project skills go in .claude/skills/ there.
 - lasso generates .lasso/mcp.json, .mise/config.toml, .mise/tasks/bot and .mise/tasks/restart from its Bots settings and overwrites them on every save: change those through lasso, not by editing the files. Any other task in .mise/tasks/ is the human's: a launch task (a mode, such as another provider) sets its environment and ends with `+"`exec mise run bot -- \"$@\"`"+`.
 - Your environment and secrets come from fnox.toml through mise, and only reach you at launch.
 - You can configure yourself when your human asks. Lasso's MCP tools (server "lasso") take your name, %q: get_bot reads your settings, update_bot changes your model, effort, permission mode, MCP servers (including which are channels), extra args, launch task, keep-running and avatar, set_bot_avatar sets your picture from an image file, and set_bot_env / unset_bot_env manage your variables (secret ones encrypted). Edit CLAUDE.md and the files in .claude/skills/ directly (add_bot_skill copies one in from a skill library). To sign in a server that needs OAuth, call begin_bot_oauth and give your human the address it returns to open and approve. Settings, MCP servers and variables take effect after you restart.
 - You CAN restart yourself, and it is safe: run `+"`mise run restart`"+` in %s with your shell tool. That is the supported way, made for exactly this; it is not killing a process or closing a pane by hand. It ends this session a few seconds after your turn finishes and starts it again in the same pane, on this same conversation. Do it whenever your human asks you to restart, and when you need a new skill, MCP server, setting or variable to take effect; say you are restarting before you run it.`,
-		r.Name, dir, r.task(), r.task(), r.Name, dir)
+		r.Name, dir, r.task(), r.task(), r.task(), r.task(), r.Name, dir)
 }
 
 // botRestartScript renders .mise/tasks/restart: the bot restarting itself,
@@ -623,6 +629,35 @@ if [ -n "${HERDR_PANE_ID:-}" ] && command -v herdr >/dev/null 2>&1; then
 	// job — relaunches the whole task, so a restart also picks up new env,
 	// MCP servers and settings. A plain exit ends here as before.
 	fmt.Fprintf(&b, "marker=%s\nrm -f \"$marker\"\n", q(botRestartMarker(dir)))
+	// Claude's own project dir for this folder; the slug is lasso's to compute.
+	projects := `"${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/` + q(claudeProjectSlug(dir))
+	fmt.Fprintf(&b, `# A bare run (a human relaunching by hand) resumes the bot's conversation as
+# lasso's Start does: the session lasso last saw, when its transcript is here,
+# else the folder's newest, else a new one. Any session flag the caller passes
+# wins, and --fresh (removed before claude sees it) starts a new conversation,
+# e.g. after switching to a provider that cannot read the old one.
+fresh= resume=1 n=$#
+while [ "$n" -gt 0 ]; do
+  a=$1
+  shift
+  n=$((n - 1))
+  case $a in
+  --fresh) fresh=1 && continue ;;
+  -c | --continue | -r | --resume | --resume=* | --session-id | --session-id=* | --from-pr | --from-pr=*) resume= ;;
+  esac
+  set -- "$@" "$a"
+done
+if [ -n "$resume" ] && [ -z "$fresh" ]; then
+  projects=%s
+  sid=$(cat %s 2>/dev/null)
+  case $sid in *[!A-Za-z0-9_-]*) sid= ;; esac
+  if [ -n "$sid" ] && [ -f "$projects/$sid.jsonl" ]; then
+    set -- --resume "$sid" "$@"
+  elif ls "$projects"/*.jsonl >/dev/null 2>&1; then
+    set -- --continue "$@"
+  fi
+fi
+`, projects, q(botSessionPath(dir)))
 	fmt.Fprintf(&b, "%s \"$@\"\nstatus=$?\n", strings.Join(quoted, " "))
 	// The relaunch goes through the launch task, so a mode survives it.
 	fmt.Fprintf(&b, `if [ -f "$marker" ]; then
@@ -637,9 +672,10 @@ exit $status
 // botLaunchCommand is what lasso types into a fresh pane, and resumeArgv is the
 // same command as herdr stores it. Both stay short: the typed line has to fit
 // maxTypedLaunch, and herdr refuses an argv with quotes or paths up front.
+// With no session it says --fresh: a bare run would resume.
 func botLaunchCommand(task, sessionID string) string {
 	if sessionID == "" {
-		return "mise run " + task
+		return "mise run " + task + " -- --fresh"
 	}
 	return "mise run " + task + " -- --resume " + sessionID
 }
@@ -745,6 +781,9 @@ func botWriteTask(b Backend, r *botRecord, dir string) error {
 		return botOmpWriteTask(b, r, dir)
 	}
 	botLoadChannelToken(r)
+	if err := botWriteSession(b, dir, r.LastSessionID); err != nil {
+		return err
+	}
 	for path, body := range map[string]string{
 		botTaskPath(dir):    botTaskScript(r, dir, botEnvKeys(b, dir)),
 		botRestartPath(dir): botRestartScript(dir),
@@ -850,6 +889,26 @@ func updateBot(r *botRecord) error {
 		r.Dir, r.Workspace, r.Model, r.Effort, r.PermissionMode, string(mcp), boolInt(r.StrictMCP),
 		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Notify), r.LaunchTask, r.Runtime, boolInt(r.AutoApprove), r.UpdatedAt, r.Name)
 	return err
+}
+
+// botWriteSession records the bot's session id for its task (botSessionPath);
+// "" empties it, and the task then falls back to the folder's newest.
+func botWriteSession(b Backend, dir, sessionID string) error {
+	path := botSessionPath(dir)
+	body := ""
+	if sid := safeSessionID(sessionID); sid != "" {
+		body = sid + "\n"
+	}
+	if cur, err := b.ReadFile(path); err == nil && string(cur) == body {
+		return nil
+	}
+	if err := b.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create %s: %w", filepath.Dir(path), err)
+	}
+	if err := b.WriteFile(path, []byte(body), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
 }
 
 func setBotSession(name, sessionID string) error {
