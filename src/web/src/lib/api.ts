@@ -984,6 +984,9 @@ export interface BotFields {
   keep_running: boolean
   // Push a notification when the bot finishes a turn with a new message.
   notify: boolean
+  // Claude bots: answer every permission prompt Yes (a PermissionRequest
+  // hook on the launch line). Questions and plan approval still ask.
+  auto_approve: boolean
   // The mise task that launches it, "" for the generated `bot`. Left out of
   // a save, the stored one stays: the Launch tab sets it on its own.
   launch_task?: string

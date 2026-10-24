@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -974,5 +975,57 @@ exit 0
 			t.Fatalf("the wrapped dev-channel menu was not answered (keys: %q)", got)
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// The auto-approve hook allows a real permission prompt and stays silent for
+// the bot's own questions, and it rides the launch line only when asked for.
+func TestBotAutoApproveHook(t *testing.T) {
+	var s struct {
+		Hooks struct {
+			PermissionRequest []struct {
+				Hooks []struct{ Type, Command string }
+			}
+		}
+	}
+	if err := json.Unmarshal([]byte(botAutoApproveSettings), &s); err != nil {
+		t.Fatalf("settings are not JSON: %v", err)
+	}
+	cmd := s.Hooks.PermissionRequest[0].Hooks[0].Command
+	run := func(tool string) string {
+		c := exec.Command("sh", "-c", cmd)
+		c.Stdin = strings.NewReader(`{"hook_event_name":"PermissionRequest","tool_name":"` + tool + `","tool_input":{}}`)
+		out, err := c.Output()
+		if err != nil {
+			t.Fatalf("%s: %v", tool, err)
+		}
+		return string(out)
+	}
+	var got struct {
+		HookSpecificOutput struct {
+			HookEventName string
+			Decision      struct{ Behavior string }
+		}
+	}
+	if err := json.Unmarshal([]byte(run("Bash")), &got); err != nil {
+		t.Fatalf("Bash: not JSON: %v", err)
+	}
+	if got.HookSpecificOutput.HookEventName != "PermissionRequest" || got.HookSpecificOutput.Decision.Behavior != "allow" {
+		t.Fatalf("Bash: %+v", got)
+	}
+	for _, tool := range []string{"AskUserQuestion", "ExitPlanMode"} {
+		if out := run(tool); out != "" {
+			t.Fatalf("%s answered %q", tool, out)
+		}
+	}
+
+	r := &botRecord{Name: "x", Runtime: botRuntimeClaude}
+	if slices.Contains(botClaudeArgv(r, "/tmp/x"), "--settings") {
+		t.Fatal("--settings without auto_approve")
+	}
+	r.AutoApprove = true
+	argv := botClaudeArgv(r, "/tmp/x")
+	if i := slices.Index(argv, "--settings"); i < 0 || argv[i+1] != botAutoApproveSettings {
+		t.Fatalf("argv %q", argv)
 	}
 }

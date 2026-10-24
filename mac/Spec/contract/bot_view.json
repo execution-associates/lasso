@@ -39,6 +39,7 @@
   "avatar_image": "x",
   "notify": true,
   "keep_running": true,
+  "auto_approve": true,
   "stopped": true,
   "last_session_id": "x",
   "created_at": "x",

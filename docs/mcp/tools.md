@@ -433,6 +433,7 @@ Changes a bot's settings. Only the fields you pass change.
 | `launch_task` | string | optional | The mise task in the bot's folder that launches it: a mode, such as another provider, that sets its environment and ends with `exec mise run bot -- "$@"`. `""` or `bot` for the generated one. Refused unless the folder defines it. |
 | `keep_running` | boolean | optional | Relaunch the bot when it stops unexpectedly. |
 | `notify` | boolean | optional | Push a notification to the human's devices each time the bot finishes a reply. |
+| `auto_approve` | boolean | optional | claude bots: answer every permission prompt Yes, its subagents' included, so the bot never waits on one. Bypass mode alone still asks for some commands (Claude Code's safety checks, such as an `rm` on a variable path). `AskUserQuestion` and plan approval still reach the human. Read at launch. |
 | `workspace` | string | optional | The herdr workspace it opens in, from its next start. |
 
 lasso rewrites the bot's launch script and MCP config. Returns `ok` and `restart_needed`, true when the bot is running and reads the change only at launch. A bot restarting itself runs `mise run restart` in its folder. Its instructions (`AGENTS.md` for an omp bot, `CLAUDE.md` for a claude bot) and skills are files in its folder, edited directly rather than through this tool.
