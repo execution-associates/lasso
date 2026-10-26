@@ -471,6 +471,25 @@ A bot's jobs: messages lasso delivers into its session (a claude bot's through i
 
 A claude bot on another host has jobs when that host's lasso can deliver them (`channel.available` says why not); lasso writes them into the bot's folder over SSH and nothing on that host connects to lasso. Such a bot has no `lasso` server, so these tools are its human's to call, not its own.
 
+### `get_bot_talk`, `enable_bot_talk`, `update_bot_talk`, `rotate_bot_talk_key`, `disable_bot_talk`
+
+A claude bot's Talk: an OpenAI-compatible door (Chat Completions at lasso's origin + `/talk/<bot>/v1`, the key as a Bearer token, the bot's name as the model) for a chat app on someone's phone, such as Conduit. Their messages reach the bot through its `lasso-channel` and its replies go back to the app. Each takes the bot's `name` and returns `talk`:
+- `enabled`, `path`, `key` and `model`
+- `activity`: `plain` or `detailed`
+- `state`, one of:
+  - `ready`
+  - `waiting`: the bot is starting, and messages wait
+  - `restart`: its channel predates Talk; restart the bot
+  - `unavailable`
+- `reason`
+- `last_at`
+
+- `enable_bot_talk` turns Talk on with a new key. It changes nothing when Talk is already on, and refuses an omp bot.
+- `update_bot_talk` takes `activity`. It sets what the app shows while the bot works: `plain` (only the kind of each step, the default) or `detailed` (each step's subject too: file names, commands).
+- `rotate_bot_talk_key` replaces the key; the old one stops working at once. `disable_bot_talk` turns Talk off and forgets the key.
+
+Whoever holds the key can ask the bot for anything its instructions allow, so a bot's CLAUDE.md should say what it does for them.
+
 ### `create_bot`, `delete_bot`, `reorder_bots`
 
 - `create_bot` makes a bot as the Bots view does: `name`, and optionally `host`, `runtime` (`omp` by default), `dir` (default `~/bots/<name>`; an existing folder keeps its instructions and skills), `workspace`, `model`, `effort`, `permission_mode`, `mcp`, `strict_mcp`, `extra_args`, `keep_running` and `notify` (both default true), `instructions` (its first `AGENTS.md` or `CLAUDE.md`) and `start`. Returns `bot`, plus `error` when the row was made but its folder or first start failed, and `note`.

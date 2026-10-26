@@ -58,6 +58,7 @@ func summarizeBot(v botView) botSummary {
 func registerBotTools(s *mcp.Server) {
 	registerBotJobTools(s)
 	registerBotJobExtraTools(s)
+	registerBotTalkTools(s)
 	registerBotManageTools(s)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_bots",

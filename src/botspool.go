@@ -26,6 +26,7 @@ import (
 	"log"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -58,6 +59,12 @@ func botSpoolID(name string) (int64, bool) {
 }
 
 func botSpoolFile(id int64) string { return strconv.FormatInt(id, 10) + ".json" }
+
+// botSpoolBeatTalk reads the heartbeat's capability: a channel with Talk's
+// reply tool writes "talk" after its pid. An older one's beat has no such word.
+func botSpoolBeatTalk(beat string) bool {
+	return slices.Contains(strings.Fields(beat), "talk")
+}
 
 // --- the host's lasso -----------------------------------------------------------
 
@@ -210,11 +217,16 @@ func botSpoolSync(b Backend, r *botRecord, now time.Time) error {
 		}
 	}
 
+	// Talk replies the channel left: recorded, then removed.
+	if err := botSpoolCollectReplies(b, r.Name, spool, now); err != nil {
+		return err
+	}
+
 	if beat, err := b.ReadFile(filepath.Join(spool, "seen")); err == nil {
 		// Changed since the last read means the channel is alive now. Its
 		// own clock never counts: the host's may be off.
 		if prev, known := botSpoolBeats.Swap(r.Name, string(beat)); known && prev.(string) != string(beat) {
-			botChannelSeen(r.Name, now)
+			botChannelSeen(r.Name, now, botSpoolBeatTalk(string(beat)))
 		}
 	}
 

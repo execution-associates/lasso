@@ -175,12 +175,13 @@ func tailnetSelfNames() []string {
 // crossSiteExempt are paths whose callers are legitimately cross-origin: OAuth
 // clients in a browser register and redeem codes from their own origin (those
 // endpoints answer CORS on purpose), and webhooks and the bot channel carry
-// their own credential.
+// their own credential, as does a bot's Talk door.
 var crossSiteExempt = []string{
 	"/oauth/register",
 	"/oauth/token",
 	"/hooks/bots",
 	"/bot-channel",
+	"/talk",
 }
 
 func pathUnder(p string, prefixes []string) bool {

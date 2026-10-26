@@ -108,6 +108,10 @@ func serveBots(w http.ResponseWriter, r *http.Request) {
 		serveBotJobs(w, r, rec, strings.TrimPrefix(jobs, "/"))
 		return
 	}
+	if talk, ok := strings.CutPrefix(action, "talk"); ok && (talk == "" || strings.HasPrefix(talk, "/")) {
+		serveBotTalkSettings(w, r, rec, strings.TrimPrefix(talk, "/"))
+		return
+	}
 	switch action {
 	case "":
 		serveBotOne(w, r, b, rec)

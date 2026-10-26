@@ -155,7 +155,7 @@ type botJob struct {
 type botEvent struct {
 	ID        int64  `json:"id"`
 	Job       string `json:"job"`
-	Kind      string `json:"kind"` // schedule | webhook | run
+	Kind      string `json:"kind"` // schedule | webhook | run | talk
 	Content   string `json:"content,omitempty"`
 	Count     int    `json:"count"`
 	Status    string `json:"status"` // pending | claimed | delivered | dropped
@@ -169,6 +169,9 @@ type botEvent struct {
 	// the newest run that changed the watch's health failed.
 	Watch     bool   `json:"watch,omitempty"`
 	RunStatus string `json:"run_status,omitempty"`
+	// ChatID is a talk event's conversation (bottalk.go): the bot passes it
+	// back to the channel's reply tool.
+	ChatID string `json:"chat_id,omitempty"`
 }
 
 func nowStamp(t time.Time) string { return t.UTC().Format(time.RFC3339) }
@@ -484,7 +487,7 @@ func claimBotEventsWhere(bot string, now time.Time, cond string, args ...any) ([
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.Query(`SELECT id, job, kind, content, count, created_at, fired_at, runs != '', run_status FROM bot_events
+	rows, err := tx.Query(`SELECT id, job, kind, content, count, created_at, fired_at, runs != '', run_status, chat_id FROM bot_events
 		WHERE bot = ? AND `+cond+` ORDER BY id LIMIT 20`, append([]any{bot}, args...)...)
 	if err != nil {
 		return nil, err
@@ -492,7 +495,7 @@ func claimBotEventsWhere(bot string, now time.Time, cond string, args ...any) ([
 	var out []botEvent
 	for rows.Next() {
 		var e botEvent
-		if err := rows.Scan(&e.ID, &e.Job, &e.Kind, &e.Content, &e.Count, &e.CreatedAt, &e.FiredAt, &e.Watch, &e.RunStatus); err != nil {
+		if err := rows.Scan(&e.ID, &e.Job, &e.Kind, &e.Content, &e.Count, &e.CreatedAt, &e.FiredAt, &e.Watch, &e.RunStatus, &e.ChatID); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -587,9 +590,10 @@ func botJobsTick(now time.Time) {
 func botJobsMaintain(now time.Time) {
 	_, _ = db.Exec(`UPDATE bot_events SET status = 'dropped', reason = 'not picked up within a day (is the bot''s channel connected?)', done_at = ?
 		WHERE status IN ('pending', 'claimed') AND fired_at < ?`, nowStamp(now), nowStamp(now.Add(-botEventTTL)))
-	_, _ = db.Exec(`DELETE FROM bot_events WHERE status IN ('delivered', 'dropped') AND id NOT IN (
+	_, _ = db.Exec(`DELETE FROM bot_events WHERE status IN ('delivered', 'dropped') AND kind != 'talk' AND id NOT IN (
 		SELECT id FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY id DESC) AS rn
-			FROM bot_events WHERE status IN ('delivered', 'dropped')) WHERE rn <= ?)`, botEventHistory)
+			FROM bot_events WHERE status IN ('delivered', 'dropped') AND kind != 'talk') WHERE rn <= ?)`, botEventHistory)
+	botTalksMaintain(now)
 }
 
 // --- the bot's channel -----------------------------------------------------------
@@ -667,15 +671,24 @@ func ensureBotChannelToken(name string) (string, error) {
 	return tok, err
 }
 
-// botChannelSeen notes the channel polled, at most every 15s per bot.
-var botChannelSeenAt sync.Map // bot -> time.Time
+// botChannelSeen notes the channel polled, at most every 15s per bot unless
+// what it can do changed. talk: the channel has the reply tool Talk needs
+// (bottalk.go); one from an older lasso does not.
+var botChannelSeenAt sync.Map // bot -> botChannelSighting
 
-func botChannelSeen(bot string, now time.Time) {
-	if v, ok := botChannelSeenAt.Load(bot); ok && now.Sub(v.(time.Time)) < 15*time.Second {
-		return
+type botChannelSighting struct {
+	at   time.Time
+	talk bool
+}
+
+func botChannelSeen(bot string, now time.Time, talk bool) {
+	if v, ok := botChannelSeenAt.Load(bot); ok {
+		if s := v.(botChannelSighting); now.Sub(s.at) < 15*time.Second && s.talk == talk {
+			return
+		}
 	}
-	botChannelSeenAt.Store(bot, now)
-	_, _ = db.Exec(`UPDATE bots SET channel_seen_at = ? WHERE name = ?`, nowStamp(now), bot)
+	botChannelSeenAt.Store(bot, botChannelSighting{at: now, talk: talk})
+	_, _ = db.Exec(`UPDATE bots SET channel_seen_at = ?, channel_talk = ? WHERE name = ?`, nowStamp(now), talk, bot)
 }
 
 func botChannelSeenStamp(bot string) string {
@@ -689,6 +702,7 @@ func botChannelSeenStamp(bot string) string {
 //
 //	GET  /bot-channel/<bot>/next?wait=25   the bot's queued events, waiting up to wait seconds
 //	POST /bot-channel/<bot>/ack {ids}      those delivered
+//	POST /bot-channel/<bot>/reply {chat_id, text, done}   an answer to a Talk message (bottalk.go)
 func serveBotChannel(w http.ResponseWriter, r *http.Request) {
 	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/bot-channel"), "/")
 	name, action, _ := strings.Cut(rest, "/")
@@ -709,7 +723,7 @@ func serveBotChannel(w http.ResponseWriter, r *http.Request) {
 		deadline := time.Now().Add(time.Duration(wait) * time.Second)
 		for {
 			now := time.Now()
-			botChannelSeen(name, now)
+			botChannelSeen(name, now, r.Header.Get("X-Lasso-Channel") == "talk")
 			wake := botEventWaiter(name)
 			events, err := claimBotEvents(name, now)
 			if err != nil {
@@ -746,6 +760,25 @@ func serveBotChannel(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := ackBotEvents(name, in.IDs, time.Now()); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	case "reply":
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST", http.StatusMethodNotAllowed)
+			return
+		}
+		var in botTalkOutboxEntry
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, botTalkReplyMax+4<<10)).Decode(&in); err != nil {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
+		if err := botTalkReply(name, in.ChatID, in.Text, in.Done, time.Now()); err != nil {
+			status := http.StatusBadRequest
+			if errors.Is(err, errTalkUnknownChat) {
+				status = http.StatusNotFound
+			}
+			http.Error(w, err.Error(), status)
 			return
 		}
 		writeJSON(w, map[string]any{"ok": true})

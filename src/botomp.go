@@ -1071,7 +1071,7 @@ func (ob *ompBot) deliverLoop() {
 		}
 		if s.ready {
 			now := time.Now()
-			botChannelSeen(ob.name, now)
+			botChannelSeen(ob.name, now, false)
 			botOmpDeliver(ob.name, now)
 		}
 		select {

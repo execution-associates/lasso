@@ -22,8 +22,10 @@ Code:
 - `botspool.go`: jobs for a bot on another host: the spool lasso writes over ssh, the host's lasso probe, and watches run there.
 - `cron.go`: the 5-field cron parser and next-fire calculation.
 - `mcp_botjobs.go`: `list_bot_jobs`, `create_bot_job`, `update_bot_job`, `delete_bot_job` and `run_bot_job`.
+- `bottalk.go`: Talk, a claude bot's OpenAI-compatible door (`/talk/<bot>/v1`), its conversations and replies, and the Talk tab's API.
+- `mcp_bottalk.go`: `get_bot_talk`, `enable_bot_talk`, `update_bot_talk`, `rotate_bot_talk_key` and `disable_bot_talk`.
 
-The frontend is `BotsView.tsx`, `BotSettings.tsx`, `BotJobs.tsx` (with `lib/cron.ts`), `BotsManage.tsx` and `BotParts.tsx`, with `lib/bots.ts` (the list poll, unread) and the `/bots/…` routes in `lib/url.ts`. Notifications ride the shared Web Push path (`notifications.md`), with `sw.js` honouring the payload's `url` and `icon`.
+The frontend is `BotsView.tsx`, `BotSettings.tsx`, `BotJobs.tsx` (with `lib/cron.ts`), `BotTalk.tsx`, `BotsManage.tsx` and `BotParts.tsx`, with `lib/bots.ts` (the list poll, unread) and the `/bots/…` routes in `lib/url.ts`. Notifications ride the shared Web Push path (`notifications.md`), with `sw.js` honouring the payload's `url` and `icon`.
 
 ## What a bot is
 
@@ -161,6 +163,37 @@ A job with a `command` is a watch (`botjobcmd.go`): everloop's `--command` seman
 - **Webhooks ignore the command.** A webhook delivers its body after the message, as for any job.
 - **The environment is a systemd user unit's, not lasso's** (`botCommandEnv`; on another host, see above): `minimalChildEnv`'s allowlist plus `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`, `SSH_AUTH_SOCK` and `OP_VAULT`, PATH led by `~/.local/bin` and mise's shims, and `LASSO_BOT`/`LASSO_JOB`. Never `UI_AUTH`, `MCP_OAUTH` or `LASSO_MCP_TOKEN`, and never the bot's fnox env. Scripts fetch their own secrets (`secret KEY`), exactly as they did under everloop.
 - **Trust: a watch is arbitrary shell as lasso's user.** Anyone who can create or edit a job (the Jobs tab, `/api/bots/<name>/jobs`, or `create_bot_job`/`update_bot_job` on `/mcp`, which a bot may call for itself) can run any command lasso's user can. That is the same trust as `/mcp`'s `create_agent` and a bot running with `bypassPermissions`, and it is why jobs sit behind UI_AUTH and `/mcp`'s gate like those do. A webhook caller cannot set or change a command; it only supplies a body.
+
+## Talk
+
+Talk is a claude bot's OpenAI-compatible door (`bottalk.go`): `GET /talk/<bot>/v1/models` and `POST /talk/<bot>/v1/chat/completions`, with the bot's own key as a Bearer token. A chat app that speaks Chat Completions, such as Conduit on a client's phone, adds it as a connection: Base URL `<lasso>/talk/<bot>/v1`, the key, and the model the bot's name.
+
+```
+phone ──POST chat/completions──▶ lasso ── bot_events row (kind talk, chat_id) ──▶ lasso-channel ──▶ claude
+claude ── reply(chat_id, text, done) ──▶ lasso-channel ──▶ /bot-channel/<bot>/reply, or the spool's outbox/
+lasso ── SSE chunks … [DONE] ──▶ phone
+```
+
+- **It rides the jobs channel.** A message is a `bot_events` row of kind `talk` with a `chat_id`, claimed, pushed and acked like any job event (it never merges, and counts toward the 50-event cap). The channel delivers it as `trigger="talk" chat_id="…"`. Its one tool, `reply {chat_id, text, done?}`, is the way back. Locally it POSTs `/bot-channel/<bot>/reply` on the channel token. On another host it writes `outbox/<nanos>-<chat_id>.json` (tmp, then rename), which the spool pass (`botSpoolCollectReplies`) records and then removes. Nothing on the bot's host connects to lasso, as for jobs.
+- **Never permission relay.** The channel does not declare `claude/channel/permission`: the person holding a Talk key is usually a client, and must not answer the session's tool approvals. The launch line instead carries `--allowedTools mcp__lasso-channel__reply`, so a bot outside bypass mode does not stop on a dialog for every answer.
+- **The channel's instructions frame the sender.** Someone the human gave the key to, usually a client, not the human. Answer with reply. Help as CLAUDE.md says to help them, and never take an action for them those instructions do not allow. Images are paths to Read.
+- **A channel says it can reply.** Its polls send `X-Lasso-Channel: talk`, and a spool channel's heartbeat line ends in `talk`. That is `bots.channel_talk`, stored beside `channel_seen_at` so either lasso can tell. A connected channel without it (the bot started before Talk) is refused with "restart the bot". A channel not yet connected (the bot is starting) lets the message wait in the queue.
+- **Only the newest turn goes in.** A chat app resends the whole history every time, and the bot already has it, so lasso delivers the run of `user` messages after the last `assistant` one. `system` and `developer` messages are dropped (the bot's own instructions win), and `model` is ignored.
+- **Images go into the bot's folder.** A `data:` image part (at most 4 per turn, 10 MB each, raster only and told by its bytes, never SVG, as for the bot's picture) is written through the bot's Backend to `.lasso/talk/<unix>-<chat_id>-<n>.<ext>` (0600) on its host. The message ends with `Attached image: <path>` lines. Names start with their unix time, so each write sweeps files over a week old without a stat. An `http(s)` image link is passed on as text and never fetched. Other part types become a note that something was left out.
+- **Replies live in `lasso.db`.** They go in `bot_talk_replies`, against a `bot_talks` row per request (`open`, `answered`, `left`), not in memory: dev and production lasso share one db, and the channel may post to the one the phone is not waiting on. The wait wakes on its own lasso's insert and polls the db every second for the other's. A reply for a chat that is unknown or over a day old is refused, and the bot sees the error.
+- **The numbers come from the client.** Conduit gives up after 5 minutes without a byte and 30 minutes in all, and Cloudflare cuts a response silent for 100 s. So a stream sends an SSE comment every 15 s, which Conduit's parser drops, and the wait ends at 25 minutes with "still working, ask again". `stream: false` writes a space every 15 s (leading whitespace is valid JSON) and the whole answer at the end.
+- **The stream.** It opens with a role chunk. Each reply is a `delta.content` chunk, interim replies (`done=false`) separated by a blank line. `done=true` ends with `finish_reason: "stop"` and `data: [DONE]`. A stream that would end with no content gets "(No answer.)", because Conduit treats an empty stream as an error.
+- **Late replies are carried.** A reply that arrives after its request ended (the phone left, or the wait ran out) stays untaken. The bot's next request starts its answer with them, marked as answering an earlier message. An `open` conversation older than the wait counts as ended, for a lasso that died mid-wait.
+- **The terminal answer is the fallback.** Every look (2 s on lasso's machine, 4 s on another host, where each read is SFTP), once the event is claimed, lasso reads the bot's state (`findBotSession`, else herdr) and, for a stream or before any reply, its transcript (`buildChatPayload` with incoming rows).
+  - **No reply:** idle for 10 s after delivery with prose of its own after the delivery, and that prose (the full text) is the answer.
+  - **Only interim replies:** idle for 10 s, and the turn is over.
+  - **Blocked:** for 30 s, and the stream gets one activity line saying so.
+- **Activity is the bot's steps, as `delta.reasoning_content`.** Conduit shows it as a thinking line. It comes from the rows after the incoming row carrying this `chat_id`, up to the next incoming row or a user row. One session serves jobs, every Talk caller and the human at the terminal, so **nothing past that point is this client's to see.** Steps are deduped by call id and collapsed when a label repeats. The reply call, ask and plan rows, and thinking rows are never shown. `bots.talk_activity` picks the detail:
+  - **plain (default):** only the step's kind, from `chatTool.Family` ("Running a command", "Reading a file", "Using a tool" for anything unmapped). Never a subject, path, command, or MCP server or tool name.
+  - **detailed:** `Title · Subject` (120 characters) and the bot's own prose rows (200 characters each).
+- **The key is the only credential.** `/talk` is exempt from UI_AUTH, self-credentialed on the network listeners (no caller, `Authorization` untouched), in `machinePaths`, and cross-site exempt, exactly like `/hooks/bots`. At the edge it needs an Access Bypass for `/talk/`. A wrong key, an unknown bot and Talk off all answer one identical 401, in OpenAI's error shape, so bot names cannot be probed. Keys are `lt-` plus 32 random bytes, stored in clear like webhook keys because the Talk tab shows them. Rotate replaces the key, and off forgets it.
+- **Claude bots only.** An omp bot has no channel process. Its jobs are bridge prompts, and a reply path for it would read the turn's final text instead. Until that exists, enable refuses an omp bot and a request answers 503.
+- **Kept two days.** `botTalksMaintain` (from `botJobsMaintain`) removes conversations, replies and delivered talk events after two days. The per-job history trim skips talk events, which have no job.
 
 ## omp bots
 

@@ -1134,6 +1134,23 @@ export interface BotJobRunResult {
   detail?: string
 }
 
+export type BotTalkActivity = "plain" | "detailed"
+
+// A bot's Talk: its OpenAI-compatible door at `path` (after lasso's origin),
+// the Bearer key, and whether the bot takes messages now. state: ready;
+// waiting (starting, messages wait); restart (its channel predates Talk);
+// unavailable (reason says why).
+export interface BotTalk {
+  enabled: boolean
+  path: string
+  key?: string
+  model: string
+  activity: BotTalkActivity
+  state: "ready" | "waiting" | "restart" | "unavailable"
+  reason?: string
+  last_at?: string
+}
+
 export interface BotChannelState {
   available: boolean
   reason?: string
@@ -2410,6 +2427,16 @@ export const api = {
         botURL(name, `/jobs/${encodeURIComponent(job)}/rotate`),
         {}
       ),
+    // Talk: the bot's OpenAI-compatible door for a chat app (bottalk.go).
+    talk: (name: string) => getJSON<BotTalk>(botURL(name, "/talk")),
+    talkEnable: (name: string) =>
+      postJSON<BotTalk>(botURL(name, "/talk/enable"), {}),
+    talkRotate: (name: string) =>
+      postJSON<BotTalk>(botURL(name, "/talk/rotate"), {}),
+    talkDisable: (name: string) =>
+      postJSON<BotTalk>(botURL(name, "/talk/disable"), {}),
+    talkSetActivity: (name: string, activity: BotTalkActivity) =>
+      postJSON<BotTalk>(botURL(name, "/talk"), { activity }),
     jobEvents: (name: string, job: string) =>
       getJSON<{ events: BotJobEvent[] }>(
         botURL(name, `/jobs/${encodeURIComponent(job)}/events`)

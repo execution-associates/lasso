@@ -23,6 +23,7 @@ import {
   startBot,
   stopBot,
 } from "@/components/BotParts"
+import { TalkTab } from "@/components/BotTalk"
 import { Markdown, resolveMarkdownSrc } from "@/components/Markdown"
 import {
   AlertDialog,
@@ -80,6 +81,7 @@ type Tab =
   | "general"
   | "connections"
   | "jobs"
+  | "talk"
   | "skills"
   | "instructions"
   | "environment"
@@ -89,6 +91,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "general", label: "General" },
   { id: "connections", label: "Connections" },
   { id: "jobs", label: "Jobs" },
+  { id: "talk", label: "Talk" },
   { id: "skills", label: "Skills" },
   { id: "instructions", label: "Instructions" },
   { id: "environment", label: "Environment" },
@@ -764,8 +767,8 @@ function GeneralTab({
             <span className="block text-[11.5px] text-muted-foreground">
               Answers Yes to every "Do you want to proceed?", its subagents'
               included, so it never waits on one. Bypass mode still asks for
-              some commands (an rm on a variable path, say). Its questions
-              still reach you. Takes effect when it restarts.
+              some commands (an rm on a variable path, say). Its questions still
+              reach you. Takes effect when it restarts.
             </span>
           </Check>
         )}
@@ -2545,6 +2548,8 @@ export function BotSettings({
             <NewInstructions draft={draft} set={set} />
           ) : !bot || !detail.data ? null : tab === "jobs" ? (
             <JobsTab bot={bot} />
+          ) : tab === "talk" ? (
+            <TalkTab bot={bot} />
           ) : tab === "skills" ? (
             <SkillsTab bot={bot} />
           ) : tab === "instructions" ? (
