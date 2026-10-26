@@ -29,6 +29,23 @@ public enum HerdrTerminal {
         return c.url!
     }
 
+    /// The theme the terminal wears on this Mac, as lib/mode.ts resolves a
+    /// tab's: "" in herdr mode or with no theme named for the scheme in force
+    /// (follow herdr's), else the one named for light or dark, with "system"
+    /// (and an unknown or absent mode) resolved against macOS's own scheme.
+    /// The fleet's theme is whichever device acted last, so without naming
+    /// it the window would wear the other scheme's palette.
+    static func palette(_ ui: UIStateSlice, dark: Bool) -> String {
+        let scheme: Bool
+        switch ui.appearance_mode {
+        case "herdr": return ""
+        case "light": scheme = false
+        case "dark": scheme = true
+        default: scheme = dark
+        }
+        return (scheme ? ui.palette_dark : ui.palette_light) ?? ""
+    }
+
     /// The path and query on lasso a page request asks for, or nil when it
     /// is anything but this terminal's own files.
     static func lassoPath(_ url: URL, slug: String) -> String? {
