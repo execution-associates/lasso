@@ -173,7 +173,7 @@ private let offer = BrowserOpen(
     app.rail.model.setExpanded(true, animated: false)
     app.rail.model.activate(.browser)
     #expect(!app.rail.model.browserPulse && !app.browserAttention.bannerShown && !app.banner.panel.isVisible)
-    #expect(app.rail.model.items.suffix(4) == [.terminal, .browser, .newAgent, .settings])
+    #expect(app.rail.model.items.suffix(5) == [.terminal, .browser, .files, .newAgent, .settings])
 }
 
 // MARK: the window end to end

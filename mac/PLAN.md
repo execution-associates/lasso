@@ -568,7 +568,7 @@ The colours are the Execution Associates palette as isb's web app applies it (`i
 
 The user reshaped the app:
 
-- **The rail, top to bottom:** the **inbox** (what waits on the human: blocked agents, agents that finished unseen and aren't dismissed, bots waiting on an answer, and bots with an unread reply), the agents capsule (the **agents** list), the **Bots** button while lasso has bots (§23), the **terminal** (§22), the **Browser** button (§24), the **+** (the New form, §20) and the gear (**settings**; its tokens and parity anchor keep the name `ellipsis`). The tools capsule is gone.
+- **The rail, top to bottom:** the **inbox** (what waits on the human: blocked agents, agents that finished unseen and aren't dismissed, bots waiting on an answer, and bots with an unread reply), the agents capsule (the **agents** list), the **Bots** button while lasso has bots (§23), the **terminal** (§22), the **Browser** button (§24), the **Files** button (§27), the **+** (the New form, §20) and the gear (**settings**; its tokens and parity anchor keep the name `ellipsis`). The tools capsule is gone.
 - **Voice is removed for now.** The capture, transcription and recording UI are gone, along with the V binding, the microphone permission and every voice and recording token. `/api/transcribe` (S2) and bot-send `meta` (S3) stay on the server, unused by the app. The voice code is in git history (`mac: M6 and M7 …`).
 - **"Bot", never "assistant", and no default bot.** The app has no single bot of its own; that will come later. A bot's chat opens from the inbox, or from its pane in the agents list. The default-bot setting and its Create button are gone, from the app and from the server (ui_state `default_bot` was removed before release). So brief B.5's "ensure the app's bot exists" is deferred.
 - **Agents are grouped by herdr workspace and named by their label, else their tab name** (herdr.dev/docs/agents, "custom agent labels").
@@ -863,8 +863,8 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
 **What the app takes from it**
 - **Hover fill** (`rail.hover.fill`): a control under the pointer takes a 20% white overlay, stepped in one frame with no animation (f655, f734). The whole agents capsule takes it, and its neighbours do not change. One value says what is hovered: `RailModel.hovered`.
 - **Pressed** (`rail.pressed`): the whole control drops to 0.71 opacity while pressed (f219–225, f355–361).
-- **Resting opens** (`rail.hover.item_open_ms`, 117 ms, f655→f662): the inbox, the agents capsule and settings open by hover alone. A hover-opened panel is ordered front **without the keyboard**, so typing in another app never lands on the card's one-letter keys.
-- **The rail's pop-outs live under the pointer** (`Glance`, `AppCoordinator.pointerTick`): the inbox's card or panel, the agents column, the Bots column (§23), their hover previews and a bot's chat. However one opened, it closes `rail.hover.panel_close_ms` (317 ms, f707→f726) after the pointer has left the rail and every pop-out. Moving from the rail to a panel inside that time does not flicker.
+- **Resting opens** (`rail.hover.item_open_ms`, 117 ms, f655→f662): the inbox, the agents capsule, the Bots and Files buttons and settings open by hover alone. A hover-opened panel is ordered front **without the keyboard**, so typing in another app never lands on the card's one-letter keys.
+- **The rail's pop-outs live under the pointer** (`Glance`, `AppCoordinator.pointerTick`): the inbox's card or panel, the agents column, the Bots column (§23), the Files column (§27), their hover previews and a bot's chat. However one opened, it closes `rail.hover.panel_close_ms` (317 ms, f707→f726) after the pointer has left the rail and every pop-out. Moving from the rail to a panel inside that time does not flicker.
 - **Resting on a control with nothing to show on hover moves on**: New, the terminal and the browser open on a click, but resting on one closes the columns, the inbox, the previews and a hover's Settings, as resting on another column's control does. Settings clicked open stays, and so do the windows the user opened.
 - **The rail's focus ring is the keyboard's** (`RailModel.focusVisible`): drawn after the summon shortcut or ↑/↓/⏎/space move the focus, and gone once the pointer rests on a control, the rail hides or its panel loses the keyboard. Resting on a control moves the focus there, so a ring left on would follow the pointer around the rail.
 - **The rail stays out only for what the user can see or is using.** The keyboard holds it out (summoned, or moved with keys) until the pointer moves off it. A pop-out holds it only while its window is visible on the Space the user is on: one that counts as open with no window in sight (macOS left it on another Space, or it was ordered out under it) is closed at the next pointer reading, so neither the rail nor the glance waits on it.
@@ -880,7 +880,7 @@ The spec steward supplied a screen recording of an earlier prototype (`~/lasso-d
   - **A panel found off the active Space is replaced** (`isOnActiveSpace` false right after ordering in). When a full-screen Space of the app's own ends, macOS pins every Lasso window that is off screen at that moment to one ordinary Space. `.canJoinAllSpaces` stops applying to it, and setting the behaviour again, `.moveToActiveSpace`, `setIsVisible` or a close and reorder do not undo it (measured on minime, macOS 27). A window that was on screen throughout (the rail, an open agent window) or is new is not pinned. Nothing in the app goes full screen, so this is a guard: the replacement takes the old panel's content view, settings, frame and handlers, and its controller holds it from then on (the card's key notices, a column's hover and a page window's keyboard watch read the panel of the moment).
   - `SpacesTests` checks it on minime's Aqua session. A stand-in window goes full screen and closes with another app full screen, then each pop-out must open on that app's Space. The herdr and Browser windows, opened first, must still be shown and on the active Space after another app goes full screen (a Space change), take the keyboard on a click there with that app in front, and open there. A seam pins any panel, and each must be replaced when shown. Without full screen on the Mac the full-screen checks check nothing.
 - **Settings** a hover opened is a glance until clicked: it closes once the pointer has left it and the rail, and a click makes it stay.
-- **The rail hides** 370 ms after the pointer leaves (`rail.hover.close_ms`, f959→f981), unless something beside it is open (`RailController.keepOpen`): the card or inbox, the agents or Bots column, either hover preview, a bot's chat, Settings.
+- **The rail hides** 370 ms after the pointer leaves (`rail.hover.close_ms`, f959→f981), unless something beside it is open (`RailController.keepOpen`): the card or inbox, the agents, Bots or Files column, any hover preview, a bot's chat, Settings.
 - **Panels fade in over 117 ms, ease-out, sliding 4.5 pt away from the rail**, and fade out over 67 ms (`motion.card_open`, f662–669; `motion.card_close`, f726–730). This replaces the brief's 70 ms.
 - **Not taken:**
   - The tools capsule and its tooltips ("Start recording", "Take a screenshot of a region, then ask about it") are left out, because the user removed the tools capsule and voice (§12). The tooltips' lesson stands: a control's label says what it does.
@@ -1209,7 +1209,7 @@ lasso's bots get a place of their own on the rail, following the web app's Bots 
 
 ## 24. lasso's browsers in a window
 
-The web Browser tab's **Agent** view, in a window of its own: the rail's Browser button (`globe`, between the terminal and the **+**, `rail.browser`) opens it on a click. It shows one of the connected lasso's browsers at a time (lasso's own Chromium, or a remote one lasso dials, `docs/design/shared-browser.md`). There is no Iframe view and no mode switch.
+The web Browser tab's **Agent** view, in a window of its own: the rail's Browser button (`globe`, between the terminal and Files, `rail.browser`) opens it on a click. It shows one of the connected lasso's browsers at a time (lasso's own Chromium, or a remote one lasso dials, `docs/design/shared-browser.md`). There is no Iframe view and no mode switch.
 
 **The window** (`Browser/BrowserWindow.swift`) persists until it is closed (⌘W, or its close button), remembers its frame (UserDefaults `LassoBrowserFrame`) and starts at `browser.window`. It is the herdr window's kind of window (§22, `Page/PageWindow.swift`): an agent window's `AgentWindowPanel`, over every app and on every Space, following the user across desktops, with the keyboard in its page without activating the app, collapsing to its bar, resized by its corner, and never full screen. Opening it puts the rail's pop-outs away first.
 - **Its bar** is its header: the title and the **browser picker**, a menu of the browsers `GET /api/browser` lists for this lasso, each with its open pages counted, then minimize and close. Dragging it moves the window. The pick is remembered (UserDefaults `browserProfile`); one lasso no longer has gives way to its default.
@@ -1241,7 +1241,7 @@ The app sends anonymous usage analytics straight to PostHog's capture API (`POST
 
 **What it sends.** Every event carries `app` = `mac`, `app_version`, `os` = `darwin`, `arch`, `$lib` = `lasso`, and PostHog's `$geoip_disable` = true and `$process_person_profile` = false. Its `distinct_id` is a random UUID made on the first send (UserDefaults `analyticsInstallId`). Never a name, address, path, hostname, prompt, message, bot or agent name, token, or anything typed.
 - `install_active`, once per UTC day while the app runs on a live lasso (UserDefaults `analyticsActiveDay`): `hosts_count` (1, 2-3, 4+), `agents_running` and `bots_count` (0, 1-5, 6-20, 21+), from the fleet the app already holds.
-- `view_opened` with `view`: `inbox_card` (an inbox card, or the empty inbox), `agents_column`, `bots_column`, `chat` (a bot's chat panel), `agent_window`, `bot_window`, `terminal_window`, `browser_window`, `file_window` (a window an agent's file opened, §26), `new_form`, `settings`. At most once per view per ten minutes.
+- `view_opened` with `view`: `inbox_card` (an inbox card, or the empty inbox), `agents_column`, `bots_column`, `files_column` (§27), `chat` (a bot's chat panel), `agent_window`, `bot_window`, `terminal_window`, `browser_window`, `file_window` (a window an agent's file opened, §26), `new_form`, `settings`. At most once per view per ten minutes.
 - `agent_created` (`harness`: claude, codex, opencode, omp, pi, other; `kind`: git, scratch; `from`: mac) when the New form creates an agent.
 - `inbox_action` (`action`: acknowledge, kill, reply, answer, stop, rename; `from`: mac) when lasso took one from a card or an agent window (`Card/LiveCardActions.swift`).
 - `feature_used` (`feature`): `shortcut_used` (a global shortcut, the summon key, ⌘O/⇧⌘O/⌘I), `paste_upload` (a file pasted or dropped onto a composer or the New form), `terminal_zoom` (the herdr window's text size).
@@ -1310,6 +1310,8 @@ A body over 2 MiB of text plus its escapes is refused whole, never cut short. Ev
 
 A change fires once. Text kinds call `changed()`: the page compares content, so a clean buffer takes the disk's version and an edited one raises the banner without touching the edits. An asset's change bumps the page's image `v=`. Native kinds fetch the new version and keep their place. A file that is gone shows the deleted banner.
 
+**Every file an agent showed here is listed** in the rail's Files column (§27), including those that came while nobody was at this Mac.
+
 **Parity:** `file-window-markdown` (the bar, unsaved), `file-window-changed` (the banner), `file-window-image` (the image viewer over `Spec/fixtures/media/build-times.png`). The pages come from a live lasso, so they are not drawn.
 
 **Tests:**
@@ -1322,3 +1324,38 @@ A change fires once. Text kinds call `changed()`: the page compares content, so 
 - `<video>` inside a rendered HTML page is best effort (WebKit media over a custom scheme).
 - SFTP mtimes are whole seconds; the page compares content, so a same-size rewrite still shows.
 - A rendered page can read its own folder and send it out over https: CDN scripts working is the reason, and the folder, dot and home rules are the bound.
+
+## 27. Files agents showed you, on the rail
+
+The rail's **Files** button (Lucide's `files`, between Browser and the **+**, `rail.files`) lists the files agents opened for the human on this Mac, to reopen one later. Like the Bots button, resting on it opens its column and a click pins nothing (§16). It is always on the rail.
+
+**What is listed** (`File/RecentFiles.swift`). Every `open-file` meant for this Mac that `FileWindows.opened` passed, plus those it held back because nobody was at this Mac (`away`) or Settings › Open files agents show you is off (`off`). Those are marked **not opened**. Folders, files that were not there, and a lasso too old for the file window's routes are not listed: there is nothing to reopen.
+- **One row per file per machine**, newest first. Opened again, a file goes back to the top. Once opened, it stays opened.
+- **At most 50** (`RecentFiles.cap`). The oldest go.
+- **Kept on this Mac, per lasso** (UserDefaults `recentFiles`, keyed by the lasso's address). Switching lassos shows that lasso's list. It is not lasso's state and never reaches another device.
+- **The dot.** A not-opened arrival puts an accent dot on the Files button until the column is next opened (`RecentFiles.unseen`, kept across launches).
+
+**The column** (`File/FilesColumn.swift`) is a rail pop-out the size of the agents column: a header with the count, the filter, the rows under **Today**, **Yesterday** and **Earlier**, and **Clear list** at the foot. Clear empties the list and leaves the files alone.
+- **A row** shows the kind's icon, the name (with an accent dot while its window is open) and how long ago. Below that it shows the machine and folder (a home folder as `~`) and the agent, or **not opened** in the accent.
+- **Rows hold still while it is open** (`FrozenOrder`), as the Bots column's do. A file that arrives meanwhile goes last.
+- **Keys:** ↑/↓ move, ⏎ opens, and typing filters (every word must match the path, the machine or the agent). esc steps back: it cancels a delete confirm, then clears the filter, then closes the column. There is no J/K, because typing filters.
+- **A click opens the file's window** (§26) through `FileWindows.reopen`. That skips the presence and setting gates, because the person asked. A file that is gone, or became a folder, says so on its row.
+
+**Right-click** offers **Open**, **Download**, **Hide from list** and **Delete on <machine>…**.
+- **Download** is the file window's (`FileDownloads.save`): ~/Downloads under the first free name, quarantined. The row then says where it went ("In Downloads as plan 2.md"), or why not.
+- **Hide from list** removes the row only. The file and its window stay.
+- **Delete asks in the row's place** (no alerts in this app): "Delete PLAN.md on titan? This can't be undone.", with Cancel and Delete. When the file's window has unsaved edits, the confirm says so.
+  - lasso's `/api/file-delete` removes whatever is at the path, a folder and everything in it (`RemoveAll`). So the app stats the path first and **refuses a folder**. A file already gone is only taken off the list.
+  - A deleted file's window closes, edits or not (the confirm warned), and its row goes. A refusal stays on the row.
+
+**The preview** (`File/FilePreview.swift`). Resting on a row previews the file to the column's left, with the agents column's timing (`list.hover`), at the agents' preview's size and gap (`agent.preview`).
+- **Its parts:** the kind, the name and the full path on its machine; then the file; then who opened it and when, and **Open**. A click anywhere on it opens the file's window.
+- **What it shows:** text and code show their first 400 lines, markdown rendered (`MarkdownView`, the first 48 KiB), an image (an SVG included) itself, and PDFs, video, audio and documents Quick Look's thumbnail (`QLThumbnailGenerator`). HTML shows its source: rendering it belongs to the window's confined page (§26). Something that is not text says "No preview".
+- **It is a glance, never a download.** It stats the file first and fetches nothing past its cap: 1 MiB for the text kinds, 32 MiB for the rest ("Too large to preview, 48 MB. Click to open it."). It says when the file is gone or is a folder.
+- Bytes come through `/api/file?download=1` into `~/Library/Caches/Lasso/Previews` (the window's cache layout, `FileCache`). That cache is emptied at launch and on a lasso switch, and a file's copy goes when its row does. A preview worked out is remembered per file and version (24 at most), so resting on the row again asks lasso only whether the file changed.
+
+**Analytics:** `view_opened` with `files_column` (§25); a file opened from it counts as `file_window`.
+
+**Parity:** `files-column` (the hovered row, PLAN.md's open dot, a not-opened row, a row's download note) and `file-preview` (an image from `Spec/fixtures/media`). The `rail-expanded` geometry includes the Files button: the rail spans 452 pt.
+
+**Tests:** `RecentFilesTests` covers what is listed and kept (per lasso, the cap, the dot), the column (sections, filter, held order, keys), Hide, Delete's confirm and its refusals, Download's note, the Files button's hover and dot, reopening whoever is at the Mac, and the preview's reading (lines, caps, gone, folder, binary, read once per version).

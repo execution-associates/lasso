@@ -1,0 +1,20 @@
+{
+  "about": "The Files column, opened by resting on the rail's Files button: the files agents opened on this Mac, newest first under Today, Yesterday and Earlier. PLAN.md's window is open (its dot), report.html came while nobody was at the Mac (not opened), the hovered row is build-times.png, and the last row says where its download went.",
+  "state": "files-column",
+  "extends": "rail-expanded",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "files": true,
+    "hovered": "build-times.png"
+  },
+  "recent_files": [
+    { "path": "/home/stephan/projects/exa/lasso/mac/PLAN.md", "host": "local", "from": "reviewer", "at": "2026-10-11T18:56:00Z", "opened": true },
+    { "path": "/Users/stephan/Desktop/build-times.png", "host": "minime", "from": "codex-3", "at": "2026-10-11T18:38:00Z", "opened": true },
+    { "path": "/home/stephan/reports/q3/report.html", "host": "local", "from": "analyst", "at": "2026-10-11T18:00:00Z", "opened": false },
+    { "path": "/Users/stephan/Downloads/invoice-0412.pdf", "host": "minime", "from": "jessica", "at": "2026-10-10T22:00:00Z", "opened": true },
+    { "path": "/home/stephan/scratch/notes.txt", "host": "local", "from": "stub", "at": "2026-10-08T17:00:00Z", "opened": true }
+  ]
+}

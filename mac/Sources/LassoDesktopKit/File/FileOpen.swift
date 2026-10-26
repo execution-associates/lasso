@@ -180,6 +180,9 @@ public protocol FileSource: AnyObject {
     /// A file's bytes, whole, to `dest` (`/api/file?download=1`, past the
     /// preview cap).
     func download(host: String, path: String, to dest: URL, progress: @escaping @Sendable (Int64, Int64) -> Void) async throws
+    /// POST /api/file-delete: the path goes on its machine. lasso removes
+    /// whatever is there, a folder and all, so callers stat it first.
+    func delete(host: String, path: String) async throws
 }
 
 /// The source on a live lasso.
@@ -197,5 +200,14 @@ public final class LiveFileSource: FileSource {
     public func download(host: String, path: String, to dest: URL, progress: @escaping @Sendable (Int64, Int64) -> Void) async throws {
         let r = client.request(raw: "/api/file?" + FilePage.query([("path", path), ("host", host), ("download", "1")]))
         try await client.download(r, to: dest, progress: progress)
+    }
+
+    struct Delete: Encodable {
+        var path: String
+        var host: String
+    }
+
+    public func delete(host: String, path: String) async throws {
+        let _: JSONValue = try await client.post("/api/file-delete", json: Delete(path: path, host: host))
     }
 }

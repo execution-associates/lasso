@@ -165,13 +165,13 @@ private func query(_ r: URLRequest) -> [URLQueryItem]? { URLComponents(url: r.ur
 @MainActor @Test func railTerminalSitsAboveBrowserAndNew() {
     let m = RailModel(fleet: FleetModel())
     m.setExpanded(true, animated: false)
-    #expect(m.items == [.inbox, .terminal, .browser, .newAgent, .settings])
+    #expect(m.items == [.inbox, .terminal, .browser, .files, .newAgent, .settings])
     var opened = false
     m.onTerminal = { opened = true }
     m.activate(.terminal)
     #expect(opened)
     let frames = RailMetrics.itemFrames(0).map(\.0)
-    #expect(frames == [.inbox, .terminal, .browser, .newAgent, .settings])
+    #expect(frames == [.inbox, .terminal, .browser, .files, .newAgent, .settings])
 }
 
 /// T, and the header's button, show the agent in herdr: live only where

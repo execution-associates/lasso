@@ -116,7 +116,7 @@ private let specDir = packageDir.appendingPathComponent("Spec")
         width: RailMetrics.panelWidth, height: RailMetrics.expandedHeight(Theme.Rail.maxSlots.int) + 2 * RailMetrics.margin))
     let anchors: [RailModel.Item: String] = [
         .inbox: "rail.inbox", .agents: "rail.agents.capsule", .bots: "rail.bots", .newAgent: "rail.new", .terminal: "rail.terminal",
-        .browser: "rail.browser", .settings: "rail.ellipsis",
+        .browser: "rail.browser", .files: "rail.files", .settings: "rail.ellipsis",
     ]
     #expect(model.hasBots)
     for (item, frame) in RailMetrics.itemFrames(model.slots.count, bots: model.hasBots) {
