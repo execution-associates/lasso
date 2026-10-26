@@ -18,8 +18,12 @@ public protocol HerdrTerminalSource: AnyObject {
     func attach(_ host: String) async throws -> String
     /// The query lasso serves the terminal's document with (its palette),
     /// read off lasso's redirect so the page's own URL carries it: ttyd reads
-    /// its options from there.
-    func documentQuery(_ slug: String) async throws -> String
+    /// its options from there. `palette` is the theme this Mac wears (""
+    /// follows herdr's), as a web tab names its own.
+    func documentQuery(_ slug: String, palette: String) async throws -> String
+    /// Hand `palette` to the fleet (herdr's config and the agents' themes)
+    /// when it is not what the fleet wears now: the Settings "Sync now".
+    func syncPalette(_ palette: String) async throws
     /// Focus the pane in its host's herdr: herdr's focus is one for every
     /// client of that herdr. True when this window's herdr client must start
     /// again to show it (it shows a saved machine; lasso's `reveal`).
@@ -47,8 +51,12 @@ public final class LiveHerdrTerminalSource: HerdrTerminalSource {
         return slug
     }
 
-    public func documentQuery(_ slug: String) async throws -> String {
-        var r = client.request(raw: HerdrTerminal.documentPath(slug))
+    public func documentQuery(_ slug: String, palette: String) async throws -> String {
+        var path = HerdrTerminal.documentPath(slug)
+        if !palette.isEmpty, let q = URLComponents(string: "?palette=" + palette)?.percentEncodedQuery {
+            path += "?" + q
+        }
+        var r = client.request(raw: path)
         r.setValue("text/html", forHTTPHeaderField: "Accept")
         let (_, http) = try await client.response(r, redirects: false)
         let code = http?.statusCode ?? 0
@@ -57,6 +65,20 @@ public final class LiveHerdrTerminalSource: HerdrTerminalSource {
         }
         guard (200..<300).contains(code) else { throw LassoError.http(code, "no terminal at \(HerdrTerminal.documentPath(slug))") }
         return ""
+    }
+
+    struct Live: Decodable { var resolved: String? }
+    struct Sync: Encodable {
+        var palette: String
+        var quiet: Bool
+    }
+    struct SyncStarted: Decodable { var started: Bool? }
+
+    public func syncPalette(_ palette: String) async throws {
+        guard !palette.isEmpty else { return }
+        let live: Live = try await client.get("/api/theme")
+        guard live.resolved != palette else { return }
+        let _: SyncStarted = try await client.post("/api/theme-sync", json: Sync(palette: palette, quiet: true))
     }
 
     struct Focus: Encodable {
@@ -358,7 +380,14 @@ public final class HerdrTerminalController: NSObject {
             guard let self else { return }
             do {
                 let slug = try await source.attach(host)
-                let query = try await source.documentQuery(slug)
+                let palette = HerdrTerminal.palette(fleet.uiState, dark: Self.systemIsDark)
+                // Opening the terminal is the human acting on this Mac, so the
+                // fleet follows its screen, as an appearance change in a web
+                // tab does (lib/mode.ts:pushPaletteToFleet). Without it the
+                // canvas below is right and herdr's own chrome is not. A
+                // failed push costs the chrome, never the terminal.
+                Task { [source] in try? await source.syncPalette(palette) }
+                let query = try await source.documentQuery(slug, palette: palette)
                 guard !Task.isCancelled, model.host == host, let bridge, let web else { return }
                 bridge.closeAll()
                 bridge.slug = slug
@@ -370,6 +399,11 @@ public final class HerdrTerminalController: NSObject {
                 model.phase = .failed(String(describing: error))
             }
         }
+    }
+
+    /// Whether macOS is in dark mode now: what "system" resolves against.
+    static var systemIsDark: Bool {
+        NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 
     /// Start this herdr client again (lasso's reveal asked for it).
