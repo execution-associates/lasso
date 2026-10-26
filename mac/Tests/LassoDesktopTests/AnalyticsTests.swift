@@ -144,7 +144,7 @@ private func waitFor(_ until: () -> Bool = { false }) async throws {
         "view_opened": [
             "view": [
                 "terminal", "chat", "grid", "bots", "browser", "files", "scratch", "settings", "simple_inbox", "simple_agents",
-                "inbox_card", "agents_column", "bots_column", "agent_window", "bot_window", "terminal_window", "browser_window", "file_window",
+                "inbox_card", "agents_column", "bots_column", "files_column", "agent_window", "bot_window", "terminal_window", "browser_window", "file_window",
                 "new_form",
             ]
         ],

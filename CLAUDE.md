@@ -14,6 +14,7 @@ Lasso, the native macOS client (the Mac app), is a SwiftPM package in `mac/` tha
 - An agent's `open-file` opens a floating window only in the Mac app whose person is at that Mac: HID input within 120 s, the screen unlocked, the `openAgentFiles` setting on, and lasso answering `/api/file-stat`. The window never takes the keyboard.
 - Its page (`lasso-file:`, `/desktop-file.html`) may reach only its own file on its own host: `/api/file` with `path`, `host` and `v`, and a `/api/file-write` naming that file. Never widen that.
 - Rendered HTML runs in a separate web view (`lasso-doc:`) with no bridge, confined to its folder both here and by lasso's `within`.
+- The rail's Files column (`mac/PLAN.md` §27) lists what agents opened on that Mac, kept per lasso in UserDefaults. Its Delete stats the path first and refuses a folder: `/api/file-delete` is a `RemoveAll`. Its hover preview never fetches past its caps.
 
 ## Commands
 

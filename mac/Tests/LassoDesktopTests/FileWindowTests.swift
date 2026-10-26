@@ -36,6 +36,13 @@ import WebKit
         if let src = bytes[path] { try FileManager.default.copyItem(at: src, to: dest) } else { try Data("x".utf8).write(to: dest) }
     }
 
+    var deleted: [(host: String, path: String)] = []
+
+    func delete(host: String, path: String) async throws {
+        deleted.append((host, path))
+        files[path] = nil
+    }
+
     func put(_ path: String, size: Int64 = 10, mtime: Int64 = 1000, dir: Bool = false) {
         files[path] = FileStatEntry(path: path, exists: true, dir: dir, size: size, mtime: mtime)
     }

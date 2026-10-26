@@ -7,7 +7,7 @@ import SwiftUI
 @MainActor
 public final class RailModel: ObservableObject {
     public enum Item: Hashable, Sendable {
-        case inbox, agents, bots, terminal, browser, newAgent, settings
+        case inbox, agents, bots, terminal, browser, files, newAgent, settings
     }
 
     @Published public var expanded = false
@@ -25,6 +25,9 @@ public final class RailModel: ObservableObject {
     /// The pulse's phase (0..<1) for the parity harness, which draws one
     /// still frame; nil animates it.
     public var browserPulsePhase: Double?
+    /// A file came while nobody was at this Mac: the Files button wears a dot
+    /// until its column is opened (`RecentFiles.unseen`).
+    @Published public var filesDot = false
 
     public let fleet: FleetModel
     /// Set by the parity harness only: wraps the rail's animation so the
@@ -42,6 +45,8 @@ public final class RailModel: ObservableObject {
     public var onTerminal: () -> Void = {}
     /// The globe: lasso's browsers in a window of their own.
     public var onBrowser: () -> Void = {}
+    /// The files: what agents opened here, in a column.
+    public var onFiles: () -> Void = {}
     /// The ellipsis: settings.
     public var onSettings: () -> Void = {}
     /// The pointer rested on a control: open what it opens (never toggle it
@@ -64,7 +69,7 @@ public final class RailModel: ObservableObject {
         var out: [Item] = [.inbox]
         if !slots.isEmpty { out.append(.agents) }
         if hasBots { out.append(.bots) }
-        return out + [.terminal, .browser, .newAgent, .settings]
+        return out + [.terminal, .browser, .files, .newAgent, .settings]
     }
 
     public func setExpanded(_ on: Bool, animated: Bool = true) {
@@ -100,6 +105,7 @@ public final class RailModel: ObservableObject {
         case .newAgent: onNewAgent()
         case .terminal: onTerminal()
         case .browser: onBrowser()
+        case .files: onFiles()
         case .settings: onSettings()
         }
     }
