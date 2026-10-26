@@ -29,7 +29,7 @@ var specEventProps = map[string]map[string][]string{
 	},
 	"view_opened": {"view": {
 		"terminal", "chat", "grid", "bots", "browser", "files", "scratch", "settings",
-		"simple_inbox", "simple_agents", "inbox_card", "agents_column", "bots_column",
+		"simple_inbox", "simple_agents", "inbox_card", "agents_column", "bots_column", "files_column",
 		"agent_window", "bot_window", "terminal_window", "browser_window", "new_form",
 	}},
 	"agent_created": {

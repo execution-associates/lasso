@@ -13,7 +13,7 @@ public final class ParityRunner {
     public static let implemented: Set<String> = [
         "rail-collapsed", "rail-expanded", "rail-hover-inbox", "rail-hover-agents", "rail-hover-terminal", "inbox-open", "inbox-empty", "card-open", "card-blocked", "card-plan", "list-hover-preview", "agent-window", "agent-window-collapsed", "list-panel-open", "chat-open", "settings", "settings-general", "settings-shortcuts", "new-agent", "new-agent-menu", "new-terminal", "bots-column", "bot-window", "bot-window-stopped", "bot-preview", "agent-window-markdown", "agent-window-fold",
         "card-killing", "first-run", "first-run-connected", "rail-offline", "browser-window", "browser-banner", "rail-browser-pulse",
-        "file-window-markdown", "file-window-changed", "file-window-image",
+        "file-window-markdown", "file-window-changed", "file-window-image", "files-column", "file-preview",
     ]
 
     let spec: Spec
@@ -243,6 +243,27 @@ public final class ParityRunner {
             l.selected = fixture.ui.selected
             let make: @MainActor () async throws -> Capture = { try await Capturer.capture(BotsListView(model: l), size: Theme.List.size.size) }
             cap = try await make()
+        } else if let name = fixture.ui.file_preview, let f = fixture.recent_files?.first(where: { $0.name == name }) {
+            // A Files row's preview, showing the fixture's image as the
+            // loader would once it had read the file.
+            let m = FilePreviewModel(
+                file: f, hostLabel: fleet.panes.first { $0.host == f.host }?.host_label ?? f.host, windowOpen: true, now: { fixture.now })
+            let url = specDir.appendingPathComponent("fixtures/media").appendingPathComponent(f.name)
+            m.content = NSImage(contentsOf: url).map { .image($0) } ?? .note("No preview", "missing fixture image \(f.name)")
+            let make: @MainActor () async throws -> Capture = {
+                try await Capturer.capture(FilePreviewView(model: m), size: Theme.Agent.preview.size2("size"))
+            }
+            cap = try await make()
+        } else if fixture.ui.files == true {
+            let recent = RecentFiles(scope: "parity", persist: false)
+            recent.replace(fixture.recent_files ?? [])
+            let l = FilesListModel(recent: recent, now: { fixture.now })
+            l.hostLabel = { h in fleet.panes.first { $0.host == h }?.host_label ?? h }
+            l.hovered = fixture.ui.hovered.flatMap { n in recent.items.first { $0.name == n }?.id }
+            if let open = recent.items.first { l.openWindows = [open.id] }
+            if let last = recent.items.last { l.notes[last.id] = .done("In Downloads as \(last.name)") }
+            let make: @MainActor () async throws -> Capture = { try await Capturer.capture(FilesListView(model: l), size: Theme.List.size.size) }
+            cap = try await make()
         } else if fixture.ui.list == true {
             let l = ListModel(fleet: fleet, actions: FixtureFleetActions(), now: { fixture.now })
             l.selected = fixture.ui.selected
@@ -338,7 +359,7 @@ public final class ParityRunner {
             // Browser button pulsing while an agent's page waits, drawn still.
             let hoverable: [String: RailModel.Item] = [
                 "inbox": .inbox, "agents": .agents, "bots": .bots, "new": .newAgent, "terminal": .terminal, "browser": .browser,
-                "settings": .settings,
+                "files": .files, "settings": .settings,
             ]
             model.hovered = fixture.ui.hovered.flatMap { hoverable[$0] }
             if fixture.ui.browser_offer != nil {

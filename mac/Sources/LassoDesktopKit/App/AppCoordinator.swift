@@ -54,6 +54,11 @@ public final class AppCoordinator {
     var filePresence: UserPresence?
     /// What an agent's file needs of lasso (tests stand one in).
     var fileSource: FileSource?
+    private lazy var liveFileSource: FileSource? = client.map { LiveFileSource(client: $0) }
+    /// The files agents opened here (PLAN 27): the rail's Files button, its
+    /// column and the preview beside it.
+    let recentFiles: RecentFiles
+    let filesColumn: FilesController
     /// The first-run panel: connect, sign in, three tips.
     private var firstRun: FirstRunController?
     private var presence: AppPresence?
@@ -114,8 +119,16 @@ public final class AppCoordinator {
             version: { [weak sync] in sync?.version }, usableHosts: { nil })
         settings = SidePanel(size: Theme.Card.size.size, content: SettingsView(model: settingsModel))
         preview = AgentPreviewController(media: media)
+        recentFiles = RecentFiles(scope: baseURL.absoluteString, persist: sync != nil)
+        if let list = fixture?.recent_files { recentFiles.replace(list) }
+        filesColumn = FilesController(
+            model: FilesListModel(recent: recentFiles, now: { fixture?.now ?? Date() }), loader: FilePreviewLoader(source: { nil }))
         wire()
+        filesColumn.previews.loader.source = { [weak self] in self?.filesSource }
     }
+
+    /// lasso's file routes: a test's stand-in, else the live lasso's.
+    var filesSource: FileSource? { fileSource ?? liveFileSource }
 
     public func start() {
         rail.show()
@@ -280,6 +293,7 @@ public final class AppCoordinator {
             self.settings.follow()
             self.chat?.panel.follow()
             self.bots.follow()
+            self.filesColumn.follow()
             self.banner.follow()
         }
         rail.model.onInbox = { [weak self] in self?.railActivated(.inbox) }
@@ -287,6 +301,8 @@ public final class AppCoordinator {
         rail.onPointer = { [weak self] p in self?.hoverTick(p) }
         rail.model.onAgents = { [weak self] in self?.railActivated(.agents) }
         rail.model.onBots = { [weak self] in self?.railActivated(.bots) }
+        rail.model.onFiles = { [weak self] in self?.railActivated(.files) }
+        wireFiles(railFrame: railFrame)
         bots.railFrame = railFrame
         bots.model.onOpen = { [weak self] b in self?.openBotWindow(b) }
         bots.makePreview = { [weak self] b in self?.botModel(b) }
@@ -417,6 +433,7 @@ public final class AppCoordinator {
         if keep !== card { card.close() }
         if keep !== list { list.close() }
         if keep !== bots { bots.close() }
+        if keep !== filesColumn { filesColumn.close() }
         if keep !== inbox { inbox.close() }
         if keep !== settings { settings.close() }
         if let c = chat, keep !== c.panel { c.panel.close() }
@@ -431,12 +448,13 @@ public final class AppCoordinator {
     /// One of the panels that open off the rail is up (not Settings, which
     /// the user works in, nor the windows they arrange).
     var railPanelOpen: Bool {
-        card.isOpen || list.isOpen || inbox.isOpen || preview.isOpen || bots.isOpen || chat?.panel.isOpen == true
+        card.isOpen || list.isOpen || inbox.isOpen || preview.isOpen || bots.isOpen || filesColumn.isOpen || chat?.panel.isOpen == true
     }
 
     /// The rail and the panels off it: a click on one keeps them.
     var railWindows: [NSWindow] {
-        [rail.panel, card.panel, list.panel, inbox.panel, preview.panel, bots.panel, bots.preview] + (chat.map { [$0.panel.panel] } ?? [])
+        [rail.panel, card.panel, list.panel, inbox.panel, preview.panel, bots.panel, bots.preview, filesColumn.panel, filesColumn.preview]
+            + (chat.map { [$0.panel.panel] } ?? [])
     }
 
     /// A mouse-down while a rail panel is open (ClickAwayWatch): anywhere
@@ -468,6 +486,7 @@ public final class AppCoordinator {
         card.close()
         list.close()
         bots.close()
+        filesColumn.close()
         inbox.close()
         chat?.panel.close()
     }
@@ -567,6 +586,7 @@ public final class AppCoordinator {
         case .inbox: openInbox(takeKey: true)
         case .agents: openList(takeKey: true)
         case .bots: openBots(takeKey: true)
+        case .files: openFiles(takeKey: true)
         default: return
         }
         if byPointer { glance = glance ?? Glance() } else { waitForThePointer() }
@@ -783,6 +803,9 @@ public final class AppCoordinator {
         case .bots:
             guard !bots.isOpen else { return }
             openBots(takeKey: false)
+        case .files:
+            guard !filesColumn.isOpen else { return }
+            openFiles(takeKey: false)
         case .settings:
             guard !settings.isOpen else { return }
             openSettings(takeKey: false)
@@ -805,6 +828,7 @@ public final class AppCoordinator {
         card.close()
         list.close()
         bots.close()
+        filesColumn.close()
         inbox.close()
         chat?.panel.close()
         if settingsGlance {
@@ -827,6 +851,8 @@ public final class AppCoordinator {
         if list.isOpen { frames.append(list.panel.frame) }
         if bots.isOpen { frames.append(bots.panel.frame) }
         if bots.previewOpen { frames.append(bots.preview.frame) }
+        if filesColumn.isOpen { frames.append(filesColumn.panel.frame) }
+        if filesColumn.previewOpen { frames.append(filesColumn.preview.frame) }
         if preview.isOpen { frames.append(preview.panel.frame) }
         if let c = chat, c.panel.isOpen { frames.append(c.panel.panel.frame) }
         return frames.contains { $0.contains(pointer) }
@@ -844,6 +870,8 @@ public final class AppCoordinator {
             (bots.isOpen, bots.panel, { [bots] in bots.close() }),
             (preview.isOpen, preview.panel, { [preview] in preview?.close() }),
             (bots.previewOpen, bots.preview, { [bots] in bots.hidePreview() }),
+            (filesColumn.isOpen, filesColumn.panel, { [filesColumn] in filesColumn.close() }),
+            (filesColumn.previewOpen, filesColumn.preview, { [filesColumn] in filesColumn.hidePreview() }),
         ]
         if let c = chat { out.append((c.panel.isOpen, c.panel.panel, { c.panel.close() })) }
         return out
@@ -914,6 +942,8 @@ public final class AppCoordinator {
         browser = nil
         files?.closeAll()
         files = nil
+        recentFiles.use(scope: url.absoluteString)
+        filesColumn.previews.loader.reset()
         browserAttention.clear()
         banner.hide()
         chat?.model.stopPolling()
@@ -1015,9 +1045,9 @@ public final class AppCoordinator {
     func fileWindows() -> FileWindows? {
         if let f = files { return f }
         guard let client else { return nil }
-        let f = FileWindows(
-            client: client, source: fileSource ?? LiveFileSource(client: client), presence: filePresence ?? SystemPresence())
+        let f = FileWindows(client: client, source: filesSource ?? LiveFileSource(client: client), presence: filePresence ?? SystemPresence())
         f.hostLabel = { [weak self] h in self?.fleet.panes.first { $0.host == h }?.host_label }
+        f.onChange = { [weak self, weak f] in self?.filesColumn.model.openWindows = f?.openKeys ?? [] }
         files = f
         return f
     }
@@ -1029,12 +1059,76 @@ public final class AppCoordinator {
     func fileOpened(_ o: FileOpen) {
         guard !o.webOnly, let f = fileWindows() else { return }
         Task {
-            if let skip = await f.opened(o) {
+            let skip = await f.opened(o)
+            if let skip {
                 Trace.event("agent's file not opened: \(skip)")
             } else {
                 viewed(.file_window)
             }
+            recentFiles.note(o, skip: skip)
         }
+    }
+
+    // MARK: the Files column (PLAN 27)
+
+    private func wireFiles(railFrame: @escaping () -> NSRect) {
+        filesColumn.railFrame = railFrame
+        let m = filesColumn.model
+        m.hostLabel = { [weak self] h in self?.fleet.panes.first { $0.host == h }?.host_label ?? h }
+        m.onOpen = { [weak self] f in self?.openRecentFile(f) }
+        m.isDirty = { [weak self] key in self?.files?.window(key)?.dirty ?? false }
+        m.download = { [weak self] f in
+            guard let source = self?.filesSource else { throw RecentFileError.offline }
+            return try await FileDownloads.save(host: f.host, path: f.path, from: source)
+        }
+        m.delete = { [weak self] f in try await self?.deleteRecentFile(f) }
+        m.onForget = { [weak self] f in self?.filesColumn.previews.loader.forget(f) }
+        recentFiles.$unseen.removeDuplicates().sink { [weak self] on in self?.rail.model.filesDot = on }.store(in: &subs)
+    }
+
+    /// The Files column: opened, or given the keyboard when open. Opening
+    /// it is seeing what came while away.
+    func openFiles(takeKey: Bool = true) {
+        recentFiles.markSeen()
+        if filesColumn.isOpen {
+            if takeKey, !filesColumn.isKey { filesColumn.takeKey() }
+            return
+        }
+        closeAll(except: filesColumn)
+        filesColumn.model.openWindows = files?.openKeys ?? []
+        filesColumn.open(takeKey: takeKey)
+        viewed(.files_column)
+    }
+
+    /// A row of the Files column: the file's window, as the person asked
+    /// (whoever is at the Mac, whatever the setting). A file that is gone
+    /// says so on its row.
+    func openRecentFile(_ r: RecentFile) {
+        filesColumn.hidePreview()
+        guard let f = fileWindows() else { return }
+        Task {
+            if let skip = await f.reopen(r.open) {
+                filesColumn.model.couldNotOpen(r, skip)
+                Trace.event("recent file not opened: \(skip)")
+            } else {
+                recentFiles.markOpened(r.id)
+                viewed(.file_window)
+            }
+        }
+    }
+
+    /// Delete confirmed in the Files column: the file goes on its machine
+    /// and its window with it, edits or not (the confirm said so). lasso
+    /// removes whatever is at the path, so a folder found there is refused,
+    /// and a file already gone is only taken off the list.
+    func deleteRecentFile(_ r: RecentFile) async throws {
+        guard let source = filesSource else { throw RecentFileError.offline }
+        if let st = try await source.stat(host: r.host, paths: [r.path]).first, st.exists {
+            guard !st.dir else { throw RecentFileError.folder }
+            try await source.delete(host: r.host, path: r.path)
+        }
+        files?.window(r.id)?.close()
+        Trace.event("recent file deleted")
     }
 
     /// The inbox card's chat button: the inbox goes, as it does for T, and

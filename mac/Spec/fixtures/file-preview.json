@@ -1,0 +1,12 @@
+{
+  "about": "A Files row's hover preview, left of the column: the file's name and where it is, the file itself (an image here, from Spec/fixtures/media), who opened it and when, and Open.",
+  "state": "file-preview",
+  "extends": "files-column",
+  "ui": {
+    "rail": "expanded",
+    "card": null,
+    "list": false,
+    "chat": false,
+    "file_preview": "build-times.png"
+  }
+}

@@ -661,33 +661,21 @@ final class FileWindowController: NSObject {
         }
     }
 
-    /// ⋯'s Download: the file into ~/Downloads, as a browser saves one. It
-    /// comes down beside the cache first, so Downloads never holds half a
-    /// file, then takes the first free name ("plan.md", "plan 2.md", …),
-    /// carries the quarantine a browser's download does, and bounces the
-    /// Dock's Downloads stack.
+    /// ⋯'s Download: the file into ~/Downloads under the first free name
+    /// ("plan.md", "plan 2.md", …), as a browser saves one (`FileDownloads.save`).
     private func download() {
         guard !model.downloading else { return }
         model.downloading = true
         model.downloadError = nil
         let model = self.model
+        let source = self.source
         Task {
             defer { model.downloading = false }
-            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("Lasso Downloads/" + UUID().uuidString, isDirectory: true)
             do {
-                let got = tmp.appendingPathComponent(model.name)
-                try await source.download(host: model.host, path: model.path, to: got) { _, _ in }
-                let dir = try FileManager.default.url(for: .downloadsDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-                let dest = FileDownloads.destination(for: model.name, in: dir)
-                try FileManager.default.moveItem(at: got, to: dest)
-                FileDownloads.quarantine(dest)
-                DistributedNotificationCenter.default().post(name: .init("com.apple.DownloadFileFinished"), object: dest.resolvingSymlinksInPath().path)
-                Trace.event("file downloaded")
+                _ = try await FileDownloads.save(host: model.host, path: model.path, from: source)
             } catch {
-                model.downloadError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
-                Trace.event("file download failed: \(error)")
+                model.downloadError = FileDownloads.reason(error)
             }
-            try? FileManager.default.removeItem(at: tmp)
         }
     }
 
@@ -766,8 +754,39 @@ extension FileWindowController: WKUIDelegate {
     }
 }
 
-/// Where ⋯'s Download puts a file.
+/// Where ⋯'s Download (and the Files column's) puts a file.
 enum FileDownloads {
+    /// The file into ~/Downloads, as a browser saves one. It comes down to a
+    /// temporary folder first, so Downloads never holds half a file, then
+    /// takes the first free name, carries the quarantine a browser's
+    /// download does, and bounces the Dock's Downloads stack. Returns where
+    /// it went.
+    @MainActor
+    static func save(host: String, path: String, from source: FileSource) async throws -> URL {
+        let name = (path as NSString).lastPathComponent
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("Lasso Downloads/" + UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        do {
+            let got = tmp.appendingPathComponent(name)
+            try await source.download(host: host, path: path, to: got) { _, _ in }
+            let dir = try FileManager.default.url(for: .downloadsDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            let dest = destination(for: name, in: dir)
+            try FileManager.default.moveItem(at: got, to: dest)
+            quarantine(dest)
+            DistributedNotificationCenter.default().post(name: .init("com.apple.DownloadFileFinished"), object: dest.resolvingSymlinksInPath().path)
+            Trace.event("file downloaded")
+            return dest
+        } catch {
+            Trace.event("file download failed: \(error)")
+            throw error
+        }
+    }
+
+    /// An error in words a banner or a row can show.
+    static func reason(_ error: any Error) -> String {
+        (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+    }
+
     /// The first name in `dir` nothing holds yet: `name`, then Safari's
     /// "name 2.ext", "name 3.ext", ….
     static func destination(for name: String, in dir: URL, exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> URL {

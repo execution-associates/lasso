@@ -3,8 +3,8 @@ import SwiftUI
 // The rail. At rest only a sliver of a pill shows at the screen edge (the
 // peek); hovering it reveals the rail: the inbox (what waits on you), the
 // agents capsule (the fleet), the bot (lasso's bots, while it has some), the
-// terminal (lasso's herdr), the globe (lasso's browsers), the plus (a new
-// agent) and the gear (settings), each floating on its own (no backing). The
+// terminal (lasso's herdr), the globe (lasso's browsers), the files (what
+// agents opened here), the plus (a new agent) and the gear (settings), each floating on its own (no backing). The
 // icons are the web app's Lucide ones (Theme/Lucide.swift). The gear's control
 // keeps its old name, `ellipsis`, in tokens and anchors.
 // Layout numbers all come from Theme.Rail.
@@ -33,10 +33,11 @@ enum RailMetrics {
     }
 
     /// Height of everything below the inbox: the travel of expand/collapse.
-    /// The Bots button shows while lasso has bots.
+    /// The Bots button shows while lasso has bots; the terminal, browser,
+    /// files, plus and gear always do.
     static func revealHeight(_ slots: Int, bots: Bool = false) -> CGFloat {
         let agents = slots > 0 ? gap + agentsHeight(slots) : 0
-        return agents + CGFloat(bots ? 5 : 4) * (gap + Theme.Rail.ellipsisOuter.pt)
+        return agents + CGFloat(bots ? 6 : 5) * (gap + Theme.Rail.ellipsisOuter.pt)
     }
 
     /// The panel's height holds the tallest rail: every slot and the Bots button.
@@ -59,6 +60,8 @@ enum RailMetrics {
         out.append((.terminal, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
         y += e + gap
         out.append((.browser, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
+        y += e + gap
+        out.append((.files, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
         y += e + gap
         out.append((.newAgent, CGRect(x: margin + (outer - e) / 2, y: y, width: e, height: e)))
         y += e + gap
@@ -183,6 +186,7 @@ public struct RailView: View {
                     if model.hasBots { bots }
                     terminal
                     browser
+                    files
                     plus
                     ellipsis
                 }
@@ -409,6 +413,37 @@ public struct RailView: View {
         .accessibilityValue(model.browserPulse ? "an agent opened a page for you" : "")
         .accessibilityHint("lasso's browsers in a window")
         .help(model.browserPulse ? "An agent opened a page for you" : "Open the browser")
+    }
+
+    /// The files agents opened here: resting on it opens their column, as
+    /// the Bots button does. Its dot says one came while you were away.
+    private var files: some View {
+        let e = Theme.Rail.ellipsisOuter.pt
+        let a = Theme.avatar
+        return Button { model.activate(.files) } label: {
+            ZStack {
+                GroupBackground(hovered: model.hovered == .files)
+                RailIcon(icon: .files)
+            }
+            .frame(width: e, height: e)
+            .contentShape(Circle())
+            .overlay(alignment: .bottomTrailing) {
+                if model.filesDot {
+                    Circle()
+                        .fill(Theme.accent.color)
+                        .overlay(Circle().strokeBorder(Theme.Rail.badgeRing.color("color"), lineWidth: a.number("ring")))
+                        .frame(width: e * a.number("dot"), height: e * a.number("dot"))
+                        .parityAnchor("rail.files.dot")
+                }
+            }
+        }
+        .buttonStyle(RailPress())
+        .parityAnchor("rail.files")
+        .modifier(FocusRing(on: focused(.files)))
+        .accessibilityLabel("Files")
+        .accessibilityValue(model.filesDot ? "an agent opened a file while you were away" : "")
+        .accessibilityHint("Files agents opened for you")
+        .help(model.filesDot ? "Files: one came while you were away" : "Files agents opened for you")
     }
 
     private var ellipsis: some View {

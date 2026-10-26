@@ -51,6 +51,15 @@ public final class FileWindows {
         guard enabled() else { return .off }
         guard o.dir != true else { return .directory }
         guard presence.isPresent else { return .away }
+        return await reopen(o)
+    }
+
+    /// The person picked a file in the Files column: its window, whoever is
+    /// at the Mac and whatever the setting (they asked for it). Returns why
+    /// not when it cannot open.
+    @discardableResult
+    public func reopen(_ o: FileOpen) async -> Skip? {
+        guard o.dir != true else { return .directory }
         // The file's size picks its kind, and the answer itself says this
         // lasso has the route: an older one answers its web app with a 200,
         // which LassoClient.send takes for "no such route".
@@ -66,6 +75,15 @@ public final class FileWindows {
         open(o, stat: stat)
         return nil
     }
+
+    /// A file's window, while it is open.
+    func window(_ key: String) -> FileWindowController? { windows[key].flatMap { $0.isOpen ? $0 : nil } }
+
+    /// The files with a window open, by key.
+    public var openKeys: Set<String> { Set(windows.filter { $0.value.isOpen }.keys) }
+
+    /// A window opened or closed (the Files column marks open ones).
+    var onChange: () -> Void = {}
 
     /// The window for `o`: its own, brought forward, or a new one.
     @discardableResult
@@ -88,11 +106,13 @@ public final class FileWindows {
         w.onClosed = { [weak self] closed in
             guard let self, self.windows[key] === closed else { return }
             self.windows[key] = nil
+            self.onChange()
         }
         windows[key] = w
         newest = w
         watcher.add(w, baseline: stat)
         w.show()
+        onChange()
         Trace.event("file window opened (\(kind.rawValue))")
         return w
     }
@@ -111,5 +131,6 @@ public final class FileWindows {
         for w in Array(windows.values) { w.close() }
         windows.removeAll()
         watcher.stop()
+        onChange()
     }
 }

@@ -56,6 +56,10 @@ public struct Fixture: Decodable, Sendable {
         public var file_dirty: Bool?
         /// The strip under the bar: "changed", "conflict", "deleted", "confirm_close".
         public var file_banner: String?
+        /// The Files column (PLAN 27), its rows `recent_files`; `hovered` is a file's name.
+        public var files: Bool?
+        /// A Files row's hover preview, by file name: an image from Spec/fixtures/media.
+        public var file_preview: String?
     }
 
     public struct Server: Decodable, Sendable {
@@ -84,6 +88,8 @@ public struct Fixture: Decodable, Sendable {
     public var notify: NotifyPayload?
     /// GET /api/browser (the Browser window's states).
     public var browser: BrowserStatusPayload?
+    /// The files agents opened on this Mac (the Files column's states).
+    public var recent_files: [RecentFile]?
 
     private struct Raw: Decodable {
         var state: String
@@ -96,6 +102,7 @@ public struct Fixture: Decodable, Sendable {
         var chats: [String: ChatPayload]?
         var notify: NotifyPayload?
         var browser: BrowserStatusPayload?
+        var recent_files: [RecentFile]?
     }
 
     public static func load(_ name: String, from dir: URL) throws -> Fixture {
@@ -116,6 +123,7 @@ public struct Fixture: Decodable, Sendable {
             server: server, expect: raw.expect ?? base?.expect, chats: (base?.chats ?? [:]).merging(raw.chats ?? [:]) { $1 })
         fx.notify = raw.notify ?? base?.notify
         fx.browser = raw.browser ?? base?.browser
+        fx.recent_files = raw.recent_files ?? base?.recent_files
         return fx
     }
 

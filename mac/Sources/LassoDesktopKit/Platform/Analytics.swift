@@ -36,7 +36,7 @@ public enum AnalyticsConfig {
 /// A surface of the app (or the web app: the names are shared).
 public enum AnalyticsView: String, CaseIterable, Sendable {
     case terminal, chat, grid, bots, browser, files, scratch, settings
-    case simple_inbox, simple_agents, inbox_card, agents_column, bots_column
+    case simple_inbox, simple_agents, inbox_card, agents_column, bots_column, files_column
     case agent_window, bot_window, terminal_window, browser_window, file_window, new_form
 }
 

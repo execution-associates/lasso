@@ -31,6 +31,7 @@ public enum Lucide: String, CaseIterable, Sendable {
     case file
     case fileCode = "file-code"
     case fileText = "file-text"
+    case files
     case film
     case folder
     case folderGit2 = "folder-git-2"
