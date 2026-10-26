@@ -387,6 +387,7 @@ func runServer() {
 	// bot's channel token).
 	mux.HandleFunc("/hooks/bots/", serveBotHook)
 	mux.HandleFunc("/bot-channel/", serveBotChannel)
+	mux.HandleFunc("/talk/", serveBotTalk)
 	mux.HandleFunc("/api/all-panes", serveAllPanes)
 	mux.HandleFunc("/api/ui-state", serveUIState)
 	// The Mac app's inbox sound (desktopsound.go). Behind UI_AUTH like the
@@ -526,6 +527,7 @@ func runServer() {
 		"/herdr-mcp",
 		"/hooks/bots",
 		"/bot-channel",
+		"/talk",
 		"/.well-known/oauth-protected-resource",
 		"/.well-known/oauth-authorization-server",
 		"/oauth/register",

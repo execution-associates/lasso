@@ -119,11 +119,13 @@ Hosted MCP clients such as claude.ai custom connectors and Claude Desktop sign i
 
 This works whether or not `MCP_OAUTH` is set. Without Managed OAuth, the connector fails while registering, with a message like *"Couldn't register with lasso's sign-in service"*. A connector carries no host, so it sees every host lasso can reach. [MCP OAuth](../mcp/oauth.md) covers lasso's own tokens.
 
-## 7. Webhooks from outside (only if you need them)
+## 7. Webhooks and Talk from outside (only if you need them)
 
 A [bot job's webhook](../web-ui/bots.md#jobs) carries its own key in the URL, but a sender on the internet (GitHub, say) cannot sign in to Access. Skip this step unless webhooks come from outside your devices.
 
-Add a second self-hosted Access application for `lasso.example.com/hooks/bots/` with a single **Bypass** policy that includes everyone. The more specific path wins, so only webhooks skip the login. A bypassed request carries no Access assertion, and the access listener lets `/hooks/bots/` and `/bot-channel/` through without one: each hook checks its own key, and nothing else on the listener is reachable that way.
+Add a second self-hosted Access application for `lasso.example.com/hooks/bots/` with a single **Bypass** policy that includes everyone. The more specific path wins, so only webhooks skip the login. A bypassed request carries no Access assertion, and the access listener lets `/hooks/bots/`, `/bot-channel/` and `/talk/` through without one: each checks its own key, and nothing else on the listener is reachable that way.
+
+A bot's [Talk](../web-ui/bots.md#talk) door is the same case: a chat app on a client's phone cannot sign in to Access, and the bot's Talk key is its credential. Bypass `lasso.example.com/talk/` the same way, or leave it behind Access and give each phone an Access service token as custom headers (`CF-Access-Client-Id`, `CF-Access-Client-Secret`) where its app allows them.
 
 ## Turning off the in-app update
 

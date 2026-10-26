@@ -121,6 +121,21 @@ Click a card, or **New job**, to edit it:
 
 The line under the description says whether the bot is listening. Jobs reach a bot through lasso's own channel, which it gets from its next start: a bot that was running before lasso had jobs offers **Restart**. A job that fires while the bot is **stopped** is dropped, not saved for later, and one nobody picks up within a day is dropped too. Firings that pile up while the bot is busy arrive as one delivery with a count; for a watch, each run that printed stays in that delivery under its own header. A Claude Code bot on another host gets its jobs too, when that host has a lasso new enough to deliver them (the line says to update it when it is not): lasso writes each delivery into the bot's folder over SSH, and the host's own lasso hands it to the bot, so nothing on that host connects back to lasso. An omp bot gets its jobs on any host, as prompts lasso sends over the bot's socket, which it reaches over SSH.
 
+### Talk
+
+Talk gives someone a chat with the bot in an app on their phone that speaks the OpenAI API, such as Conduit. Their messages reach the bot's session and its replies go back to their app. Claude bots only.
+
+**Turn on Talk** makes a key. The tab then shows:
+
+- **Base URL**, **API key** (masked until **Show**) and **Model** (the bot's name), each with **Copy**. In Conduit: **Add connection**, provider type **OpenAI-compatible**, the Base URL, authentication **Bearer token** with the key, then pick the model.
+- **While it works:**
+  - **Plain** (the default): the app's thinking line shows only the kind of each step ("Reading a file", "Running a command").
+  - **Detailed:** adds each step's subject, which shows file names and commands from the bot's machine.
+- Whether the bot is taking messages. A bot started before Talk existed takes them after a restart, and the tab offers the button.
+- **Rotate** replaces the key; the old one stops working at once. **Turn off Talk** retires the key.
+
+Whoever holds the key can ask the bot for anything its instructions allow, so say in its CLAUDE.md what it may do for them. The bot answers through its channel's reply tool. A long job gets an "On it" first, and an answer that misses its request (the app was closed) arrives at the start of the next one. From outside the tailnet, the hostname's edge (Cloudflare Access) must let `/talk/` through.
+
 ### Skills
 
 **Always available** lists your user-level skills, from `~/.claude/skills` on the bot's host, in a scrolling list. Claude Code loads them in every session, so every bot has them without adding anything.

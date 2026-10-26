@@ -101,7 +101,7 @@ function hookURL(j: BotJob): string {
 
 // navigator.clipboard needs a secure context, which a tailnet http:// lasso
 // is not, so fall back to the old selection copy.
-async function copyText(text: string): Promise<boolean> {
+export async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text)
     return true

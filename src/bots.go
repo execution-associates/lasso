@@ -445,8 +445,15 @@ func botClaudeArgv(r *botRecord, dir string) []string {
 	}
 	// One grant per channel. `--channels` is accepted but delivers nothing for
 	// server: entries and does not split on commas, so it is no substitute.
-	for _, ch := range r.channelGrants() {
+	grants := r.channelGrants()
+	for _, ch := range grants {
 		argv = append(argv, "--dangerously-load-development-channels", "server:"+ch)
+	}
+	// Talk's answers go out through lasso's channel's reply tool
+	// (bottalk.go). A bot outside bypass mode would otherwise stop on a
+	// permission dialog for every answer, with nobody at the terminal.
+	if slices.Contains(grants, botChannelName) {
+		argv = append(argv, "--allowedTools", botChannelReplyToolID)
 	}
 	if r.Model != "" {
 		argv = append(argv, "--model", r.Model)
@@ -943,6 +950,7 @@ func reorderBots(names []string) error {
 func deleteBot(name string) error {
 	_, _ = db.Exec(`DELETE FROM bot_mcp_oauth WHERE bot = ?`, name)
 	deleteBotJobsOf(name)
+	deleteBotTalksOf(name)
 	_, _ = db.Exec(`DELETE FROM bot_message_meta WHERE bot = ?`, name)
 	_, err := db.Exec(`DELETE FROM bots WHERE name = ?`, name)
 	return err

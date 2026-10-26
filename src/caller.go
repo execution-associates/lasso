@@ -170,6 +170,7 @@ var machinePaths = []string{
 	"/cdp",
 	"/hooks/bots",
 	"/bot-channel",
+	"/talk",
 	"/oauth/token",
 	"/oauth/register",
 	"/.well-known/oauth-protected-resource",
@@ -177,11 +178,12 @@ var machinePaths = []string{
 }
 
 // selfCredentialed are paths that carry their own credential (a bot job's
-// webhook key, a bot's channel token) and are reached by senders with no
-// identity to prove: a webhook service, say, behind an Access Bypass policy.
+// webhook key, a bot's channel token, a bot's Talk key) and are reached by
+// senders with no identity to prove: a webhook service or a client's chat
+// app, say, behind an Access Bypass policy.
 // The network listeners pass them through unproven, untouched, and with no
 // caller; their handlers check the key.
-var selfCredentialed = []string{"/hooks/bots", "/bot-channel"}
+var selfCredentialed = []string{"/hooks/bots", "/bot-channel", "/talk"}
 
 // edgeConfig is what the network listeners verify against.
 type edgeConfig struct {
