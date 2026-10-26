@@ -39,7 +39,8 @@ import Testing
 
 @MainActor private final class SpacesTermSource: HerdrTerminalSource {
     func attach(_ host: String) async throws -> String { "local" }
-    func documentQuery(_ slug: String) async throws -> String { "" }
+    func documentQuery(_ slug: String, palette: String) async throws -> String { "" }
+    func syncPalette(_ palette: String) async throws {}
     func focus(_ pane: HostPane) async throws -> Bool { false }
     func claim(_ host: String, client: String) async throws -> String { client }
 }

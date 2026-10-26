@@ -33,7 +33,9 @@ final class TerminalStub: URLProtocol, @unchecked Sendable {
         case "/api/active": answer = #"{"host":"norm","host_slug":"norm-1a2b3c4d","term_owner":""}"#
         case "/api/focus": answer = #"{"ok":true,"reattach":true}"#
         case "/api/term-claim": answer = #"{"host":"norm","term_owner":"lasso-desktop-term-x"}"#
-        case _ where url.absoluteString.hasSuffix("/terminal/norm-1a2b3c4d/"):
+        case "/api/theme": answer = #"{"name":"ocai","resolved":"ocai"}"#
+        case "/api/theme-sync": answer = #"{"started":true,"theme":"execution-associates","hosts":2}"#
+        case _ where url.absoluteString.split(separator: "?")[0].hasSuffix("/terminal/norm-1a2b3c4d/"):
             // URL.path drops the trailing slash; lasso's route needs it.
             status = 302
             headers = ["Location": "/terminal/norm-1a2b3c4d/?rendererType=canvas&theme=%7B%22background%22%3A%22%231b0a2c%22%7D"]
@@ -72,10 +74,54 @@ private func query(_ r: URLRequest) -> [URLQueryItem]? { URLComponents(url: r.ur
     let (active, _) = try #require(TerminalStub.last("/api/active"))
     #expect(query(active) == [URLQueryItem(name: "host", value: "norm")])
 
-    let q = try await source.documentQuery(slug)
+    let q = try await source.documentQuery(slug, palette: "")
     #expect(q.hasPrefix("rendererType=canvas&theme=%7B"))
     let page = HerdrTerminal.pageURL(slug: slug, query: q)
     #expect(page.absoluteString == "lasso-terminal://lasso/terminal/norm-1a2b3c4d/?" + q)
+    let (plain, _) = try #require(TerminalStub.last("/terminal/norm-1a2b3c4d"))
+    #expect(query(plain) == nil)
+
+    // The theme this Mac wears is named in the document request, as a web
+    // tab names its own, and lasso answers with that palette.
+    _ = try await source.documentQuery(slug, palette: "execution-associates")
+    let (named, _) = try #require(TerminalStub.last("/terminal/norm-1a2b3c4d"))
+    #expect(query(named) == [URLQueryItem(name: "palette", value: "execution-associates")])
+}
+
+/// The terminal wears the palette named for the scheme this Mac is in, not
+/// whichever one the fleet was last handed.
+@Test func theTerminalsPaletteFollowsThisMacsScheme() {
+    var ui = UIStateSlice(appearance_mode: "system", palette_light: "ocai", palette_dark: "execution-associates")
+    #expect(HerdrTerminal.palette(ui, dark: true) == "execution-associates")
+    #expect(HerdrTerminal.palette(ui, dark: false) == "ocai")
+    ui.appearance_mode = nil
+    #expect(HerdrTerminal.palette(ui, dark: true) == "execution-associates")
+    ui.appearance_mode = "light"
+    #expect(HerdrTerminal.palette(ui, dark: true) == "ocai")
+    ui.appearance_mode = "dark"
+    #expect(HerdrTerminal.palette(ui, dark: false) == "execution-associates")
+    ui.appearance_mode = "herdr"
+    #expect(HerdrTerminal.palette(ui, dark: true) == "")
+    ui = UIStateSlice(appearance_mode: "system", palette_light: "ocai")
+    #expect(HerdrTerminal.palette(ui, dark: true) == "")
+}
+
+/// Opening the terminal hands this Mac's palette to the fleet, quietly, and
+/// only when the fleet wears another one.
+@MainActor @Test func openingTheTerminalSyncsTheFleetToThisMac() async throws {
+    let client = LassoClient(baseURL: URL(string: "http://127.0.0.1:18090")!, protocolClasses: [TerminalStub.self])
+    let source = LiveHerdrTerminalSource(client: client)
+    // No other test asks for these routes, so their counts are this test's.
+    func count(_ path: String) -> Int { TerminalStub.seen.filter { $0.0.url?.path == path }.count }
+    try await source.syncPalette("")
+    #expect(count("/api/theme") == 0)
+    try await source.syncPalette("ocai")
+    #expect(count("/api/theme") == 1 && count("/api/theme-sync") == 0)
+    try await source.syncPalette("execution-associates")
+    let (sync, body) = try #require(TerminalStub.last("/api/theme-sync"))
+    #expect(sync.httpMethod == "POST")
+    let sent = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+    #expect(sent?["palette"] as? String == "execution-associates" && sent?["quiet"] as? Bool == true)
 }
 
 /// Showing an agent focuses its pane on the pane's own host, asking lasso to
