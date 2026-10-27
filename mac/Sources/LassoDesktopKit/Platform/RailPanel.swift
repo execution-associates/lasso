@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// The borderless, non-activating panel the rail lives in: on every Space,
@@ -169,6 +170,9 @@ public final class RailController {
     private(set) var panel: RailPanel
     private var screenObserver: NSObjectProtocol?
     private var keyObserver: NSObjectProtocol?
+    private var fleetChange: AnyCancellable?
+    /// The rail height the panel was last placed for.
+    private var placedHeight: CGFloat = 0
     private var hoverTimer: Timer?
     private var inSince: Date?
     private var outSince: Date?
@@ -192,6 +196,8 @@ public final class RailController {
     /// The rail's place on the edge, as UserDefaults `railPosition`: 0 puts it
     /// at the top of the screen's visible frame, 1 at the bottom, 0.5 (unset)
     /// centred. A fraction rather than points, so it survives a screen change.
+    /// It places the rail as it is now, not the panel: the panel is as tall
+    /// as the tallest rail, with the rail at its top and the rest empty.
     static let positionKey = "railPosition"
 
     public init(model: RailModel) {
@@ -209,6 +215,15 @@ public final class RailController {
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.place() }
+        }
+        // Slots and the Bots button come and go: keep the rail where it was
+        // along the edge, the middle staying the middle.
+        fleetChange = model.fleet.objectWillChange.receive(on: DispatchQueue.main).sink { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.dragFrom == nil, self.railHeight != self.placedHeight else { return }
+                self.place()
+                self.onMoved()
+            }
         }
         // The keyboard went elsewhere: its focus ring goes with it.
         keyObserver = NotificationCenter.default.addObserver(
@@ -240,29 +255,40 @@ public final class RailController {
     /// The visible frame of the screen the rail is on.
     private var screen: NSRect { Screens.visibleFrame(for: panel.frame) }
 
+    /// The revealed rail's height as it is now (its slots, the Bots button
+    /// while lasso has bots), with the panel's margins: the part of the
+    /// panel, from its top, that the rail can fill.
+    var railHeight: CGFloat {
+        RailMetrics.expandedHeight(model.slots.count, bots: model.hasBots) + 2 * RailMetrics.margin
+    }
+
     private func place() {
         let v = screen
         let f = panel.frame
         let stored = UserDefaults.standard.object(forKey: Self.positionKey) as? Double ?? 0.5
-        panel.setFrameOrigin(NSPoint(x: (v.maxX - f.width).rounded(), y: Self.y(stored, visible: v, height: f.height)))
+        placedHeight = railHeight
+        panel.setFrameOrigin(
+            NSPoint(x: (v.maxX - f.width).rounded(), y: Self.y(stored, visible: v, height: placedHeight, panel: f.height)))
     }
 
-    /// The panel's origin y at `fraction` of the travel down `visible`'s
-    /// edge (0 the top, 0.5 the middle, a fresh install's place, 1 the bottom).
-    nonisolated static func y(_ fraction: Double, visible v: NSRect, height: CGFloat) -> CGFloat {
+    /// The panel's origin y with a rail `height` tall (at the panel's top;
+    /// `panel` defaults to the rail's own height) at `fraction` of the travel
+    /// down `visible`'s edge (0 the top, 0.5 the middle, a fresh install's
+    /// place, 1 the bottom).
+    nonisolated static func y(_ fraction: Double, visible v: NSRect, height: CGFloat, panel: CGFloat? = nil) -> CGFloat {
         let travel = max(0, v.height - height)
-        return (v.maxY - height - travel * CGFloat(min(max(fraction, 0), 1))).rounded()
+        return (v.maxY - travel * CGFloat(min(max(fraction, 0), 1)) - (panel ?? height)).rounded()
     }
 
-    /// Whether a rail at `y` is in the vertical middle of `visible`, within a point.
-    nonisolated static func isCentred(_ y: CGFloat, visible: NSRect, height: CGFloat) -> Bool {
-        abs(y - Self.y(0.5, visible: visible, height: height)) <= 1
+    /// Whether a panel at `y` holds its rail in the vertical middle of
+    /// `visible`, within a point.
+    nonisolated static func isCentred(_ y: CGFloat, visible: NSRect, height: CGFloat, panel: CGFloat? = nil) -> Bool {
+        abs(y - Self.y(0.5, visible: visible, height: height, panel: panel)) <= 1
     }
 
     /// The rail is in the vertical middle of its screen.
     public var isCentred: Bool {
-        let v = screen
-        return Self.isCentred(panel.frame.minY, visible: v, height: panel.frame.height)
+        Self.isCentred(panel.frame.minY, visible: screen, height: railHeight, panel: panel.frame.height)
     }
 
     /// Settings › Info's Center vertically: back to the middle of the edge,
@@ -272,21 +298,25 @@ public final class RailController {
         UserDefaults.standard.removeObject(forKey: Self.positionKey)
         let v = screen
         var f = panel.frame
-        f.origin = NSPoint(x: (v.maxX - f.width).rounded(), y: Self.y(0.5, visible: v, height: f.height))
+        placedHeight = railHeight
+        f.origin = NSPoint(x: (v.maxX - f.width).rounded(), y: Self.y(0.5, visible: v, height: placedHeight, panel: f.height))
         panel.setFrame(f, display: true, animate: true)
         onMoved()
         Trace.event("rail centred")
     }
 
     /// Move the rail to `y` (the panel's origin), kept so the revealed rail
-    /// fits on screen, and remember where it is.
+    /// fits on screen (the empty rest of the panel may hang below it), and
+    /// remember where it is.
     private func move(toY y: CGFloat) {
         let v = screen
         let f = panel.frame
-        let clamped = min(max(v.minY, y), v.maxY - f.height)
-        panel.setFrameOrigin(NSPoint(x: f.minX, y: clamped.rounded()))
-        let travel = v.height - f.height
-        if travel > 0 { UserDefaults.standard.set(Double((v.maxY - f.height - clamped) / travel), forKey: Self.positionKey) }
+        let h = railHeight
+        placedHeight = h
+        let top = min(max(v.minY + h, y + f.height), v.maxY)
+        panel.setFrameOrigin(NSPoint(x: f.minX, y: (top - f.height).rounded()))
+        let travel = v.height - h
+        if travel > 0 { UserDefaults.standard.set(Double((v.maxY - top) / travel), forKey: Self.positionKey) }
         onMoved()
     }
 
@@ -309,7 +339,8 @@ public final class RailController {
     private func hotRect() -> NSRect {
         let f = panel.frame
         if model.expanded {
-            return NSRect(x: f.minX, y: f.minY, width: f.width + 2, height: f.height)
+            let h = min(railHeight, f.height)
+            return NSRect(x: f.minX, y: f.maxY - h, width: f.width + 2, height: h)
         }
         let p = Theme.Rail.peek
         return NSRect(

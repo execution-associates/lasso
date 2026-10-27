@@ -17,6 +17,28 @@ import Testing
     #expect(RailController.isCentred(290, visible: v, height: 300))
     #expect(RailController.isCentred(291, visible: v, height: 300))
     #expect(!RailController.isCentred(293, visible: v, height: 300))
+    // A 300 pt rail at the top of a 500 pt panel: the rail, not the panel,
+    // takes the middle, and the empty rest hangs below it.
+    #expect(RailController.y(0.5, visible: v, height: 300, panel: 500) == 90)
+    #expect(RailController.y(0, visible: v, height: 300, panel: 500) == 340)
+    #expect(RailController.isCentred(90, visible: v, height: 300, panel: 500))
+}
+
+/// A fresh install's rail sits in the middle of the edge however few
+/// controls it has: its own height is centred, not the panel's.
+@MainActor @Test func aShortRailIsCentredByItsOwnHeight() {
+    let d = UserDefaults.standard
+    let saved = d.object(forKey: RailController.positionKey)
+    defer { if let saved { d.set(saved, forKey: RailController.positionKey) } else { d.removeObject(forKey: RailController.positionKey) } }
+    d.removeObject(forKey: RailController.positionKey)
+    let rail = RailController(model: RailModel(fleet: FleetModel()))
+    defer { rail.panel.orderOut(nil) }
+    let f = rail.panel.frame
+    let v = Screens.visibleFrame(for: f)
+    #expect(rail.railHeight < f.height)
+    let railMid = f.maxY - rail.railHeight / 2
+    #expect(abs(railMid - v.midY) <= 1, "rail middle \(railMid), screen middle \(v.midY)")
+    #expect(rail.isCentred)
 }
 
 /// Center vertically forgets the dragged place, as a fresh install has none,
