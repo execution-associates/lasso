@@ -344,7 +344,7 @@ public final class RailController {
         }
         let p = Theme.Rail.peek
         return NSRect(
-            x: f.maxX - p.number("width") - 2, y: f.maxY - RailMetrics.peekTop - p.number("height"),
+            x: f.maxX - p.number("width") - 2, y: f.maxY - RailMetrics.peekTop(model.slots.count, bots: model.hasBots) - p.number("height"),
             width: p.number("width") + 4, height: p.number("height"))
     }
 

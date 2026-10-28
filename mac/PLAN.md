@@ -85,7 +85,7 @@ Proposed additions are tagged `proposed`.
 
 ### 2.2 Proposed tokens (the brief lacks these)
 
-- **Rail placement**: trailing screen edge, inset 8 pt from `visibleFrame`, vertically centred (inferred).
+- **Rail placement**: trailing screen edge, inset 8 pt from `visibleFrame`, vertically centred (inferred). The revealed rail is centred by its own height (its slots and buttons now, not the tallest rail the panel holds), and the peek sits at its middle, so the tab at rest is centred too.
 - **Group outer size**: 42 pt (40 + 2 × 1 rim, inferred; see §2.3-1).
 - **Ellipsis group**: a 42 pt circle like the inbox.
 - **Tools capsule cells**: 40×40 pt each, so the fill is 120 pt tall (inferred from "filling the width").

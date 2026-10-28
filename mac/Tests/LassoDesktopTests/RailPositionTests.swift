@@ -39,6 +39,9 @@ import Testing
     let railMid = f.maxY - rail.railHeight / 2
     #expect(abs(railMid - v.midY) <= 1, "rail middle \(railMid), screen middle \(v.midY)")
     #expect(rail.isCentred)
+    // The tab at rest sits in the middle too.
+    let peekMid = f.maxY - RailMetrics.peekTop(0) - Theme.Rail.peek.number("height") / 2
+    #expect(abs(peekMid - v.midY) <= 1, "peek middle \(peekMid), screen middle \(v.midY)")
 }
 
 /// Center vertically forgets the dragged place, as a fresh install has none,
