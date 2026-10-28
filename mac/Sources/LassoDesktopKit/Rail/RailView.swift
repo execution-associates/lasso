@@ -20,8 +20,11 @@ enum RailMetrics {
     /// The panel spans from the rail's leading margin to the screen edge.
     static var panelWidth: CGFloat { margin + outer + Theme.Rail.edgeInset.pt }
 
-    /// The peek's top: centred on where the inbox will appear, inside the panel.
-    static var peekTop: CGFloat { max(0, margin + outer / 2 - Theme.Rail.peek.number("height") / 2) }
+    /// The peek's top: at the middle of the revealed rail, so the tab at
+    /// rest sits where the rail is centred along the edge.
+    static func peekTop(_ slots: Int, bots: Bool = false) -> CGFloat {
+        max(0, (expandedHeight(slots, bots: bots) + 2 * margin - Theme.Rail.peek.number("height")) / 2)
+    }
 
     /// Each agent slot is a pitch-tall row with the glyph centred in it, so
     /// the space above the first row is pad_top less half the row's slack.
@@ -177,7 +180,7 @@ public struct RailView: View {
         let slots = model.slots
         ZStack(alignment: .topLeading) {
             peek
-                .offset(x: RailMetrics.panelWidth - Theme.Rail.peek.number("width"), y: RailMetrics.peekTop)
+                .offset(x: RailMetrics.panelWidth - Theme.Rail.peek.number("width"), y: RailMetrics.peekTop(slots.count, bots: model.hasBots))
                 .opacity(model.expanded ? 0 : 1)
             VStack(spacing: 0) {
                 inbox
