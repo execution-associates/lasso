@@ -28,6 +28,7 @@ The rest of the launch line:
 - **Effort** must be one of the harness's levels. A level the harness doesn't list is dropped (the agent starts at the CLI's default) instead of passed through, since an unknown level would make the CLI exit at launch.
 - **Plan mode** starts the agent planning: it researches and proposes, and only stops at a gate when it wants to execute. It is dropped for Codex and pi, which lasso can't start in a plan mode.
 - **Advisor** (omp only) adds `--advisor`, omp's per-turn review pass. Dropped for every other harness.
+- **Model preset** (omp only) launches with one of the host's omp model presets: its roles and thinking level, applied through the agent's config overlay without touching your omp config. An explicit model or effort still wins for the main session. Dropped for every other harness.
 - **Extra args** are appended verbatim, for flags lasso has no field for.
 - **Prompt** is the agent's first instruction. It is optional: with no prompt, the CLI comes up idle and waits for you (or `herdr agent prompt`) in its pane. A long or multi-line prompt is staged to a file on the host and read in by the launch command.
 

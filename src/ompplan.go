@@ -59,18 +59,28 @@ var ompThemeOverlay = []byte("# lasso's theme pin: both of omp's mode-selected s
 	"  light: " + ompThemeName + "\n")
 
 // ompOverlayBody is the overlay one omp agent launches with: the theme pin
-// always, plus the plan keys when it is launching in plan mode. Both halves are
-// top-level YAML maps with disjoint keys, so concatenation IS the merge.
-func ompOverlayBody(planMode bool) []byte {
-	if !planMode {
+// always, plus the plan keys when it is launching in plan mode, plus a model
+// preset's roles and thinking level when it names one (omppresets.go). Each
+// part is a top-level YAML map with keys disjoint from the others' (theme, plan,
+// modelRoles/defaultThinkingLevel), so concatenation IS the merge.
+func ompOverlayBody(planMode bool, preset []byte) []byte {
+	if !planMode && len(preset) == 0 {
 		return ompThemeOverlay
 	}
-	body := make([]byte, 0, len(ompThemeOverlay)+len(ompPlanOverlay)+1)
-	body = append(body, ompThemeOverlay...)
-	if n := len(body); n > 0 && body[n-1] != '\n' {
-		body = append(body, '\n')
+	body := append([]byte(nil), ompThemeOverlay...)
+	add := func(part []byte) {
+		if n := len(body); n > 0 && body[n-1] != '\n' {
+			body = append(body, '\n')
+		}
+		body = append(body, part...)
 	}
-	return append(body, ompPlanOverlay...)
+	if planMode {
+		add(ompPlanOverlay)
+	}
+	if len(preset) > 0 {
+		add(preset)
+	}
+	return body
 }
 
 // ompConfigPath is the staged overlay for one agent on backend b. Under
@@ -89,13 +99,14 @@ func ompConfigPath(b Backend, agentID string) string {
 // stageOmpConfig materializes the overlay on backend b and returns its path for
 // the launch line's --config. Rewritten on every boot rather than written once,
 // so an overlay that changes across a lasso upgrade (or a theme flip between two
-// boots) takes effect without anyone having to clear the old one.
-func stageOmpConfig(b Backend, agentID string, planMode bool) (string, error) {
+// boots) takes effect without anyone having to clear the old one. preset is the
+// model preset's overlay YAML (ompPresetOverlay), nil for none.
+func stageOmpConfig(b Backend, agentID string, planMode bool, preset []byte) (string, error) {
 	path := ompConfigPath(b, agentID)
 	if err := b.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", err
 	}
-	if err := b.WriteFile(path, ompOverlayBody(planMode), 0o644); err != nil {
+	if err := b.WriteFile(path, ompOverlayBody(planMode, preset), 0o644); err != nil {
 		return "", err
 	}
 	return path, nil

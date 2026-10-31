@@ -210,6 +210,15 @@ func probeValue(f reflect.StructField) (reflect.Value, error) {
 		if f.Type.Elem().Kind() == reflect.String {
 			return reflect.ValueOf([]string{"probe-" + f.Name}), nil
 		}
+	case reflect.Pointer:
+		// An optional field: probe the pointee, so a dropped pointer reads nil.
+		elem, err := probeValue(reflect.StructField{Name: f.Name, Type: f.Type.Elem()})
+		if err != nil {
+			return reflect.Value{}, err
+		}
+		p := reflect.New(f.Type.Elem())
+		p.Elem().Set(elem)
+		return p, nil
 	case reflect.Struct:
 		if f.Type == reflect.TypeOf(time.Time{}) {
 			// A fixed instant, not time.Now(): the probe must be comparable
@@ -327,6 +336,9 @@ func tsTypeFor(t reflect.Type) string {
 		if t.Elem().Kind() == reflect.String {
 			return "string[]"
 		}
+	case reflect.Pointer:
+		// An optional field ("unset" vs a value) is the same property on the wire.
+		return tsTypeFor(t.Elem())
 	}
 	return t.String()
 }

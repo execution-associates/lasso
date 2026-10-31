@@ -20,6 +20,7 @@ import { Input, NO_AUTOCORRECT } from "@/components/ui/input"
 import { Orb } from "@/components/ui/orb"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
+  type AgentConfig,
   ApiError,
   api,
   type CreateAgentPayload,
@@ -244,6 +245,17 @@ export function rememberCreatorHost(host: string) {
   patchUIState({ creator_last_host: host })
 }
 
+// The omp model preset to preselect for harness h: the one the last omp agent
+// on this host launched with (the server's last_model_preset), while the host
+// still defines it — else none. A harness without presets always gets none.
+export function rememberedPreset(
+  config: AgentConfig | null | undefined,
+  h: HarnessDef | undefined
+): string {
+  const last = config?.last_model_preset
+  return last && h?.model_presets?.includes(last) ? last : ""
+}
+
 function slugify(text: string): string {
   return text
     .toLowerCase()
@@ -465,6 +477,17 @@ export function NewDialog({
   const [pastingImage, setPastingImage] = React.useState(false)
   const [planMode, setPlanMode] = React.useState(false)
   const [advisor, setAdvisor] = React.useState(false)
+  // "" = no preset: omp runs on the host's own role assignments.
+  const [modelPreset, setModelPreset] = React.useState("")
+  // null = follow the Settings tab's auto-title setting; a boolean overrides it
+  // for this agent only.
+  const [autoTitle, setAutoTitle] = React.useState<boolean | null>(null)
+  const autoTitleSetting = useQuery({
+    queryKey: qk.autoTitle,
+    queryFn: () => api.autoTitle(),
+    enabled: open,
+  })
+  const autoTitleChecked = autoTitle ?? autoTitleSetting.data?.enabled ?? true
   const [files, setFiles] = React.useState<File[]>([])
   // Screenshots pasted into the Prompt are written to a host *immediately* (so a
   // path can be inserted), but the agent runs on the host chosen at create time —
@@ -608,6 +631,16 @@ export function NewDialog({
     setExtraArgs(draftAgentMatches ? (draft.extraArgs ?? "") : "")
     setPlanMode(draftAgentMatches ? (draft.planMode ?? false) : false)
     setAdvisor(draftAgentMatches ? (draft.advisor ?? false) : false)
+    // Per agent, never remembered: each opening starts at the Settings value.
+    setAutoTitle(null)
+    // The preset is NOT draft state: it is the server's memory of what the last
+    // omp agent on this host actually launched with, so the form reopens on it.
+    setModelPreset(
+      rememberedPreset(
+        config,
+        harnesses.find((h) => h.id === seededAgent)
+      )
+    )
     setShowAdvanced(draft.advanced ?? false)
     const remembered =
       draft.repo && repos.some((r) => r.path === draft.repo) ? draft.repo : ""
@@ -828,6 +861,12 @@ export function NewDialog({
         // Same gate as plan mode: the toggle is omp-only, and a switch to
         // another harness leaves its state behind for the next omp agent.
         advisor: advisor && harness.supports_advisor,
+        // Only a preset the picked harness lists on this host (omp's own).
+        model_preset: harness.model_presets?.includes(modelPreset)
+          ? modelPreset
+          : undefined,
+        // Only an explicit change from the Settings default is sent.
+        auto_title: autoTitle ?? undefined,
         attachments,
         upload_dir: uploadDir,
       }
@@ -1204,6 +1243,14 @@ export function NewDialog({
                         // carrying over a value the new CLI can't take.
                         setModel("")
                         setEffort("")
+                        // Presets are omp's; switching to it lands on the one
+                        // the last omp agent here used, away from it on none.
+                        setModelPreset(
+                          rememberedPreset(
+                            config,
+                            harnesses.find((h) => h.id === e.target.value)
+                          )
+                        )
                       }}
                     >
                       {harnesses.map((h) => (
@@ -1256,6 +1303,34 @@ export function NewDialog({
                     </Field>
                   )}
                 </div>
+
+                {/* omp's model presets on the picked host: a whole role setup
+                (default, smol, slow, task, …) plus its thinking level, applied
+                for this agent's run only. Hidden for every other harness, and
+                for an omp host that defines none. */}
+                {!!harness.model_presets?.length && (
+                  <Field label="Model preset" htmlFor="agent-model-preset">
+                    <select
+                      id="agent-model-preset"
+                      className={fieldClass}
+                      value={modelPreset}
+                      onChange={(e) => setModelPreset(e.target.value)}
+                    >
+                      <option value="">None (omp default)</option>
+                      {harness.model_presets.map((p) => (
+                        <option key={p} value={p}>
+                          {p}
+                        </option>
+                      ))}
+                    </select>
+                    {modelPreset && (model.trim() || effort) && (
+                      <p className="mt-1 text-muted-foreground text-xs">
+                        The model and effort above still win for the main
+                        session; every other role follows the preset.
+                      </p>
+                    )}
+                  </Field>
+                )}
 
                 {/* The toggle lives in the footer beside the host picker; the
                 fields it reveals stay here, inside the scrolling body. */}
@@ -1311,6 +1386,33 @@ export function NewDialog({
                         </label>
                       </div>
                     )}
+                    {/* Auto-titling hands the prompt to a separate titling CLI
+                    (another model); off keeps it with the agent's own models.
+                    Starts at the Settings value, and only a change is sent. */}
+                    <div className="flex items-start gap-2">
+                      <Checkbox
+                        id="agent-auto-title"
+                        className="mt-0.5"
+                        checked={autoTitleChecked}
+                        onCheckedChange={(v) => setAutoTitle(v === true)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault()
+                            setAutoTitle(!autoTitleChecked)
+                          }
+                        }}
+                      />
+                      <label
+                        htmlFor="agent-auto-title"
+                        className="cursor-pointer text-sm"
+                      >
+                        Auto-title from the prompt
+                        <span className="block text-muted-foreground text-xs">
+                          Sends the prompt to the titling model. Off names the
+                          agent from the prompt's first line.
+                        </span>
+                      </label>
+                    </div>
                     <Field label="Extra CLI args" htmlFor="agent-extra-args">
                       <Input
                         id="agent-extra-args"

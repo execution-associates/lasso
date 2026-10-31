@@ -50,7 +50,12 @@ type harnessDef struct {
 	// assigns to a role (ompmodels.go), and this entry is the fallback for a host
 	// where omp isn't set up.
 	ModelSuggestions []string `json:"model_suggestions"`
-	buildCmd         func(o launchOpts) string
+	// ModelPresets are the omp model presets (omppresets.go) the host's omp
+	// config defines, in config order — the creator's "Model preset" select.
+	// Host-specific like omp's ModelSuggestions: hostHarnesses fills it, and it
+	// is empty for every other harness, which hides the select.
+	ModelPresets []string `json:"model_presets,omitempty"`
+	buildCmd     func(o launchOpts) string
 }
 
 // launchOpts are the per-spawn knobs a harness builder consumes. model maps to

@@ -1230,6 +1230,7 @@ export interface AgentRecord {
   attachments?: string[]
   plan_mode: boolean
   advisor: boolean
+  model_preset?: string
   work_dir: string
   workspace_id?: string
   root_pane?: string
@@ -1252,6 +1253,9 @@ export interface AgentConfig {
   // dropdown, plan-mode visibility, effort levels, and model suggestions.
   harnesses?: HarnessDef[]
   last_agent_type?: "git" | "scratch"
+  // The omp model preset the last omp agent on this host launched with; absent
+  // = none. The creator preselects it while the host still defines it.
+  last_model_preset?: string
   scratch_setup?: string
   repos?: Record<string, RepoConfig>
   agents?: AgentRecord[]
@@ -1269,6 +1273,9 @@ export interface HarnessDef {
   // first. Absent/empty = no effort knob, so the creator hides the select.
   effort_levels?: string[] | null
   model_suggestions: string[] | null
+  // omp's model presets on this host, in config order. Absent/empty = no
+  // presets (every other harness), so the creator hides its preset select.
+  model_presets?: string[] | null
 }
 
 // One git repo discovered under repos_root, with its remembered per-repo state.
@@ -1325,6 +1332,13 @@ export interface CreateAgentPayload {
   // Turn on the harness's advisor runtime (omp's --advisor); the server drops it
   // for a harness that has no such flag.
   advisor: boolean
+  // omp model preset to launch with (one of the omp harness's model_presets);
+  // omit for none. The server drops it for any other harness and refuses a
+  // name the host's omp config doesn't define.
+  model_preset?: string
+  // Rename the agent from its prompt (true) or not (false), overriding the
+  // auto-title setting for this agent; omit to follow the setting.
+  auto_title?: boolean
   attachments?: string[]
   upload_dir?: string
 }

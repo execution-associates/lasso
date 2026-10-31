@@ -1,7 +1,6 @@
 package main
 
 import (
-	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -133,40 +132,36 @@ func ompEffortLevel(s string) bool {
 	return false
 }
 
-// ompConfiguredModels reads host b's omp role assignments. Any failure — omp
-// never installed, an unreadable or unparseable config — returns nothing, which
-// the caller reads as "no host answer, keep the compiled-in list".
-func ompConfiguredModels(b Backend, home string) []string {
-	data, err := b.ReadFile(filepath.Join(ompAgentDir(home), "config.yml"))
-	if err != nil {
-		return nil
-	}
-	return ompRoleModels(data)
-}
-
 // hostHarnesses is the harness registry as served for one host: the compiled-in
-// table (harness.go) with omp's model suggestions replaced by the models that
-// host's omp is configured to use for a role. Everything else in the registry —
-// labels, effort ladders, plan-mode support — is compiled-in and host-independent.
+// table (harness.go) with omp's host-specific halves filled from that host's
+// omp config: its model suggestions replaced by the models it assigns to a role,
+// and its model presets (omppresets.go) listed for the creator's preset select.
+// Everything else in the registry — labels, effort ladders, plan-mode support —
+// is compiled-in and host-independent.
 //
 // The registry slice and its entries are shared global state, so this copies
 // before touching the omp entry. A host whose omp says nothing keeps the
-// compiled-in suggestions.
+// compiled-in suggestions and offers no presets.
 func hostHarnesses(b Backend) []harnessDef {
 	home, err := b.HomeDir()
 	if err != nil || home == "" {
 		return harnesses
 	}
-	models := ompConfiguredModels(b, home)
-	if len(models) == 0 {
+	data := ompGlobalConfig(b, home)
+	models, presets := ompRoleModels(data), ompPresetNames(data)
+	if len(models) == 0 && len(presets) == 0 {
 		return harnesses
 	}
 	out := make([]harnessDef, len(harnesses))
 	copy(out, harnesses)
 	for i := range out {
-		if out[i].ID == "omp" {
+		if out[i].ID != "omp" {
+			continue
+		}
+		if len(models) > 0 {
 			out[i].ModelSuggestions = models
 		}
+		out[i].ModelPresets = presets
 	}
 	return out
 }

@@ -102,6 +102,10 @@ var createParams = map[string]createParam{
 	// them pass it anyway. createAgent drops it for a harness without the flag
 	// (normalizeAdvisor), so an omp-only field is safe to advertise.
 	"Advisor": {MCP: "Advisor", TS: "advisor"},
+	// Another omp-only launch knob, dropped for every other harness
+	// (normalizeModelPreset), so it is as safe to advertise as Advisor.
+	"ModelPreset": {MCP: "ModelPreset", TS: "model_preset"},
+	"AutoTitle":   {MCP: "AutoTitle", TS: "auto_title"},
 	"Attachments": {
 		MCPSkip: "part of the browser upload-staging flow (/api/agent-upload), which has no MCP equivalent",
 		TS:      "attachments",

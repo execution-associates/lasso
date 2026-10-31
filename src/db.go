@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS host_state (
   host            TEXT PRIMARY KEY,
   last_repo       TEXT NOT NULL DEFAULT '',
   last_agent      TEXT NOT NULL DEFAULT '',
-  last_agent_type TEXT NOT NULL DEFAULT ''
+  last_agent_type TEXT NOT NULL DEFAULT '',
+  last_model_preset TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS repo_state (
   host             TEXT NOT NULL,
@@ -85,6 +86,7 @@ CREATE TABLE IF NOT EXISTS agents (
   attachments  TEXT NOT NULL DEFAULT '[]',
   plan_mode    INTEGER NOT NULL DEFAULT 0,
   advisor      INTEGER NOT NULL DEFAULT 0,
+  model_preset TEXT NOT NULL DEFAULT '',
   work_dir     TEXT NOT NULL DEFAULT '',
   workspace_id TEXT NOT NULL DEFAULT '',
   root_pane    TEXT NOT NULL DEFAULT '',
@@ -191,6 +193,8 @@ func openDB() error {
 		`ALTER TABLE bots ADD COLUMN talk_activity TEXT NOT NULL DEFAULT 'plain'`,
 		`ALTER TABLE bots ADD COLUMN channel_talk INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE push_subscriptions ADD COLUMN device_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE agents ADD COLUMN model_preset TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE host_state ADD COLUMN last_model_preset TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := h.Exec(alter); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 			h.Close()
@@ -793,16 +797,17 @@ func saveUIState(us uiState) error {
 // ---------------------------------------------------------------------------
 
 type hostState struct {
-	LastRepo      string
-	LastAgent     string
-	LastAgentType string
+	LastRepo        string
+	LastAgent       string
+	LastAgentType   string
+	LastModelPreset string
 }
 
 func getHostState(host string) (hostState, error) {
 	var hs hostState
 	err := db.QueryRow(
-		`SELECT last_repo, last_agent, last_agent_type FROM host_state WHERE host=?`, host).
-		Scan(&hs.LastRepo, &hs.LastAgent, &hs.LastAgentType)
+		`SELECT last_repo, last_agent, last_agent_type, last_model_preset FROM host_state WHERE host=?`, host).
+		Scan(&hs.LastRepo, &hs.LastAgent, &hs.LastAgentType, &hs.LastModelPreset)
 	if err == sql.ErrNoRows {
 		return hostState{}, nil
 	}
@@ -822,6 +827,9 @@ func upsertHostField(host, column, value string) error {
 func setLastRepo(host, repo string) error     { return upsertHostField(host, "last_repo", repo) }
 func setLastAgent(host, agent string) error   { return upsertHostField(host, "last_agent", agent) }
 func setLastAgentType(host, typ string) error { return upsertHostField(host, "last_agent_type", typ) }
+func setLastModelPreset(host, preset string) error {
+	return upsertHostField(host, "last_model_preset", preset)
+}
 
 // ---------------------------------------------------------------------------
 // repo_state — per-host, per-repo settings + memory
@@ -887,12 +895,12 @@ func appendAgent(host string, rec AgentRecord) error {
 	}
 	_, err := db.Exec(
 		`INSERT INTO agents(id, host, title, type, repo, base_branch, branch, agent, model, effort, extra_args,
-			description, notes, attachments, plan_mode, advisor, work_dir, workspace_id, root_pane, created_at,
+			description, notes, attachments, plan_mode, advisor, model_preset, work_dir, workspace_id, root_pane, created_at,
 			boot_status, boot_error)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		rec.ID, host, rec.Title, rec.Type, rec.Repo, rec.BaseBranch, rec.Branch, rec.Agent,
 		rec.Model, rec.Effort, rec.ExtraArgs, rec.Description, rec.Notes, string(att), boolToInt(rec.PlanMode),
-		boolToInt(rec.Advisor),
+		boolToInt(rec.Advisor), rec.ModelPreset,
 		rec.WorkDir, rec.WorkspaceID, rec.RootPane, rec.CreatedAt.Format(time.RFC3339Nano),
 		rec.BootStatus, rec.BootError)
 	return err
@@ -972,7 +980,7 @@ func updateAgentBootStatus(id, host, status, bootErr string) error {
 // order. Named explicitly (never SELECT *) so an older lasso reading a newer
 // db's table keeps working.
 const agentCols = `id, host, title, type, repo, base_branch, branch, agent, model, effort, extra_args,
-	description, notes, attachments, plan_mode, advisor, work_dir, workspace_id, root_pane, created_at,
+	description, notes, attachments, plan_mode, advisor, model_preset, work_dir, workspace_id, root_pane, created_at,
 	boot_status, boot_error, closed_at`
 
 // scanAgentRow reads one agentCols row into an AgentRecord (Host included).
@@ -982,7 +990,7 @@ func scanAgentRow(rows *sql.Rows) (AgentRecord, error) {
 	var plan, advisor int
 	if err := rows.Scan(&rec.ID, &rec.Host, &rec.Title, &rec.Type, &rec.Repo, &rec.BaseBranch,
 		&rec.Branch, &rec.Agent, &rec.Model, &rec.Effort, &rec.ExtraArgs, &rec.Description, &rec.Notes,
-		&att, &plan, &advisor, &rec.WorkDir, &rec.WorkspaceID, &rec.RootPane, &created,
+		&att, &plan, &advisor, &rec.ModelPreset, &rec.WorkDir, &rec.WorkspaceID, &rec.RootPane, &created,
 		&rec.BootStatus, &rec.BootError, &rec.ClosedAt); err != nil {
 		return AgentRecord{}, err
 	}
