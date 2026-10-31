@@ -974,7 +974,6 @@ export type BotRuntime = "omp" | "claude"
 export interface BotFields {
   runtime: BotRuntime
   dir: string
-  workspace: string
   model: string
   effort: string
   permission_mode: string
@@ -987,9 +986,6 @@ export interface BotFields {
   // Claude bots: answer every permission prompt Yes (a PermissionRequest
   // hook on the launch line). Questions and plan approval still ask.
   auto_approve: boolean
-  // The mise task that launches it, "" for the generated `bot`. Left out of
-  // a save, the stored one stays: the Launch tab sets it on its own.
-  launch_task?: string
 }
 
 export interface BotView extends BotFields {
@@ -1045,9 +1041,6 @@ export interface BotDetail {
   launch: string
   // Absolute path of the bot's CLAUDE.md on its host.
   claude_md: string
-  // The folder's mise tasks that can launch it (`bot` and the human's own),
-  // or null when mise could not list them.
-  tasks: string[] | null
   // The MCP server lasso adds for the bot's own settings tools, or "".
   lasso_mcp: string
   // Whether lasso adds its channel (jobs and webhooks) to the bot.

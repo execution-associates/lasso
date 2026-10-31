@@ -22,7 +22,6 @@ type botSummary struct {
 	Name        string   `json:"name"`
 	Host        string   `json:"host"`
 	Dir         string   `json:"dir"`
-	Workspace   string   `json:"workspace"`
 	Runtime     string   `json:"runtime" jsonschema:"omp (omp itself in a herdr pane, driven through lasso's bridge) or claude (Claude Code in a herdr pane)"`
 	Model       string   `json:"model,omitempty"`
 	State       string   `json:"state" jsonschema:"stopped, starting, idle, working or blocked"`
@@ -49,7 +48,7 @@ type botStateOut struct {
 
 func summarizeBot(v botView) botSummary {
 	return botSummary{
-		Name: v.Name, Host: mcpHostName(v.Host), Dir: v.Dir, Workspace: v.Workspace, Runtime: v.Runtime, Model: v.Model,
+		Name: v.Name, Host: mcpHostName(v.Host), Dir: v.Dir, Runtime: v.Runtime, Model: v.Model,
 		State: v.State, WaitingFor: v.WaitingFor, PaneID: v.PaneID, KeepRunning: v.KeepRunning,
 		Channels: v.channels(), LastText: v.LastText, LastAt: v.LastAt,
 	}
@@ -70,8 +69,8 @@ func registerBotTools(s *mcp.Server) {
 	}, getBotTool)
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "update_bot",
-		Description: "Change a bot's settings: runtime, folder, model, effort, permission mode, MCP servers (the complete list, replacing the current one), strict MCP, extra args, launch task, keep-running, notifications, workspace. Only the fields you pass change. Lasso rewrites the bot's launch script and MCP config; a running bot picks the change up when it restarts (restart_needed). " +
-			"runtime and dir change only while the bot is stopped: the call is refused while it runs, so stop_bot first, update_bot, then start_bot. A runtime switch rewrites the launch task and MCP config for the new runtime and keeps the MCP servers (signed-in OAuth ones included), the environment and secrets, the jobs and .claude/skills; " +
+		Description: "Change a bot's settings: runtime, folder, model, effort, permission mode, MCP servers (the complete list, replacing the current one), strict MCP, extra args, keep-running, notifications. Only the fields you pass change. Lasso rewrites the bot's launch script and MCP config; a running bot picks the change up when it restarts (restart_needed). " +
+			"runtime and dir change only while the bot is stopped: the call is refused while it runs, so stop_bot first, update_bot, then start_bot. A runtime switch rewrites the bot task and MCP config for the new runtime and keeps the MCP servers (signed-in OAuth ones included), the environment and secrets, the jobs and .claude/skills; " +
 			"model and permission mode reset to the new runtime's default unless passed in the same call, and effort is kept only when the new runtime has that level. The bot starts a new conversation on its next start (the two keep different session files). " +
 			"Switching to claude with only an AGENTS.md writes a CLAUDE.md that imports it (@AGENTS.md), and switching to omp with only a CLAUDE.md copies it to AGENTS.md. A claude bot signs in to Claude with the host's own Claude Code login, or with a CLAUDE_CODE_OAUTH_TOKEN secret (from `claude setup-token`) set with set_bot_env. " +
 			"Its instructions (AGENTS.md for an omp bot, CLAUDE.md for a claude bot) and skills are files in its folder, edited directly or with add_bot_skill / remove_bot_skill.",
@@ -127,11 +126,9 @@ type updateBotIn struct {
 	MCP            *[]botMCPServer `json:"mcp,omitempty" jsonschema:"the COMPLETE list of MCP servers (it replaces the current one, so read it with get_bot first). channel:true makes a server a Claude Code channel; for a server that needs OAuth set oauth:true and ask the human to sign in from lasso's Bots view"`
 	StrictMCP      *bool           `json:"strict_mcp,omitempty" jsonschema:"claude bots: true for only these MCP servers, no claude.ai connectors or user-level servers"`
 	ExtraArgs      *[]string       `json:"extra_args,omitempty" jsonschema:"extra CLI arguments (claude's or omp's), one element per argument"`
-	LaunchTask     *string         `json:"launch_task,omitempty" jsonschema:"the mise task in the bot's folder that launches it (a mode, such as another provider); empty or bot for the generated one. It must exist, set its environment, and end with exec mise run bot -- \"$@\""`
 	KeepRunning    *bool           `json:"keep_running,omitempty" jsonschema:"relaunch the bot if it stops unexpectedly"`
 	Notify         *bool           `json:"notify,omitempty" jsonschema:"push a notification to the human's devices each time the bot finishes a reply"`
 	AutoApprove    *bool           `json:"auto_approve,omitempty" jsonschema:"claude bots: answer every permission prompt Yes (Claude Code's safety checks still ask in bypass mode), so the bot never waits on one; questions and plan approval still reach the human"`
-	Workspace      *string         `json:"workspace,omitempty" jsonschema:"the herdr workspace its tab opens in, on its next start"`
 }
 
 type botEnvIn struct {
@@ -221,8 +218,6 @@ func updateBotTool(ctx context.Context, req *mcp.CallToolRequest, in updateBotIn
 	set(&next.Model, in.Model)
 	set(&next.Effort, in.Effort)
 	set(&next.PermissionMode, in.PermissionMode)
-	set(&next.Workspace, in.Workspace)
-	set(&next.LaunchTask, in.LaunchTask)
 	if in.MCP != nil {
 		next.MCP = *in.MCP
 	}
@@ -242,9 +237,6 @@ func updateBotTool(ctx context.Context, req *mcp.CallToolRequest, in updateBotIn
 		next.AutoApprove = *in.AutoApprove
 	}
 	if err := next.normalize(); err != nil {
-		return nil, botChangeOut{}, err
-	}
-	if err := botCheckLaunchTask(b, &next); err != nil {
 		return nil, botChangeOut{}, err
 	}
 	if err := updateBot(&next); err != nil {

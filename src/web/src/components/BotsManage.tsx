@@ -115,7 +115,6 @@ export function BotsManage({
                 <tr className="border-border border-b">
                   <th className="px-3 py-2 font-medium">Bot</th>
                   <th className="px-3 py-2 font-medium">Host</th>
-                  <th className="px-3 py-2 font-medium">Workspace</th>
                   <th className="px-3 py-2 font-medium">Model</th>
                   <th className="px-3 py-2 font-medium">Channels</th>
                   <th className="px-3 py-2 font-medium">State</th>
@@ -140,9 +139,6 @@ export function BotsManage({
                     </td>
                     <td className="px-3 py-1.5 text-muted-foreground">
                       {b.host}
-                    </td>
-                    <td className="px-3 py-1.5 text-muted-foreground">
-                      {b.workspace}
                     </td>
                     <td className="px-3 py-1.5 font-mono text-[11.5px] text-muted-foreground">
                       {b.model || "default"}
@@ -181,7 +177,7 @@ export function BotsManage({
                         {b.name}
                       </span>
                       <span className="truncate text-[11.5px] text-muted-foreground">
-                        {b.host} · {b.workspace} · {b.model || "default model"}
+                        {b.host} · {b.model || "default model"}
                       </span>
                     </span>
                   </button>

@@ -89,19 +89,13 @@ type botRecord struct {
 	// from before runtimes existed read "claude".
 	Runtime        string         `json:"runtime"`
 	Dir            string         `json:"dir"`
-	Workspace      string         `json:"workspace"`
 	Model          string         `json:"model"`
 	Effort         string         `json:"effort"`
 	PermissionMode string         `json:"permission_mode"`
 	MCP            []botMCPServer `json:"mcp"`
 	StrictMCP      bool           `json:"strict_mcp"`
 	ExtraArgs      []string       `json:"extra_args"`
-	// LaunchTask is the mise task that starts the bot, "" for the generated
-	// `bot`. Another task is a mode the human writes in the folder (say, a
-	// different provider): it sets its environment and hands off with
-	// `exec mise run bot -- "$@"`, so the grants and dialogs stay in one place.
-	LaunchTask string `json:"launch_task"`
-	Avatar     string `json:"avatar"`
+	Avatar         string         `json:"avatar"`
 	// AvatarImage is the picture in the bot's folder (.lasso/avatar.<ext>)
 	// with a ?v= revision, or "": served at /api/bots/<name>/avatar. Written
 	// only by storeBotAvatar, never by a settings save.
@@ -127,21 +121,17 @@ type botRecord struct {
 	channelToken string
 }
 
-// botDefaultWorkspace is the herdr workspace a bot's tab goes into when its
-// row names none.
-const botDefaultWorkspace = "Bots"
+// botWorkspace is the herdr workspace every bot's tab goes into.
+const botWorkspace = "Bots"
 
 var (
 	// The name is the herdr agent name, the --name, the tab label and the
 	// default folder, so it stays lowercase and path- and shell-safe.
 	botNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
 	// omp's selectors are provider/model.
-	botModelRE   = regexp.MustCompile(`^[A-Za-z0-9._:/\[\]-]{0,80}$`)
-	botMCPNameRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
-	botEnvKeyRE  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
-	// A launch task travels in herdr's resume_argv and a typed command line,
-	// so it is a plain word.
-	botTaskRE      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_:.-]{0,63}$`)
+	botModelRE     = regexp.MustCompile(`^[A-Za-z0-9._:/\[\]-]{0,80}$`)
+	botMCPNameRE   = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	botEnvKeyRE    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 	botPermissions = []string{"", "acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"}
 	// omp's --approval-mode values; "" is omp's default, yolo.
 	botOmpApprovals = []string{"", "yolo", "write", "always-ask"}
@@ -174,14 +164,6 @@ func hasControl(s string) bool {
 	return false
 }
 
-// task is the mise task that launches the bot.
-func (r *botRecord) task() string {
-	if r.LaunchTask == "" {
-		return "bot"
-	}
-	return r.LaunchTask
-}
-
 // normalize fills defaults and validates the row. It never touches the host.
 func (r *botRecord) normalize() error {
 	r.Name = strings.TrimSpace(r.Name)
@@ -206,13 +188,6 @@ func (r *botRecord) normalize() error {
 	}
 	if r.Dir == "/" || r.Dir == "~/" || hasControl(r.Dir) || strings.ContainsRune(r.Dir, '\'') {
 		return fmt.Errorf("folder %q is not usable", r.Dir)
-	}
-	r.Workspace = strings.TrimSpace(r.Workspace)
-	if r.Workspace == "" {
-		r.Workspace = botDefaultWorkspace
-	}
-	if len(r.Workspace) > 64 || hasControl(r.Workspace) {
-		return fmt.Errorf("workspace must be at most 64 characters")
 	}
 	r.Model = strings.TrimSpace(r.Model)
 	if !botModelRE.MatchString(r.Model) {
@@ -242,13 +217,6 @@ func (r *botRecord) normalize() error {
 	}
 	if !okPerm {
 		return fmt.Errorf("permission mode %q is not one %s accepts", r.PermissionMode, r.Runtime)
-	}
-	r.LaunchTask = strings.TrimSpace(r.LaunchTask)
-	if r.LaunchTask == "bot" {
-		r.LaunchTask = ""
-	}
-	if r.LaunchTask != "" && (!botTaskRE.MatchString(r.LaunchTask) || r.LaunchTask == "restart" || r.LaunchTask == "attach") {
-		return fmt.Errorf("launch task %q is not usable", r.LaunchTask)
 	}
 	if len(r.ExtraArgs) > 32 {
 		return fmt.Errorf("at most 32 extra arguments")
@@ -502,14 +470,14 @@ const botAutoApproveSettings = `{"hooks":{"PermissionRequest":[{"hooks":[{"type"
 // botSystemPrompt tells the bot what it is and how it runs, so it can answer
 // questions about itself and restart itself when its human asks.
 func botSystemPrompt(r *botRecord, dir string) string {
-	return fmt.Sprintf(`You are the bot %q: a long-lived Claude Code session that lasso manages. You run in a herdr pane (HERDR_PANE_ID) in %s, launched there with `+"`mise run %s`"+`. When herdr restarts it brings you back with `+"`mise run %s -- --resume <this session>`"+`, and lasso relaunches you if you stop unexpectedly, so this conversation outlives any one process. A bare `+"`mise run %s`"+` resumes this conversation too; `+"`mise run %s -- --fresh`"+` starts a new one.
+	return fmt.Sprintf(`You are the bot %q: a long-lived Claude Code session that lasso manages. You run in a herdr pane (HERDR_PANE_ID) in %s, launched there with `+"`mise run bot`"+`. When herdr restarts it brings you back with `+"`mise run bot -- --resume <this session>`"+`, and lasso relaunches you if you stop unexpectedly, so this conversation outlives any one process. A bare `+"`mise run bot`"+` resumes this conversation too; `+"`mise run bot -- --fresh`"+` starts a new one.
 
 - CLAUDE.md in that folder is your standing instructions. Project skills go in .claude/skills/ there.
-- lasso generates .lasso/mcp.json, .mise/config.toml, .mise/tasks/bot and .mise/tasks/restart from its Bots settings and overwrites them on every save: change those through lasso, not by editing the files. Any other task in .mise/tasks/ is the human's: a launch task (a mode, such as another provider) sets its environment and ends with `+"`exec mise run bot -- \"$@\"`"+`.
+- lasso generates .lasso/mcp.json, .mise/config.toml, .mise/tasks/bot and .mise/tasks/restart from its Bots settings and overwrites them on every save: change those through lasso, not by editing the files. lasso always launches you with that bot task.
 - Your environment and secrets come from fnox.toml through mise, and only reach you at launch.
-- You can configure yourself when your human asks. Lasso's MCP tools (server "lasso") take your name, %q: get_bot reads your settings, update_bot changes your model, effort, permission mode, MCP servers (including which are channels), extra args, launch task, keep-running and avatar, set_bot_avatar sets your picture from an image file, and set_bot_env / unset_bot_env manage your variables (secret ones encrypted). Edit CLAUDE.md and the files in .claude/skills/ directly (add_bot_skill copies one in from a skill library). To sign in a server that needs OAuth, call begin_bot_oauth and give your human the address it returns to open and approve. Settings, MCP servers and variables take effect after you restart.
+- You can configure yourself when your human asks. Lasso's MCP tools (server "lasso") take your name, %q: get_bot reads your settings, update_bot changes your model, effort, permission mode, MCP servers (including which are channels), extra args, keep-running and avatar, set_bot_avatar sets your picture from an image file, and set_bot_env / unset_bot_env manage your variables (secret ones encrypted). Edit CLAUDE.md and the files in .claude/skills/ directly (add_bot_skill copies one in from a skill library). To sign in a server that needs OAuth, call begin_bot_oauth and give your human the address it returns to open and approve. Settings, MCP servers and variables take effect after you restart.
 - You CAN restart yourself, and it is safe: run `+"`mise run restart`"+` in %s with your shell tool. That is the supported way, made for exactly this; it is not killing a process or closing a pane by hand. It ends this session a few seconds after your turn finishes and starts it again in the same pane, on this same conversation. Do it whenever your human asks you to restart, and when you need a new skill, MCP server, setting or variable to take effect; say you are restarting before you run it.`,
-		r.Name, dir, r.task(), r.task(), r.task(), r.task(), r.Name, dir)
+		r.Name, dir, r.Name, dir)
 }
 
 // botRestartScript renders .mise/tasks/restart: the bot restarting itself,
@@ -666,13 +634,12 @@ if [ -n "$resume" ] && [ -z "$fresh" ]; then
 fi
 `, projects, q(botSessionPath(dir)))
 	fmt.Fprintf(&b, "%s \"$@\"\nstatus=$?\n", strings.Join(quoted, " "))
-	// The relaunch goes through the launch task, so a mode survives it.
-	fmt.Fprintf(&b, `if [ -f "$marker" ]; then
+	b.WriteString(`if [ -f "$marker" ]; then
   rm -f "$marker"
-  exec mise run %s -- --continue
+  exec mise run bot -- --continue
 fi
 exit $status
-`, r.task())
+`)
 	return b.String()
 }
 
@@ -680,15 +647,15 @@ exit $status
 // same command as herdr stores it. Both stay short: the typed line has to fit
 // maxTypedLaunch, and herdr refuses an argv with quotes or paths up front.
 // With no session it says --fresh: a bare run would resume.
-func botLaunchCommand(task, sessionID string) string {
+func botLaunchCommand(sessionID string) string {
 	if sessionID == "" {
-		return "mise run " + task + " -- --fresh"
+		return "mise run bot -- --fresh"
 	}
-	return "mise run " + task + " -- --resume " + sessionID
+	return "mise run bot -- --resume " + sessionID
 }
 
-func botResumeArgv(task, sessionID string) []string {
-	return []string{"mise", "run", task, "--", "--resume", sessionID}
+func botResumeArgv(sessionID string) []string {
+	return []string{"mise", "run", "bot", "--", "--resume", sessionID}
 }
 
 // validateResumeArgv mirrors herdr's validate_resume_argv (agent_resume.rs), so
@@ -808,15 +775,17 @@ func botWriteTask(b Backend, r *botRecord, dir string) error {
 
 // --- storage -----------------------------------------------------------------
 
-const botCols = `id, host, name, dir, workspace, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, created_at, updated_at, avatar_image, notify, launch_task, runtime, auto_approve`
+// The workspace and launch_task columns are unused: every bot runs `mise run
+// bot` in botWorkspace.
+const botCols = `id, host, name, dir, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, created_at, updated_at, avatar_image, notify, runtime, auto_approve`
 
 func scanBot(row interface{ Scan(...any) error }) (*botRecord, error) {
 	var r botRecord
 	var mcp, extra string
 	var strict, keep, stopped, notify, autoApprove int
-	if err := row.Scan(&r.ID, &r.Host, &r.Name, &r.Dir, &r.Workspace, &r.Model, &r.Effort, &r.PermissionMode,
+	if err := row.Scan(&r.ID, &r.Host, &r.Name, &r.Dir, &r.Model, &r.Effort, &r.PermissionMode,
 		&mcp, &strict, &extra, &r.Avatar, &keep, &stopped, &r.LastSessionID, &r.CreatedAt, &r.UpdatedAt,
-		&r.AvatarImage, &notify, &r.LaunchTask, &r.Runtime, &autoApprove); err != nil {
+		&r.AvatarImage, &notify, &r.Runtime, &autoApprove); err != nil {
 		return nil, err
 	}
 	r.Notify, r.AutoApprove = notify != 0, autoApprove != 0
@@ -871,10 +840,10 @@ func insertBot(r *botRecord) error {
 	mcp, _ := json.Marshal(r.MCP)
 	extra, _ := json.Marshal(r.ExtraArgs)
 	// A new bot goes to the end of the list.
-	res, err := db.Exec(`INSERT INTO bots (host, name, dir, workspace, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, position, created_at, updated_at, notify, launch_task, runtime, auto_approve)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM bots), ?, ?, ?, ?, ?, ?)`,
-		r.Host, r.Name, r.Dir, r.Workspace, r.Model, r.Effort, r.PermissionMode, string(mcp), boolInt(r.StrictMCP),
-		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Stopped), r.LastSessionID, r.CreatedAt, r.UpdatedAt, boolInt(r.Notify), r.LaunchTask, r.Runtime, boolInt(r.AutoApprove))
+	res, err := db.Exec(`INSERT INTO bots (host, name, dir, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, position, created_at, updated_at, notify, runtime, auto_approve)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM bots), ?, ?, ?, ?, ?)`,
+		r.Host, r.Name, r.Dir, r.Model, r.Effort, r.PermissionMode, string(mcp), boolInt(r.StrictMCP),
+		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Stopped), r.LastSessionID, r.CreatedAt, r.UpdatedAt, boolInt(r.Notify), r.Runtime, boolInt(r.AutoApprove))
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return fmt.Errorf("a bot named %q already exists", r.Name)
@@ -891,10 +860,10 @@ func updateBot(r *botRecord) error {
 	r.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	mcp, _ := json.Marshal(r.MCP)
 	extra, _ := json.Marshal(r.ExtraArgs)
-	_, err := db.Exec(`UPDATE bots SET dir = ?, workspace = ?, model = ?, effort = ?, permission_mode = ?, mcp = ?, strict_mcp = ?,
-		extra_args = ?, avatar = ?, keep_running = ?, notify = ?, launch_task = ?, runtime = ?, auto_approve = ?, updated_at = ? WHERE name = ?`,
-		r.Dir, r.Workspace, r.Model, r.Effort, r.PermissionMode, string(mcp), boolInt(r.StrictMCP),
-		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Notify), r.LaunchTask, r.Runtime, boolInt(r.AutoApprove), r.UpdatedAt, r.Name)
+	_, err := db.Exec(`UPDATE bots SET dir = ?, model = ?, effort = ?, permission_mode = ?, mcp = ?, strict_mcp = ?,
+		extra_args = ?, avatar = ?, keep_running = ?, notify = ?, runtime = ?, auto_approve = ?, updated_at = ? WHERE name = ?`,
+		r.Dir, r.Model, r.Effort, r.PermissionMode, string(mcp), boolInt(r.StrictMCP),
+		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Notify), r.Runtime, boolInt(r.AutoApprove), r.UpdatedAt, r.Name)
 	return err
 }
 

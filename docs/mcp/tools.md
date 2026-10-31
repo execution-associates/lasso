@@ -409,7 +409,7 @@ To talk to a running bot, use [`send_agent`](#send_agent) with its name as `to`.
 
 ### `list_bots`
 
-Lists the bots on hosts within your reach. No parameters. Each entry has `name`, `host`, `dir`, `workspace`, `runtime`, `model`, `state` (`stopped`, `starting`, `idle`, `working` or `blocked`), `waiting_for` (why a blocked bot waits), `pane_id` (claude bots), `keep_running`, `channels`, and its conversation's newest line as `last_text` and `last_at`.
+Lists the bots on hosts within your reach. No parameters. Each entry has `name`, `host`, `dir`, `runtime`, `model`, `state` (`stopped`, `starting`, `idle`, `working` or `blocked`), `waiting_for` (why a blocked bot waits), `pane_id` (claude bots), `keep_running`, `channels`, and its conversation's newest line as `last_text` and `last_at`.
 
 ### `get_bot`
 
@@ -430,11 +430,9 @@ Changes a bot's settings. Only the fields you pass change.
 | `mcp` | array | optional | The **complete** list of MCP servers. It replaces the current one, so read it with `get_bot` first. `channel: true` makes a server a channel; a server that needs OAuth takes `oauth: true` and is signed in with `begin_bot_oauth`. |
 | `strict_mcp` | boolean | optional | claude bots: only these MCP servers, without claude.ai connectors or user-level servers. |
 | `extra_args` | array | optional | Extra `claude` or `omp` arguments, one element per argument. |
-| `launch_task` | string | optional | The mise task in the bot's folder that launches it: a mode, such as another provider, that sets its environment and ends with `exec mise run bot -- "$@"`. `""` or `bot` for the generated one. Refused unless the folder defines it. |
 | `keep_running` | boolean | optional | Relaunch the bot when it stops unexpectedly. |
 | `notify` | boolean | optional | Push a notification to the human's devices each time the bot finishes a reply. |
 | `auto_approve` | boolean | optional | claude bots: answer every permission prompt Yes, its subagents' included, so the bot never waits on one. Bypass mode alone still asks for some commands (Claude Code's safety checks, such as an `rm` on a variable path). `AskUserQuestion` and plan approval still reach the human. Read at launch. |
-| `workspace` | string | optional | The herdr workspace it opens in, from its next start. |
 
 lasso rewrites the bot's launch script and MCP config. Returns `ok` and `restart_needed`, true when the bot is running and reads the change only at launch. A bot restarting itself runs `mise run restart` in its folder. Its instructions (`AGENTS.md` for an omp bot, `CLAUDE.md` for a claude bot) and skills are files in its folder, edited directly rather than through this tool.
 

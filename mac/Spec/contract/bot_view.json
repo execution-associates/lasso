@@ -4,7 +4,6 @@
   "name": "x",
   "runtime": "x",
   "dir": "x",
-  "workspace": "x",
   "model": "x",
   "effort": "x",
   "permission_mode": "x",
@@ -34,7 +33,6 @@
   "extra_args": [
     "x"
   ],
-  "launch_task": "x",
   "avatar": "x",
   "avatar_image": "x",
   "notify": true,
