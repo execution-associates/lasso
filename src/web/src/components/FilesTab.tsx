@@ -100,6 +100,7 @@ export function FilesTab({
   initial,
   onStateChange,
   uploadRef,
+  onViewGallery,
 }: {
   viewerPath: string | null
   // `path` is joined by the host the tree was browsing when the file was
@@ -123,6 +124,9 @@ export function FilesTab({
   // while nothing is loaded), for the parent's upload button, which lives in
   // the Files/Diff row outside this component.
   uploadRef?: React.MutableRefObject<((files: File[]) => void) | null>
+  // A folder's "View in gallery" menu item: the folder and the host the tree
+  // is browsing.
+  onViewGallery?: (path: string, host: string | null) => void
 }) {
   const { activeCwd: paneCwd } = useApp()
   // Follow mode's target: the focused pane's cwd and host, unless a view has
@@ -507,6 +511,11 @@ export function FilesTab({
               setDeleteTarget({ name: e.name, full, dir: e.dir, parent: dir })
             }
             onDownload={e.dir ? undefined : () => downloadFile(full, e.name)}
+            onGallery={
+              e.dir && onViewGallery
+                ? () => onViewGallery(full, curHost)
+                : undefined
+            }
             onDragOverFiles={() => setDropTarget(target)}
             onDragLeaveFiles={() =>
               setDropTarget((cur) => (cur === target ? null : cur))
@@ -727,6 +736,7 @@ function FileRow({
   onRename,
   onDelete,
   onDownload,
+  onGallery,
   onDragOverFiles,
   onDragLeaveFiles,
   onDropFiles,
@@ -745,6 +755,7 @@ function FileRow({
   onRename?: () => void
   onDelete?: () => void
   onDownload?: () => void
+  onGallery?: () => void
   onDragOverFiles?: () => void
   onDragLeaveFiles?: () => void
   onDropFiles?: (files: File[]) => void
@@ -798,12 +809,17 @@ function FileRow({
   )
 
   // The parent ("..") row gets no menu — there's nothing to act on.
-  if (!onRename && !onDelete && !onDownload) return row
+  if (!onRename && !onDelete && !onDownload && !onGallery) return row
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
       <ContextMenuContent>
+        {onGallery && (
+          <ContextMenuItem onSelect={onGallery}>
+            View in gallery
+          </ContextMenuItem>
+        )}
         {onDownload && (
           <ContextMenuItem onSelect={onDownload}>Download</ContextMenuItem>
         )}
