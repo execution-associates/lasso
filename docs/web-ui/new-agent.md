@@ -49,6 +49,8 @@ The levels offered for **Thinking effort**:
 | Oh My Pi | off, minimal, low, medium, high, xhigh, max, auto |
 | Pi | off, minimal, low, medium, high, xhigh, max |
 
+The **Model preset** field appears for **Oh My Pi** when the host's omp config (`~/.omp/agent/config.yml`) defines model presets (`/modelpreset save`). It lists them, plus **None (omp default)**, which runs on that host's own role assignments. A preset sets every model role (default, smol, slow, task, vision, advisor, …) and the thinking level for this agent's run only; your omp config is not changed. A **Model** or **Thinking effort** you pick still wins for the main session, while every other role follows the preset. A repository's own `.omp/config.yml` preset of the same name wins, as it does in omp.
+
 ### Advanced
 
 The **Advanced** button reveals more fields. Whether it is open is remembered.
@@ -57,6 +59,7 @@ The **Advanced** button reveals more fields. Whether it is open is remembered.
 | --- | --- | --- | --- |
 | **Start in plan mode** | Claude Code, OpenCode, Oh My Pi | off | Launches the agent in its plan mode. Hidden for harnesses without one. |
 | **Advisor** | Oh My Pi | off | Turns on omp's advisor (`--advisor`), a background pass that reviews each turn. |
+| **Auto-title from the prompt** | both | the **Auto-title new agents** setting | Renames the agent from its whole prompt, which sends the prompt to the titling model (a local agent CLI on lasso's machine). Turn it off for a prompt that must stay with the agent's own models; the agent keeps the name from the prompt's first line. Applies to this agent only and is not remembered. |
 | **Extra CLI args** | both | empty | Appended to the agent's launch command as typed. |
 | **Branch prefix** | Git | the host's saved branch prefix, empty unless set | Prepended to the branch name with a `/`, for example `feat/`. |
 | **Branch name** | Git | generated: the first four words of the title, slugged, plus a short random suffix | The branch to create. The line under it shows the final branch name. |
@@ -65,6 +68,8 @@ The **Advanced** button reveals more fields. Whether it is open is remembered.
 ### Remembered between openings
 
 The dialog remembers, per host and in this browser, what you last selected: Git or Scratch (unless it was opened with `⌘O` or `⌘⇧O`, which pick one), the repository, the agent, and that agent's model, effort, extra args, plan mode and advisor settings, plus the branch prefix and whether Advanced is open. Model, effort and the other harness-specific values are only restored for the same harness. The prompt and attachments are never kept.
+
+The **Model preset** is remembered by lasso instead, per host: it reopens on the preset the last Oh My Pi agent created on that host launched with (None included), as long as that host's omp still defines it, and on None otherwise.
 
 ### What happens when you create
 

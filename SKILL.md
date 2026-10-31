@@ -36,7 +36,7 @@ If your tools are missing, check `claude mcp list` (or your CLI's equivalent) an
    - `type`: `git` (a fresh worktree on a new branch off `base_branch`, default the repo's HEAD) or `scratch` (an empty workspace).
    - `agent`: `claude` (default), `codex`, `opencode`, `omp`, or `pi`. Optional `model`, `effort`, `extra_args`.
    - `prompt`: the initial task. Omit it and the CLI comes up idle for the human.
-   - `title`, `branch_name`, `branch_prefix`, `notes` (written to `NOTES.md` in the work dir), `plan_mode` (claude, opencode, omp), `advisor` (omp).
+   - `title`, `branch_name`, `branch_prefix`, `notes` (written to `NOTES.md` in the work dir), `plan_mode` (claude, opencode, omp), `advisor` (omp), `model_preset` (omp: a preset under `modelPresets` in the host's omp config; `model`/`effort` still win for the main session).
    - `focus: true` switches the human's view to the new pane; the default leaves them where they are.
 
 It returns at once with the agent's `id`, workspace and root pane; the agent boots asynchronously. Check on it with `get_agent` (status: `working`, `idle`, `blocked`, `unknown`, or `failed`). `list_agents` also shows foreign herdr sessions lasso did not create; address those by `sidebar_name` or `root_pane`.

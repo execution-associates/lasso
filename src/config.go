@@ -44,6 +44,10 @@ type LassoConfig struct {
 	// LastAgentType is the agent type chosen last time ("git"|"scratch"),
 	// preselected next time.
 	LastAgentType string `json:"last_agent_type,omitempty"`
+	// LastModelPreset is the omp model preset the last omp agent on this host
+	// launched with ("" = none), preselected next time while the host's omp
+	// still defines it.
+	LastModelPreset string `json:"last_model_preset,omitempty"`
 	// ScratchSetup is the default setup script run before the agent in scratch
 	// (non-git) agents.
 	ScratchSetup string `json:"scratch_setup,omitempty"`
@@ -94,7 +98,11 @@ type AgentRecord struct {
 	// on (omp's --advisor), after normalizeAdvisor dropped it for any harness
 	// without the flag — so reading it back tells you what actually ran. False
 	// for every agent launched before this existed.
-	Advisor     bool      `yaml:"advisor" json:"advisor"`
+	Advisor bool `yaml:"advisor" json:"advisor"`
+	// ModelPreset is the omp model preset the agent launched with (omppresets.go),
+	// after normalizeModelPreset dropped it for any other harness. Empty = none:
+	// the agent ran on the host's own role assignments.
+	ModelPreset string    `yaml:"model_preset,omitempty" json:"model_preset,omitempty"`
 	WorkDir     string    `yaml:"work_dir" json:"work_dir"`
 	WorkspaceID string    `yaml:"workspace_id,omitempty" json:"workspace_id,omitempty"`
 	RootPane    string    `yaml:"root_pane,omitempty" json:"root_pane,omitempty"`
@@ -230,6 +238,7 @@ func loadLassoConfig(host string) (*LassoConfig, error) {
 		LastRepo:                 hs.LastRepo,
 		LastAgent:                hs.LastAgent,
 		LastAgentType:            hs.LastAgentType,
+		LastModelPreset:          hs.LastModelPreset,
 		Harnesses:                harnesses,
 		Repos:                    repos,
 		Agents:                   agents,

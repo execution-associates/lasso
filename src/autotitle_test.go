@@ -542,3 +542,54 @@ func TestHubNoticeReachesTheEventStream(t *testing.T) {
 		}
 	}
 }
+
+// A create's auto_title overrides the setting for that agent, in both
+// directions: false keeps the prompt away from the titling model even with the
+// setting on (the reason the toggle exists), true titles with it off. The
+// titler reports each prompt it is asked about; the false create runs FIRST, so
+// a titling it wrongly started would be the first one seen.
+func TestCreateAgentAutoTitleOverridesSetting(t *testing.T) {
+	t.Setenv("LASSO_DIR", t.TempDir())
+	if err := openDB(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(closeTestDB)
+	asked := make(chan string, 4)
+	titlerRunner = func(_ titler, instruction string) (string, error) {
+		asked <- instruction
+		return "A title\nname\n", nil
+	}
+	t.Cleanup(func() { titlerRunner = runTitler })
+	b := &createAgentBackend{memBackend: newMemBackend()}
+	prev := defaultBackend()
+	setDefaultBackend(b)
+	t.Cleanup(func() { setDefaultBackend(prev) })
+
+	create := func(prompt string, auto bool) {
+		t.Helper()
+		if _, err := createAgent(b, createAgentReq{
+			Type: "git", Repo: "/repo/app", BaseBranch: "main", Prompt: prompt, AutoTitle: &auto,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := setSetting(autoTitleKey, "true"); err != nil {
+		t.Fatal(err)
+	}
+	create("secret cyber task", false)
+	if err := setSetting(autoTitleKey, "false"); err != nil {
+		t.Fatal(err)
+	}
+	create("ordinary task", true)
+	select {
+	case got := <-asked:
+		if strings.Contains(got, "secret cyber task") {
+			t.Fatal("auto_title:false still sent the prompt to the titler")
+		}
+		if !strings.Contains(got, "ordinary task") {
+			t.Errorf("titler asked about %q, want the auto_title:true agent's prompt", got)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("auto_title:true with the setting off never titled the agent")
+	}
+}

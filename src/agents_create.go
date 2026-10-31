@@ -361,7 +361,18 @@ type createAgentReq struct {
 	// Only omp offers one; like PlanMode it is dropped for a harness that can't
 	// take the flag (normalizeAdvisor) rather than persisted as an advisor that
 	// never ran.
-	Advisor     bool     `json:"advisor"`
+	Advisor bool `json:"advisor"`
+	// ModelPreset names an omp model preset (omppresets.go) to launch with: its
+	// role assignments and thinking level, applied through the agent's config
+	// overlay. Model and Effort still win for the main session. omp only —
+	// dropped for any other harness (normalizeModelPreset) — and a name the
+	// host's omp config does not define refuses the create.
+	ModelPreset string `json:"model_preset"`
+	// AutoTitle overrides the auto_title_agents setting for this agent: false
+	// keeps its prompt from going to the titling CLI (another model, on lasso's
+	// host) at all, which matters when the prompt must stay with the models
+	// the agent itself runs on. nil follows the setting.
+	AutoTitle   *bool    `json:"auto_title,omitempty"`
 	Attachments []string `json:"attachments"` // filenames staged under UploadDir
 	UploadDir   string   `json:"upload_dir"`  // staging dir returned by /api/agent-upload
 	// NoFocus suppresses focusing the new agent's herdr pane. The web "New Agent"
@@ -476,10 +487,25 @@ func createAgent(b Backend, req createAgentReq) (AgentRecord, error) {
 		Attachments: req.Attachments,
 		PlanMode:    normalizePlanMode(req.Agent, req.PlanMode),
 		Advisor:     normalizeAdvisor(req.Agent, req.Advisor),
+		ModelPreset: normalizeModelPreset(req.Agent, req.ModelPreset),
 		CreatedAt:   time.Now(),
 		// The agent's CLI is launched asynchronously by bootAgent after we return,
 		// so the record starts life "booting"; bootAgent flips it to ready/failed.
 		BootStatus: BootBooting,
+	}
+
+	// A preset the host's omp does not define is refused BEFORE anything is
+	// created: the boot could only fail on it later, after a worktree and a
+	// workspace exist for an agent that never launches. Resolved as the boot
+	// will: a git agent's repo is its project config.
+	if rec.ModelPreset != "" {
+		project := ""
+		if req.Type == "git" {
+			project = expandTildeOn(b, req.Repo)
+		}
+		if _, err := ompPresetOverlay(b, project, rec.ModelPreset); err != nil {
+			return AgentRecord{}, &createErr{http.StatusBadRequest, err}
+		}
 	}
 
 	switch req.Type {
@@ -645,6 +671,11 @@ func createAgent(b Backend, req createAgentReq) (AgentRecord, error) {
 	}
 	_ = setLastAgent(host, rec.Agent)
 	_ = setLastAgentType(host, rec.Type)
+	// The preset is remembered per host for the harness that has them, "" (none)
+	// included, so the creator reopens on what the last omp agent actually ran.
+	if harnessByID(rec.Agent).stagesConfigOverlay {
+		_ = setLastModelPreset(host, rec.ModelPreset)
+	}
 
 	// Everything past here — staging repo files/attachments/notes into the work
 	// dir, running the setup script, launching the agent CLI, and waiting for its
@@ -663,7 +694,12 @@ func createAgent(b Backend, req createAgentReq) (AgentRecord, error) {
 	// content rather than its first line. Concurrent with the boot: it asks a
 	// local agent CLI (seconds), touches nothing the boot touches, and no caller
 	// waits on the result. Only the display name moves — see autotitle.go.
-	if derivedTitle && rec.WorkspaceID != "" && rec.Description != "" && autoTitleEnabled() {
+	// req.AutoTitle overrides the setting for this one agent.
+	autoTitle := autoTitleEnabled()
+	if req.AutoTitle != nil {
+		autoTitle = *req.AutoTitle
+	}
+	if derivedTitle && rec.WorkspaceID != "" && rec.Description != "" && autoTitle {
 		go autoTitleAgent(b, host, rec)
 	}
 	return rec, nil
@@ -717,12 +753,27 @@ func bootAgent(b Backend, host string, rec AgentRecord, uploadDir string) {
 	// exact lie normalizePlanMode exists to prevent, so the boot fails. For
 	// everyone else the overlay is cosmetic, and an agent that boots in the wrong
 	// theme beats an agent that doesn't boot.
+	//
+	// A model preset rides in the same overlay (omppresets.go) and fails the boot
+	// the same way a plan agent's does: an agent recorded as running a preset
+	// that launched on the user's own roles is that lie again. It is resolved
+	// here, in the work dir, so a project config's preset of the same name wins
+	// as it would in omp itself.
 	if harnessByID(rec.Agent).stagesConfigOverlay {
-		path, err := stageOmpConfig(b, rec.ID, opts.planMode)
+		var preset []byte
+		if rec.ModelPreset != "" {
+			var err error
+			if preset, err = ompPresetOverlay(b, rec.WorkDir, rec.ModelPreset); err != nil {
+				log.Printf("agent %s on %s: boot failed: %v", rec.ID, host, err)
+				_ = updateAgentBootStatus(rec.ID, host, BootFailed, err.Error())
+				return
+			}
+		}
+		path, err := stageOmpConfig(b, rec.ID, opts.planMode, preset)
 		switch {
 		case err == nil:
 			opts.configOverlay = path
-		case opts.planMode:
+		case opts.planMode || preset != nil:
 			log.Printf("agent %s on %s: boot failed: stage omp config: %v", rec.ID, host, err)
 			_ = updateAgentBootStatus(rec.ID, host, BootFailed, "stage omp config: "+err.Error())
 			return

@@ -129,6 +129,7 @@ type agentInfo struct {
 	ExtraArgs   string `json:"extra_args,omitempty"`
 	PlanMode    bool   `json:"plan_mode"`
 	Advisor     bool   `json:"advisor"`
+	ModelPreset string `json:"model_preset,omitempty"`
 	Repo        string `json:"repo,omitempty"`
 	Branch      string `json:"branch,omitempty"`
 	BaseBranch  string `json:"base_branch,omitempty"`
@@ -154,8 +155,8 @@ func agentInfoFrom(host string, rec AgentRecord, status string) agentInfo {
 	return agentInfo{
 		ID: rec.ID, Host: host, Title: rec.Title, Type: rec.Type, Agent: rec.Agent,
 		Model: rec.Model, Effort: rec.Effort, ExtraArgs: rec.ExtraArgs, PlanMode: rec.PlanMode,
-		Advisor: rec.Advisor,
-		Repo:    rec.Repo, Branch: rec.Branch, BaseBranch: rec.BaseBranch,
+		Advisor: rec.Advisor, ModelPreset: rec.ModelPreset,
+		Repo: rec.Repo, Branch: rec.Branch, BaseBranch: rec.BaseBranch,
 		WorkDir: rec.WorkDir, WorkspaceID: rec.WorkspaceID, RootPane: rec.RootPane,
 		Status: surfacedStatus(rec, status), BootStatus: rec.BootStatus, BootError: rec.BootError,
 		CreatedAt: rec.CreatedAt.Format(time.RFC3339), LassoCreated: true,
@@ -679,6 +680,8 @@ type createAgentIn struct {
 	PlanMode     bool   `json:"plan_mode,omitempty" jsonschema:"Start the agent in plan mode: it researches and proposes a plan but does not edit anything until the plan is approved. claude, opencode and omp only — dropped for codex and pi, neither of which lasso can start in a plan mode from the launch line, rather than silently recorded. Answering questions does NOT need approval; the agent only stops when it wants to EXECUTE. In every case the agent parks on a gate lasso reports as status \"blocked\" (get_agent and list_agents show it); to review or answer it from another agent, use herdr — 'herdr agent wait <target> --until blocked', 'herdr agent read <target>', then 'herdr agent send-keys' (a blocked agent refuses 'herdr agent prompt') — or leave it parked for a human watching the pane, which is a valid way to keep a plan under review. The gate itself differs by harness. claude/opencode show a numbered \"Would you like to proceed?\" prompt and herdr reports \"blocked\" natively; option \"1\" accepts. omp shows a Plan Review overlay whose options are chosen with the arrow keys, NOT numbered — herdr's own detection reports it as idle/done, so lasso recognizes the overlay itself and reports \"blocked\" for it (get_agent and list_agents see that; herdr's own wait/status and the web all-panes listing still show idle, so poll get_agent for an omp gate rather than waiting on herdr). Enter accepts the highlighted default, \"Approve and execute\"; to revise an omp plan instead, a human must pick \"Refine plan\" in the pane."`
 	Focus        bool   `json:"focus,omitempty" jsonschema:"Switch the herdr view to the new agent's pane as it boots. Defaults to false so spawning an agent doesn't yank you away from your current pane."`
 	Advisor      bool   `json:"advisor,omitempty" jsonschema:"Turn on the harness's per-turn advisor runtime: a background pass that reviews each turn and injects notes into the session (omp's --advisor). omp only — DROPPED for every other harness rather than silently recorded, since none of them has the flag. Use it when you want a second opinion woven into the agent's context; it does not change what the agent is allowed to do."`
+	ModelPreset  string `json:"model_preset,omitempty" jsonschema:"omp model preset to launch with: a name under modelPresets in the host's omp config (~/.omp/agent/config.yml, or the repo's .omp/config.yml, which wins), as /modelpreset saves them. The agent's model roles (default, smol, slow, task, vision, advisor, …) and thinking level become exactly the preset's for this run; the user's omp config is not modified. An explicit model or effort still wins for the main session. omp only — DROPPED for every other harness. A name the host does not define refuses the create, and the error lists the presets it does define. Omit to run on the host's own role assignments."`
+	AutoTitle    *bool  `json:"auto_title,omitempty" jsonschema:"Whether lasso renames the agent from its prompt, overriding the auto_title setting for this agent only. Auto-titling sends the prompt to a separate titling CLI (a different model, on lasso's machine); pass false when the prompt must stay with the agent's own models. Ignored when you pass a title. Omit to follow the setting."`
 }
 
 // toCreateReq maps the MCP tool's input onto the HTTP create payload. Split out
@@ -714,6 +717,11 @@ func (in createAgentIn) toCreateReq() createAgentReq {
 		// Same rule for the advisor runtime (normalizeAdvisor): omp is the only
 		// harness with the flag, and the record must not claim one otherwise.
 		Advisor: in.Advisor,
+		// And for a model preset (normalizeModelPreset): omp only.
+		ModelPreset: in.ModelPreset,
+		// nil = follow the auto_title setting; the pointer keeps "unset" apart
+		// from an explicit false.
+		AutoTitle: in.AutoTitle,
 	}
 }
 

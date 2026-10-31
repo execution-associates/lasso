@@ -16,6 +16,7 @@ import {
   readDraft,
   readDraftHost,
   rememberCreatorHost,
+  rememberedPreset,
   saveDraft,
   saveDraftHost,
 } from "@/components/NewDialog"
@@ -236,6 +237,7 @@ export function NewAgent({
   const [agent, setAgent] = React.useState("claude")
   const [model, setModel] = React.useState("")
   const [effort, setEffort] = React.useState("")
+  const [modelPreset, setModelPreset] = React.useState("")
   const [prompt, setPrompt] = React.useState("")
   const harness =
     harnesses.find((h) => h.id === agent) ??
@@ -262,6 +264,13 @@ export function NewAgent({
     const same = draft.agent === seededAgent
     setModel(same ? (draft.model ?? "") : "")
     setEffort(same ? (draft.effort ?? "") : "")
+    // The server's memory of the last omp agent's preset, as in the full UI.
+    setModelPreset(
+      rememberedPreset(
+        config,
+        harnesses.find((h) => h.id === seededAgent)
+      )
+    )
     const remembered =
       draft.repo && repos.some((r) => r.path === draft.repo) ? draft.repo : ""
     const last = config.last_repo
@@ -344,6 +353,9 @@ export function NewAgent({
         effort: harness.effort_levels?.includes(effort) ? effort : undefined,
         plan_mode: false,
         advisor: false,
+        model_preset: harness.model_presets?.includes(modelPreset)
+          ? modelPreset
+          : undefined,
       }
       if (type === "git") {
         const draft = readDraft(host)
@@ -478,6 +490,12 @@ export function NewAgent({
                   // Model names and effort levels belong to one harness.
                   setModel("")
                   setEffort("")
+                  setModelPreset(
+                    rememberedPreset(
+                      config,
+                      harnesses.find((h) => h.id === e.target.value)
+                    )
+                  )
                 }}
                 className={field}
               >
@@ -525,6 +543,24 @@ export function NewAgent({
                 </div>
               )}
             </div>
+            {!!harness.model_presets?.length && (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="new-model-preset">Model preset</Label>
+                <select
+                  id="new-model-preset"
+                  value={modelPreset}
+                  onChange={(e) => setModelPreset(e.target.value)}
+                  className={field}
+                >
+                  <option value="">None (omp default)</option>
+                  {harness.model_presets.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col gap-1.5 pt-1">
