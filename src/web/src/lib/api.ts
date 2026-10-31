@@ -2519,6 +2519,9 @@ export const api = {
   // skips the preview size cap. `host` targets the machine the path lives on.
   downloadURL: (path: string, host?: string) =>
     withHost(`/api/file?path=${encodeURIComponent(path)}&download=1`, host),
+  // A folder as a streamed .zip (symlinks skipped, never followed).
+  zipURL: (path: string, host?: string) =>
+    withHost(`/api/file-zip?path=${encodeURIComponent(path)}`, host),
 
   // Upload one or more files into an existing directory on `host` (omitted =
   // the active backend). Filenames are kept (basename only) — the server drops
