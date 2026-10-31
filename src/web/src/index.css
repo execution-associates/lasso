@@ -569,10 +569,17 @@
  * strip with chrome, which the bottom one had for a while, hides the backdrop
  * and puts a straight edge back inside the curve. */
 .vimg {
+  position: relative;
   padding: 16px;
   display: flex;
   align-items: flex-start;
   justify-content: center;
+}
+/* Zoomed (ZoomableImage): the scaled image is clipped to the viewer rather
+   than spilling over the header, and dragging pans it instead of selecting. */
+.vimg.zoomed {
+  overflow: hidden;
+  user-select: none;
 }
 .vimg img {
   max-width: 100%;

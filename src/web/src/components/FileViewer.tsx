@@ -7,6 +7,7 @@ import { Markdown, resolveMarkdownSrc } from "@/components/Markdown"
 import { PreviewFind, previewFindSupported } from "@/components/PreviewFind"
 import { Button } from "@/components/ui/button"
 import { Orb } from "@/components/ui/orb"
+import { ZoomableImage } from "@/components/ZoomableImage"
 import { api } from "@/lib/api"
 import { useApp } from "@/lib/app-store"
 import { changedNewLines } from "@/lib/diff"
@@ -563,9 +564,7 @@ export function FileViewer({
       )}
       <div className="vbody">
         {image ? (
-          <div className={nav ? "vimg fit" : "vimg"}>
-            <img src={mediaURL} alt={path} />
-          </div>
+          <ZoomableImage key={path} src={mediaURL} alt={path} fit={!!nav} />
         ) : pdf ? (
           <iframe className="vpdf" src={mediaURL} title={path} />
         ) : video ? (
