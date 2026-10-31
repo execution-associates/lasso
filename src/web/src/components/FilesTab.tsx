@@ -457,10 +457,11 @@ export function FilesTab({
   })
 
   // Trigger a browser download of a file via a synthetic anchor.
-  const downloadFile = (full: string, name: string) => {
+  const downloadFile = (full: string, name: string, dir = false) => {
+    const host = curHost ?? undefined
     const a = document.createElement("a")
-    a.href = api.downloadURL(full, curHost ?? undefined)
-    a.download = name
+    a.href = dir ? api.zipURL(full, host) : api.downloadURL(full, host)
+    a.download = dir ? `${name}.zip` : name
     document.body.appendChild(a)
     a.click()
     a.remove()
@@ -510,7 +511,7 @@ export function FilesTab({
             onDelete={() =>
               setDeleteTarget({ name: e.name, full, dir: e.dir, parent: dir })
             }
-            onDownload={e.dir ? undefined : () => downloadFile(full, e.name)}
+            onDownload={() => downloadFile(full, e.name, e.dir)}
             onGallery={
               e.dir && onViewGallery
                 ? () => onViewGallery(full, curHost)
@@ -821,7 +822,9 @@ function FileRow({
           </ContextMenuItem>
         )}
         {onDownload && (
-          <ContextMenuItem onSelect={onDownload}>Download</ContextMenuItem>
+          <ContextMenuItem onSelect={onDownload}>
+            {dir ? "Download as zip" : "Download"}
+          </ContextMenuItem>
         )}
         {onRename && (
           <ContextMenuItem onSelect={onRename}>Rename…</ContextMenuItem>
