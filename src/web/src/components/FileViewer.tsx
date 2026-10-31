@@ -1,12 +1,13 @@
 import { openSearchPanel } from "@codemirror/search"
 import type { EditorView } from "@codemirror/view"
-import { Eye, Pencil, Save, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, Eye, Pencil, Save, X } from "lucide-react"
 import * as React from "react"
 import { CodeEditor } from "@/components/CodeEditor"
 import { Markdown, resolveMarkdownSrc } from "@/components/Markdown"
 import { PreviewFind, previewFindSupported } from "@/components/PreviewFind"
 import { Button } from "@/components/ui/button"
 import { Orb } from "@/components/ui/orb"
+import { ZoomableImage } from "@/components/ZoomableImage"
 import { api } from "@/lib/api"
 import { useApp } from "@/lib/app-store"
 import { changedNewLines } from "@/lib/diff"
@@ -50,6 +51,7 @@ export function FileViewer({
   onDraftChange,
   line = null,
   lineSeq = 0,
+  nav,
 }: {
   path: string
   // The host the file was opened from — captured at open time by the parent, so
@@ -70,6 +72,9 @@ export function FileViewer({
   // the same line again re-scrolls.
   line?: number | null
   lineSeq?: number
+  // Set when the file was opened from the Gallery: its place in that list,
+  // and a step to the previous (-1) or next (+1) item.
+  nav?: { index: number; total: number; go: (delta: number) => void }
 }) {
   const image = isImage(path)
   const pdf = isPdf(path)
@@ -436,6 +441,33 @@ export function FileViewer({
     return () => window.removeEventListener("beforeunload", onBeforeUnload)
   }, [dirty])
 
+  // ← and → step through the gallery, unless a field or a playing media
+  // element (which seeks on arrows) has the keyboard, or the viewer is not on
+  // screen (another sidebar tab, collapsed sidebar).
+  const navRef = React.useRef(nav)
+  navRef.current = nav
+  const hasNav = nav != null
+  React.useEffect(() => {
+    if (!hasNav) return
+    const onKey = (e: KeyboardEvent) => {
+      const n = navRef.current
+      if (!n || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return
+      const t = e.target as HTMLElement | null
+      if (
+        t &&
+        (t.isContentEditable ||
+          /^(INPUT|TEXTAREA|SELECT|VIDEO|AUDIO)$/.test(t.tagName))
+      )
+        return
+      if (!rootRef.current?.clientWidth) return
+      e.preventDefault()
+      n.go(e.key === "ArrowLeft" ? -1 : 1)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [hasNav])
+
   return (
     <div
       ref={rootRef}
@@ -458,6 +490,31 @@ export function FileViewer({
           </span>
         )}
         <div className="ml-auto flex items-center gap-2">
+          {nav && nav.total > 1 && (
+            <div className="flex items-center gap-0.5 text-[12px] text-muted-foreground tabular-nums">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-1"
+                title="previous (←)"
+                aria-label="Previous in gallery"
+                onClick={() => nav.go(-1)}
+              >
+                <ChevronLeft />
+              </Button>
+              {nav.index + 1}/{nav.total}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-1"
+                title="next (→)"
+                aria-label="Next in gallery"
+                onClick={() => nav.go(1)}
+              >
+                <ChevronRight />
+              </Button>
+            </div>
+          )}
           {previewable && !binary && error == null && text != null && (
             <Button
               variant="outline"
@@ -507,13 +564,11 @@ export function FileViewer({
       )}
       <div className="vbody">
         {image ? (
-          <div className="vimg">
-            <img src={mediaURL} alt={path} />
-          </div>
+          <ZoomableImage key={path} src={mediaURL} alt={path} fit={!!nav} />
         ) : pdf ? (
           <iframe className="vpdf" src={mediaURL} title={path} />
         ) : video ? (
-          <div className="vvideo">
+          <div className={nav ? "vvideo fit" : "vvideo"}>
             <video src={mediaURL} controls>
               <track kind="captions" />
             </video>

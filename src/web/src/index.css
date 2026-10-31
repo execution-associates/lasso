@@ -569,10 +569,17 @@
  * strip with chrome, which the bottom one had for a while, hides the backdrop
  * and puts a straight edge back inside the curve. */
 .vimg {
+  position: relative;
   padding: 16px;
   display: flex;
   align-items: flex-start;
   justify-content: center;
+}
+/* Zoomed (ZoomableImage): the scaled image is clipped to the viewer rather
+   than spilling over the header, and dragging pans it instead of selecting. */
+.vimg.zoomed {
+  overflow: hidden;
+  user-select: none;
 }
 .vimg img {
   max-width: 100%;
@@ -580,6 +587,19 @@
   background:
     repeating-conic-gradient(#80808022 0% 25%, transparent 0% 50%) 50% / 22px
     22px;
+}
+/* Opened from the gallery: the whole image or video is on screen at once,
+   fitted to the viewer's height as well as its width, since stepping through a
+   folder is about seeing each one, not scrolling it. */
+.vimg.fit,
+.vvideo.fit {
+  height: 100%;
+  box-sizing: border-box;
+  align-items: center;
+}
+.vimg.fit img,
+.vvideo.fit video {
+  max-height: 100%;
 }
 .vpdf,
 /* A page with no background of its own reads as a browser would show it:

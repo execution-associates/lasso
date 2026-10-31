@@ -9,6 +9,7 @@ import {
   type FilesTabState,
 } from "@/components/FilesTab"
 import { FileViewer } from "@/components/FileViewer"
+import { GalleryTab } from "@/components/GalleryTab"
 import { QuickOpen } from "@/components/QuickOpen"
 import { Orb } from "@/components/ui/orb"
 import { useApp } from "@/lib/app-store"
@@ -23,17 +24,27 @@ import { usePaneFocusPending } from "@/lib/pane-focus"
 import { onQuickOpenRequest } from "@/lib/quick-open"
 import { cn } from "@/lib/utils"
 
-type SubView = "files" | "diff"
+type SubView = "files" | "diff" | "gallery"
 
 // The file the viewer has open, and the host it was opened on. `line` and
 // `seq` are set only by an agent's open_file: the line to scroll to, and a
-// counter so the same line asked for twice still re-scrolls.
+// counter so the same line asked for twice still re-scrolls. `gallery` is the
+// list the file was opened from in the Gallery subtab, which the viewer's ‹ ›
+// step through.
 type ViewerTarget = {
   path: string
   host: string | null
   line?: number | null
   seq?: number
+  gallery?: string[]
 }
+
+// A folder the gallery was pointed at (right-click "View in gallery", or
+// moving between folders inside it). `base` is the Files tree's root when it
+// was picked: once the tree moves, the gallery goes back to following it.
+type GalleryPick = { path: string; host: string | null; base: string }
+const rootKey = (path: string | null, host: string | null) =>
+  `${host ?? ""}\u0000${path ?? ""}`
 
 // Per-pane state is kept only for the panes actually browsed, and capped so a
 // long session across many agents can't grow without bound. Least-recently
@@ -111,10 +122,43 @@ export function FilesPanel() {
   // agent opening a directory re-roots the tree there (see openRequested).
   const [tabGen, setTabGen] = React.useState(0)
 
+  // The tree's root for the current pane, mirrored into state so the gallery
+  // can follow it (tabStates is a ref, and changes on every keystroke).
+  const [tabRoot, setTabRoot] = React.useState<{
+    pane: string
+    path: string | null
+    host: string | null
+  } | null>(null)
   const saveTabState = React.useCallback(
-    (s: FilesTabState) => remember(tabStates.current, pane, s),
+    (s: FilesTabState) => {
+      remember(tabStates.current, pane, s)
+      setTabRoot((prev) =>
+        prev?.pane === pane && prev.path === s.path && prev.host === s.host
+          ? prev
+          : { pane, path: s.path, host: s.host }
+      )
+    },
     [pane]
   )
+  const filesRoot =
+    tabRoot?.pane === pane
+      ? { path: tabRoot.path, host: tabRoot.host }
+      : { path: activeCwd, host: cwdHost }
+  const filesRootKey = rootKey(filesRoot.path, filesRoot.host)
+  const [galleryPicks, setGalleryPicks] = React.useState<
+    Map<string, GalleryPick>
+  >(() => new Map())
+  const pick = galleryPicks.get(pane)
+  const galleryDir =
+    pick && pick.base === filesRootKey
+      ? { path: pick.path, host: pick.host }
+      : filesRoot
+  const pointGallery = (path: string, host: string | null) =>
+    setGalleryPicks((prev) => {
+      const next = new Map(prev)
+      remember(next, pane, { path, host, base: filesRootKey })
+      return next
+    })
   const setViewer = React.useCallback(
     (v: ViewerTarget | null) => {
       if (!v) drafts.current.delete(pane)
@@ -269,6 +313,26 @@ export function FilesPanel() {
     setViewer({ path, host, line, seq: line != null ? Date.now() : undefined })
   }
 
+  // Stepping through the gallery list a file was opened from. Wraps around.
+  const galleryItems = viewer?.gallery
+  const galleryIndex = galleryItems?.indexOf(viewer?.path ?? "") ?? -1
+  const galleryNav =
+    viewer && galleryItems && galleryIndex >= 0
+      ? {
+          index: galleryIndex,
+          total: galleryItems.length,
+          go: (delta: number) => {
+            const n = galleryItems.length
+            const j = (((galleryIndex + delta) % n) + n) % n
+            setViewer({
+              path: galleryItems[j],
+              host: viewer.host,
+              gallery: galleryItems,
+            })
+          },
+        }
+      : undefined
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex flex-none items-center gap-1 border-border border-b bg-background px-2 py-1">
@@ -287,6 +351,9 @@ export function FilesPanel() {
           >
             Diff
           </span>
+        </SubTab>
+        <SubTab active={sub === "gallery"} onClick={() => setSub("gallery")}>
+          Gallery
         </SubTab>
         {sub === "files" && (
           <>
@@ -346,6 +413,10 @@ export function FilesPanel() {
             initial={tabStates.current.get(pane) ?? null}
             onStateChange={saveTabState}
             uploadRef={uploadRef}
+            onViewGallery={(path, h) => {
+              pointGallery(path, h)
+              setSub("gallery")
+            }}
           />
         </div>
         <div
@@ -359,6 +430,22 @@ export function FilesPanel() {
             host={cwdHost}
             data={data}
             error={error}
+          />
+        </div>
+        <div
+          className={cn(
+            "absolute inset-0 flex flex-col",
+            sub !== "gallery" && "hidden"
+          )}
+        >
+          <GalleryTab
+            dir={galleryDir.path}
+            host={galleryDir.host}
+            visible={sub === "gallery" && viewer == null}
+            onNavigate={(path) => pointGallery(path, galleryDir.host)}
+            onOpen={(path, items) =>
+              setViewer({ path, host: galleryDir.host, gallery: items })
+            }
           />
         </div>
 
@@ -409,6 +496,7 @@ export function FilesPanel() {
               initialDraft={initialDraft}
               onDraftChange={saveDraft}
               onClose={() => setViewer(null)}
+              nav={galleryNav}
             />
           </ErrorBoundary>
         )}
