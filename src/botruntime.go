@@ -127,16 +127,16 @@ func startBot(b Backend, r *botRecord, fresh bool) error {
 	_ = setBotStopped(r.Name, false)
 	invalidatePaneList(b.Name())
 	waitPaneReady(b, paneID)
-	if err := paneRun(b, paneID, botLaunchCommand(r.task(), session)); err != nil {
+	if err := paneRun(b, paneID, botLaunchCommand(session)); err != nil {
 		return fmt.Errorf("launch: %w", err)
 	}
 	return nil
 }
 
-// openBotTab opens a tab named after the bot in its workspace (creating the
-// workspace when there is none by that label) and returns the tab's pane.
+// openBotTab opens a tab named after the bot in the Bots workspace (creating
+// it when there is none by that label) and returns the tab's pane.
 func openBotTab(b Backend, r *botRecord, dir string) (string, error) {
-	if ws := terminalWorkspaceIDByLabel(b, r.Workspace); ws != "" {
+	if ws := terminalWorkspaceIDByLabel(b, botWorkspace); ws != "" {
 		res, err := b.HerdrCall("tab.create", map[string]any{
 			"workspace_id": ws, "cwd": dir, "label": r.Name, "focus": false,
 		})
@@ -149,7 +149,7 @@ func openBotTab(b Backend, r *botRecord, dir string) (string, error) {
 		}
 	}
 	res, err := b.HerdrCall("workspace.create", map[string]any{
-		"cwd": dir, "label": r.Workspace, "focus": false,
+		"cwd": dir, "label": botWorkspace, "focus": false,
 	})
 	if err != nil {
 		return "", fmt.Errorf("workspace.create: %w", err)
@@ -534,7 +534,7 @@ func botReportSession(b Backend, r *botRecord, p pane, sessions []claudeSessionE
 	if done {
 		return
 	}
-	argv := botResumeArgv(r.task(), sid)
+	argv := botResumeArgv(sid)
 	if err := validateResumeArgv(argv); err != nil {
 		log.Printf("bots:     %s: %v", r.Name, err)
 		return

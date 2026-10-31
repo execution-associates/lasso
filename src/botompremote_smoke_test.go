@@ -50,7 +50,7 @@ func TestOmpRemoteSmoke(t *testing.T) {
 	t.Cleanup(func() { botBackend, botOmpLaunch = prev, prevLaunch })
 
 	const name = "omp-smoke"
-	r := &botRecord{Name: name, Runtime: botRuntimeOmp, Host: host, Dir: "~/bots/" + name, Workspace: "Bots",
+	r := &botRecord{Name: name, Runtime: botRuntimeOmp, Host: host, Dir: "~/bots/" + name,
 		Model: os.Getenv("LASSO_SMOKE_OMP_MODEL")}
 	if err := r.normalize(); err != nil {
 		t.Fatal(err)

@@ -130,7 +130,6 @@ type Draft = {
   runtime: BotRuntime
   name: string
   host: string
-  workspace: string
   dir: string
   model: string
   effort: string
@@ -176,7 +175,6 @@ function draftOf(b?: BotView): Draft {
     runtime: b?.runtime ?? "omp",
     name: b?.name ?? "",
     host: b?.host ?? "local",
-    workspace: b?.workspace ?? "",
     dir: b?.dir ?? "",
     model: b?.model ?? "",
     effort: b?.effort ?? "",
@@ -209,7 +207,6 @@ function fieldsOf(d: Draft): BotFields {
   return {
     runtime: d.runtime,
     dir: d.dir.trim(),
-    workspace: d.workspace.trim(),
     model: d.model.trim(),
     effort: d.effort,
     permission_mode: d.permission_mode,
@@ -641,20 +638,6 @@ function GeneralTab({
               />
             </Field>
           )}
-          <Field
-            label="Workspace"
-            htmlFor="bot-workspace"
-            hint="The herdr workspace its pane opens in."
-          >
-            <input
-              {...NO_AUTOCORRECT}
-              id="bot-workspace"
-              value={draft.workspace}
-              onChange={(e) => set({ workspace: e.target.value })}
-              placeholder="Bots"
-              className={fieldClass}
-            />
-          </Field>
           <Field
             label="Folder"
             htmlFor="bot-dir"
@@ -2211,13 +2194,11 @@ function LaunchTab({
   bot,
   launch,
   dirPath,
-  tasks,
   onOpenTerminal,
 }: {
   bot: BotView
   launch: string
   dirPath: string
-  tasks: string[] | null
   onOpenTerminal?: (b: BotView) => void
 }) {
   const [busy, setBusy] = React.useState(false)
@@ -2240,26 +2221,6 @@ function LaunchTab({
       }
     })
   const running = botRunning(bot)
-  const task = bot.launch_task || "bot"
-  // The current task stays a choice even when mise could not list the folder.
-  const choices = Array.from(new Set(["bot", ...(tasks ?? []), task]))
-  const setTask = (next: string) =>
-    run(async () => {
-      try {
-        await api.bots.update(bot.name, {
-          ...bot,
-          launch_task: next === "bot" ? "" : next,
-        })
-        if (running)
-          toast(
-            `${bot.name} switches to mise run ${next} when it restarts. If that changes provider, use Restart, new conversation.`
-          )
-      } catch (e) {
-        toast.error((e as Error).message)
-      } finally {
-        void invalidateBots(bot.name)
-      }
-    })
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -2335,46 +2296,10 @@ function LaunchTab({
           idle.
         </p>
       )}
-      <Field
-        label="Launch task"
-        htmlFor="bot-task"
-        hint={
-          <>
-            The mise task that starts it, also used to restore and relaunch it.
-            Anything other than <code className="font-mono">bot</code> is a mode
-            you write in its folder, such as another provider: it sets its
-            environment and ends with{" "}
-            <code className="font-mono">exec mise run bot -- "$@"</code>. A
-            conversation started on one provider may not resume on another:
-            after switching provider, restart it on a new conversation.
-          </>
-        }
-      >
-        <select
-          id="bot-task"
-          className={cn(fieldClass, "max-w-xs font-mono")}
-          value={task}
-          disabled={busy}
-          onChange={(e) => void setTask(e.target.value)}
-        >
-          {choices.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
-      </Field>
       <p className="text-[12.5px] text-muted-foreground leading-relaxed">
-        The bot runs as <code className="font-mono">mise run {task}</code> in{" "}
-        <code className="font-mono">{dirPath}</code>
-        {task === "bot" ? (
-          <>: mise loads its environment, then runs the script below.</>
-        ) : (
-          <>
-            , which hands off to <code className="font-mono">bot</code>, the
-            script below.
-          </>
-        )}{" "}
+        The bot runs as <code className="font-mono">mise run bot</code> in{" "}
+        <code className="font-mono">{dirPath}</code>, in herdr's Bots
+        workspace: mise loads its environment, then runs the script below.{" "}
         lasso writes that script from these settings on every save; edit the
         settings, not the file.
         {bot.session_id && (
@@ -2561,7 +2486,6 @@ export function BotSettings({
               bot={bot}
               launch={detail.data.launch}
               dirPath={detail.data.dir_path}
-              tasks={detail.data.tasks}
               onOpenTerminal={onOpenTerminal}
             />
           )}

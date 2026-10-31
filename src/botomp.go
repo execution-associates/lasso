@@ -43,7 +43,7 @@ const botOmpAgent = "omp"
 // botOmpLauncher runs a bot's pane. The herdr one is the real thing; tests run
 // a fake bridge in-process.
 type botOmpLauncher interface {
-	// start opens a tab in the bot's workspace and types its launch task.
+	// start opens a tab in the Bots workspace and types `mise run bot`.
 	start(b Backend, r *botRecord, dir string, fresh bool) error
 	// pane is the bot's herdr pane, if it has one.
 	pane(b Backend, r *botRecord) (string, bool)
@@ -62,7 +62,7 @@ func (herdrBotLauncher) start(b Backend, r *botRecord, dir string, fresh bool) e
 	}
 	invalidatePaneList(b.Name())
 	waitPaneReady(b, paneID)
-	if err := paneRun(b, paneID, botOmpLaunchCommand(r.task(), fresh)); err != nil {
+	if err := paneRun(b, paneID, botOmpLaunchCommand(fresh)); err != nil {
 		return fmt.Errorf("launch: %w", err)
 	}
 	return nil

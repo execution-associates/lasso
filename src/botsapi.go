@@ -187,9 +187,6 @@ func botCreate(rec botRecord, instructions string, start bool) (map[string]any, 
 	if err != nil {
 		return nil, botModelErr{err, http.StatusBadGateway}
 	}
-	if err := botCheckLaunchTask(b, &rec); err != nil {
-		return nil, botModelErr{err, http.StatusBadRequest}
-	}
 	if len(instructions) > botInstructionsMax {
 		return nil, botModelErr{errors.New("instructions are longer than 256 KB"), http.StatusBadRequest}
 	}
@@ -247,9 +244,6 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 		v := botStatus(b, rec, readClaudeSessions(b))
 		dir := expandTildeOn(b, rec.Dir)
 		botLoadChannelToken(rec)
-		// The launch task picker's choices; nil (unknown) when mise cannot
-		// list the folder, which the page shows as just the current task.
-		tasks, _ := botLaunchTasks(b, dir)
 		// The server lasso adds for the bot's own settings tools, shown as a
 		// read-only connection: "" when it adds none (another host, MCP_OAUTH,
 		// or a server of the human's own named lasso).
@@ -263,7 +257,6 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 			"launch":   botLaunchScript(b, rec, dir, botEnvKeys(b, dir)),
 			// The instructions file: CLAUDE.md for claude, AGENTS.md for omp.
 			"claude_md": filepath.Join(dir, botInstructionsFile(rec)),
-			"tasks":     tasks,
 			"lasso_mcp": lassoMCP,
 			// lasso's channel, shown as a read-only connection when the bot gets it.
 			"lasso_channel": rec.channelToken != "" && slices.Contains(rec.channelGrants(), botChannelName),
@@ -285,10 +278,6 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 		}
 		if next.Runtime != rec.Runtime && botRunning(b, rec) {
 			http.Error(w, "stop the bot before changing its runtime", http.StatusConflict)
-			return
-		}
-		if err := botCheckLaunchTask(b, &next); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		if err := updateBot(&next); err != nil {

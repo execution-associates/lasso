@@ -697,8 +697,8 @@ func TestBotNormalizeRuntime(t *testing.T) {
 func TestBotOmpFiles(t *testing.T) {
 	t.Setenv("LASSO_DIR", "/l")
 	r := &botRecord{Name: "a", Runtime: "omp", Model: "anthropic/claude-opus-5", Effort: "high", PermissionMode: "always-ask",
-		LaunchTask: "deep", ExtraArgs: []string{"--append-system-prompt", "be brief", "--advisor"},
-		MCP: []botMCPServer{{Name: "mail", Type: "http", URL: "https://m.example/mcp", OAuth: true, Channel: true}}}
+		ExtraArgs: []string{"--append-system-prompt", "be brief", "--advisor"},
+		MCP:       []botMCPServer{{Name: "mail", Type: "http", URL: "https://m.example/mcp", OAuth: true, Channel: true}}}
 	if err := r.normalize(); err != nil {
 		t.Fatal(err)
 	}
@@ -706,13 +706,13 @@ func TestBotOmpFiles(t *testing.T) {
 	for _, want := range []string{
 		"#MISE secrets=[\"TOKEN\"]", "#MISE interactive=true",
 		"export LASSO_BOT_NAME='a' LASSO_BOT_SOCKET='/l/bots/a.sock'",
-		`LASSO_BOT_RESTART='/b/a/.lasso/restart' LASSO_BOT_RESUME='["mise","run","deep","--","-c"]'`,
+		`LASSO_BOT_RESTART='/b/a/.lasso/restart' LASSO_BOT_RESUME='["mise","run","bot","--","-c"]'`,
 		`export LASSO_HERDR_SOCKET="${HERDR_SOCKET_PATH:-}" LASSO_HERDR_PANE="${HERDR_PANE_ID:-}"`,
 		"unset HERDR_ENV\n",
 		"omp '-e' '/b/a/.lasso/omp-bridge.ts' '--session-dir' '/b/a/.lasso/sessions'",
 		"'--approval-mode' 'always-ask'", "'--model' 'anthropic/claude-opus-5'", "'--thinking' 'high'", "be brief",
 		"'--advisor' \"$@\"\nstatus=$?\n",
-		"rm -f \"$marker\"\n  exec mise run deep -- -c\n",
+		"rm -f \"$marker\"\n  exec mise run bot -- -c\n",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("task script lacks %q:\n%s", want, s)
@@ -723,13 +723,13 @@ func TestBotOmpFiles(t *testing.T) {
 			t.Errorf("task script has %q:\n%s", gone, s)
 		}
 	}
-	if err := validateResumeArgv(botOmpResumeArgv(r.task())); err != nil {
+	if err := validateResumeArgv(botOmpResumeArgv()); err != nil {
 		t.Errorf("herdr would refuse the resume argv: %v", err)
 	}
-	if got := botOmpLaunchCommand("deep", false); got != "mise run deep -- -c" {
+	if got := botOmpLaunchCommand(false); got != "mise run bot -- -c" {
 		t.Errorf("launch = %q", got)
 	}
-	if got := botOmpLaunchCommand("bot", true); got != "mise run bot" {
+	if got := botOmpLaunchCommand(true); got != "mise run bot" {
 		t.Errorf("fresh launch = %q", got)
 	}
 	var cfg struct {

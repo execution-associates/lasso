@@ -25,7 +25,6 @@ type createBotIn struct {
 	Host           string         `json:"host,omitempty" jsonschema:"the host it runs on, as list_hosts shows it; default lasso's own"`
 	Runtime        string         `json:"runtime,omitempty" jsonschema:"omp (default) or claude"`
 	Dir            string         `json:"dir,omitempty" jsonschema:"its folder on that host (absolute or ~/...); default ~/bots/<name>. An existing folder is used as it is: its instructions file and skills are kept"`
-	Workspace      string         `json:"workspace,omitempty" jsonschema:"the herdr workspace its tab opens in; default Bots"`
 	Model          string         `json:"model,omitempty" jsonschema:"as update_bot's model"`
 	Effort         string         `json:"effort,omitempty" jsonschema:"as update_bot's effort"`
 	PermissionMode string         `json:"permission_mode,omitempty" jsonschema:"as update_bot's permission_mode"`
@@ -121,7 +120,7 @@ type botOAuthFinishIn struct {
 func registerBotManageTools(s *mcp.Server) {
 	addHostTool(s, &mcp.Tool{
 		Name:        "create_bot",
-		Description: "Create a bot, as lasso's Bots view does: a row in lasso plus a folder on its host with the generated launch task and MCP config, and (start) its first launch. A bot runs with whatever its settings grant, on the host you name, so create one only when your human asks for it.",
+		Description: "Create a bot, as lasso's Bots view does: a row in lasso plus a folder on its host with the generated bot task and MCP config, and (start) its first launch. A bot runs with whatever its settings grant, on the host you name, so create one only when your human asks for it.",
 	}, createBotTool)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "delete_bot",
@@ -218,7 +217,7 @@ func createBotTool(ctx context.Context, req *mcp.CallToolRequest, in createBotIn
 		runtime = botRuntimeOmp
 	}
 	rec := botRecord{
-		Name: in.Name, Host: host, Runtime: runtime, Dir: in.Dir, Workspace: in.Workspace,
+		Name: in.Name, Host: host, Runtime: runtime, Dir: in.Dir,
 		Model: in.Model, Effort: in.Effort, PermissionMode: in.PermissionMode,
 		MCP: in.MCP, StrictMCP: in.StrictMCP, ExtraArgs: in.ExtraArgs,
 		KeepRunning: in.KeepRunning == nil || *in.KeepRunning,
