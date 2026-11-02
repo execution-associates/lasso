@@ -245,15 +245,15 @@ export function rememberCreatorHost(host: string) {
   patchUIState({ creator_last_host: host })
 }
 
-// The omp model preset to preselect for harness h: the one the last omp agent
-// on this host launched with (the server's last_model_preset), while the host
-// still defines it — else none. A harness without presets always gets none.
-export function rememberedPreset(
+// The omp profile to preselect for harness h: the one the last omp agent on
+// this host launched with (the server's last_model_profile), while the host
+// still has it — else none. A harness without profiles always gets none.
+export function rememberedProfile(
   config: AgentConfig | null | undefined,
   h: HarnessDef | undefined
 ): string {
-  const last = config?.last_model_preset
-  return last && h?.model_presets?.includes(last) ? last : ""
+  const last = config?.last_model_profile
+  return last && h?.model_profiles?.includes(last) ? last : ""
 }
 
 function slugify(text: string): string {
@@ -477,8 +477,8 @@ export function NewDialog({
   const [pastingImage, setPastingImage] = React.useState(false)
   const [planMode, setPlanMode] = React.useState(false)
   const [advisor, setAdvisor] = React.useState(false)
-  // "" = no preset: omp runs on the host's own role assignments.
-  const [modelPreset, setModelPreset] = React.useState("")
+  // "" = no profile: omp runs on the host's own ~/.omp/agent.
+  const [modelProfile, setModelProfile] = React.useState("")
   // null = follow the Settings tab's auto-title setting; a boolean overrides it
   // for this agent only.
   const [autoTitle, setAutoTitle] = React.useState<boolean | null>(null)
@@ -633,10 +633,10 @@ export function NewDialog({
     setAdvisor(draftAgentMatches ? (draft.advisor ?? false) : false)
     // Per agent, never remembered: each opening starts at the Settings value.
     setAutoTitle(null)
-    // The preset is NOT draft state: it is the server's memory of what the last
+    // The profile is NOT draft state: it is the server's memory of what the last
     // omp agent on this host actually launched with, so the form reopens on it.
-    setModelPreset(
-      rememberedPreset(
+    setModelProfile(
+      rememberedProfile(
         config,
         harnesses.find((h) => h.id === seededAgent)
       )
@@ -861,9 +861,9 @@ export function NewDialog({
         // Same gate as plan mode: the toggle is omp-only, and a switch to
         // another harness leaves its state behind for the next omp agent.
         advisor: advisor && harness.supports_advisor,
-        // Only a preset the picked harness lists on this host (omp's own).
-        model_preset: harness.model_presets?.includes(modelPreset)
-          ? modelPreset
+        // Only a profile the picked harness lists on this host (omp's own).
+        model_profile: harness.model_profiles?.includes(modelProfile)
+          ? modelProfile
           : undefined,
         // Only an explicit change from the Settings default is sent.
         auto_title: autoTitle ?? undefined,
@@ -1243,10 +1243,10 @@ export function NewDialog({
                         // carrying over a value the new CLI can't take.
                         setModel("")
                         setEffort("")
-                        // Presets are omp's; switching to it lands on the one
+                        // Profiles are omp's; switching to it lands on the one
                         // the last omp agent here used, away from it on none.
-                        setModelPreset(
-                          rememberedPreset(
+                        setModelProfile(
+                          rememberedProfile(
                             config,
                             harnesses.find((h) => h.id === e.target.value)
                           )
@@ -1304,29 +1304,30 @@ export function NewDialog({
                   )}
                 </div>
 
-                {/* omp's model presets on the picked host: a whole role setup
-                (default, smol, slow, task, …) plus its thinking level, applied
-                for this agent's run only. Hidden for every other harness, and
-                for an omp host that defines none. */}
-                {!!harness.model_presets?.length && (
-                  <Field label="Model preset" htmlFor="agent-model-preset">
+                {/* omp's profiles on the picked host: a whole isolated agent
+                dir (~/.omp/profiles/<name>/agent) whose config.yml carries the
+                role setup and thinking level, and which also keeps its own
+                sessions, history and credentials. Hidden for every other
+                harness, and for an omp host that has none. */}
+                {!!harness.model_profiles?.length && (
+                  <Field label="Profile" htmlFor="agent-model-profile">
                     <select
-                      id="agent-model-preset"
+                      id="agent-model-profile"
                       className={fieldClass}
-                      value={modelPreset}
-                      onChange={(e) => setModelPreset(e.target.value)}
+                      value={modelProfile}
+                      onChange={(e) => setModelProfile(e.target.value)}
                     >
                       <option value="">None (omp default)</option>
-                      {harness.model_presets.map((p) => (
+                      {harness.model_profiles.map((p) => (
                         <option key={p} value={p}>
                           {p}
                         </option>
                       ))}
                     </select>
-                    {modelPreset && (model.trim() || effort) && (
+                    {modelProfile && (model.trim() || effort) && (
                       <p className="mt-1 text-muted-foreground text-xs">
                         The model and effort above still win for the main
-                        session; every other role follows the preset.
+                        session; every other role follows the profile.
                       </p>
                     )}
                   </Field>

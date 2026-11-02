@@ -362,12 +362,15 @@ type createAgentReq struct {
 	// take the flag (normalizeAdvisor) rather than persisted as an advisor that
 	// never ran.
 	Advisor bool `json:"advisor"`
-	// ModelPreset names an omp model preset (omppresets.go) to launch with: its
-	// role assignments and thinking level, applied through the agent's config
-	// overlay. Model and Effort still win for the main session. omp only —
-	// dropped for any other harness (normalizeModelPreset) — and a name the
-	// host's omp config does not define refuses the create.
-	ModelPreset string `json:"model_preset"`
+	// ModelProfile names an omp profile (ompprofiles.go) to launch with —
+	// `omp --profile <name>`: a whole isolated agent dir under
+	// ~/.omp/profiles/<name>/agent whose config.yml carries the role
+	// assignments and thinking level, and which also moves sessions, history,
+	// credentials and prompt. Model and Effort still win for the main session.
+	// omp only — dropped for any other harness (normalizeModelProfile) — and a
+	// name the host does not have, or `default` (omp's own ~/.omp/agent),
+	// refuses the create.
+	ModelProfile string `json:"model_profile"`
 	// AutoTitle overrides the auto_title_agents setting for this agent: false
 	// keeps its prompt from going to the titling CLI (another model, on lasso's
 	// host) at all, which matters when the prompt must stay with the models
@@ -474,36 +477,31 @@ func createAgent(b Backend, req createAgentReq) (AgentRecord, error) {
 	slug := titleSlug(req.Title)
 
 	rec := AgentRecord{
-		ID:          strconv.FormatInt(time.Now().UnixNano(), 36),
-		Host:        host,
-		Title:       req.Title,
-		Type:        req.Type,
-		Agent:       req.Agent,
-		Model:       strings.TrimSpace(req.Model),
-		Effort:      normalizeEffort(req.Agent, req.Effort),
-		ExtraArgs:   strings.TrimSpace(req.ExtraArgs),
-		Description: req.Prompt,
-		Notes:       strings.TrimSpace(req.Notes),
-		Attachments: req.Attachments,
-		PlanMode:    normalizePlanMode(req.Agent, req.PlanMode),
-		Advisor:     normalizeAdvisor(req.Agent, req.Advisor),
-		ModelPreset: normalizeModelPreset(req.Agent, req.ModelPreset),
-		CreatedAt:   time.Now(),
+		ID:           strconv.FormatInt(time.Now().UnixNano(), 36),
+		Host:         host,
+		Title:        req.Title,
+		Type:         req.Type,
+		Agent:        req.Agent,
+		Model:        strings.TrimSpace(req.Model),
+		Effort:       normalizeEffort(req.Agent, req.Effort),
+		ExtraArgs:    strings.TrimSpace(req.ExtraArgs),
+		Description:  req.Prompt,
+		Notes:        strings.TrimSpace(req.Notes),
+		Attachments:  req.Attachments,
+		PlanMode:     normalizePlanMode(req.Agent, req.PlanMode),
+		Advisor:      normalizeAdvisor(req.Agent, req.Advisor),
+		ModelProfile: normalizeModelProfile(req.Agent, req.ModelProfile),
+		CreatedAt:    time.Now(),
 		// The agent's CLI is launched asynchronously by bootAgent after we return,
 		// so the record starts life "booting"; bootAgent flips it to ready/failed.
 		BootStatus: BootBooting,
 	}
 
-	// A preset the host's omp does not define is refused BEFORE anything is
-	// created: the boot could only fail on it later, after a worktree and a
-	// workspace exist for an agent that never launches. Resolved as the boot
-	// will: a git agent's repo is its project config.
-	if rec.ModelPreset != "" {
-		project := ""
-		if req.Type == "git" {
-			project = expandTildeOn(b, req.Repo)
-		}
-		if _, err := ompPresetOverlay(b, project, rec.ModelPreset); err != nil {
+	// A profile the host does not have is refused BEFORE anything is created:
+	// the boot could only fail on it later, after a worktree and a workspace
+	// exist for an agent that never launches.
+	if rec.ModelProfile != "" {
+		if err := ompProfileCheck(b, rec.ModelProfile); err != nil {
 			return AgentRecord{}, &createErr{http.StatusBadRequest, err}
 		}
 	}
@@ -671,10 +669,10 @@ func createAgent(b Backend, req createAgentReq) (AgentRecord, error) {
 	}
 	_ = setLastAgent(host, rec.Agent)
 	_ = setLastAgentType(host, rec.Type)
-	// The preset is remembered per host for the harness that has them, "" (none)
+	// The profile is remembered per host for the harness that has them, "" (none)
 	// included, so the creator reopens on what the last omp agent actually ran.
 	if harnessByID(rec.Agent).stagesConfigOverlay {
-		_ = setLastModelPreset(host, rec.ModelPreset)
+		_ = setLastModelProfile(host, rec.ModelProfile)
 	}
 
 	// Everything past here — staging repo files/attachments/notes into the work
@@ -740,6 +738,7 @@ func bootAgent(b Backend, host string, rec AgentRecord, uploadDir string) {
 		effort:    rec.Effort,
 		extraArgs: rec.ExtraArgs,
 		prompt:    agentPrompt(rec),
+		profile:   rec.ModelProfile,
 	}
 	// A harness lasso reaches through a config overlay (omp) needs it on disk
 	// before its launch line can point --config at it. Staged first, because the
@@ -754,26 +753,23 @@ func bootAgent(b Backend, host string, rec AgentRecord, uploadDir string) {
 	// everyone else the overlay is cosmetic, and an agent that boots in the wrong
 	// theme beats an agent that doesn't boot.
 	//
-	// A model preset rides in the same overlay (omppresets.go) and fails the boot
-	// the same way a plan agent's does: an agent recorded as running a preset
-	// that launched on the user's own roles is that lie again. It is resolved
-	// here, in the work dir, so a project config's preset of the same name wins
-	// as it would in omp itself.
+	// A profile is a launch flag (--profile), not part of the overlay, but it
+	// fails the boot the same way a plan agent's overlay does: an agent recorded
+	// as running a profile that launched on the user's own ~/.omp/agent is that
+	// lie again, and the profile may have been removed since the create.
 	if harnessByID(rec.Agent).stagesConfigOverlay {
-		var preset []byte
-		if rec.ModelPreset != "" {
-			var err error
-			if preset, err = ompPresetOverlay(b, rec.WorkDir, rec.ModelPreset); err != nil {
+		if rec.ModelProfile != "" {
+			if err := ompProfileCheck(b, rec.ModelProfile); err != nil {
 				log.Printf("agent %s on %s: boot failed: %v", rec.ID, host, err)
 				_ = updateAgentBootStatus(rec.ID, host, BootFailed, err.Error())
 				return
 			}
 		}
-		path, err := stageOmpConfig(b, rec.ID, opts.planMode, preset)
+		path, err := stageOmpConfig(b, rec.ID, opts.planMode)
 		switch {
 		case err == nil:
 			opts.configOverlay = path
-		case opts.planMode || preset != nil:
+		case opts.planMode:
 			log.Printf("agent %s on %s: boot failed: stage omp config: %v", rec.ID, host, err)
 			_ = updateAgentBootStatus(rec.ID, host, BootFailed, "stage omp config: "+err.Error())
 			return

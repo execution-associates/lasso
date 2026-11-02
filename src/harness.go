@@ -50,12 +50,12 @@ type harnessDef struct {
 	// assigns to a role (ompmodels.go), and this entry is the fallback for a host
 	// where omp isn't set up.
 	ModelSuggestions []string `json:"model_suggestions"`
-	// ModelPresets are the omp model presets (omppresets.go) the host's omp
-	// config defines, in config order — the creator's "Model preset" select.
-	// Host-specific like omp's ModelSuggestions: hostHarnesses fills it, and it
-	// is empty for every other harness, which hides the select.
-	ModelPresets []string `json:"model_presets,omitempty"`
-	buildCmd     func(o launchOpts) string
+	// ModelProfiles are the omp profiles (ompprofiles.go) the host has under
+	// ~/.omp/profiles, sorted, `default` left out — the creator's "Profile"
+	// select. Host-specific like omp's ModelSuggestions: hostHarnesses fills it,
+	// and it is empty for every other harness, which hides the select.
+	ModelProfiles []string `json:"model_profiles,omitempty"`
+	buildCmd      func(o launchOpts) string
 }
 
 // launchOpts are the per-spawn knobs a harness builder consumes. model maps to
@@ -80,7 +80,11 @@ type launchOpts struct {
 	// overlay couldn't be staged fails the boot rather than launching unplanned,
 	// while a theme-only overlay is cosmetic and its absence just launches bare.
 	configOverlay string
-	prompt        string
+	// profile is the omp profile to launch with (`--profile`), "" for none. A
+	// profile is a whole agent dir, so it rides on the launch line itself rather
+	// than in the config overlay.
+	profile string
+	prompt  string
 	// promptFile, when set, is a file on the target host holding the prompt;
 	// the launch line then carries `"$(cat <file>)"` in place of the inline
 	// quoted prompt and prompt is ignored. Used when the prompt is too big or
@@ -354,6 +358,12 @@ func ompCommand(o launchOpts) string {
 	// merges the overlays left to right, so a user passing their own --config in
 	// extra_args refines lasso's rather than being overridden by it.
 	cmd := "omp --yolo"
+	// --profile follows --yolo and precedes --config: it picks the agent dir
+	// whose config.yml the overlay then merges over. It is a launch flag, not
+	// extra_args, so the record and the line cannot disagree.
+	if p := strings.TrimSpace(o.profile); p != "" {
+		cmd += " --profile " + shellQuote(p)
+	}
 	if o.configOverlay != "" {
 		cmd += " --config " + shellQuote(o.configOverlay)
 	}
