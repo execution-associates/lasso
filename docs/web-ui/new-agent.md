@@ -49,7 +49,7 @@ The levels offered for **Thinking effort**:
 | Oh My Pi | off, minimal, low, medium, high, xhigh, max, auto |
 | Pi | off, minimal, low, medium, high, xhigh, max |
 
-The **Model preset** field appears for **Oh My Pi** when the host's omp config (`~/.omp/agent/config.yml`) defines model presets (`/modelpreset save`). It lists them, plus **None (omp default)**, which runs on that host's own role assignments. A preset sets every model role (default, smol, slow, task, vision, advisor, …) and the thinking level for this agent's run only; your omp config is not changed. A **Model** or **Thinking effort** you pick still wins for the main session, while every other role follows the preset. A repository's own `.omp/config.yml` preset of the same name wins, as it does in omp.
+The **Profile** field appears for **Oh My Pi** when the host has omp profiles: directories under `~/.omp/profiles/` that contain an `agent` subdirectory (`omp --profile <name>`). It lists them, plus **None (omp default)**, which runs on that host's own `~/.omp/agent`. A profile is a whole isolated agent directory: its `config.yml` sets every model role (default, smol, slow, task, vision, advisor, …) and the thinking level, and the agent's sessions, history, credentials and prompt also live under `~/.omp/profiles/<name>/agent`, apart from your default ones. Your default omp config is not changed. A **Model** or **Thinking effort** you pick still wins for the main session, while every other role follows the profile. The name `default` is reserved (omp reads it as `~/.omp/agent`), so it is never listed.
 
 ### Advanced
 
@@ -69,7 +69,7 @@ The **Advanced** button reveals more fields. Whether it is open is remembered.
 
 The dialog remembers, per host and in this browser, what you last selected: Git or Scratch (unless it was opened with `⌘O` or `⌘⇧O`, which pick one), the repository, the agent, and that agent's model, effort, extra args, plan mode and advisor settings, plus the branch prefix and whether Advanced is open. Model, effort and the other harness-specific values are only restored for the same harness. The prompt and attachments are never kept.
 
-The **Model preset** is remembered by lasso instead, per host: it reopens on the preset the last Oh My Pi agent created on that host launched with (None included), as long as that host's omp still defines it, and on None otherwise.
+The **Profile** is remembered by lasso instead, per host: it reopens on the profile the last Oh My Pi agent created on that host launched with (None included), as long as that host still has it, and on None otherwise.
 
 ### What happens when you create
 
