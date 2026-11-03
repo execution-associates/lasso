@@ -423,12 +423,6 @@ func hostAgentConfig(host string) (*LassoConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Old model-preset choices become profile choices the first time a host's
-	// config is read, while its backend can say which profiles it has.
-	b, berr := hostBackend(host)
-	if berr == nil {
-		backfillModelProfiles(host, b)
-	}
 	c, err := loadLassoConfig(host)
 	if err != nil {
 		return nil, err
@@ -444,7 +438,7 @@ func hostAgentConfig(host string) (*LassoConfig, error) {
 	// unreachable host — or one without omp — keeps the compiled-in list rather
 	// than failing the whole config read. Nothing here preselects a model or
 	// effort: the creator still leaves both unset so each CLI applies its own.
-	if berr == nil {
+	if b, err := hostBackend(host); err == nil {
 		c.Harnesses = hostHarnesses(b)
 	}
 	return c, nil

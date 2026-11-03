@@ -16,7 +16,7 @@ import {
   readDraft,
   readDraftHost,
   rememberCreatorHost,
-  rememberedProfile,
+  rememberedPreset,
   saveDraft,
   saveDraftHost,
 } from "@/components/NewDialog"
@@ -237,7 +237,7 @@ export function NewAgent({
   const [agent, setAgent] = React.useState("claude")
   const [model, setModel] = React.useState("")
   const [effort, setEffort] = React.useState("")
-  const [modelProfile, setModelProfile] = React.useState("")
+  const [modelPreset, setModelPreset] = React.useState("")
   const [prompt, setPrompt] = React.useState("")
   const harness =
     harnesses.find((h) => h.id === agent) ??
@@ -264,9 +264,9 @@ export function NewAgent({
     const same = draft.agent === seededAgent
     setModel(same ? (draft.model ?? "") : "")
     setEffort(same ? (draft.effort ?? "") : "")
-    // The server's memory of the last omp agent's profile, as in the full UI.
-    setModelProfile(
-      rememberedProfile(
+    // The server's memory of the last omp agent's preset, as in the full UI.
+    setModelPreset(
+      rememberedPreset(
         config,
         harnesses.find((h) => h.id === seededAgent)
       )
@@ -353,8 +353,8 @@ export function NewAgent({
         effort: harness.effort_levels?.includes(effort) ? effort : undefined,
         plan_mode: false,
         advisor: false,
-        model_profile: harness.model_profiles?.includes(modelProfile)
-          ? modelProfile
+        model_preset: harness.model_presets?.includes(modelPreset)
+          ? modelPreset
           : undefined,
       }
       if (type === "git") {
@@ -490,8 +490,8 @@ export function NewAgent({
                   // Model names and effort levels belong to one harness.
                   setModel("")
                   setEffort("")
-                  setModelProfile(
-                    rememberedProfile(
+                  setModelPreset(
+                    rememberedPreset(
                       config,
                       harnesses.find((h) => h.id === e.target.value)
                     )
@@ -543,17 +543,17 @@ export function NewAgent({
                 </div>
               )}
             </div>
-            {!!harness.model_profiles?.length && (
+            {!!harness.model_presets?.length && (
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="new-model-profile">Profile</Label>
+                <Label htmlFor="new-model-preset">Model preset</Label>
                 <select
-                  id="new-model-profile"
-                  value={modelProfile}
-                  onChange={(e) => setModelProfile(e.target.value)}
+                  id="new-model-preset"
+                  value={modelPreset}
+                  onChange={(e) => setModelPreset(e.target.value)}
                   className={field}
                 >
                   <option value="">None (omp default)</option>
-                  {harness.model_profiles.map((p) => (
+                  {harness.model_presets.map((p) => (
                     <option key={p} value={p}>
                       {p}
                     </option>

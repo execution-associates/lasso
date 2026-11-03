@@ -107,7 +107,7 @@ Spawns a coding agent (`claude`, `codex`, `opencode`, `omp` or `pi`) in its own 
 | `notes` | string | optional | Extra notes, written to `NOTES.md` in the work dir and referenced in the prompt. |
 | `plan_mode` | boolean | optional | Start the agent in plan mode (see below). |
 | `advisor` | boolean | optional | Turn on omp's per-turn advisor runtime (`--advisor`): a background pass that reviews each turn and injects notes. omp only; dropped for every other harness. |
-| `model_profile` | string | optional | An omp profile to launch with, `omp --profile <name>` (see below). omp only; dropped for every other harness. |
+| `model_preset` | string | optional | An omp model preset to launch with (see below). omp only; dropped for every other harness. |
 | `auto_title` | boolean | optional | Whether lasso renames the agent from its prompt, overriding the auto-title setting for this agent. Auto-titling sends the prompt to a separate titling CLI (a different model); pass `false` when the prompt must stay with the agent's own models. Ignored when `title` is given. Omit to follow the setting. |
 | `focus` | boolean | optional | Switch the herdr view to the new pane as it boots. Defaults to false, so spawning an agent does not pull a watching human away from their pane. |
 
@@ -125,7 +125,7 @@ A level the chosen harness does not list is **dropped** and the agent launches a
 
 **`model` examples** from the tool description: `fable`, `opus`, `sonnet` or `haiku` for claude; `gpt-5.6-sol` or `gpt-5.6-terra` for codex; provider/model selectors for omp such as `anthropic/claude-opus-5` or `openai-codex/gpt-5.6-sol`. omp and pi also match other patterns against their authenticated provider catalogs.
 
-**`model_profile`** (omp only, dropped for every other harness) names a profile: a directory under `~/.omp/profiles/` on the host that holds an `agent/` subdirectory. A profile is a whole isolated agent dir, so its `config.yml` supplies the model roles and `defaultThinkingLevel`, and the agent's sessions, history, credentials and prompt live under `~/.omp/profiles/<name>/agent` instead of `~/.omp/agent`. lasso passes it as `--profile <name>` on the launch line; your own omp config is never modified. `model` and `effort` are launch flags, which omp ranks above every config layer, so they still win for the main session while every other role follows the profile. The name `default` is reserved, because omp reads it as `~/.omp/agent` itself, and is refused. A name the host does not have refuses the create; the error lists the profiles it does have.
+**`model_preset`** (omp only, dropped for every other harness) names a preset under `modelPresets` in the host's omp config — `~/.omp/agent/config.yml`, or the repo's `.omp/config.yml`, whose preset of the same name wins whole, as in omp. omp has no launch flag for a preset, so lasso writes it into the agent's own `--config` overlay: the preset's roles, a `null` for every role your config assigns that the preset leaves out (as `/modelpreset switch` clears them), and its `defaultThinkingLevel`. Your omp config is never modified. `model` and `effort` are launch flags, which omp ranks above every config layer, so they still win for the main session while every other role follows the preset. A name the host does not define refuses the create; the error lists the presets it does define.
 
 **`plan_mode`** applies to claude, opencode and omp, and is dropped for codex and pi (lasso cannot start either in a plan mode from the launch line). The agent researches and proposes a plan but edits nothing until the plan is approved; answering questions does not need approval. When it wants to execute, it parks on a gate that lasso reports as status `blocked` in `get_agent` and `list_agents`. From another agent, review and answer it with herdr: `herdr agent wait <target> --until blocked`, `herdr agent read <target>`, then `herdr agent send-keys` (a blocked agent refuses `herdr agent prompt`). Or leave it parked for the human watching the pane.
 
@@ -192,7 +192,7 @@ Use `close_agent` rather than `herdr pane close` on a pane lasso created; closin
 | `agent` | the harness: `claude`, `codex`, `opencode`, `omp`, `pi` |
 | `model`, `effort`, `extra_args` | launch settings, after lasso dropped anything the harness does not support |
 | `plan_mode`, `advisor` | whether those took (false when dropped for the harness) |
-| `model_profile` | the omp profile it launched with; absent for none |
+| `model_preset` | the omp model preset it launched with; absent for none |
 | `repo`, `branch`, `base_branch` | for a git agent |
 | `work_dir` | the agent's working directory |
 | `workspace_id`, `root_pane` | its herdr workspace and the pane it runs in |
