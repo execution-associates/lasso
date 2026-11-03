@@ -103,9 +103,9 @@ var createParams = map[string]createParam{
 	// (normalizeAdvisor), so an omp-only field is safe to advertise.
 	"Advisor": {MCP: "Advisor", TS: "advisor"},
 	// Another omp-only launch knob, dropped for every other harness
-	// (normalizeModelProfile), so it is as safe to advertise as Advisor.
-	"ModelProfile": {MCP: "ModelProfile", TS: "model_profile"},
-	"AutoTitle":    {MCP: "AutoTitle", TS: "auto_title"},
+	// (normalizeModelPreset), so it is as safe to advertise as Advisor.
+	"ModelPreset": {MCP: "ModelPreset", TS: "model_preset"},
+	"AutoTitle":   {MCP: "AutoTitle", TS: "auto_title"},
 	"Attachments": {
 		MCPSkip: "part of the browser upload-staging flow (/api/agent-upload), which has no MCP equivalent",
 		TS:      "attachments",

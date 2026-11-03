@@ -1,7 +1,6 @@
 package main
 
 import (
-	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -133,33 +132,24 @@ func ompEffortLevel(s string) bool {
 	return false
 }
 
-// ompGlobalConfig reads host b's global omp config.yml, nil when there is none
-// or it can't be read.
-func ompGlobalConfig(b Backend, home string) []byte {
-	data, err := b.ReadFile(filepath.Join(ompAgentDir(home), "config.yml"))
-	if err != nil {
-		return nil
-	}
-	return data
-}
-
 // hostHarnesses is the harness registry as served for one host: the compiled-in
 // table (harness.go) with omp's host-specific halves filled from that host's
 // omp config: its model suggestions replaced by the models it assigns to a role,
-// and its profiles (ompprofiles.go) listed for the creator's profile select.
+// and its model presets (omppresets.go) listed for the creator's preset select.
 // Everything else in the registry — labels, effort ladders, plan-mode support —
 // is compiled-in and host-independent.
 //
 // The registry slice and its entries are shared global state, so this copies
 // before touching the omp entry. A host whose omp says nothing keeps the
-// compiled-in suggestions and offers no profiles.
+// compiled-in suggestions and offers no presets.
 func hostHarnesses(b Backend) []harnessDef {
 	home, err := b.HomeDir()
 	if err != nil || home == "" {
 		return harnesses
 	}
-	models, profiles := ompRoleModels(ompGlobalConfig(b, home)), ompProfileNames(b, home)
-	if len(models) == 0 && len(profiles) == 0 {
+	data := ompGlobalConfig(b, home)
+	models, presets := ompRoleModels(data), ompPresetNames(data)
+	if len(models) == 0 && len(presets) == 0 {
 		return harnesses
 	}
 	out := make([]harnessDef, len(harnesses))
@@ -171,7 +161,7 @@ func hostHarnesses(b Backend) []harnessDef {
 		if len(models) > 0 {
 			out[i].ModelSuggestions = models
 		}
-		out[i].ModelProfiles = profiles
+		out[i].ModelPresets = presets
 	}
 	return out
 }
