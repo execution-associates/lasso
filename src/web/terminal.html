@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <title>ttyd - Terminal</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=5" />
+  </head>
+  <!-- lasso's herdr terminal document, served for /terminal/<slug>/ in place
+       of ttyd's bundled page (src/terminal/xterm.ts). ttyd still runs the
+       PTY and serves /token and /ws next to this document. -->
+  <body>
+    <div id="terminal-container"></div>
+    <script type="module" src="/src/terminal/main.ts"></script>
+  </body>
+</html>

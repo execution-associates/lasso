@@ -355,3 +355,50 @@ func TestTtydDocThemeFollowsTabPalette(t *testing.T) {
 		t.Errorf("redirect carries background %q, want %q", got["background"], want)
 	}
 }
+
+// The terminal document is lasso's page, while ttyd keeps everything the page
+// talks to: its token, its websocket and any other path under the base.
+func TestTerminalPageServesDocumentOnly(t *testing.T) {
+	page := []byte("<!doctype html><title>lasso terminal</title>")
+	var reached string
+	h := withTerminalPage(page, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		reached = r.URL.Path
+	}))
+	for _, target := range []string{"/terminal/local/?theme=%7B%7D", "/terminal/local/index.html"} {
+		reached = ""
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+		if reached != "" {
+			t.Errorf("%s: document reached ttyd", target)
+		}
+		if rec.Body.String() != string(page) {
+			t.Errorf("%s: served %q, want lasso's page", target, rec.Body.String())
+		}
+		if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+			t.Errorf("%s: Cache-Control %q, want no-store", target, cc)
+		}
+	}
+	for _, target := range []string{"/terminal/local/token", "/terminal/local/ws"} {
+		reached = ""
+		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, target, nil))
+		if reached != strings.SplitN(target, "?", 2)[0] {
+			t.Errorf("%s must reach ttyd untouched, reached %q", target, reached)
+		}
+	}
+	// No page in the build: ttyd's own document, as before.
+	if got := withTerminalPage(nil, h); got != h {
+		t.Error("an empty page must leave the ttyd handler as is")
+	}
+}
+
+// The real build carries the page; without it every terminal silently stays
+// on ttyd's xterm.js 5, which has no kitty graphics.
+func TestTerminalPageEmbedded(t *testing.T) {
+	page := terminalPage(distFS)
+	if len(page) == 0 {
+		t.Skip("web/dist has no terminal.html (frontend not built)")
+	}
+	if !strings.Contains(string(page), `id="terminal-container"`) {
+		t.Error("embedded terminal.html is not lasso's terminal page")
+	}
+}

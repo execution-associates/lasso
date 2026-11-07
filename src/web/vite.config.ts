@@ -19,17 +19,20 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  // Three pages: the app, and two of the Mac app's windows, which lasso serves
+  // Four pages: the app; two of the Mac app's windows, which lasso serves
   // as plain files: the Browser window (the Agent view alone,
   // src/desktop/browser-window.tsx) as /desktop-browser.html, and the file
   // window (one file's editor or rendered markdown,
-  // src/desktop/file-window.tsx) as /desktop-file.html.
+  // src/desktop/file-window.tsx) as /desktop-file.html; and the herdr
+  // terminal (src/terminal/), which lasso serves for /terminal/<slug>/ in
+  // place of ttyd's bundled page.
   build: {
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, "index.html"),
         "desktop-browser": path.resolve(__dirname, "desktop-browser.html"),
         "desktop-file": path.resolve(__dirname, "desktop-file.html"),
+        terminal: path.resolve(__dirname, "terminal.html"),
       },
     },
   },
@@ -50,6 +53,10 @@ export default defineConfig({
       // it points here.
       "/hooks": { target: backend, changeOrigin: false },
       "/terminal": { target: backend, changeOrigin: false, ws: true },
+      // The terminal document comes from the backend's embedded build, and its
+      // script and stylesheet are hashed files under /assets/ there. Vite's own
+      // modules never live under /assets/, so this cannot shadow them.
+      "/assets": { target: backend, changeOrigin: false },
       // The shared browser's CDP endpoint. changeOrigin stays OFF: /cdp refuses
       // a websocket whose Origin names a different host than its Host header
       // (cdpOriginAllowed, the cross-site hijacking guard), and rewriting Host
