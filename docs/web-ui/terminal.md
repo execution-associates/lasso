@@ -5,7 +5,7 @@ order: 31
 nav_title: Terminal
 ---
 
-The terminal column is your actual herdr session, not a copy of it. lasso runs it in `ttyd` and frames it in the page, so herdr's keys, panes, workspaces and theme behave exactly as they do in a native terminal. lasso then adds a few things around it: file paste and upload, touch controls for phones, and two reading views (Chat and Agents) that sit over the terminal without replacing it.
+The terminal column is your actual herdr session, not a copy of it. lasso runs it in `ttyd` and frames it in the page with its own xterm.js terminal, so herdr's keys, panes, workspaces and theme behave exactly as they do in a native terminal. lasso then adds a few things around it: file paste and upload, touch controls for phones, and two reading views (Chat and Agents) that sit over the terminal without replacing it.
 
 ## The herdr terminal
 
@@ -17,7 +17,8 @@ The terminal wears the theme in force: the appearance palette named for your scr
 
 A few behaviours lasso adds inside the terminal:
 
-- **Copy.** herdr copies (copy mode, double-click, a mouse selection) by emitting an OSC 52 sequence, which ttyd's terminal ignores on its own. lasso handles it, so herdr's "copied to clipboard" actually reaches your clipboard. On a plain-HTTP origin, where the browser offers no Clipboard API, it falls back to a legacy copy.
+- **Images.** The terminal speaks the kitty graphics protocol (and sixel and iTerm2's inline images), so a program that draws pictures in kitty draws them here too. Through herdr this needs `kitty_graphics = true` under `[experimental]` in herdr's `config.toml`. Kitty support in xterm.js is still early, so some placement options may not render.
+- **Copy.** herdr copies (copy mode, double-click, a mouse selection) by emitting an OSC 52 sequence. lasso handles it, so herdr's "copied to clipboard" actually reaches your clipboard. On a plain-HTTP origin, where the browser offers no Clipboard API, it falls back to a legacy copy.
 - **Paste.** `Cmd-V` pastes as usual. On Windows and Linux `Ctrl-V` pastes too (the browser's native paste runs instead of the terminal sending `^V`).
 - **Shift+Enter and Ctrl+Enter.** The terminal's xterm.js would send a plain Enter for both; lasso sends herdr the real key event (Ctrl+Shift and Ctrl+Alt too) so agents that distinguish them (a newline versus submit) receive it.
 - **Links.** Clicking a link opens it in the sidebar's [Browser tab](./sidebar.md#browser) instead of a new browser tab. `Cmd`/`Ctrl`-click always opens a new browser tab. Turn the sidebar behaviour off with **Settings → General → Terminal & browser → Open terminal links in the sidebar browser**.
