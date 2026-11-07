@@ -17,8 +17,12 @@ STATES="${1:-all}"
 LABEL="com.orangecountyai.Lasso.parity.$(printf '%s' "$PWD" | shasum | cut -c1-8)"
 DOMAIN="gui/$(id -u)"
 OUT="$PWD/dist/parity"
-PLIST="$PWD/dist/parity-agent.plist"
-LOG="$PWD/dist/parity.log"
+# launchd neither loads a plist nor opens a log on an external volume
+# (bootstrap: 5 Input/output error; spawn: 78 EX_CONFIG), and the checkout may
+# live on one (minime's does), so both go in TMPDIR. The binary may run from
+# there and the results are the app's own writes.
+PLIST="${TMPDIR:-/tmp}/$LABEL.plist"
+LOG="${TMPDIR:-/tmp}/$LABEL.log"
 BIN="$PWD/dist/Lasso.app/Contents/MacOS/Lasso"
 
 [ -x "$BIN" ] || Scripts/build-app.sh release
