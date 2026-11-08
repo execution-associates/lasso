@@ -382,9 +382,10 @@ export interface OpenRequest {
 // modes Agent and Iframe (stored as "live" and "embed"): what a human needs to
 // know is WHO else sees the page, not how it is transported. It writes the
 // shared preference (ui_state.browser_mode), so every browser on this lasso
-// follows it. Agent is disabled while no Chromium is available; the tooltip
-// then carries the reason, on a wrapper span since a disabled button fires no
-// pointer events.
+// follows it. Agent is disabled while lasso says no Chromium is available; the
+// tooltip then carries the reason, on a wrapper span since a disabled button
+// fires no pointer events. When lasso could not be asked, Agent stays enabled
+// with the reason as its tooltip, and picking it asks again.
 const MODE_TIPS: Record<BrowserMode, string> = {
   live: "A real Chrome on lasso's machine that you and your agents share. Pages an agent opens show up here, and any site loads.",
   embed:
@@ -403,13 +404,14 @@ function BrowserModeSwitch({
   // the mode on screen must still save it, or dropping the switch flips back.
   pref: BrowserMode
   liveDisabled: boolean
+  // Why Agent is unavailable; empty when it is not.
   liveTitle: string
   // Told about every click, so BrowserTab can drop a temporary switch (an
   // agent's page, a terminal link) the moment the human picks a mode.
-  onPick: () => void
+  onPick: (m: BrowserMode) => void
 }) {
   const pick = (m: BrowserMode) => {
-    onPick()
+    onPick(m)
     if (m !== pref) patchUIState({ browser_mode: m })
   }
   const seg = (m: BrowserMode) =>
@@ -436,7 +438,7 @@ function BrowserModeSwitch({
         </span>
       </TooltipTrigger>
       <TooltipContent className="max-w-64">
-        {disabled ? liveTitle : MODE_TIPS[m]}
+        {m === "live" && liveTitle ? liveTitle : MODE_TIPS[m]}
       </TooltipContent>
     </Tooltip>
   )
@@ -477,15 +479,32 @@ export function BrowserTab({ active }: { active: boolean }) {
   const status = useQuery({
     queryKey: qk.browser,
     queryFn: () => api.browserStatus(),
-    retry: false,
+    // A request that dies on the way (a laptop waking, a network change, a
+    // tab Chrome froze in the background: all "Failed to fetch") is not an
+    // answer about the browser, so it is retried before anything shows it.
+    retry: 2,
+    retryDelay: (n) => 1_000 * 2 ** n,
     staleTime: 5_000,
     // Only while someone could act on it: a Chromium installed, or a profile
     // changed from another browser, shows up without a reload.
     refetchInterval: active ? 30_000 : false,
+    refetchOnWindowFocus: active,
   })
-  const unavailable = status.isError || status.data?.available === false
+  // Only lasso's own answer makes Agent unavailable. A failed request keeps
+  // the last answer; with none at all, lasso is unreachable rather than
+  // browserless, and Agent stays clickable to ask again.
+  const unreachable = status.isError && !status.data
+  const unavailable = unreachable || status.data?.available === false
 
   React.useEffect(() => setLiveBrowserAvailable(!unavailable), [unavailable])
+
+  // Showing the tab asks again: an error from while nobody was looking must
+  // not outlive the next look. Failing again leaves isError set, so this does
+  // not loop.
+  React.useEffect(() => {
+    if (active && status.isError)
+      void queryClient.invalidateQueries({ queryKey: qk.browser })
+  }, [active, status.isError, queryClient])
 
   // An agent showing the human a page switches this client to the mode it
   // asked for (Agent unless it passed `surface: "iframe"`), and a terminal
@@ -555,12 +574,14 @@ export function BrowserTab({ active }: { active: boolean }) {
     [pickProfile, queryClient]
   )
 
-  const reason = status.isError
-    ? `this lasso has no shared browser (${status.error instanceof Error ? status.error.message : "status unavailable"})`
+  const reason = unreachable
+    ? `couldn't reach lasso to ask about its browsers (${status.error instanceof Error ? status.error.message : "no answer"})`
     : status.data?.reason || "no Chromium was found"
   const note =
     wanted === "live" && unavailable
-      ? `Agent browser unavailable: ${reason}. Install Chrome or Chromium, or point LASSO_BROWSER at one, to enable it.`
+      ? unreachable
+        ? `Agent browser unavailable: ${reason}. Pick Agent to try again.`
+        : `Agent browser unavailable: ${reason}. Install Chrome or Chromium, or point LASSO_BROWSER at one, to enable it.`
       : ""
 
   React.useEffect(
@@ -577,9 +598,17 @@ export function BrowserTab({ active }: { active: boolean }) {
     <BrowserModeSwitch
       mode={mode}
       pref={pref}
-      liveDisabled={unavailable}
-      liveTitle={`Agent browser unavailable: ${reason}`}
-      onPick={() => setOverride(null)}
+      liveDisabled={unavailable && !unreachable}
+      liveTitle={
+        unavailable
+          ? `Agent browser unavailable: ${reason}${unreachable ? ". Click to try again." : ""}`
+          : ""
+      }
+      onPick={(m) => {
+        setOverride(null)
+        if (m === "live" && unreachable)
+          void queryClient.invalidateQueries({ queryKey: qk.browser })
+      }}
     />
   )
 
