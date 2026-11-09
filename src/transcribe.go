@@ -30,8 +30,9 @@ import (
 //
 // Privacy: the audio stays in memory and goes straight to the provider; the
 // transcript, the audio and the request's headers are never logged or written
-// anywhere. The provider key is resolved from lasso's environment or the
-// `secret` CLI, held in memory for transcribeKeyTTL, never stored in lasso.db.
+// anywhere. The provider key is resolved from lasso's environment or an op://
+// reference (lookupSecret), held in memory for transcribeKeyTTL, never stored
+// in lasso.db.
 
 const (
 	transcribeSettingKey  = "transcribe"
@@ -117,8 +118,8 @@ func (c transcribeConfig) validate() error {
 	if c.Model != "" && !modelNameRE.MatchString(c.Model) {
 		return errors.New("transcribe.model: letters, digits and ._:/@+- only, at most 128")
 	}
-	if c.KeyName != "" && !secretNameRE.MatchString(c.KeyName) {
-		return errors.New("transcribe.key_name: an environment variable name (letters, digits, underscore)")
+	if c.KeyName != "" && !validKeyRef(c.KeyName) {
+		return errors.New("transcribe.key_name: an environment variable name (letters, digits, underscore) or an op://vault/item/field reference")
 	}
 	if c.BaseURL != "" {
 		if err := validAPIBaseURL(c.BaseURL); err != nil {
@@ -200,8 +201,8 @@ func forgetTranscribeKeys() {
 	transcribeKeys.Unlock()
 }
 
-func missingKeyReason(name string) string {
-	return fmt.Sprintf("no key for transcription: set %s in lasso's environment or `secret set %s`", name, name)
+func missingKeyReason(ref string, err error) string {
+	return "no key for transcription: " + missingKeyHint(ref, err)
 }
 
 // ---- WAV ------------------------------------------------------------------------
@@ -324,7 +325,7 @@ func transcribeAvailability(ctx context.Context) transcribeStatus {
 	}
 	if t.KeyName != "" {
 		if _, err := transcribeKey(ctx, t.KeyName); err != nil {
-			st.Reason = missingKeyReason(t.KeyName)
+			st.Reason = missingKeyReason(t.KeyName, err)
 			return st
 		}
 	}
@@ -396,7 +397,7 @@ func transcribePost(w http.ResponseWriter, r *http.Request) {
 	key := ""
 	if t.KeyName != "" {
 		if key, err = transcribeKey(r.Context(), t.KeyName); err != nil {
-			http.Error(w, missingKeyReason(t.KeyName), http.StatusServiceUnavailable)
+			http.Error(w, missingKeyReason(t.KeyName, err), http.StatusServiceUnavailable)
 			return
 		}
 	}
@@ -545,7 +546,7 @@ type transcribeConfigPatch struct {
 	Provider *string `json:"provider,omitempty" jsonschema:"off, groq, openai or openai-compatible. Changing it resets model, base_url and key_name unless they are given too."`
 	Model    *string `json:"model,omitempty" jsonschema:"The provider's model; \"\" for the provider's default (groq whisper-large-v3-turbo, openai gpt-4o-mini-transcribe)."`
 	BaseURL  *string `json:"base_url,omitempty" jsonschema:"The OpenAI-compatible API base, e.g. http://127.0.0.1:8080/v1. Required for openai-compatible."`
-	KeyName  *string `json:"key_name,omitempty" jsonschema:"The NAME of the environment variable or secret holding the API key (never the key). Defaults GROQ_API_KEY / OPENAI_API_KEY; openai-compatible sends no key without one."`
+	KeyName  *string `json:"key_name,omitempty" jsonschema:"Where the API key comes from, never the key itself: the NAME of an environment variable in lasso's environment, or a 1Password reference op://vault/item/field. Defaults GROQ_API_KEY / OPENAI_API_KEY; openai-compatible sends no key without one."`
 }
 
 func transcribeConfigViewOf(c transcribeConfig, loadErr error) transcribeConfigView {

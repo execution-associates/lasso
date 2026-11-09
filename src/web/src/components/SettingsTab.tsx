@@ -2332,7 +2332,7 @@ function InternalAISettings({ active }: { active: boolean }) {
       </Field>
       <Field
         label="API key"
-        hint="The NAME of an environment variable or `secret` entry holding the key — never the key itself. Empty sends no Authorization header."
+        hint="Where the key comes from, never the key itself: the NAME of a variable in lasso's environment, or a 1Password reference (op://vault/item/field) read with `op read`. Empty sends no Authorization header."
         htmlFor="settings-llm-key-name"
       >
         <input
@@ -2398,8 +2398,8 @@ function InternalAISettings({ active }: { active: boolean }) {
         Used to name new agents and terminal tabs: this endpoint is asked first,
         then the local CLIs (claude, codex, opencode, omp, pi). Only the prompt
         excerpt the titler already summarises is sent. The key is read from this
-        machine's environment or <span className="font-mono">secret</span>;
-        lasso never stores it.
+        machine's environment or with{" "}
+        <span className="font-mono">op read</span>; lasso never stores it.
       </p>
     </div>
   )

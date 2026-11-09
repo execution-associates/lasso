@@ -20,8 +20,8 @@ import (
 // uses for its own small errands, starting with naming new agents and terminal
 // tabs (autotitle.go, terminaltitle.go). It is a lasso-host setting, like
 // `transcribe`: the endpoint is reached from here, whichever host the agent was
-// created on, and the API key is a NAME resolved from lasso's environment or
-// `secret`, never stored in lasso.db.
+// created on, and the API key is named, never stored in lasso.db: a variable in
+// lasso's environment or a 1Password op:// reference (`op read`).
 //
 // GET  /api/llm/config        the stored choices and whether they are usable
 // POST /api/llm/config        merge-patch them
@@ -43,7 +43,34 @@ const (
 var (
 	modelNameRE  = regexp.MustCompile(`^[A-Za-z0-9._:/@+-]{1,128}$`)
 	secretNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+	// opRefRE is a 1Password secret reference, op://vault/item/field (or
+	// .../section/field). Spaces are allowed, as 1Password names have them;
+	// control characters are not.
+	opRefRE = regexp.MustCompile(`^op://[^/\x00-\x1f\x7f]+(/[^/\x00-\x1f\x7f]+){2,3}$`)
 )
+
+// isOpRef reports whether a key reference is a 1Password op:// reference.
+func isOpRef(ref string) bool { return strings.HasPrefix(ref, "op://") }
+
+// validKeyRef reports whether a settings key_name is an environment variable
+// name or a well-formed op:// reference.
+func validKeyRef(ref string) bool {
+	if isOpRef(ref) {
+		return len(ref) <= 512 && opRefRE.MatchString(ref)
+	}
+	return secretNameRE.MatchString(ref)
+}
+
+// missingKeyHint says how to supply the key a reference names.
+func missingKeyHint(ref string, err error) string {
+	if isOpRef(ref) {
+		if err != nil {
+			return err.Error()
+		}
+		return "`op read " + ref + "` failed"
+	}
+	return "set " + ref + " in lasso's environment"
+}
 
 var (
 	// llmModelsTimeout bounds the Settings picker's fetch; llmChatTimeout bounds
@@ -112,8 +139,8 @@ func (c llmConfig) validate() error {
 	if c.Model != "" && !modelNameRE.MatchString(c.Model) {
 		return errors.New("llm.model: letters, digits and ._:/@+- only, at most 128")
 	}
-	if c.KeyName != "" && !secretNameRE.MatchString(c.KeyName) {
-		return errors.New("llm.key_name: an environment variable name (letters, digits, underscore)")
+	if c.KeyName != "" && !validKeyRef(c.KeyName) {
+		return errors.New("llm.key_name: an environment variable name (letters, digits, underscore) or an op://vault/item/field reference")
 	}
 	return nil
 }
@@ -244,7 +271,7 @@ func llmModelIDs(ctx context.Context, refresh bool) ([]string, error) {
 	key := ""
 	if c.KeyName != "" {
 		if key, err = llmKey(ctx, c.KeyName); err != nil {
-			return nil, fmt.Errorf("no key for %s: set it in lasso's environment or `secret set %s`", c.KeyName, c.KeyName)
+			return nil, fmt.Errorf("no key for internal AI: %s", missingKeyHint(c.KeyName, err))
 		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, llmModelsTimeout)
@@ -335,7 +362,7 @@ func llmComplete(ctx context.Context, instruction string) (string, error) {
 	key := ""
 	if c.KeyName != "" {
 		if key, err = llmKey(ctx, c.KeyName); err != nil {
-			return "", fmt.Errorf("no key for %s: set it in lasso's environment or `secret set %s`", c.KeyName, c.KeyName)
+			return "", fmt.Errorf("no key for internal AI: %s", missingKeyHint(c.KeyName, err))
 		}
 	}
 	body, err := json.Marshal(map[string]any{
@@ -412,7 +439,7 @@ type llmConfigView struct {
 type llmConfigPatch struct {
 	BaseURL *string `json:"base_url,omitempty" jsonschema:"The OpenAI-compatible API root, e.g. http://127.0.0.1:8080/v1. \"\" turns internal AI off."`
 	Model   *string `json:"model,omitempty" jsonschema:"The model id the endpoint serves (GET /api/llm/models lists them)."`
-	KeyName *string `json:"key_name,omitempty" jsonschema:"The NAME of the environment variable or secret holding the API key (never the key). Empty sends no Authorization header."`
+	KeyName *string `json:"key_name,omitempty" jsonschema:"Where the API key comes from, never the key itself: the NAME of an environment variable in lasso's environment, or a 1Password reference op://vault/item/field read with op read. Empty sends no Authorization header."`
 }
 
 func llmConfigViewOf(c llmConfig, loadErr error) llmConfigView {
