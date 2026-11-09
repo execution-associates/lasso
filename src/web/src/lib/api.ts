@@ -1996,6 +1996,36 @@ export interface LLMConfigPatch {
   key_name?: string
 }
 
+// Daily Claude Code update restarts for claude bots (botupdates.go). Claude
+// Code updates itself, but a running bot keeps the version it started with;
+// at `time` in `timezone` lasso restarts each idle claude bot whose host has a
+// newer one installed, waiting up to `window_minutes` for a busy bot.
+export interface BotUpdates {
+  enabled: boolean
+  time: string // HH:MM, 24-hour
+  timezone: string // IANA
+  next_run?: string // RFC 3339, while enabled
+  in_window: boolean
+  window_minutes: number
+  reason?: string
+  bots: BotUpdateBot[]
+}
+
+export interface BotUpdateBot {
+  name: string
+  host: string
+  running?: string
+  installed?: string
+  outdated: boolean
+  error?: string
+}
+
+export interface BotUpdatesPatch {
+  enabled?: boolean
+  time?: string
+  timezone?: string
+}
+
 export interface LLMModels {
   models: string[]
   // Present when the fetch failed; the group stays usable (a model can be
@@ -2232,6 +2262,12 @@ export const api = {
       "/api/llm/test",
       {}
     ),
+  // Daily Claude Code update restarts for claude bots (botupdates.go).
+  // `bots: false` skips the per-bot version check (an ssh call per host).
+  botUpdates: (bots = true) =>
+    getJSON<BotUpdates>(`/api/bot-updates${bots ? "" : "?bots=0"}`, 20_000),
+  setBotUpdates: (patch: BotUpdatesPatch) =>
+    postJSON<BotUpdates>("/api/bot-updates", patch),
   // Anonymous usage analytics (telemetry.go): the stored choice, whether
   // anything is actually sent, and what holds it off.
   telemetryConfig: () => getJSON<TelemetryConfig>("/api/telemetry/config"),
