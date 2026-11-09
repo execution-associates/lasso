@@ -1,8 +1,10 @@
 import { ChevronRight } from "lucide-react"
 import * as React from "react"
+import { toast } from "sonner"
 
-import { BotAvatar, startBot } from "@/components/BotParts"
+import { BotAvatar, BotHealthMark, startBot } from "@/components/BotParts"
 import { ChatView } from "@/components/ChatView"
+import { holdBot, holdText, releaseBot } from "@/lib/alerts"
 import type { BotView } from "@/lib/api"
 import {
   botUnread,
@@ -77,6 +79,7 @@ export function BotsList({ go }: { go: (r: SimpleRoute) => void }) {
                       {botUnread(b, seen) && (
                         <span className="size-2 shrink-0 rounded-full bg-primary" />
                       )}
+                      <BotHealthMark bot={b} />
                       <span className="ml-auto shrink-0 text-[12.5px] text-muted-foreground">
                         {relativeTime(b.last_at, now)}
                       </span>
@@ -140,6 +143,12 @@ export function BotChat({
       variant="bot"
       title={bot.name}
       headerLead={<BackButton onClick={back} />}
+      headerExtra={
+        <>
+          <BotHealthMark bot={bot} />
+          <HoldToggle bot={bot} />
+        </>
+      }
       placeholder={`Message ${bot.name}…`}
       className="phone-chat min-h-0 flex-1"
     />
@@ -169,7 +178,52 @@ function StoppedBot({ bot, onBack }: { bot: BotView; onBack: () => void }) {
         >
           {busy ? "Starting…" : "Start"}
         </button>
+        <div className="mt-4 flex flex-col items-center gap-2">
+          <BotHealthMark bot={bot} />
+          <HoldToggle bot={bot} large />
+        </div>
       </EmptyState>
     </Screen>
+  )
+}
+
+// A deliberate down from the phone: held until released, or released. While
+// held, the bot being gone pages nobody. Timed holds and reasons are set in
+// the full lasso's bot settings.
+function HoldToggle({ bot, large }: { bot: BotView; large?: boolean }) {
+  const [busy, setBusy] = React.useState(false)
+  const held = !!bot.hold?.held
+  const run = async () => {
+    setBusy(true)
+    try {
+      if (held) await releaseBot(bot.name)
+      else await holdBot(bot.name)
+    } catch (e) {
+      toast.error(
+        `could not ${held ? "release" : "hold"} ${bot.name}: ${(e as Error).message}`
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+  const label = held ? "Release" : large ? "Hold until released" : "Hold"
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={() => void run()}
+      title={
+        held
+          ? holdText(bot.hold)
+          : "Hold until released: its being down pages nobody"
+      }
+      className={
+        large
+          ? "h-10 rounded-full border border-border px-5 font-semibold text-[14px] text-foreground disabled:opacity-40"
+          : "h-7 shrink-0 rounded-lg border border-border px-2 font-medium text-[12px] text-foreground disabled:opacity-40"
+      }
+    >
+      {busy ? "…" : label}
+    </button>
   )
 }

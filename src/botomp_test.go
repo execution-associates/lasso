@@ -39,6 +39,8 @@ type fakeBridge struct {
 	thinking  string
 	answers   chan string
 	done      chan struct{}
+	// silent: answer nothing, like an omp that hung (bot liveness tests).
+	silent bool
 	// onExit runs when omp would exit: restart is true when the restart
 	// marker made it, which the launch task answers by relaunching.
 	onExit func(restart bool)
@@ -145,6 +147,12 @@ func (f *fakeBridge) respond(id, typ string, data any) {
 
 func (f *fakeBridge) handle(line string) {
 	f.log("in " + line)
+	f.mu.Lock()
+	silent := f.silent
+	f.mu.Unlock()
+	if silent {
+		return
+	}
 	var c struct {
 		ID          string `json:"id"`
 		Type        string `json:"type"`

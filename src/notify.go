@@ -54,6 +54,10 @@ const (
 	// notifLassoNotice: lasso's own news (notifyUI) — a theme a host refused, an
 	// auto-title that failed. Pushed to a phone only at level error.
 	notifLassoNotice notifKind = "lasso_notice"
+	// notifBotDown / notifBotRecovered: a bot's liveness alert (bothealth.go),
+	// sent on the transition only, after its down_after / up_after window.
+	notifBotDown      notifKind = "bot_down"
+	notifBotRecovered notifKind = "bot_recovered"
 	// notifTest is the Settings tab's "send a test notification" button. It is a
 	// kind rather than a special case inside a transport so that the button
 	// exercises exactly the path a real notification takes. Not in the catalog:
@@ -78,6 +82,8 @@ var notifKindCatalog = []notifKindInfo{
 	{notifAgentFinished, "An agent finished a turn", "Any agent that stops working with its turn done.", false},
 	{notifAgentMessage, "An agent pinged you", "An agent's own message for you (lasso notify).", true},
 	{notifBotMessage, "A bot replied", "A bot finished a turn with something new to say.", true},
+	{notifBotDown, "A bot is down", "A bot stopped running or stopped hearing its channel (bot alerts).", true},
+	{notifBotRecovered, "A bot recovered", "A bot that was down is working again.", true},
 	{notifLassoNotice, "lasso's own notices", "Errors and results from lasso itself, like a theme a host would not take.", true},
 }
 

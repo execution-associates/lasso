@@ -16,6 +16,7 @@ package main
 //	PUT    /api/bots/<name>                   save {bot fields…, restart?}
 //	DELETE /api/bots/<name>                   forget a stopped bot (its folder stays)
 //	POST   /api/bots/<name>/start|stop|restart {fresh?}
+//	POST   /api/bots/<name>/hold              {minutes?, until?, reason?}: a deliberate down (bothealth.go); DELETE releases
 //	GET    /api/bots/<name>/env               keys; secrets redacted
 //	PUT    /api/bots/<name>/env               {key, value, secret}
 //	DELETE /api/bots/<name>/env?key=
@@ -127,6 +128,8 @@ func serveBots(w http.ResponseWriter, r *http.Request) {
 		serveBotAvatar(w, r, b, rec)
 	case "model":
 		serveBotModel(w, r, b, rec)
+	case "hold":
+		serveBotHold(w, r, rec)
 	case "sessions", "sessions/new", "sessions/resume":
 		serveBotSessions(w, r, b, rec, strings.TrimPrefix(strings.TrimPrefix(action, "sessions"), "/"))
 	case "chat", "chat/send", "chat/stop", "chat/answer":
@@ -180,8 +183,14 @@ func serveBotCreate(w http.ResponseWriter, r *http.Request) {
 // where the human fixes what was wrong.
 func botCreate(rec botRecord, instructions string, start bool) (map[string]any, error) {
 	rec.ID, rec.LastSessionID, rec.Stopped, rec.AvatarImage = 0, "", !start, ""
+	rec.HoldUntil, rec.HoldReason = 0, ""
 	if err := rec.normalize(); err != nil {
 		return nil, botModelErr{err, http.StatusBadRequest}
+	}
+	if rec.Alerts != nil {
+		if err := checkAlertChannelIDs(rec.Alerts.Channels, false); err != nil {
+			return nil, botModelErr{err, http.StatusBadRequest}
+		}
 	}
 	b, err := botBackend(rec.Host)
 	if err != nil {
@@ -272,9 +281,16 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 		next.ID, next.Host, next.Name = rec.ID, rec.Host, rec.Name
 		next.LastSessionID, next.Stopped, next.CreatedAt = rec.LastSessionID, rec.Stopped, rec.CreatedAt
 		next.AvatarImage = rec.AvatarImage
+		next.HoldUntil, next.HoldReason = rec.HoldUntil, rec.HoldReason
 		if err := next.normalize(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
+		}
+		if next.Alerts != nil {
+			if err := checkAlertChannelIDs(next.Alerts.Channels, false); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 		if next.Runtime != rec.Runtime && botRunning(b, rec) {
 			http.Error(w, "stop the bot before changing its runtime", http.StatusConflict)

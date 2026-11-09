@@ -52,6 +52,13 @@ export const qk = {
   // Browser tab and Settings so a start in one shows in the other.
   browser: ["browser"] as const,
   usage: ["usage"] as const,
+  // Server-level: bot liveness alerts (alertsapi.go). Everything under
+  // "alerts" is dropped together after a change.
+  alerts: ["alerts"] as const,
+  alertsOverview: ["alerts", "overview"] as const,
+  alertKinds: ["alerts", "kinds"] as const,
+  alertSettings: ["alerts", "settings"] as const,
+  alertChannels: ["alerts", "channels"] as const,
   // Server-level: the plugin listing. Refetched on the plugins_rev SSE bump
   // (app-store), so the sidebar strip and Settings share one answer.
   plugins: ["plugins"] as const,

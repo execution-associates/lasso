@@ -180,6 +180,24 @@ public struct BotView: Codable, Sendable, Equatable, Identifiable {
     public var last_kind: String?
     public var last_at: String?
     public var error: String?
+    /// Liveness as lasso's bot runner last saw it (src/bothealth.go), and a
+    /// deliberate hold, when there is one.
+    public var health: BotHealth?
+    public var hold: BotHold?
+}
+
+/// src/bothealth.go botHealth: ok, starting, stopped, gone, shell, deaf or unknown.
+public struct BotHealth: Codable, Sendable, Equatable {
+    public var state: String
+    public var reason: String?
+    public var since: String?
+}
+
+/// src/bothealth.go botHoldInfo: until is absent for "until released".
+public struct BotHold: Codable, Sendable, Equatable {
+    public var held: Bool
+    public var until: String?
+    public var reason: String?
 }
 
 public struct LiveModel: Codable, Sendable, Equatable {

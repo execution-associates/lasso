@@ -52,6 +52,11 @@ type botLastLine struct {
 	kind   string
 	tokens int64
 	model  string
+	// What the liveness check (bothealth.go) reads from the same page: the
+	// newest lasso-channel event id the transcript shows arriving, and the
+	// time of the page's oldest row.
+	incomingMax int64
+	oldestAt    string
 }
 
 var bots = &botRuntime{
@@ -240,9 +245,29 @@ type botView struct {
 	// carries, so a list of bots says what each one asks without a chat read
 	// per bot. A claude bot's questions are in its pane's chat.
 	PendingUI []ompUIRequest `json:"pending_ui,omitempty"`
+	// Health is the liveness the bot runner last saw (bothealth.go), and Hold
+	// a deliberate down, when there is one.
+	Health *botHealth   `json:"health,omitempty"`
+	Hold   *botHoldInfo `json:"hold,omitempty"`
+}
+
+// withLiveness adds the stored health and the hold to a view.
+func (v botView) withLiveness() botView {
+	if v.botRecord == nil {
+		return v
+	}
+	v.Health = botHealthOf(v.Name)
+	if h := botHoldView(v.botRecord, time.Now()); h.Held {
+		v.Hold = &h
+	}
+	return v
 }
 
 func botStatus(b Backend, r *botRecord, sessions []claudeSessionEntry) botView {
+	return botStatusRaw(b, r, sessions).withLiveness()
+}
+
+func botStatusRaw(b Backend, r *botRecord, sessions []claudeSessionEntry) botView {
 	if r.isOmp() {
 		return botOmpStatus(b, r)
 	}
@@ -306,6 +331,7 @@ func botLastLineFor(b Backend, name string, p pane) (string, string, string) {
 		line.text, line.kind, line.at = previewText(it.Text), it.Kind, it.At
 		break
 	}
+	line.incomingMax, line.oldestAt = botIncomingEvents(payload.Items)
 	bots.mu.Lock()
 	bots.lines[name] = line
 	bots.mu.Unlock()
@@ -319,6 +345,15 @@ func botCachedUsage(name string) (int64, string) {
 	defer bots.mu.Unlock()
 	l := bots.lines[name]
 	return l.tokens, l.model
+}
+
+// botCachedIncoming is botLastLine's liveness half: the newest channel event
+// id seen arriving and the page's oldest row time.
+func botCachedIncoming(name string) (int64, string) {
+	bots.mu.Lock()
+	defer bots.mu.Unlock()
+	l := bots.lines[name]
+	return l.incomingMax, l.oldestAt
 }
 
 func botCachedLine(name string) (string, string, string) {
@@ -354,11 +389,11 @@ func botStatuses(list []*botRecord) []botView {
 	for _, r := range list {
 		b, err := botBackend(r.Host)
 		if err != nil {
-			out = append(out, botView{botRecord: r, State: "stopped", Error: err.Error()})
+			out = append(out, botView{botRecord: r, State: "stopped", Error: err.Error()}.withLiveness())
 			continue
 		}
 		if r.isOmp() {
-			out = append(out, botOmpStatus(b, r))
+			out = append(out, botOmpStatus(b, r).withLiveness())
 			continue
 		}
 		if _, ok := sessions[r.Host]; !ok {
@@ -451,7 +486,7 @@ func botTick() {
 			}
 			continue
 		}
-		if r.Stopped || !r.KeepRunning {
+		if r.Stopped || !r.KeepRunning || botHeld(r, time.Now()) {
 			continue
 		}
 		bots.mu.Lock()
@@ -473,6 +508,7 @@ func botTick() {
 			}
 		}
 	}
+	botHealthTick(list, sessions, time.Now())
 }
 
 // botChannelSynced: the runner rewrites each bot's launch task and mcp.json
@@ -571,7 +607,7 @@ func botReportSession(b Backend, r *botRecord, p pane, sessions []claudeSessionE
 // per bot, and opening it lands on that bot's chat; the service worker skips
 // showing it to a screen that already has that chat in front of it.
 func botNotifyCheck(b Backend, r *botRecord, sessions []claudeSessionEntry) {
-	if n, ok := botNotification(r, botStatus(b, r, sessions)); ok {
+	if n, ok := botNotification(r, botStatusRaw(b, r, sessions)); ok {
 		publishNotification(n)
 	}
 }
