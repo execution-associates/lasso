@@ -26,10 +26,12 @@ One `settings` row, `llm`, holding only explicit choices:
   with `transcribe.base_url`.
 - `model` — checked against `modelNameRE`. The settings picker is editable, so
   an endpoint that hides a model from `/models` can still be typed in.
-- `key_name` — a NAME. The value comes from lasso's environment or
-  `secret <name>` (`lookupSecret`), is cached in memory for 10 minutes, and is
-  never written to `lasso.db`, returned by a route, or logged. Config GET
-  answers the name only.
+- `key_name` — where the key comes from, never the key: the name of a
+  variable in lasso's environment, or a 1Password reference
+  `op://vault/item/field` (`validKeyRef`), read with `op read` under lasso's
+  own environment with a 10 s timeout (`lookupSecret`). The value is cached in
+  memory for 10 minutes and never written to `lasso.db`, returned by a route,
+  or logged. Config GET answers the reference only.
 
 State as `GET /api/llm/config` reports it: `unconfigured` (no base URL),
 `incomplete` (no model yet — a draft the group can hold), `ready`, or

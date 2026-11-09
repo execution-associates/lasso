@@ -249,7 +249,7 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 **Provider choice** (settings key `transcribe`):
 - Shape: `{provider: off|groq|openai|openai-compatible, model, base_url?, key_name?}`.
 - `openai-compatible` with a loopback or tailnet `base_url` is the **provider that never leaves the server**, for example a whisper.cpp or Parakeet server run by isb on titan.
-- The key comes from the env var `key_name`, else `secret <key_name>` with a 10 s timeout. That reuses `pluginSecretLookup` (`src/pluginmcp.go:110`), factored out as a shared `lookupSecret`.
+- The key comes from `key_name`: an env var in lasso's environment, or an `op://` reference read with `op read` (10 s timeout), through the shared `lookupSecret` (`src/pluginmcp.go`).
 - The key is cached in memory for 10 min and never stored in `lasso.db`.
 - The default is `off`, which reads as `available:false` with a reason.
 - Exposed as a `transcribe` section through the settings handlers (`src/mcp_settings.go`), key *names* only.

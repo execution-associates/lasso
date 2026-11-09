@@ -105,25 +105,52 @@ func unavailable(format string, a ...any) error {
 }
 
 // pluginSecretLookup resolves one approved secret's value (lookupSecret). A
-// var so tests can stand in for the CLI.
+// var so tests can stand in for it.
 var pluginSecretLookup = lookupSecret
 
-// lookupSecret resolves a secret by name: lasso's own environment first, then
-// the operator's `secret` CLI, bounded at 10s. The value is never logged; an
-// error says only that the lookup failed.
-func lookupSecret(ctx context.Context, name string) (string, error) {
-	if v := os.Getenv(name); v != "" {
+// opReadTimeout bounds one `op read`.
+const opReadTimeout = 10 * time.Second
+
+// lookupSecret resolves a key reference: an `op://vault/item/field` reference
+// is read with 1Password's `op read` (bounded at opReadTimeout, run with
+// lasso's own environment, so a service-account token or desktop sign-in
+// there is what authorizes it); anything else is the name of a variable in
+// lasso's environment. The value is never logged; an error names the
+// reference and why it failed, never a value.
+func lookupSecret(ctx context.Context, ref string) (string, error) {
+	if isOpRef(ref) {
+		return opRead(ctx, ref)
+	}
+	if v := os.Getenv(ref); v != "" {
 		return v, nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	return "", fmt.Errorf("%s is not set in lasso's environment", ref)
+}
+
+// opRead runs `op read` on one reference.
+func opRead(ctx context.Context, ref string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, opReadTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "secret", name).Output()
+	var stderr strings.Builder
+	cmd := exec.CommandContext(ctx, "op", "read", "--no-newline", ref)
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		return "", err
+		msg := strings.TrimSpace(stderr.String())
+		if i := strings.IndexByte(msg, '\n'); i >= 0 {
+			msg = msg[:i]
+		}
+		if len(msg) > 200 {
+			msg = msg[:200]
+		}
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", fmt.Errorf("op read %s: %s", ref, msg)
 	}
 	v := strings.TrimRight(string(out), "\r\n")
 	if v == "" {
-		return "", errors.New("empty value")
+		return "", fmt.Errorf("op read %s: empty value", ref)
 	}
 	return v, nil
 }
@@ -267,7 +294,7 @@ func (s *pluginServer) launch(ctx context.Context) (pluginProc, error) {
 		v, err := pluginSecretLookup(ctx, sec.Name)
 		if err != nil {
 			// Named, never shown: the value (or its absence) stays off the log.
-			return nil, unavailable("secret %s could not be resolved (not in lasso's environment, and `secret %s` failed)", sec.Name, sec.Name)
+			return nil, unavailable("secret %s could not be resolved: it is not set in lasso's environment", sec.Name)
 		}
 		secrets[sec.Name] = v
 	}
