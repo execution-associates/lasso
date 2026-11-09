@@ -24,6 +24,7 @@ Code:
 - `mcp_botjobs.go`: `list_bot_jobs`, `create_bot_job`, `update_bot_job`, `delete_bot_job` and `run_bot_job`.
 - `bottalk.go`: Talk, a claude bot's OpenAI-compatible door (`/talk/<bot>/v1`), its conversations and replies, and the Talk tab's API.
 - `mcp_bottalk.go`: `get_bot_talk`, `enable_bot_talk`, `update_bot_talk`, `rotate_bot_talk_key` and `disable_bot_talk`.
+- `bothealth.go`, `alertchannels.go`, `alertsapi.go`, `mcp_alerts.go`: liveness alerts and the hold, in [bot-alerts.md](bot-alerts.md).
 
 The frontend is `BotsView.tsx`, `BotSettings.tsx`, `BotJobs.tsx` (with `lib/cron.ts`), `BotTalk.tsx`, `BotsManage.tsx` and `BotParts.tsx`, with `lib/bots.ts` (the list poll, unread) and the `/bots/…` routes in `lib/url.ts`. Notifications ride the shared Web Push path (`notifications.md`), with `sw.js` honouring the payload's `url` and `icon`.
 
@@ -64,7 +65,8 @@ The whole launch is `mise run bot` in the folder. mise asks fnox for the variabl
   - **Answer the development-channel menu.** It fires on every launch, and nothing pre-accepts it.
 
   Each answer matches the dialog's own wording before sending a key, so a blind keystroke can never answer a permission prompt.
-- **One grant per channel.** `--channels` is accepted, but it delivers nothing for `server:` entries and doesn't split on commas. A missing grant still subscribes and acks, and then hears nothing.
+- **One grant per channel.** `--channels` is accepted, but it delivers nothing for `server:` entries and doesn't split on commas. A missing grant still subscribes and acks, and then hears nothing, which is why liveness alerts (`bot-alerts.md`) check the running process's argv and look for each acked event in the transcript.
+- **Stop, hold and keep-running.** `stopped` is the human's Stop; `hold_until` is a deliberate down that leaves the pane alone. Keep-running relaunches neither, and neither pages for being gone, but a held bot that is up and deaf still alerts (`bot-alerts.md`). Start clears `stopped`, never a hold; a settings save writes neither.
 - **`--mcp-config`, not a project `.mcp.json`.** A project file asks a human to approve it on every fresh start. Secrets for a server are written as `${VAR}`, which Claude Code expands from the env mise handed the task, so `mcp.json` never holds one.
 - **Env is fnox's, resolved by mise.** mise (≥ 2026.10.4) asks fnox (≥ 1.39) for the keys a task lists, and hands them to that task only. The shell, `mise env` and other tasks never see them. `botCheckTools` refuses an older host and names the upgrade command.
   - **Lasso writes `fnox.toml` once,** with two providers: `lasso` (age, `key_file` = lasso's key, the default) and `plain`. After that it touches the file only through the fnox CLI: `fnox set KEY [--provider plain]` with the value on stdin, never argv, and `fnox remove KEY`. That leaves a human free to add a provider (1Password, a vault, a keychain) and make it the default, and lasso keeps working.

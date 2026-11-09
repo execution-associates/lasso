@@ -15,6 +15,13 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import {
+  type AlertsDraft,
+  alertsDraftOf,
+  alertsOf,
+  BotAlertsSection,
+  BotLivenessSection,
+} from "@/components/BotAlerts"
 import { JobsTab } from "@/components/BotJobs"
 import {
   BotAvatar,
@@ -143,6 +150,8 @@ type Draft = {
   // The create form's instructions: the bot's first AGENTS.md/CLAUDE.md.
   // Not part of a save; an existing bot's file is edited in its own tab.
   instructions: string
+  // Liveness alerting (BotAlerts.tsx), saved with the row.
+  alerts: AlertsDraft
 }
 
 let rowSeq = 0
@@ -185,6 +194,7 @@ function draftOf(b?: BotView): Draft {
     extra_args: (b?.extra_args ?? []).join("\n"),
     strict_mcp: b?.strict_mcp ?? false,
     instructions: "",
+    alerts: alertsDraftOf(b?.alerts),
     mcp: (b?.mcp ?? []).map((s) => ({
       id: nextID(),
       name: s.name,
@@ -216,6 +226,7 @@ function fieldsOf(d: Draft): BotFields {
     extra_args: lines(d.extra_args),
     strict_mcp: d.strict_mcp,
     mcp: d.mcp.map(serverOf),
+    alerts: alertsOf(d.alerts),
   }
 }
 
@@ -756,6 +767,12 @@ function GeneralTab({
           </Check>
         )}
       </section>
+      <BotAlertsSection
+        draft={draft.alerts}
+        set={(patch) => set({ alerts: { ...draft.alerts, ...patch } })}
+        bot={bot}
+      />
+      {bot && !creating && <BotLivenessSection bot={bot} />}
     </div>
   )
 }
@@ -2298,10 +2315,10 @@ function LaunchTab({
       )}
       <p className="text-[12.5px] text-muted-foreground leading-relaxed">
         The bot runs as <code className="font-mono">mise run bot</code> in{" "}
-        <code className="font-mono">{dirPath}</code>, in herdr's Bots
-        workspace: mise loads its environment, then runs the script below.{" "}
-        lasso writes that script from these settings on every save; edit the
-        settings, not the file.
+        <code className="font-mono">{dirPath}</code>, in herdr's Bots workspace:
+        mise loads its environment, then runs the script below. lasso writes
+        that script from these settings on every save; edit the settings, not
+        the file.
         {bot.session_id && (
           <>
             {" "}

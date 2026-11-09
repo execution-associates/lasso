@@ -2,6 +2,7 @@ import { Play, Plus, Settings, Square } from "lucide-react"
 import * as React from "react"
 import {
   BotAvatar,
+  BotHealthMark,
   BotStateMark,
   startBot,
   stopBot,
@@ -147,7 +148,10 @@ export function BotsManage({
                       {channelsOf(b)}
                     </td>
                     <td className="px-3 py-1.5">
-                      <BotStateMark bot={b} words />
+                      <span className="flex items-center gap-1.5">
+                        <BotStateMark bot={b} words />
+                        <BotHealthMark bot={b} />
+                      </span>
                     </td>
                     <td className="px-3 py-1.5 text-muted-foreground">
                       {relativeTime(b.last_at, now) || "—"}
@@ -183,6 +187,7 @@ export function BotsManage({
                   </button>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-muted-foreground">
                     <BotStateMark bot={b} words />
+                    <BotHealthMark bot={b} />
                     <span>
                       {channelsOf(b)} channel{channelsOf(b) === 1 ? "" : "s"}
                     </span>

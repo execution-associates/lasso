@@ -39,6 +39,25 @@
   "keep_running": true,
   "auto_approve": true,
   "stopped": true,
+  "hold_until": 1,
+  "hold_reason": "x",
+  "alerts": {
+    "mode": "x",
+    "channels": [
+      1
+    ],
+    "down_after": 1,
+    "up_after": 1,
+    "remind_every": 1,
+    "handle_within": 1,
+    "health_checks": [
+      {
+        "name": "x",
+        "url": "x",
+        "json_field": "x"
+      }
+    ]
+  },
   "last_session_id": "x",
   "created_at": "x",
   "updated_at": "x",
@@ -79,5 +98,15 @@
       ],
       "placeholder": "x"
     }
-  ]
+  ],
+  "health": {
+    "state": "x",
+    "reason": "x",
+    "since": "x"
+  },
+  "hold": {
+    "held": true,
+    "until": "x",
+    "reason": "x"
+  }
 }

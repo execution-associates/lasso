@@ -442,6 +442,9 @@ func runServer() {
 	mux.HandleFunc("/api/notify", serveNotify)
 	mux.HandleFunc("/api/notices", serveNotices)
 	mux.HandleFunc("/api/notify/device", serveNotifyDevice)
+	// Bot liveness alerts (bothealth.go): channels hold write-only secrets.
+	mux.HandleFunc("/api/alerts", serveAlerts)
+	mux.HandleFunc("/api/alerts/", serveAlerts)
 	// Plugins: the listing and its actions are ordinary UI routes behind
 	// UI_AUTH, and so is /plugins/ — the tab documents, served under a CSP
 	// sandbox so they are an opaque origin (see pluginManager.serveFiles).

@@ -30,7 +30,9 @@ var inboxNotices inboxNoticeLog
 // inboxKeeps reports whether a kind is listed as a notice. Every other kind
 // is already an Inbox entry of its own (a blocked agent, a finished turn, a
 // bot's reply), or never listed (a test).
-func inboxKeeps(k notifKind) bool { return k == notifLassoNotice || k == notifAgentMessage }
+func inboxKeeps(k notifKind) bool {
+	return k == notifLassoNotice || k == notifAgentMessage || k == notifBotDown || k == notifBotRecovered
+}
 
 func (l *inboxNoticeLog) add(n liveNotification) {
 	l.mu.Lock()

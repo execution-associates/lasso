@@ -26,6 +26,10 @@ import {
 import * as React from "react"
 import { toast } from "sonner"
 import { AnalyticsToggle } from "@/components/AnalyticsToggle"
+import {
+  BotAlertsSettings,
+  BotAlertsSummary,
+} from "@/components/BotAlertsSettings"
 import { Pill } from "@/components/Pill"
 import {
   AlertDialog,
@@ -476,6 +480,13 @@ export function SettingsTab({ active }: { active: boolean }) {
             summary={<PushSummary active={generalActive} />}
           >
             {(open) => <NotificationsSettings active={generalActive && open} />}
+          </SettingsGroup>
+          <SettingsGroup
+            id="bot-alerts"
+            title="Bot alerts"
+            summary={<BotAlertsSummary active={generalActive} />}
+          >
+            {(open) => <BotAlertsSettings active={generalActive && open} />}
           </SettingsGroup>
           <SettingsGroup
             id="sidebar-usage"
