@@ -62,6 +62,7 @@ printf 'tunnel:   '; curl -s -m5 -o /dev/null -w '%{http_code} (127.0.0.1:18090)
 printf 'identity: '; security find-identity -p codesigning ~/Library/Keychains/lasso-desktop-signing.keychain-db 2>/dev/null | awk -F'"' '/LassoDesktop Dev/ {print $2; f=1; exit} END {if (!f) print "missing"}'
 printf 'baseURL:  '; defaults read com.orangecountyai.Lasso baseURL 2>/dev/null || echo "(default http://127.0.0.1:8090)"
 case "$(defaults read com.orangecountyai.Lasso baseURL 2>/dev/null)" in *:8090*|"") echo "          WARNING: 8090 on this Mac is another service's tunnel, not ours";; esac
+printf 'screen:   '; ioreg -n Root -d1 | grep -q '"CGSSessionScreenIsLocked"=Yes' && echo "LOCKED (the UI tests cannot pass; unlock it)" || echo unlocked
 printf 'agent:    '; launchctl print gui/$(id -u)/com.orangecountyai.Lasso 2>/dev/null | awk '/state =/ {print $3; f=1; exit} END {if (!f) print "not loaded"}'
 DOC
     ;;
@@ -77,7 +78,7 @@ DOC
   relaunch) on_mac "Scripts/agent.sh relaunch" ;;
   test)
     sync
-    on_mac "Scripts/test.sh 2>&1 | grep -E \"✔|✘|error:|Test run\""
+    on_mac "set -o pipefail; Scripts/test.sh 2>&1 | grep -E \"✔|✘|error:|Test run\""
     ;;
   parity)
     sync

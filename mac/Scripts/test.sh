@@ -12,6 +12,15 @@
 # records, which is the app's.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# The UI tests need windows that can become key and real clicks that land, so
+# a locked screen (loginwindow is frontmost, every key-window and click test
+# fails) or a session switched away from the console is refused up front
+# rather than reported as a few dozen focus failures.
+root="$(ioreg -n Root -d1)"
+if grep -q '"CGSSessionScreenIsLocked"=Yes' <<<"$root" || ! grep -q '"kCGSSessionOnConsoleKey"=Yes' <<<"$root"; then
+  echo "error: the Mac's screen is locked or its session is not on the console; unlock it (Screen Sharing works) and run the tests again" >&2
+  exit 3
+fi
 PLUGINS=/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing
 flags=()
 [ -d "$PLUGINS" ] && flags=(-Xswiftc -plugin-path -Xswiftc "$PLUGINS")
