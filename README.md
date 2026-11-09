@@ -206,5 +206,17 @@ See [Development](docs/reference/development.md).
 
 ## License
 
-lasso is licensed under the [Apache License 2.0](LICENSE), the same license as
-herdr. See [NOTICE](NOTICE) for the copyright notice.
+lasso is source-available under the
+[Execution Associates Source License 1.0](LICENSE) (EXA-SL-1.0). In short:
+
+- **Free to use, change and share** for individuals and for companies under
+  10M USD in annual revenue (gross revenue or ARR, counted with affiliates).
+- **Companies at 10M USD or more need a commercial license** from
+  [Execution Associates](https://executionassociates.com).
+- **No competing products**: you may not use lasso to offer a product that
+  substitutes for it.
+- **Every version becomes Apache 2.0** two years after its release, with
+  neither limit.
+
+The [LICENSE](LICENSE) is what binds; this summary is not. See [NOTICE](NOTICE)
+for the copyright notice and third-party code.
