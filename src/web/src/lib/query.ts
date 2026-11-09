@@ -44,6 +44,10 @@ export const qk = {
   version: ["version"] as const,
   // Server-level (not host-scoped): whether new agents are auto-titled.
   autoTitle: ["auto-title"] as const,
+  // Server-level: the Internal AI endpoint the titler uses (llm.go), and its
+  // model catalog for the picker.
+  llmConfig: ["llm-config"] as const,
+  llmModels: ["llm-models"] as const,
   // Server-level: anonymous usage analytics on or off (telemetry.go).
   telemetry: ["telemetry"] as const,
   // Server-level: the VAPID key + registered notification devices.

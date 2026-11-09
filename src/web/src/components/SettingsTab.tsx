@@ -54,6 +54,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { EditableCombobox } from "@/components/ui/editable-combobox"
 import { Field, flatFieldClass, labelClass } from "@/components/ui/field"
 import { NO_AUTOCORRECT } from "@/components/ui/input"
 import { Orb } from "@/components/ui/orb"
@@ -65,6 +66,7 @@ import {
   type BrowserAction,
   type BrowserMode,
   completeUsageProviderOrder,
+  type LLMConfigPatch,
   type Plugin,
   type PluginAction,
   type PluginIsolation,
@@ -461,6 +463,13 @@ export function SettingsTab({ active }: { active: boolean }) {
                 <CreationSettings active={generalActive && open} host={host} />
               </>
             )}
+          </SettingsGroup>
+          <SettingsGroup
+            id="internal-ai"
+            title="Internal AI"
+            summary={<InternalAISummary active={generalActive} />}
+          >
+            {(open) => <InternalAISettings active={generalActive && open} />}
           </SettingsGroup>
           <SettingsGroup
             id="terminal-browser"
@@ -2194,12 +2203,203 @@ function AutoTitleToggle({ active }: { active: boolean }) {
         Auto-title new agents from their prompt
       </label>
       <p className="text-[11px] text-muted-foreground">
-        Names each new agent by asking the first local CLI that answers (claude,
-        codex, opencode, omp, pi) to summarize its prompt — so the sidebar shows
-        a title instead of the prompt's clipped first line, and gives the agent
-        a one- or two-word herdr label. Runs on this machine, whichever host the
-        agent was created on: the branch and working directory keep their
-        original names.
+        Names each new agent from its prompt — asking the Internal AI endpoint
+        first when one is configured, then the first local CLI that answers
+        (claude, codex, opencode, omp, pi) — so the sidebar shows a title
+        instead of the prompt's clipped first line, and gives the agent a one-
+        or two-word herdr label. Runs on this machine, whichever host the agent
+        was created on: the branch and working directory keep their original
+        names.
+      </p>
+    </div>
+  )
+}
+
+// InternalAISummary is the collapsed group's one-liner: which model is in use,
+// or why the endpoint is not.
+function InternalAISummary({ active }: { active: boolean }) {
+  const cfg = useQuery({
+    queryKey: qk.llmConfig,
+    queryFn: () => api.llmConfig(),
+    enabled: active,
+  })
+  const d = cfg.data
+  const text = !d
+    ? "…"
+    : d.state === "ready"
+      ? d.model
+      : d.state === "incomplete"
+        ? "needs a model"
+        : d.state === "unreadable"
+          ? "unreadable"
+          : "off"
+  return <>internal AI {text}</>
+}
+
+// InternalAISettings configures lasso's own OpenAI-compatible endpoint
+// (llm.go): the titler asks it first, then falls back to the local CLIs. The
+// model list is a hint — any id can be typed in — and every field autosaves on
+// blur, like the creator settings. Server-level, so it sits above the host
+// picker like AutoTitleToggle.
+function InternalAISettings({ active }: { active: boolean }) {
+  const queryClient = useQueryClient()
+  const cfgQuery = useQuery({
+    queryKey: qk.llmConfig,
+    queryFn: () => api.llmConfig(),
+    enabled: active,
+  })
+  const modelsQuery = useQuery({
+    queryKey: qk.llmModels,
+    queryFn: () => api.llmModels(),
+    enabled: active,
+    retry: false,
+  })
+  // Editable copies, seeded once: a refetch of the same config must not clobber
+  // a field being typed into.
+  const [baseURL, setBaseURL] = React.useState("")
+  const [keyName, setKeyName] = React.useState("")
+  const [model, setModel] = React.useState("")
+  const seeded = React.useRef(false)
+  React.useEffect(() => {
+    if (!cfgQuery.data || seeded.current) return
+    seeded.current = true
+    setBaseURL(cfgQuery.data.base_url)
+    setKeyName(cfgQuery.data.key_name)
+    setModel(cfgQuery.data.model)
+  }, [cfgQuery.data])
+
+  const save = useMutation({
+    mutationFn: (patch: LLMConfigPatch) => api.setLLMConfig(patch),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: qk.llmConfig })
+      queryClient.invalidateQueries({ queryKey: qk.llmModels })
+    },
+    onError: (e: Error) =>
+      toast.error(`Couldn't save internal AI: ${e.message}`),
+  })
+  const refresh = useMutation({
+    mutationFn: () => api.llmModels(true),
+    onSuccess: (d) => {
+      queryClient.setQueryData(qk.llmModels, d)
+      if (d.error) toast.error(d.error)
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+  const test = useMutation({
+    mutationFn: () => api.testLLM(),
+    onSuccess: (d) =>
+      d.ok
+        ? toast.success(`Endpoint answered in ${d.elapsed_ms ?? 0} ms`)
+        : toast.error(d.error ?? "The endpoint didn't answer"),
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const stored = cfgQuery.data
+  const saveIfChanged = (
+    field: "base_url" | "model" | "key_name",
+    value: string
+  ) => {
+    if (!stored || stored[field] === value) return
+    save.mutate({ [field]: value })
+  }
+  const models = modelsQuery.data?.models ?? []
+  const state = !stored
+    ? "reading…"
+    : stored.state === "unreadable"
+      ? stored.reason || "unreadable"
+      : stored.state === "ready"
+        ? "ready"
+        : stored.state === "incomplete"
+          ? "choose a model"
+          : "off"
+  return (
+    <div className="mb-4 flex flex-col gap-3">
+      <Field
+        label="Endpoint"
+        hint="The OpenAI-compatible API root, e.g. http://127.0.0.1:8080/v1. Empty turns internal AI off."
+        htmlFor="settings-llm-base-url"
+      >
+        <input
+          id="settings-llm-base-url"
+          className={flatFieldClass}
+          value={baseURL}
+          placeholder="http://127.0.0.1:8080/v1"
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(e) => setBaseURL(e.target.value)}
+          onBlur={() => saveIfChanged("base_url", baseURL.trim())}
+        />
+      </Field>
+      <Field
+        label="API key"
+        hint="The NAME of an environment variable or `secret` entry holding the key — never the key itself. Empty sends no Authorization header."
+        htmlFor="settings-llm-key-name"
+      >
+        <input
+          id="settings-llm-key-name"
+          className={flatFieldClass}
+          value={keyName}
+          placeholder="INTERNAL_AI_KEY"
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(e) => setKeyName(e.target.value)}
+          onBlur={() => saveIfChanged("key_name", keyName.trim())}
+        />
+      </Field>
+      <Field
+        label="Model"
+        hint="Chosen from the endpoint's models, or typed in when it hides one."
+        htmlFor="settings-llm-model"
+      >
+        {/* EditableCombobox has no blur of its own; the wrapper sees focus leave
+            the field after a click-selected model too. */}
+        <div onBlur={() => saveIfChanged("model", model.trim())}>
+          <EditableCombobox
+            id="settings-llm-model"
+            value={model}
+            onValueChange={setModel}
+            suggestions={models}
+            placeholder="Choose or type a model id"
+            emptyOption="No model"
+          />
+        </div>
+      </Field>
+      {modelsQuery.data?.error && (
+        <p className="text-[11px] text-destructive">{modelsQuery.data.error}</p>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => refresh.mutate()}
+          disabled={!stored?.base_url || refresh.isPending}
+        >
+          <RotateCw
+            className={refresh.isPending ? "animate-spin" : undefined}
+          />
+          {models.length
+            ? `${models.length} model${models.length === 1 ? "" : "s"}`
+            : "Fetch models"}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => test.mutate()}
+          disabled={stored?.state !== "ready" || test.isPending}
+        >
+          Test
+        </Button>
+        <span className="text-[11px] text-muted-foreground">{state}</span>
+        {save.isPending && (
+          <span className="text-[11px] text-muted-foreground">Saving…</span>
+        )}
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Used to name new agents and terminal tabs: this endpoint is asked first,
+        then the local CLIs (claude, codex, opencode, omp, pi). Only the prompt
+        excerpt the titler already summarises is sent. The key is read from this
+        machine's environment or <span className="font-mono">secret</span>;
+        lasso never stores it.
       </p>
     </div>
   )
