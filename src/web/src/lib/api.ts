@@ -1976,6 +1976,33 @@ let hostAttach: {
   promise: Promise<{ active: string; version: string; protocol: number }>
 } | null = null
 
+// Internal AI (llm.go): the OpenAI-compatible endpoint lasso uses to name new
+// agents and terminal tabs. Server-level, like auto-title: the endpoint is
+// reached from lasso's own machine, whichever host the agent lands on. Key
+// NAMES only — a key's value is never returned.
+export interface LLMConfig {
+  base_url: string
+  model: string
+  key_name: string
+  // unconfigured (base_url empty), incomplete (no model yet), ready
+  // (base_url + model set) or unreadable (the stored value does not parse).
+  state: "unconfigured" | "incomplete" | "ready" | "unreadable"
+  reason?: string
+}
+
+export interface LLMConfigPatch {
+  base_url?: string
+  model?: string
+  key_name?: string
+}
+
+export interface LLMModels {
+  models: string[]
+  // Present when the fetch failed; the group stays usable (a model can be
+  // typed in by hand).
+  error?: string
+}
+
 export interface FileFindListing {
   root: string
   files: string[]
@@ -2191,6 +2218,20 @@ export const api = {
   autoTitle: () => getJSON<{ enabled: boolean }>("/api/auto-title"),
   setAutoTitle: (enabled: boolean) =>
     postJSON<{ enabled: boolean }>("/api/auto-title", { enabled }),
+  // The Internal AI endpoint behind the titler (llm.go). Server-level: the
+  // endpoint is reached from lasso's own machine.
+  llmConfig: () => getJSON<LLMConfig>("/api/llm/config"),
+  setLLMConfig: (patch: LLMConfigPatch) =>
+    postJSON<LLMConfig>("/api/llm/config", patch),
+  // The endpoint's /models for the picker. `refresh` bypasses the short cache.
+  llmModels: (refresh = false) =>
+    getJSON<LLMModels>(`/api/llm/models${refresh ? "?refresh=1" : ""}`, 12_000),
+  // One tiny completion, to prove the endpoint and key work.
+  testLLM: () =>
+    postJSON<{ ok: boolean; error?: string; elapsed_ms?: number }>(
+      "/api/llm/test",
+      {}
+    ),
   // Anonymous usage analytics (telemetry.go): the stored choice, whether
   // anything is actually sent, and what holds it off.
   telemetryConfig: () => getJSON<TelemetryConfig>("/api/telemetry/config"),

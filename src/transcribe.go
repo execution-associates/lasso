@@ -12,7 +12,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
-	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -74,8 +73,6 @@ var (
 	// the body is read, so at most transcribeMaxInFlight bodies are in memory.
 	transcribeSlots = make(chan struct{}, transcribeMaxInFlight)
 
-	transcribeModelRE    = regexp.MustCompile(`^[A-Za-z0-9._:/@+-]{1,128}$`)
-	transcribeKeyNameRE  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 	transcribeLanguageRE = regexp.MustCompile(`^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})?$`)
 )
 
@@ -117,30 +114,19 @@ func (c transcribeConfig) validate() error {
 	if !slices.Contains(transcribeProviderNames, c.Provider) {
 		return fmt.Errorf("transcribe.provider must be one of %s", strings.Join(transcribeProviderNames, ", "))
 	}
-	if c.Model != "" && !transcribeModelRE.MatchString(c.Model) {
+	if c.Model != "" && !modelNameRE.MatchString(c.Model) {
 		return errors.New("transcribe.model: letters, digits and ._:/@+- only, at most 128")
 	}
-	if c.KeyName != "" && !transcribeKeyNameRE.MatchString(c.KeyName) {
+	if c.KeyName != "" && !secretNameRE.MatchString(c.KeyName) {
 		return errors.New("transcribe.key_name: an environment variable name (letters, digits, underscore)")
 	}
 	if c.BaseURL != "" {
-		if err := validTranscribeBaseURL(c.BaseURL); err != nil {
-			return err
+		if err := validAPIBaseURL(c.BaseURL); err != nil {
+			return fmt.Errorf("transcribe.base_url %s", err)
 		}
 	}
 	if c.Provider == transcribeOpenAICompatible && c.BaseURL == "" {
 		return errors.New("transcribe.base_url is required for openai-compatible")
-	}
-	return nil
-}
-
-func validTranscribeBaseURL(s string) error {
-	u, err := url.Parse(s)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return errors.New("transcribe.base_url must be an http or https URL, e.g. http://127.0.0.1:8080/v1")
-	}
-	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return errors.New("transcribe.base_url must carry no credentials, query or fragment")
 	}
 	return nil
 }
@@ -168,7 +154,7 @@ func (c transcribeConfig) target() (transcribeTarget, string) {
 	if t.BaseURL == "" {
 		return t, "transcription provider " + c.Provider + " has no base_url"
 	}
-	if validTranscribeBaseURL(t.BaseURL) != nil {
+	if validAPIBaseURL(t.BaseURL) != nil {
 		return t, "transcription provider " + c.Provider + " has an invalid base_url"
 	}
 	return t, ""

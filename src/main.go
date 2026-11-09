@@ -408,6 +408,11 @@ func runServer() {
 	// Speech to text (transcribe.go): behind UI_AUTH like every /api route.
 	mux.HandleFunc("/api/transcribe", serveTranscribe)
 	mux.HandleFunc("/api/transcribe/config", serveTranscribeConfig)
+	// Internal AI (llm.go): lasso's own OpenAI-compatible endpoint, used by the
+	// titler. Also behind UI_AUTH.
+	mux.HandleFunc("/api/llm/config", serveLLMConfig)
+	mux.HandleFunc("/api/llm/models", serveLLMModels)
+	mux.HandleFunc("/api/llm/test", serveLLMTest)
 	mux.HandleFunc("/api/frameable", serveFrameable)
 	mux.HandleFunc("/api/browser", sharedBrowsers.serveStatus)
 	mux.HandleFunc("/api/browser/profiles", sharedBrowsers.serveProfiles)
