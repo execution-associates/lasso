@@ -509,6 +509,7 @@ func botTick() {
 		}
 	}
 	botHealthTick(list, sessions, time.Now())
+	botUpdateTick(list, sessions, time.Now())
 }
 
 // botChannelSynced: the runner rewrites each bot's launch task and mcp.json

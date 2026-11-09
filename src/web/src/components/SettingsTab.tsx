@@ -30,6 +30,10 @@ import {
   BotAlertsSettings,
   BotAlertsSummary,
 } from "@/components/BotAlertsSettings"
+import {
+  BotUpdatesSettings,
+  BotUpdatesSummary,
+} from "@/components/BotUpdatesSettings"
 import { Pill } from "@/components/Pill"
 import {
   AlertDialog,
@@ -496,6 +500,13 @@ export function SettingsTab({ active }: { active: boolean }) {
             summary={<BotAlertsSummary active={generalActive} />}
           >
             {(open) => <BotAlertsSettings active={generalActive && open} />}
+          </SettingsGroup>
+          <SettingsGroup
+            id="bot-updates"
+            title="Bot updates"
+            summary={<BotUpdatesSummary active={generalActive} />}
+          >
+            {(open) => <BotUpdatesSettings active={generalActive && open} />}
           </SettingsGroup>
           <SettingsGroup
             id="sidebar-usage"
@@ -2398,8 +2409,8 @@ function InternalAISettings({ active }: { active: boolean }) {
         Used to name new agents and terminal tabs: this endpoint is asked first,
         then the local CLIs (claude, codex, opencode, omp, pi). Only the prompt
         excerpt the titler already summarises is sent. The key is read from this
-        machine's environment or with{" "}
-        <span className="font-mono">op read</span>; lasso never stores it.
+        machine's environment or with <span className="font-mono">op read</span>
+        ; lasso never stores it.
       </p>
     </div>
   )

@@ -48,6 +48,8 @@ export const qk = {
   // model catalog for the picker.
   llmConfig: ["llm-config"] as const,
   llmModels: ["llm-models"] as const,
+  // Server-level: daily Claude Code update restarts for bots (botupdates.go).
+  botUpdates: ["bot-updates"] as const,
   // Server-level: anonymous usage analytics on or off (telemetry.go).
   telemetry: ["telemetry"] as const,
   // Server-level: the VAPID key + registered notification devices.
