@@ -494,28 +494,34 @@ func TestBotChannelInMCPJSON(t *testing.T) {
 	}
 }
 
+// An omp bot's channel servers push through lasso, so they get the credential;
+// a claude bot's keep delivering as Claude Code channels and get nothing.
 func TestChannelServersGetPushCredentials(t *testing.T) {
 	r := &botRecord{Name: "jess", Host: "local", channelToken: "tok", MCP: []botMCPServer{
 		{Name: "gmail-channel", Type: "stdio", Command: "bun", Channel: true, Env: map[string]string{"KEEP": "1"}},
 		{Name: "plain", Type: "stdio", Command: "bun"},
 	}}
-	for name, body := range map[string][]byte{
-		"claude": botMCPJSON(r, "/d", nil),
-		"omp":    botOmpMCPJSON(r, "/d", nil),
-	} {
+	servers := func(body []byte) map[string]map[string]any {
 		var got struct {
 			MCPServers map[string]map[string]any `json:"mcpServers"`
 		}
 		if err := json.Unmarshal(body, &got); err != nil {
-			t.Fatalf("%s: %v", name, err)
+			t.Fatal(err)
 		}
-		env, _ := got.MCPServers["gmail-channel"]["env"].(map[string]any)
-		if env["LASSO_CHANNEL_TOKEN"] != "tok" || env["KEEP"] != "1" || !strings.HasPrefix(env["LASSO_URL"].(string), "http://") ||
-			env["LASSO_BOT"] != "jess" || env["LASSO_PUSH_SOURCE"] != "gmail-channel" {
-			t.Errorf("%s channel env = %v", name, env)
-		}
-		if env, _ := got.MCPServers["plain"]["env"].(map[string]any); env["LASSO_CHANNEL_TOKEN"] != nil {
-			t.Errorf("%s: a non-channel server got the push credential: %v", name, env)
-		}
+		return got.MCPServers
+	}
+	omp := servers(botOmpMCPJSON(r, "/d", nil))
+	env, _ := omp["gmail-channel"]["env"].(map[string]any)
+	if env["LASSO_CHANNEL_TOKEN"] != "tok" || env["KEEP"] != "1" || !strings.HasPrefix(env["LASSO_URL"].(string), "http://") ||
+		env["LASSO_BOT"] != "jess" || env["LASSO_PUSH_SOURCE"] != "gmail-channel" {
+		t.Errorf("omp channel env = %v", env)
+	}
+	if env, _ := omp["plain"]["env"].(map[string]any); env["LASSO_CHANNEL_TOKEN"] != nil {
+		t.Errorf("omp: a non-channel server got the push credential: %v", env)
+	}
+	claude := servers(botMCPJSON(r, "/d", nil))
+	env, _ = claude["gmail-channel"]["env"].(map[string]any)
+	if len(env) != 1 || env["KEEP"] != "1" {
+		t.Errorf("claude channel env = %v, want the server's own env only", env)
 	}
 }

@@ -362,17 +362,10 @@ func botMCPJSON(r *botRecord, dir string, signedIn map[string]bool) []byte {
 			for k, v := range s.Env {
 				env[k] = v
 			}
-			// A channel server pushes through the harness-neutral door, so it
-			// gets the bot's channel credential whatever runtime the bot runs,
-			// with the bot's name and its own (the push's source).
-			if s.Channel && r.channelToken != "" && r.Host == "local" {
-				if base, ok := botLassoBase(); ok {
-					env["LASSO_URL"] = base
-					env["LASSO_CHANNEL_TOKEN"] = r.channelToken
-					env["LASSO_BOT"] = r.Name
-					env["LASSO_PUSH_SOURCE"] = s.Name
-				}
-			}
+			// A claude bot's channel servers reach the session themselves
+			// (Claude Code channels), so they get no push credential: only a
+			// runtime without channels (botOmpMCPJSON) routes them through
+			// lasso's push door.
 			if len(env) > 0 {
 				e["env"] = env
 			}
