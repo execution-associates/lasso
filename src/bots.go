@@ -363,11 +363,14 @@ func botMCPJSON(r *botRecord, dir string, signedIn map[string]bool) []byte {
 				env[k] = v
 			}
 			// A channel server pushes through the harness-neutral door, so it
-			// gets the bot's channel credential whatever runtime the bot runs.
+			// gets the bot's channel credential whatever runtime the bot runs,
+			// with the bot's name and its own (the push's source).
 			if s.Channel && r.channelToken != "" {
 				if base, ok := botLassoBase(); ok {
 					env["LASSO_URL"] = base
 					env["LASSO_CHANNEL_TOKEN"] = r.channelToken
+					env["LASSO_BOT"] = r.Name
+					env["LASSO_PUSH_SOURCE"] = s.Name
 				}
 			}
 			if len(env) > 0 {

@@ -520,10 +520,11 @@ func enqueueBotPush(bot, content, source, key string, meta map[string]string, no
 	return id, "pending", nil
 }
 
-// botPushMetaMax and botPushValueMax bound a push's attributes.
+// botPushMetaMax bounds how many attributes a push carries; botPushValueMax
+// is how much of each one a bot is shown.
 const (
-	botPushMetaMax  = 16
-	botPushValueMax = 1000
+	botPushMetaMax  = 32
+	botPushValueMax = 2000
 )
 
 // serveBotEventPush is POST /bot-events/<bot>: the harness-neutral way to
@@ -581,9 +582,9 @@ func serveBotEventPush(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "key or meta is too long", http.StatusBadRequest)
 		return
 	}
-	for k, v := range in.Meta {
-		if !botChannelMetaKeyRE.MatchString(k) || len(v) > botPushValueMax {
-			http.Error(w, fmt.Sprintf("meta %q: keys are a-z, 0-9 and _, values at most %d bytes", k, botPushValueMax), http.StatusBadRequest)
+	for k := range in.Meta {
+		if !botChannelMetaKeyRE.MatchString(k) {
+			http.Error(w, fmt.Sprintf("meta %q: names are a-z, 0-9 and _, starting with a letter", k), http.StatusBadRequest)
 			return
 		}
 	}
