@@ -1,2 +1,11 @@
 lasso
 Copyright 2026 Execution Associates (https://executionassociates.com)
+
+lasso is licensed under the Execution Associates Source License, Version 1.0
+(EXA-SL-1.0), in LICENSE. Each version also becomes available under the Apache
+License, Version 2.0, on the second anniversary of its release.
+
+Third-party code keeps its own license, named in the file that carries it: the
+terminal client in src/web/src/terminal/ is ported from ttyd (MIT, Copyright (c)
+2016 Shuanglei Tao), and mac/Resources/Fonts and mac/Resources/Icons hold their
+own licenses.

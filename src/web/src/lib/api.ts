@@ -1976,6 +1976,63 @@ let hostAttach: {
   promise: Promise<{ active: string; version: string; protocol: number }>
 } | null = null
 
+// Internal AI (llm.go): the OpenAI-compatible endpoint lasso uses to name new
+// agents and terminal tabs. Server-level, like auto-title: the endpoint is
+// reached from lasso's own machine, whichever host the agent lands on. Key
+// NAMES only — a key's value is never returned.
+export interface LLMConfig {
+  base_url: string
+  model: string
+  key_name: string
+  // unconfigured (base_url empty), incomplete (no model yet), ready
+  // (base_url + model set) or unreadable (the stored value does not parse).
+  state: "unconfigured" | "incomplete" | "ready" | "unreadable"
+  reason?: string
+}
+
+export interface LLMConfigPatch {
+  base_url?: string
+  model?: string
+  key_name?: string
+}
+
+// Daily Claude Code update restarts for claude bots (botupdates.go). Claude
+// Code updates itself, but a running bot keeps the version it started with;
+// at `time` in `timezone` lasso restarts each idle claude bot whose host has a
+// newer one installed, waiting up to `window_minutes` for a busy bot.
+export interface BotUpdates {
+  enabled: boolean
+  time: string // HH:MM, 24-hour
+  timezone: string // IANA
+  next_run?: string // RFC 3339, while enabled
+  in_window: boolean
+  window_minutes: number
+  reason?: string
+  bots: BotUpdateBot[]
+}
+
+export interface BotUpdateBot {
+  name: string
+  host: string
+  running?: string
+  installed?: string
+  outdated: boolean
+  error?: string
+}
+
+export interface BotUpdatesPatch {
+  enabled?: boolean
+  time?: string
+  timezone?: string
+}
+
+export interface LLMModels {
+  models: string[]
+  // Present when the fetch failed; the group stays usable (a model can be
+  // typed in by hand).
+  error?: string
+}
+
 export interface FileFindListing {
   root: string
   files: string[]
@@ -2191,6 +2248,26 @@ export const api = {
   autoTitle: () => getJSON<{ enabled: boolean }>("/api/auto-title"),
   setAutoTitle: (enabled: boolean) =>
     postJSON<{ enabled: boolean }>("/api/auto-title", { enabled }),
+  // The Internal AI endpoint behind the titler (llm.go). Server-level: the
+  // endpoint is reached from lasso's own machine.
+  llmConfig: () => getJSON<LLMConfig>("/api/llm/config"),
+  setLLMConfig: (patch: LLMConfigPatch) =>
+    postJSON<LLMConfig>("/api/llm/config", patch),
+  // The endpoint's /models for the picker. `refresh` bypasses the short cache.
+  llmModels: (refresh = false) =>
+    getJSON<LLMModels>(`/api/llm/models${refresh ? "?refresh=1" : ""}`, 12_000),
+  // One tiny completion, to prove the endpoint and key work.
+  testLLM: () =>
+    postJSON<{ ok: boolean; error?: string; elapsed_ms?: number }>(
+      "/api/llm/test",
+      {}
+    ),
+  // Daily Claude Code update restarts for claude bots (botupdates.go).
+  // `bots: false` skips the per-bot version check (an ssh call per host).
+  botUpdates: (bots = true) =>
+    getJSON<BotUpdates>(`/api/bot-updates${bots ? "" : "?bots=0"}`, 20_000),
+  setBotUpdates: (patch: BotUpdatesPatch) =>
+    postJSON<BotUpdates>("/api/bot-updates", patch),
   // Anonymous usage analytics (telemetry.go): the stored choice, whether
   // anything is actually sent, and what holds it off.
   telemetryConfig: () => getJSON<TelemetryConfig>("/api/telemetry/config"),

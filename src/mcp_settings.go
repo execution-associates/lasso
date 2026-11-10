@@ -31,7 +31,7 @@ import (
 // restart, uninstall, unlink, reload and the log.
 
 // settingsSections are what get_settings can return, in display order.
-var settingsSections = []string{"ui", "agents", "repos", "theme", "notifications", "alerts", "browser", "transcribe", "telemetry", "plugins"}
+var settingsSections = []string{"ui", "agents", "repos", "theme", "notifications", "alerts", "bot_updates", "browser", "transcribe", "llm", "telemetry", "plugins"}
 
 // mcpSettingsClientID is the writer identity update_settings stamps on a
 // ui_state patch. A deliberate settings change is a human-equivalent act, so it
@@ -109,10 +109,10 @@ func requireSettingsReach(req *mcp.CallToolRequest, host string) error {
 
 // ---- get_settings -------------------------------------------------------------
 
-const getSettingsDescription = "Read lasso's settings — everything the Settings tab shows. Sections: `ui` (the synced UI preferences: appearance_mode, palette_light/palette_dark, theme_atmosphere, typography, chat_text, terminal_text, phone_text, browser_mode, terminal_links_in_sidebar, files_click_navigates, sidebar_tabs, usage_hidden/usage_order/usage_compact, creator_default_host, agents_group_host/agents_group_repo, chat_sidebar, onboarding_done, …), `agents` (the creator defaults of `host` — repos_root, branch_prefix, default_agent, default_terminal_workspace, scratch_setup — plus `auto_title`), `repos` (each repo under `host`'s repo roots with its copy_files and setup), `theme` (herdr's current theme, the selectable `themes`, sync_agent_themes, theme_sync_off hosts, and the installable theme `catalog`), `notifications` (registered push devices by id and label; endpoints are never shown), `alerts` (bot liveness alerts: the defaults — enabled, the default channels, down_after/up_after/remind_every/remind_max/handle_within in seconds, link_base — and the channels, whose secrets are never shown; the channel tools manage them), `browser` (the browsers' status; list_browsers and the other browser tools manage them), `transcribe` (the speech-to-text provider /api/transcribe uses — provider, model, base_url and the NAME of the key's variable, never a key), `telemetry` (anonymous usage analytics: `enabled` is the setting, `active` whether anything is actually sent, `env_off` the environment variable holding it off), and `plugins` (plugin state; with `plugin_log` a plugin's server log. Enabling, trusting, choosing isolation for, installing and updating plugins is done by a human in lasso's Settings tab, never over MCP; update_settings `plugin` disables, restarts, uninstalls or unlinks one). Omit `section` for all of them. update_settings changes them."
+const getSettingsDescription = "Read lasso's settings — everything the Settings tab shows. Sections: `ui` (the synced UI preferences: appearance_mode, palette_light/palette_dark, theme_atmosphere, typography, chat_text, terminal_text, phone_text, browser_mode, terminal_links_in_sidebar, files_click_navigates, sidebar_tabs, usage_hidden/usage_order/usage_compact, creator_default_host, agents_group_host/agents_group_repo, chat_sidebar, onboarding_done, …), `agents` (the creator defaults of `host` — repos_root, branch_prefix, default_agent, default_terminal_workspace, scratch_setup — plus `auto_title`), `repos` (each repo under `host`'s repo roots with its copy_files and setup), `theme` (herdr's current theme, the selectable `themes`, sync_agent_themes, theme_sync_off hosts, and the installable theme `catalog`), `notifications` (registered push devices by id and label; endpoints are never shown), `alerts` (bot liveness alerts: the defaults — enabled, the default channels, down_after/up_after/remind_every/remind_max/handle_within in seconds, link_base — and the channels, whose secrets are never shown; the channel tools manage them), `bot_updates` (daily Claude Code update restarts for claude bots: enabled, the time of day HH:MM, its IANA timezone, next_run, and each running claude bot's running and installed Claude Code version), `browser` (the browsers' status; list_browsers and the other browser tools manage them), `transcribe` (the speech-to-text provider /api/transcribe uses — provider, model, base_url and the NAME of the key's variable, never a key), `llm` (lasso's own OpenAI-compatible Internal AI endpoint, used to name new agents and terminal tabs — base_url, model, the NAME of the key's variable, never a key, and its state; asking for this section by name also lists the endpoint's `models`), `telemetry` (anonymous usage analytics: `enabled` is the setting, `active` whether anything is actually sent, `env_off` the environment variable holding it off), and `plugins` (plugin state; with `plugin_log` a plugin's server log. Enabling, trusting, choosing isolation for, installing and updating plugins is done by a human in lasso's Settings tab, never over MCP; update_settings `plugin` disables, restarts, uninstalls or unlinks one). Omit `section` for all of them. update_settings changes them."
 
 type getSettingsIn struct {
-	Section   string `json:"section,omitempty" jsonschema:"One of ui, agents, repos, theme, notifications, alerts, browser, transcribe, telemetry, plugins. Omit for every section."`
+	Section   string `json:"section,omitempty" jsonschema:"One of ui, agents, repos, theme, notifications, alerts, bot_updates, browser, transcribe, llm, telemetry, plugins. Omit for every section."`
 	Host      string `json:"host,omitempty" jsonschema:"Whose per-host settings the agents and repos sections show: a host from list_hosts. Omit for lasso's own host."`
 	PluginLog string `json:"plugin_log,omitempty" jsonschema:"A plugin's name: add its server's recent log lines (stderr) under plugin_log."`
 	Lines     int    `json:"lines,omitempty" jsonschema:"How many plugin_log lines, default 200, at most 500."`
@@ -138,6 +138,15 @@ func getSettingsTool(ctx context.Context, req *mcp.CallToolRequest, in getSettin
 			// One unreachable host must not hide the other sections.
 			errs = append(errs, fmt.Sprintf("%s: %v", s, err))
 			continue
+		}
+		if s == "llm" && len(want) == 1 {
+			if m, ok := v.(map[string]any); ok {
+				if models, merr := llmModelIDs(ctx, false); merr != nil {
+					m["models"], m["models_error"] = []string{}, merr.Error()
+				} else {
+					m["models"] = models
+				}
+			}
 		}
 		out[s] = v
 	}
@@ -228,6 +237,10 @@ func readSettingsSection(ctx context.Context, section, host string) (any, error)
 		return callSettingsAPI(ctx, sharedBrowsers.serveStatus, http.MethodGet, "/api/browser", nil)
 	case "transcribe":
 		return callSettingsAPI(ctx, serveTranscribeConfig, http.MethodGet, "/api/transcribe/config", nil)
+	case "llm":
+		return callSettingsAPI(ctx, serveLLMConfig, http.MethodGet, "/api/llm/config", nil)
+	case "bot_updates":
+		return callSettingsAPI(ctx, serveBotUpdates, http.MethodGet, "/api/bot-updates", nil)
 	case "alerts":
 		settings, err := callSettingsAPI(ctx, serveAlerts, http.MethodGet, "/api/alerts/settings", nil)
 		if err != nil {
@@ -259,7 +272,7 @@ func readSettingsSection(ctx context.Context, section, host string) (any, error)
 
 // ---- update_settings ----------------------------------------------------------
 
-const updateSettingsDescription = "Change lasso's settings — what the Settings tab changes, with the same validation; every open lasso tab updates live. Pass only what changes; an omitted field is left alone. `ui` is a PATCH of the synced UI preferences get_settings shows under `ui` (only the keys you send change; typography/chat_text/terminal_text/phone_text/theme_atmosphere merge per field, \"\" or null deletes one; sidebar_tabs is replaced whole; pinned agents change only through `agent_pins: {<key>: true|false}`, dismissed agent cards through `card_dismiss: {<key>: <transcript_at ms>|null}`, the background gallery through `remember_background`/`forget_background`). `agent_defaults` and `repo` write `host`'s own creator settings (\"\" clears a field). `theme` switches herdr's theme fleet-wide (refused while an appearance palette is set — change ui.palette_light/palette_dark/appearance_mode instead); `sync_theme_now` pushes the current theme to every host; `install_theme_url` installs an Omarchy theme from a URL. `remove_push_device` forgets a notification device by the id get_settings lists. `transcribe` picks the speech-to-text provider (key NAMES only, never a key). `alerts` changes the bot alert defaults. `telemetry` turns lasso's anonymous usage analytics on or off. `notify_device` sets one device's label and notification kinds; `test_push` sends a test notification. `browser` starts, stops or restarts one of lasso's browsers. `plugin` disables, restarts, uninstalls or unlinks a plugin and `reload_plugins` rescans; enabling, trusting, isolation, install and update are NOT settable here: they need a human looking at lasso's approval dialog. Returns the affected sections as they now read."
+const updateSettingsDescription = "Change lasso's settings — what the Settings tab changes, with the same validation; every open lasso tab updates live. Pass only what changes; an omitted field is left alone. `ui` is a PATCH of the synced UI preferences get_settings shows under `ui` (only the keys you send change; typography/chat_text/terminal_text/phone_text/theme_atmosphere merge per field, \"\" or null deletes one; sidebar_tabs is replaced whole; pinned agents change only through `agent_pins: {<key>: true|false}`, dismissed agent cards through `card_dismiss: {<key>: <transcript_at ms>|null}`, the background gallery through `remember_background`/`forget_background`). `agent_defaults` and `repo` write `host`'s own creator settings (\"\" clears a field). `theme` switches herdr's theme fleet-wide (refused while an appearance palette is set — change ui.palette_light/palette_dark/appearance_mode instead); `sync_theme_now` pushes the current theme to every host; `install_theme_url` installs an Omarchy theme from a URL. `remove_push_device` forgets a notification device by the id get_settings lists. `transcribe` picks the speech-to-text provider (key NAMES only, never a key). `llm` sets the Internal AI endpoint the titler uses (key NAMES only; base_url \"\" turns it off). `alerts` changes the bot alert defaults. `bot_updates` turns on or off, and times, the daily restart of claude bots onto a newer installed Claude Code. `telemetry` turns lasso's anonymous usage analytics on or off. `notify_device` sets one device's label and notification kinds; `test_push` sends a test notification. `browser` starts, stops or restarts one of lasso's browsers. `plugin` disables, restarts, uninstalls or unlinks a plugin and `reload_plugins` rescans; enabling, trusting, isolation, install and update are NOT settable here: they need a human looking at lasso's approval dialog. Returns the affected sections as they now read."
 
 type agentDefaultsIn struct {
 	ReposRoot                *string `json:"repos_root,omitempty" jsonschema:"Directories scanned for git repos, one per line."`
@@ -293,7 +306,9 @@ type updateSettingsIn struct {
 	InstallThemeURL  string                 `json:"install_theme_url,omitempty" jsonschema:"Install an Omarchy theme from this URL (a GitHub repo or archive)."`
 	RemovePushDevice string                 `json:"remove_push_device,omitempty" jsonschema:"Forget the notification device with this id (from get_settings section notifications)."`
 	Transcribe       *transcribeConfigPatch `json:"transcribe,omitempty" jsonschema:"The speech-to-text provider; only the fields given change."`
+	LLM              *llmConfigPatch        `json:"llm,omitempty" jsonschema:"The Internal AI endpoint the titler uses; only the fields given change, base_url \"\" turns it off. key_name is a NAME, never a key."`
 	Alerts           *alertSettingsPatch    `json:"alerts,omitempty" jsonschema:"Bot alert defaults; only the fields given change. channels is the COMPLETE list of default channel ids (list_alert_channels; heartbeats are bound to their bot and never listed here). Durations are seconds; remind_every 0 is off."`
+	BotUpdates       *botUpdatePatch        `json:"bot_updates,omitempty" jsonschema:"Daily Claude Code update restarts for claude bots: enabled, time (HH:MM, 24-hour) and timezone (IANA); only the fields given change."`
 	Telemetry        *bool                  `json:"telemetry,omitempty" jsonschema:"Anonymous usage analytics on or off (docs/reference/analytics.md says what is sent)."`
 	NotifyDevice     *notifyDeviceIn        `json:"notify_device,omitempty" jsonschema:"One notification device's label and which kinds interrupt it."`
 	TestPush         bool                   `json:"test_push,omitempty" jsonschema:"Send one test notification to every subscribed device and report each one's result."`
@@ -451,6 +466,15 @@ func updateSettingsTool(ctx context.Context, req *mcp.CallToolRequest, in update
 		did = true
 	}
 
+	if in.LLM != nil {
+		v, err := callSettingsAPI(ctx, serveLLMConfig, http.MethodPost, "/api/llm/config", in.LLM)
+		if err != nil {
+			return nil, nil, err
+		}
+		out["llm"] = v
+		did = true
+	}
+
 	if in.Alerts != nil {
 		if _, err := callSettingsAPI(ctx, serveAlerts, http.MethodPut, "/api/alerts/settings", in.Alerts); err != nil {
 			return nil, nil, err
@@ -460,6 +484,18 @@ func updateSettingsTool(ctx context.Context, req *mcp.CallToolRequest, in update
 			return nil, nil, err
 		}
 		out["alerts"] = v
+		did = true
+	}
+
+	if in.BotUpdates != nil {
+		if _, err := callSettingsAPI(ctx, serveBotUpdates, http.MethodPost, "/api/bot-updates", in.BotUpdates); err != nil {
+			return nil, nil, err
+		}
+		v, err := readSettingsSection(ctx, "bot_updates", "")
+		if err != nil {
+			return nil, nil, err
+		}
+		out["bot_updates"] = v
 		did = true
 	}
 

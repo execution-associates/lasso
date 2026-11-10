@@ -530,6 +530,8 @@ lasso watches every bot on its runner's tick and alerts when one stops working: 
 
 A bot's own settings are `update_bot`'s `alerts`; the defaults are `update_settings`' `alerts`.
 
+Claude Code updates itself, but a running claude bot keeps the version it started with. `update_settings`' `bot_updates` turns on a daily restart onto the newer one, at a time of day and in a timezone you choose.
+
 ### `hold_bot`, `release_bot`
 
 `hold_bot` holds a bot down on purpose: lasso does not relaunch it (keep-running) and its being gone or a plain shell alerts nobody, but a bot that is up and deaf still alerts. Takes `name` and optionally `minutes` or `until` (RFC 3339; with neither, the hold lasts until `release_bot`) and a `reason` shown in the Bots view. Returns `hold`. `release_bot` takes `name` and ends it.
@@ -565,7 +567,7 @@ These tools read and change what lasso's Settings tab shows. Each write runs thr
 
 | parameter | type | | description |
 | --- | --- | --- | --- |
-| `section` | string | optional | One of `ui`, `agents`, `repos`, `theme`, `notifications`, `alerts`, `browser`, `transcribe`, `telemetry`, `plugins`. Omit for all of them. |
+| `section` | string | optional | One of `ui`, `agents`, `repos`, `theme`, `notifications`, `alerts`, `bot_updates`, `browser`, `transcribe`, `telemetry`, `plugins`. Omit for all of them. |
 | `host` | string | optional | Whose creator settings `agents` and `repos` show. Defaults to lasso's own host. |
 | `plugin_log` | string | optional | A plugin's name: also return its server's recent log lines under `plugin_log`. |
 | `lines` | integer | optional | How many `plugin_log` lines, default 200, at most 500. |
@@ -580,6 +582,7 @@ Returns one key per section:
 | `theme` | herdr's current theme, the selectable `themes`, `sync_agent_themes`, `theme_sync_off` and the installable `catalog`. |
 | `notifications` | Registered push `devices`, by id and label, each with its notify `device` id and `kinds`. Endpoints are never returned. |
 | `alerts` | Bot alerts: `settings` (`enabled`, the default `channels`, `down_after`, `up_after`, `remind_every`, `remind_max`, `handle_within` in seconds, `link_base`) and `channels` (secrets never included). |
+| `bot_updates` | Daily Claude Code update restarts for claude bots: `enabled`, `time` (HH:MM), `timezone` (IANA), `next_run`, `in_window`, `window_minutes`, and `bots`, each running claude bot's `running` and `installed` Claude Code version and whether it is `outdated`. |
 | `browser` | The browsers' status. `list_browsers` and the other browser tools manage them. |
 | `transcribe` | The speech-to-text provider `/api/transcribe` uses: `provider` (`off`, `groq`, `openai`, `openai-compatible`), `model`, `base_url` and `key_name`, the NAME of the key's variable. Never a key. |
 | `plugins` | Each plugin's state. |
@@ -607,6 +610,7 @@ Pass only what changes; an omitted field is left alone. Returns the affected sec
 | `remove_push_device` | string | optional | Forget the notification device with this id. |
 | `transcribe` | object | optional | Any of `provider`, `model`, `base_url`, `key_name`; only the fields given change, `""` resets one to the provider's default, and changing `provider` resets the fields not given. `key_name` names a variable or secret; it never holds a key. |
 | `alerts` | object | optional | Bot alert defaults; only the fields given change. `channels` is the complete list of default channel ids (no heartbeats). Durations are seconds; `remind_every` 0 is off, otherwise at least 300. `link_base` (e.g. `https://lasso.example.com`) makes an alert's link to the bot absolute. |
+| `bot_updates` | object | optional | Any of `enabled`, `time` (HH:MM, 24-hour) and `timezone` (an IANA name such as `America/Los_Angeles`); only the fields given change. While enabled, lasso restarts each idle claude bot whose host has a newer Claude Code installed than it runs, once a day at that time, waiting up to 3 hours for a busy one. |
 | `telemetry` | boolean | optional | Anonymous usage analytics on or off. |
 | `notify_device` | object | optional | `{id, label?, kinds?}`: one device's label and which notification kinds interrupt it (`kind: true\|false\|null`, null back to the default). `id` is a device's `device` in `notifications`. |
 | `test_push` | boolean | optional | Send a test notification to every subscribed device; returns each one's result. |
