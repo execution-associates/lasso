@@ -1033,7 +1033,7 @@ Both are step 2 of the auth plan: `~/.lasso/worktrees/lasso/lasso-auth-notes/ste
 
 ## 21. Releases and updates (Sparkle)
 
-Lasso, the Mac app, ships with every lasso release, at lasso's version, as assets on lasso's GitHub release. The app's feed is `https://github.com/execution-associates/lasso/releases/latest/download/appcast.xml`, so it always names the newest release.
+Lasso, the Mac app, ships with every lasso release, at lasso's version, as assets on lasso's GitHub release. The app's feed is `https://github.com/execution-associates/lasso/releases/latest/download/appcast.xml`, so it always names the newest release. The release workflow attaches the newest earlier release's `appcast.xml` and `Lasso.dmg` to every new release (unless it already has an appcast), so until `publish.sh` replaces them, or if it never runs, Macs keep seeing the last published app instead of a 404.
 
 **Build** (`Scripts/build-app.sh`):
 - Bundles `Sparkle.framework` from SwiftPM's artifacts. The rpath is set in `Package.swift`.

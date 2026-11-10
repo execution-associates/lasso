@@ -56,6 +56,32 @@ jobs:
           ( cd dist && sha256sum lasso-* > checksums.txt )
           cp install.sh dist/install.sh
 
+      # Every installed Mac app reads releases/latest/download/appcast.xml, and
+      # the Mac app is built and attached later, from titan (publish.sh). Until
+      # then, or if that never happens, this release would be the newest one
+      # with no appcast and every Mac's update check would 404. So it starts
+      # with the newest earlier release's appcast and Lasso.dmg: the appcast
+      # names its own release's versioned DMG, so Macs keep seeing the last
+      # published app, and publish.sh replaces both (--clobber). Skipped when
+      # this release already has an appcast (a re-run after publish.sh), so a
+      # re-run never overwrites the real one with an older one.
+      - name: Carry the Mac app's appcast forward
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          has() { gh release view "$1" --json assets -q '.assets[].name' 2>/dev/null | grep -qx appcast.xml; }
+          if has "$GITHUB_REF_NAME"; then echo "this release has its appcast"; exit 0; fi
+          prev=""
+          for tag in $(gh release list --exclude-drafts --exclude-pre-releases -L 30 --json tagName -q '.[].tagName'); do
+            [ "$tag" = "$GITHUB_REF_NAME" ] && continue
+            if has "$tag"; then prev="$tag"; break; fi
+          done
+          if [ -z "$prev" ]; then echo "::warning::no earlier release has a Mac appcast"; exit 0; fi
+          echo "carrying the Mac app forward from $prev"
+          mkdir -p dist/mac
+          gh release download "$prev" -p appcast.xml -p Lasso.dmg -D dist/mac
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
@@ -63,4 +89,5 @@ jobs:
             dist/lasso-*
             dist/checksums.txt
             dist/install.sh
+            dist/mac/*
           generate_release_notes: true

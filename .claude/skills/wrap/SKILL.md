@@ -341,9 +341,10 @@ Don't proceed to update against a missing/failed release.
 
 Lasso, the Mac app, ships with every lasso release: its DMG and Sparkle
 `appcast.xml` are assets of the release, and every installed app checks
-`releases/latest/download/appcast.xml` for updates. **A release without them
-silently stops every Mac from updating**, because it becomes the newest release
-and its appcast is missing. GitHub cannot build it (no runner on minime: the
+`releases/latest/download/appcast.xml` for updates. The release workflow starts
+each release with the previous release's appcast and `Lasso.dmg`, so **a release
+this step skips leaves every Mac on the previous app version** rather than broken.
+GitHub cannot build it (no runner on minime: the
 repo is public), so this step does, from titan, once the release from step 6
 exists:
 
