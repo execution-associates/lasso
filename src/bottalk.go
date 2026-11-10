@@ -959,7 +959,12 @@ var botTalkPlainSteps = map[string]string{
 // It returns the activity lines, the bot's prose (the fallback answer when it
 // never calls reply), and whether the delivery was found.
 func botTalkSteps(items []chatItem, chatID string, detailed bool) ([]talkStep, string, bool) {
-	marker := `chat_id="` + chatID + `"`
+	return botTalkStepsMarker(items, `chat_id="`+chatID+`"`, detailed)
+}
+
+// botTalkStepsMarker is botTalkSteps for any delivery whose channel tag carries
+// the marker (the client API's message_id, say).
+func botTalkStepsMarker(items []chatItem, marker string, detailed bool) ([]talkStep, string, bool) {
 	start := -1
 	for i, it := range items {
 		if it.Kind == "incoming" && strings.Contains(it.Text, marker) {
@@ -1050,11 +1055,32 @@ func botSpoolCollectReplies(b Backend, bot, spool string, now time.Time) error {
 		if err != nil {
 			continue
 		}
-		var e botTalkOutboxEntry
-		if err := json.Unmarshal(bytes.TrimSpace(raw), &e); err != nil {
-			log.Printf("bots:     %s: outbox %s is not a reply; removing it", bot, n)
-		} else if err := botTalkReply(bot, e.ChatID, e.Text, e.Done, now); err != nil {
-			log.Printf("bots:     %s: a reply for %s: %v", bot, e.ChatID, err)
+		var kind struct {
+			Kind string `json:"kind"`
+		}
+		_ = json.Unmarshal(bytes.TrimSpace(raw), &kind)
+		switch kind.Kind {
+		case "client_reply", "end_call":
+			// The client API's tools: the spool cannot tell the bot of an
+			// error, so a reply with a file that cannot be sent still
+			// delivers its text (botClientReply, lenient).
+			var ce botClientOutboxEntry
+			if err := json.Unmarshal(bytes.TrimSpace(raw), &ce); err != nil {
+				log.Printf("bots:     %s: outbox %s is not a client call; removing it", bot, n)
+			} else if kind.Kind == "client_reply" {
+				if _, err := botClientReply(bot, ce.ConversationID, ce.Text, ce.Done == nil || *ce.Done, ce.Attachments, true, now); err != nil {
+					log.Printf("bots:     %s: a client reply: %v", bot, err)
+				}
+			} else if err := botClientEndCall(bot, ce.CallID, ce.LastWords, now); err != nil {
+				log.Printf("bots:     %s: end call: %v", bot, err)
+			}
+		default:
+			var e botTalkOutboxEntry
+			if err := json.Unmarshal(bytes.TrimSpace(raw), &e); err != nil {
+				log.Printf("bots:     %s: outbox %s is not a reply; removing it", bot, n)
+			} else if err := botTalkReply(bot, e.ChatID, e.Text, e.Done, now); err != nil {
+				log.Printf("bots:     %s: a reply for %s: %v", bot, e.ChatID, err)
+			}
 		}
 		if err := b.RemoveAll(p); err != nil {
 			return err

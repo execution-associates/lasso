@@ -96,6 +96,8 @@ func TestLocalGuard(t *testing.T) {
 			headers: map[string]string{"Sec-Fetch-Site": "cross-site"}, status: 204},
 		{name: "browser OAuth client redeems a code", method: "POST", target: "/oauth/token", host: "lasso.example.com",
 			headers: map[string]string{"Origin": "https://client.example"}, status: 204},
+		{name: "phone app request", method: "POST", target: "/client/v1/conversations/c_1/messages", host: "lasso.example.com",
+			headers: map[string]string{"Origin": "https://app.example"}, status: 204},
 		{name: "webhook from a service", method: "POST", target: "/hooks/bots/b/j", host: "lasso.example.com",
 			headers: map[string]string{"Origin": "https://sender.example"}, status: 204},
 	}

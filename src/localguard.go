@@ -182,6 +182,7 @@ var crossSiteExempt = []string{
 	"/hooks/bots",
 	"/bot-channel",
 	"/talk",
+	"/client",
 }
 
 func pathUnder(p string, prefixes []string) bool {

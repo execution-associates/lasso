@@ -61,7 +61,7 @@ Among the callers a network listener proved, `LASSO_ALLOW` decides who may in. I
 
 **Unset**, each front door's own policy rules. On the access listener, whoever Access admitted gets in, since an Access policy is an explicit grant. On the tailnet and serve listeners, only the tailnet login that owns this node gets in, because "anyone on the tailnet" includes people a device is shared with and every tagged device. A tagged node has no owner, so it admits nobody until `LASSO_ALLOW` names them. **Set**, only what it lists gets in, on every network listener, so listing yourself for the tailnet means also listing any service token you want to keep working through Access.
 
-**Machines stay off `/api`.** A machine (a service token or a tagged device) reaches `/mcp`, `/herdr-mcp`, `/cdp` and the OAuth, webhook and Talk endpoints, and gets 403 everywhere else, unless its entry carries `ui:` or it presents a lasso token with the `ui` scope. The UI's API has no per-host checks, so an agent machine with it would reach every host's files and terminals; the MCP servers are where host scope is enforced.
+**Machines stay off `/api`.** A machine (a service token or a tagged device) reaches `/mcp`, `/herdr-mcp`, `/cdp` and the OAuth, webhook, Talk and phone-app (`/client`) endpoints, and gets 403 everywhere else, unless its entry carries `ui:` or it presents a lasso token with the `ui` scope. The UI's API has no per-host checks, so an agent machine with it would reach every host's files and terminals; the MCP servers are where host scope is enforced.
 
 ### Tokens and `X-Lasso-Token`
 

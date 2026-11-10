@@ -119,13 +119,15 @@ Hosted MCP clients such as claude.ai custom connectors and Claude Desktop sign i
 
 This works whether or not `MCP_OAUTH` is set. Without Managed OAuth, the connector fails while registering, with a message like *"Couldn't register with lasso's sign-in service"*. A connector carries no host, so it sees every host lasso can reach. [MCP OAuth](../mcp/oauth.md) covers lasso's own tokens.
 
-## 7. Webhooks and Talk from outside (only if you need them)
+## 7. Webhooks, Talk and the phone app from outside (only if you need them)
 
 A [bot job's webhook](../web-ui/bots.md#jobs) carries its own key in the URL, but a sender on the internet (GitHub, say) cannot sign in to Access. Skip this step unless webhooks come from outside your devices.
 
 Add a second self-hosted Access application for `lasso.example.com/hooks/bots/` with a single **Bypass** policy that includes everyone. The more specific path wins, so only webhooks skip the login. A bypassed request carries no Access assertion, and the access listener lets `/hooks/bots/`, `/bot-channel/` and `/talk/` through without one: each checks its own key, and nothing else on the listener is reachable that way.
 
 A bot's [Talk](../web-ui/bots.md#talk) door is the same case: a chat app on a client's phone cannot sign in to Access, and the bot's Talk key is its credential. Bypass `lasso.example.com/talk/` the same way, or leave it behind Access and give each phone an Access service token as custom headers (`CF-Access-Client-Id`, `CF-Access-Client-Secret`) where its app allows them.
+
+The phone app's [client API](../design/client-api.md) is the third case. Its people hold device tokens lasso issued at pairing (`lcd_…`, one per phone, revocable one by one), which is their only credential, and the app cannot sign in to Access. Add a self-hosted Access application for `lasso.example.com/client/` with a single **Bypass** policy that includes everyone. That one prefix covers the pairing page a link opens (`/client/pair`), the pairing exchange (`/client/v1/pair`) and the whole API. The access listener lets `/client/` through without an assertion; the rest of the hostname stays behind Access. The same Access application can hold all of `/hooks/bots/`, `/talk/` and `/client/` as three bypassed paths. `/client/v1/conversations/<id>/events` is a long-lived response: Cloudflare Tunnel passes it, and lasso sends a keepalive every 15 seconds so the edge's 100 second idle limit never fires.
 
 ## Turning off the in-app update
 

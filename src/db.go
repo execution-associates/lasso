@@ -149,7 +149,7 @@ func openDB() error {
 			return fmt.Errorf("%s: %w", pragma, err)
 		}
 	}
-	if _, err := h.Exec(dbSchema + oauthSchema + groupsSchema + pushSchema + notifyDeviceSchema + agentMsgSchema + botsSchema + botOAuthSchema + botJobsSchema + botMessageMetaSchema + chatQueueSchema + botTalkSchema + botAlertSchema); err != nil {
+	if _, err := h.Exec(dbSchema + oauthSchema + groupsSchema + pushSchema + notifyDeviceSchema + agentMsgSchema + botsSchema + botOAuthSchema + botJobsSchema + botMessageMetaSchema + chatQueueSchema + botTalkSchema + botAlertSchema + clientSchema); err != nil {
 		h.Close()
 		return fmt.Errorf("create schema: %w", err)
 	}
@@ -198,6 +198,8 @@ func openDB() error {
 		`ALTER TABLE bots ADD COLUMN hold_until INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE bots ADD COLUMN hold_reason TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE bots ADD COLUMN alerts TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE bots ADD COLUMN channel_client INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE bot_events ADD COLUMN meta TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := h.Exec(alter); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 			h.Close()

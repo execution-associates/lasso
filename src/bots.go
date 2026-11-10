@@ -439,7 +439,7 @@ func botClaudeArgv(r *botRecord, dir string) []string {
 	// (bottalk.go). A bot outside bypass mode would otherwise stop on a
 	// permission dialog for every answer, with nobody at the terminal.
 	if slices.Contains(grants, botChannelName) {
-		argv = append(argv, "--allowedTools", botChannelReplyToolID)
+		argv = append(argv, "--allowedTools", botChannelToolIDs)
 	}
 	if r.Model != "" {
 		argv = append(argv, "--model", r.Model)
@@ -944,6 +944,7 @@ func deleteBot(name string) error {
 	_, _ = db.Exec(`DELETE FROM bot_mcp_oauth WHERE bot = ?`, name)
 	deleteBotJobsOf(name)
 	deleteBotTalksOf(name)
+	deleteClientDataOfBot(name)
 	_, _ = db.Exec(`DELETE FROM bot_message_meta WHERE bot = ?`, name)
 	deleteBotAlertState(name)
 	_, err := db.Exec(`DELETE FROM bots WHERE name = ?`, name)

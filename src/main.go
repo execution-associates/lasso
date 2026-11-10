@@ -389,6 +389,10 @@ func runServer() {
 	mux.HandleFunc("/hooks/bots/", serveBotHook)
 	mux.HandleFunc("/bot-channel/", serveBotChannel)
 	mux.HandleFunc("/talk/", serveBotTalk)
+	// The phone apps' API (clientapi.go): its own credential, a device token.
+	mux.HandleFunc("/client/", serveClient)
+	mux.HandleFunc("/api/app-users", serveAppUsers)
+	mux.HandleFunc("/api/app-users/", serveAppUsers)
 	mux.HandleFunc("/api/all-panes", serveAllPanes)
 	mux.HandleFunc("/api/ui-state", serveUIState)
 	// The Mac app's inbox sound (desktopsound.go). Behind UI_AUTH like the
@@ -539,6 +543,7 @@ func runServer() {
 		"/hooks/bots",
 		"/bot-channel",
 		"/talk",
+		"/client",
 		"/.well-known/oauth-protected-resource",
 		"/.well-known/oauth-authorization-server",
 		"/oauth/register",

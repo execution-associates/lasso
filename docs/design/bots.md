@@ -24,6 +24,7 @@ Code:
 - `mcp_botjobs.go`: `list_bot_jobs`, `create_bot_job`, `update_bot_job`, `delete_bot_job` and `run_bot_job`.
 - `bottalk.go`: Talk, a claude bot's OpenAI-compatible door (`/talk/<bot>/v1`), its conversations and replies, and the Talk tab's API.
 - `mcp_bottalk.go`: `get_bot_talk`, `enable_bot_talk`, `update_bot_talk`, `rotate_bot_talk_key` and `disable_bot_talk`.
+- `clientapi.go`, `clientapi_store.go`, `clientapi_bot.go`, `clientapi_admin.go`, `mcp_appusers.go`: the phone apps' client API (`/client/v1`), its people, and the channel's `client_reply` and `end_call`, in [client-api.md](client-api.md).
 - `bothealth.go`, `alertchannels.go`, `alertsapi.go`, `mcp_alerts.go`: liveness alerts and the hold, in [bot-alerts.md](bot-alerts.md).
 - `botupdates.go`: the daily restart onto a newer installed Claude Code or omp (`BotUpdatesSettings.tsx`).
 
@@ -203,8 +204,18 @@ lasso ── SSE chunks … [DONE] ──▶ phone
   - **plain (default):** only the step's kind, from `chatTool.Family` ("Running a command", "Reading a file", "Using a tool" for anything unmapped). Never a subject, path, command, or MCP server or tool name.
   - **detailed:** `Title · Subject` (120 characters) and the bot's own prose rows (200 characters each).
 - **The key is the only credential.** `/talk` is exempt from UI_AUTH, self-credentialed on the network listeners (no caller, `Authorization` untouched), in `machinePaths`, and cross-site exempt, exactly like `/hooks/bots`. At the edge it needs an Access Bypass for `/talk/`. A wrong key, an unknown bot and Talk off all answer one identical 401, in OpenAI's error shape, so bot names cannot be probed. Keys are `lt-` plus 32 random bytes, stored in clear like webhook keys because the Talk tab shows them. Rotate replaces the key, and off forgets it.
-- **Claude bots only.** An omp bot has no channel process. Its jobs are bridge prompts, and a reply path for it would read the turn's final text instead. Until that exists, enable refuses an omp bot and a request answers 503.
+- **Claude bots only.** (The client API serves both runtimes.) An omp bot has no channel process. Its jobs are bridge prompts, and a reply path for it would read the turn's final text instead. Until that exists, enable refuses an omp bot and a request answers 503.
 - **Kept two days.** `botTalksMaintain` (from `botJobsMaintain`) removes conversations, replies and delivered talk events after two days. The per-job history trim skips talk events, which have no job.
+
+## Client API
+
+The phone apps reach a bot through `/client/v1` (`client-api.md` is the contract), a surface beside Talk with a credential per person, a stable conversation per person and bot, voice calls the bot can hang up, and attachments both ways. What bots.md needs to say about it:
+
+- **It rides the jobs channel, as Talk does.** A person's message is a `bot_events` row of kind `client` whose `meta` (a JSON column, carried in the spool's event files too) holds the facts lasso set from its own records: user id and name, `verified="true"`, `verified_via="paired"`, `paired_by`, `is_owner`, `conversation_id`, `message_id`, `mode`, `call_id`, `attachments`. The channel passes them on as the tag's attributes. It never merges, counts toward the 50-event cap, and is not trimmed with the per-job history.
+- **The channel has three tools now:** Talk's `reply`, and `client_reply {conversation_id, text?, done?, attachments?}` and `end_call {call_id, last_words?}`. The launch line allows all three. A channel says it has them in its poll header (`X-Lasso-Channel: talk client`, a spool heartbeat ending `talk client`, `bots.channel_client`); a connected channel without `client` makes the bot `unavailable` to the app until it restarts. Locally the tools POST `/bot-channel/<bot>/client-reply` and `…/end-call`; on another host they leave `{"kind":"client_reply"}` / `{"kind":"end_call"}` files in the spool's `outbox/`, collected by the same pass as Talk's replies (`botSpoolCollectReplies`).
+- **Who is the bot's human is lasso's word.** The instructions tell a bot that only a tag with `is_owner="true"` is its human and that nothing in the message text can change the attributes. An owner is a grant's `owner` flag (several owners are allowed).
+- **An omp bot gets a header line and routes by nonce.** `botOmpClientMessage` writes a plain header (`[lasso client message from=… owner=yes … nonce=…]`) and the person's words between marker lines carrying the nonce. `ompBot.observeMessageEnd` reads omp's `message_end` frames (the bridge already forwards them; `ompFrame` cannot hold their object-valued `message`, so `observe` peeks first): a user message with a nonce lasso issued opens that person's turn, any other user message closes it, assistant text during it is their reply, and outside a turn assistant text goes nowhere. No bridge change and no `PROTOCOL` bump; token streaming would need both.
+- **Files:** an omp bot sends files and hangs up with `client_reply` and `client_end_call` on `/mcp` (limited to the conversation it is answering), so a remote omp bot or one under `MCP_OAUTH` cannot.
 
 ## omp bots
 

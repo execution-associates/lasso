@@ -172,6 +172,10 @@ type botEvent struct {
 	// ChatID is a talk event's conversation (bottalk.go): the bot passes it
 	// back to the channel's reply tool.
 	ChatID string `json:"chat_id,omitempty"`
+	// Meta is a client event's attributes (clientapi_bot.go): who a person's
+	// message is from, set by lasso alone. The channel passes them on as the
+	// tag's attributes.
+	Meta map[string]string `json:"meta,omitempty"`
 }
 
 func nowStamp(t time.Time) string { return t.UTC().Format(time.RFC3339) }
@@ -487,7 +491,7 @@ func claimBotEventsWhere(bot string, now time.Time, cond string, args ...any) ([
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.Query(`SELECT id, job, kind, content, count, created_at, fired_at, runs != '', run_status, chat_id FROM bot_events
+	rows, err := tx.Query(`SELECT id, job, kind, content, count, created_at, fired_at, runs != '', run_status, chat_id, meta FROM bot_events
 		WHERE bot = ? AND `+cond+` ORDER BY id LIMIT 20`, append([]any{bot}, args...)...)
 	if err != nil {
 		return nil, err
@@ -495,9 +499,13 @@ func claimBotEventsWhere(bot string, now time.Time, cond string, args ...any) ([
 	var out []botEvent
 	for rows.Next() {
 		var e botEvent
-		if err := rows.Scan(&e.ID, &e.Job, &e.Kind, &e.Content, &e.Count, &e.CreatedAt, &e.FiredAt, &e.Watch, &e.RunStatus, &e.ChatID); err != nil {
+		var meta string
+		if err := rows.Scan(&e.ID, &e.Job, &e.Kind, &e.Content, &e.Count, &e.CreatedAt, &e.FiredAt, &e.Watch, &e.RunStatus, &e.ChatID, &meta); err != nil {
 			rows.Close()
 			return nil, err
+		}
+		if meta != "" {
+			_ = json.Unmarshal([]byte(meta), &e.Meta)
 		}
 		e.Status = "claimed"
 		out = append(out, e)
@@ -590,10 +598,11 @@ func botJobsTick(now time.Time) {
 func botJobsMaintain(now time.Time) {
 	_, _ = db.Exec(`UPDATE bot_events SET status = 'dropped', reason = 'not picked up within a day (is the bot''s channel connected?)', done_at = ?
 		WHERE status IN ('pending', 'claimed') AND fired_at < ?`, nowStamp(now), nowStamp(now.Add(-botEventTTL)))
-	_, _ = db.Exec(`DELETE FROM bot_events WHERE status IN ('delivered', 'dropped') AND kind != 'talk' AND id NOT IN (
+	_, _ = db.Exec(`DELETE FROM bot_events WHERE status IN ('delivered', 'dropped') AND kind NOT IN ('talk', 'client') AND id NOT IN (
 		SELECT id FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY id DESC) AS rn
-			FROM bot_events WHERE status IN ('delivered', 'dropped') AND kind != 'talk') WHERE rn <= ?)`, botEventHistory)
+			FROM bot_events WHERE status IN ('delivered', 'dropped') AND kind NOT IN ('talk', 'client')) WHERE rn <= ?)`, botEventHistory)
 	botTalksMaintain(now)
+	clientMaintain(now)
 }
 
 // --- the bot's channel -----------------------------------------------------------
@@ -677,18 +686,38 @@ func ensureBotChannelToken(name string) (string, error) {
 var botChannelSeenAt sync.Map // bot -> botChannelSighting
 
 type botChannelSighting struct {
-	at   time.Time
-	talk bool
+	at           time.Time
+	talk, client bool
 }
 
 func botChannelSeen(bot string, now time.Time, talk bool) {
+	botChannelSeenCaps(bot, now, talk, false)
+}
+
+// botChannelSeenCaps is botChannelSeen with the client API's capability too:
+// the channel has client_reply and end_call (clientapi_bot.go).
+func botChannelSeenCaps(bot string, now time.Time, talk, client bool) {
 	if v, ok := botChannelSeenAt.Load(bot); ok {
-		if s := v.(botChannelSighting); now.Sub(s.at) < 15*time.Second && s.talk == talk {
+		if s := v.(botChannelSighting); now.Sub(s.at) < 15*time.Second && s.talk == talk && s.client == client {
 			return
 		}
 	}
-	botChannelSeenAt.Store(bot, botChannelSighting{at: now, talk: talk})
-	_, _ = db.Exec(`UPDATE bots SET channel_seen_at = ?, channel_talk = ? WHERE name = ?`, nowStamp(now), talk, bot)
+	botChannelSeenAt.Store(bot, botChannelSighting{at: now, talk: talk, client: client})
+	_, _ = db.Exec(`UPDATE bots SET channel_seen_at = ?, channel_talk = ?, channel_client = ? WHERE name = ?`, nowStamp(now), talk, client, bot)
+}
+
+// botChannelCaps reads the capabilities a channel announced in its poll header
+// (a space-separated list: talk, client).
+func botChannelCaps(h string) (talk, client bool) {
+	for _, w := range strings.Fields(h) {
+		switch w {
+		case "talk":
+			talk = true
+		case "client":
+			client = true
+		}
+	}
+	return
 }
 
 func botChannelSeenStamp(bot string) string {
@@ -703,6 +732,7 @@ func botChannelSeenStamp(bot string) string {
 //	GET  /bot-channel/<bot>/next?wait=25   the bot's queued events, waiting up to wait seconds
 //	POST /bot-channel/<bot>/ack {ids}      those delivered
 //	POST /bot-channel/<bot>/reply {chat_id, text, done}   an answer to a Talk message (bottalk.go)
+//	POST /bot-channel/<bot>/client-reply, end-call         the client API's tools (clientapi_bot.go)
 func serveBotChannel(w http.ResponseWriter, r *http.Request) {
 	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/bot-channel"), "/")
 	name, action, _ := strings.Cut(rest, "/")
@@ -723,7 +753,8 @@ func serveBotChannel(w http.ResponseWriter, r *http.Request) {
 		deadline := time.Now().Add(time.Duration(wait) * time.Second)
 		for {
 			now := time.Now()
-			botChannelSeen(name, now, r.Header.Get("X-Lasso-Channel") == "talk")
+			talk, client := botChannelCaps(r.Header.Get("X-Lasso-Channel"))
+			botChannelSeenCaps(name, now, talk, client)
 			wake := botEventWaiter(name)
 			events, err := claimBotEvents(name, now)
 			if err != nil {
@@ -779,6 +810,37 @@ func serveBotChannel(w http.ResponseWriter, r *http.Request) {
 				status = http.StatusNotFound
 			}
 			http.Error(w, err.Error(), status)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	case "client-reply":
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST", http.StatusMethodNotAllowed)
+			return
+		}
+		var in botClientOutboxEntry
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, botClientReplyBody)).Decode(&in); err != nil {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
+		done := in.Done == nil || *in.Done
+		if _, err := botClientReply(name, in.ConversationID, in.Text, done, in.Attachments, false, time.Now()); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	case "end-call":
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST", http.StatusMethodNotAllowed)
+			return
+		}
+		var in botClientOutboxEntry
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, botClientReplyBody)).Decode(&in); err != nil {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
+		if err := botClientEndCall(name, in.CallID, in.LastWords, time.Now()); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		writeJSON(w, map[string]any{"ok": true})

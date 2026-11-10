@@ -135,6 +135,8 @@ Talk gives someone a chat with the bot in an app on their phone that speaks the 
 
 Whoever holds the key can ask the bot for anything its instructions allow, so say in its AGENTS.md what it may do for them. The bot answers through its channel's reply tool. A long job gets an "On it" first, and an answer that misses its request (the app was closed) arrives at the start of the next one. From outside the tailnet, the hostname's edge (Cloudflare Access) must let `/talk/` through.
 
+The iPhone and Android apps use their own door, the [client API](../design/client-api.md): a login per person instead of one key per bot, with voice calls and attachments. People, their bots and their devices are managed through `/api/app-users` and the `*_app_user*` tools until the Bots view has a page for them.
+
 ### Skills
 
 **Always available** lists your user-level skills, from `~/.claude/skills` on the bot's host, in a scrolling list. Claude Code loads them in every session, so every bot has them without adding anything.
