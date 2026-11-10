@@ -171,6 +171,7 @@ var machinePaths = []string{
 	"/hooks/bots",
 	"/bot-channel",
 	"/talk",
+	"/client",
 	"/oauth/token",
 	"/oauth/register",
 	"/.well-known/oauth-protected-resource",
@@ -183,7 +184,7 @@ var machinePaths = []string{
 // app, say, behind an Access Bypass policy.
 // The network listeners pass them through unproven, untouched, and with no
 // caller; their handlers check the key.
-var selfCredentialed = []string{"/hooks/bots", "/bot-channel", "/talk"}
+var selfCredentialed = []string{"/hooks/bots", "/bot-channel", "/talk", "/client"}
 
 // edgeConfig is what the network listeners verify against.
 type edgeConfig struct {
@@ -199,6 +200,9 @@ type edgeConfig struct {
 // listener cannot vouch for.
 func withCaller(next http.Handler, cfg *edgeConfig) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if refuseUncleanExempt(w, r, selfCredentialed, machinePaths) {
+			return
+		}
 		role := roleOf(r)
 		if role != roleLocal && pathUnder(r.URL.Path, selfCredentialed) {
 			next.ServeHTTP(w, r)

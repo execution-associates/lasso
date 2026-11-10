@@ -439,7 +439,7 @@ func botClaudeArgv(r *botRecord, dir string) []string {
 	// (bottalk.go). A bot outside bypass mode would otherwise stop on a
 	// permission dialog for every answer, with nobody at the terminal.
 	if slices.Contains(grants, botChannelName) {
-		argv = append(argv, "--allowedTools", botChannelReplyToolID)
+		argv = append(argv, "--allowedTools", botChannelToolIDs)
 	}
 	if r.Model != "" {
 		argv = append(argv, "--model", r.Model)
@@ -709,6 +709,15 @@ func validateResumeArgv(argv []string) error {
 // AGENTS.md if it has no instructions. It never overwrites instructions, skills, fnox.toml or the
 // bot's own mise.toml.
 func botMaterialize(b Backend, r *botRecord) error {
+	err := botMaterializeFiles(b, r)
+	if err == nil {
+		// The folder a bot sends files to people from (client-api.md).
+		_ = b.MkdirAll(filepath.Join(expandTildeOn(b, r.Dir), clientOutboxRel), 0o700)
+	}
+	return err
+}
+
+func botMaterializeFiles(b Backend, r *botRecord) error {
 	if r.isOmp() {
 		return botOmpMaterialize(b, r)
 	}
@@ -944,6 +953,7 @@ func deleteBot(name string) error {
 	_, _ = db.Exec(`DELETE FROM bot_mcp_oauth WHERE bot = ?`, name)
 	deleteBotJobsOf(name)
 	deleteBotTalksOf(name)
+	deleteClientDataOfBot(name)
 	_, _ = db.Exec(`DELETE FROM bot_message_meta WHERE bot = ?`, name)
 	deleteBotAlertState(name)
 	_, err := db.Exec(`DELETE FROM bots WHERE name = ?`, name)

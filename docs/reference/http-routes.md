@@ -17,15 +17,15 @@ Who is calling depends on the listener the request arrived on:
 | tailnet (`-tailnet`) | tailscaled's whois of the connection's peer address | a person (the device owner's login) or a machine (the device's tags) | the node's owner only | only the entries it lists |
 | serve (`-listen-serve`) | the `Tailscale-User-Login` header `tailscale serve` sets | a person | the node's owner only | only the entries it lists |
 
-A request on a network listener without its proof, or from a caller not admitted, gets 403, except on `/hooks/bots` and `/bot-channel`, which pass unproven to handlers that check their own keys. A machine caller reaches only `/mcp`, `/herdr-mcp`, `/cdp`, `/hooks/bots`, `/bot-channel`, `/oauth/register`, `/oauth/token` and the two `/.well-known/oauth-*` documents, unless its `LASSO_ALLOW` entry carries `ui:` or it sends a lasso token with the `ui` scope.
+A request on a network listener without its proof, or from a caller not admitted, gets 403, except on `/hooks/bots`, `/bot-channel`, `/talk` and `/client`, which pass unproven to handlers that check their own keys. A machine caller reaches only `/mcp`, `/herdr-mcp`, `/cdp`, `/hooks/bots`, `/bot-channel`, `/talk`, `/client`, `/oauth/register`, `/oauth/token` and the two `/.well-known/oauth-*` documents, unless its `LASSO_ALLOW` entry carries `ui:` or it sends a lasso token with the `ui` scope.
 
 A request passes through these layers, outermost first:
 
 1. **Internal CDP token.** lasso's own chrome-devtools-mcp children reach `/cdp` with a random per-process token, honored on `/cdp` paths only, ahead of every other gate.
 2. **The caller check**, by listener role, as in the table above. It also moves an `X-Lasso-Token` header into `Authorization: Bearer`, and on a network listener drops a bearer token lasso did not issue.
-3. **The local guard**, on every listener: a `Host` lasso does not answer to gets 421 (skipped on the access listener), and a state-changing request or websocket upgrade from another site's page gets 403, except on `/oauth/register`, `/oauth/token`, `/hooks/bots` and `/bot-channel`. See [Security](../security.md#the-local-guard).
+3. **The local guard**, on every listener: a `Host` lasso does not answer to gets 421 (skipped on the access listener), and a state-changing request or websocket upgrade from another site's page gets 403, except on `/oauth/register`, `/oauth/token`, `/hooks/bots`, `/bot-channel`, `/talk` and `/client`. See [Security](../security.md#the-local-guard).
 4. **The Access header gate** (deprecated), when `-require-access-header` is on: every route answers 403 without a Cloudflare Access identity (or with one not in `-access-allowed-emails`). With `LASSO_ACCESS_AUD` set it verifies the assertion; otherwise it reads `Cf-Access-Authenticated-User-Email`. A caller a network listener verified passes. Off by default.
-5. **UI_AUTH basic auth**, when `UI_AUTH` is set: every route **except** `/mcp`, `/herdr-mcp`, `/cdp`, `/hooks/bots`, `/bot-channel`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/oauth/register` and `/oauth/token` (and their subpaths). `/oauth/authorize` stays behind it on purpose: that is where a human approves a client. A caller a network listener verified, or a lasso token with the `ui` scope, passes without the password. With `MCP_OAUTH` set, its 401 also carries a `Bearer` challenge naming the resource metadata and the scope `mcp ui`.
+5. **UI_AUTH basic auth**, when `UI_AUTH` is set: every route **except** `/mcp`, `/herdr-mcp`, `/cdp`, `/hooks/bots`, `/bot-channel`, `/talk`, `/client`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/oauth/register` and `/oauth/token` (and their subpaths). `/oauth/authorize` stays behind it on purpose: that is where a human approves a client. A caller a network listener verified, or a lasso token with the `ui` scope, passes without the password. With `MCP_OAUTH` set, its 401 also carries a `Bearer` challenge naming the resource metadata and the scope `mcp ui`.
 6. **Per-route gates** on the exempt routes:
 
 | route | gate | open by default? | with `UI_AUTH` only | with `MCP_OAUTH` |
@@ -89,6 +89,7 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 | `/api/chat/queue` | A pane's "Up next" queue, held in `lasso.db` and delivered by lasso once the agent is idle (`chatqueue.go`). Addressed like `/api/chat/send` (`?host=`, else the tab's host). `GET ?pane=` lists it; `POST {pane_id, text, session?, client?}` appends (the pane must exist on the host; `session` is the transcript path on screen, which a new queue is bound to; at most 50 messages of 64 KiB); `PATCH {pane_id, paused?, order?}` pauses or resumes (resuming puts a `failed` message back in line and unbinds the conversation) and puts the named waiting ids first. `/api/chat/queue/<id>`: `PUT {pane_id, text}` edits a waiting message, `DELETE ?pane=` removes one (409 while it is being typed). Each answers `{paused, note?, tone?, items: [{id, text, state: queued\|sending\|sent\|failed, created_at, created_by?, sent_at?, after?, detail?}]}`, which `/api/chat` also carries as `queue`. `/api/chat/stop` pauses a non-empty queue. Every change bumps `chat_queue_rev` on the SSE stream. |
 | `/api/chat/answer` | `POST {pane_id, expect, labels, answers: [{selected, multi, options, custom?, previews?}]}`, one answer per question in order, `selected` being option indexes and `options` the question's option count. lasso types the keys a human would into the claude or omp dialog once the pane's screen still shows `expect` or one of `labels` (the first question's), and answers `{outcome: "sent" \| "refused", detail?}`; nothing is retried. `custom` is a free-text answer typed into the dialog's own "Other" row: one line (no newline or other control character), at most 1200 characters, at most 8 per request, with `selected` empty on a single-select question (a multi-select one may carry both); with any `custom` in the request, the first answer's `options` must equal the length of `labels` when those are sent, since the walk to the "Other" row is counted in options. `previews` marks a question whose options carry previews: claude draws a single-select one with no "Other" row, so a `custom` answer there is refused. A malformed body is a 400. |
 | `/api/bots`, `/api/bots/<name>[/…]` | Bots: create, configure, start and stop them, their jobs, skills, env and sign-ins. A blocked omp bot's row carries `pending_ui`, the questions it waits on, as its chat does. An omp bot's chat is `/api/bots/<name>/chat` with `chat/send` (`{text, meta?}`; `meta` is up to 16 string values, at most 1 KB, shown back on the user's row), `chat/stop` and `chat/answer`. See [Bots](../design/bots.md). |
+| `/api/app-users[/<id>[/…]]` | The people who use the phone app: users, their grants to bots (and the owner flag), one-time pairings and devices. See [the client API](../design/client-api.md#managing-people). |
 | `/api/transcribe` | `POST` a PCM16 WAV (raw body, at most 4 MiB and 120 s; `?language=`, `?prompt=`) and get `{text, engine, provider, model, language, audio_ms, elapsed_ms}`; `GET` says whether it is `available` and its limits. 503 while the provider is off, 429 past 2 in flight. See [Transcription](../design/transcription.md). |
 | `/api/telemetry` | `POST {app: "web" \| "phone", events: [{event, props}]}` from the web and phone apps. At most 16 KiB and 20 events, 60 events a minute per client; anything off the [analytics](./analytics.md) allowlist is dropped, and nothing is forwarded while analytics is off. Always 204 for a well-formed body. |
 | `/api/telemetry/config` | The `telemetry` setting: `GET` answers `{enabled, active, env_off, has_key, privacy_url}`, `POST {enabled}` sets it. |
@@ -127,6 +128,21 @@ Most `/api/*` routes act on the calling tab's host, sent as the `X-Lasso-Host` h
 | `/.well-known/oauth-protected-resource[/…]`, `/.well-known/oauth-authorization-server[/…]` | OAuth discovery documents. 404 unless `MCP_OAUTH` is set. |
 | `/oauth/register`, `/oauth/token` | Dynamic client registration; token endpoint. 404 unless `MCP_OAUTH` is set. |
 | `/oauth/authorize` | The consent screen; grants `mcp`, or `mcp ui` when the client asks for `ui`. Behind `UI_AUTH` and the network listeners' caller check. 404 unless `MCP_OAUTH` is set. |
+
+### The phone apps' API
+
+Self-credentialed (a device token), exempt from `UI_AUTH`, passed unproven by the network listeners, cross-site exempt, and bypassed at Cloudflare Access. It reaches nothing of `/api`. Contract: [the client API](../design/client-api.md).
+
+| route | purpose |
+| --- | --- |
+| `/client/pair` | `GET`: the page a pairing link opens. Static; reads the code from the URL fragment and opens `lasso://pair?…`. |
+| `/client/v1/pair` | `POST {code, label, platform}`: exchange a one-time pairing code for a device token. Every failure is one `401`. Rate-limited. |
+| `/client/v1/me`, `/client/v1/bots[/<bot>[/avatar]]` | Who the token is and the bots granted to the user, with state and capabilities. |
+| `/client/v1/conversations/<id>/messages` | `GET`: the history, paged (`before`/`after`). `POST`: send a message (text, attachment ids, `mode`, `call_id`, `client_id`). |
+| `/client/v1/conversations/<id>/events` | `GET`: Server-Sent Events, resumable with `Last-Event-ID`. |
+| `/client/v1/conversations/<id>/attachments`, `/client/v1/attachments/<id>` | `POST`: upload a file (raw body). `GET`: download a file the user sent or the bot sent them. |
+| `/client/v1/conversations/<id>/calls`, `/client/v1/calls/<id>[/end]` | Start, read and end a voice call. |
+| `/client/v1/device` | `DELETE`: sign this device out. |
 
 ### Static
 

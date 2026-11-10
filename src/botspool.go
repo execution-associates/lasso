@@ -60,6 +60,13 @@ func botSpoolID(name string) (int64, bool) {
 
 func botSpoolFile(id int64) string { return strconv.FormatInt(id, 10) + ".json" }
 
+// botSpoolBeatClient reads the heartbeat's client capability: client_reply and
+// end_call, the second generation that presents reply tokens, are among the
+// channel's tools. An older channel's "client" does not count.
+func botSpoolBeatClient(beat string) bool {
+	return slices.Contains(strings.Fields(beat), "client2")
+}
+
 // botSpoolBeatTalk reads the heartbeat's capability: a channel with Talk's
 // reply tool writes "talk" after its pid. An older one's beat has no such word.
 func botSpoolBeatTalk(beat string) bool {
@@ -226,7 +233,7 @@ func botSpoolSync(b Backend, r *botRecord, now time.Time) error {
 		// Changed since the last read means the channel is alive now. Its
 		// own clock never counts: the host's may be off.
 		if prev, known := botSpoolBeats.Swap(r.Name, string(beat)); known && prev.(string) != string(beat) {
-			botChannelSeen(r.Name, now, botSpoolBeatTalk(string(beat)))
+			botChannelSeenCaps(r.Name, now, botSpoolBeatTalk(string(beat)), botSpoolBeatClient(string(beat)))
 		}
 	}
 

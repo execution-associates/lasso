@@ -61,7 +61,13 @@ Among the callers a network listener proved, `LASSO_ALLOW` decides who may in. I
 
 **Unset**, each front door's own policy rules. On the access listener, whoever Access admitted gets in, since an Access policy is an explicit grant. On the tailnet and serve listeners, only the tailnet login that owns this node gets in, because "anyone on the tailnet" includes people a device is shared with and every tagged device. A tagged node has no owner, so it admits nobody until `LASSO_ALLOW` names them. **Set**, only what it lists gets in, on every network listener, so listing yourself for the tailnet means also listing any service token you want to keep working through Access.
 
-**Machines stay off `/api`.** A machine (a service token or a tagged device) reaches `/mcp`, `/herdr-mcp`, `/cdp` and the OAuth, webhook and Talk endpoints, and gets 403 everywhere else, unless its entry carries `ui:` or it presents a lasso token with the `ui` scope. The UI's API has no per-host checks, so an agent machine with it would reach every host's files and terminals; the MCP servers are where host scope is enforced.
+**Machines stay off `/api`.** A machine (a service token or a tagged device) reaches `/mcp`, `/herdr-mcp`, `/cdp` and the OAuth, webhook, Talk and phone-app (`/client`) endpoints, and gets 403 everywhere else, unless its entry carries `ui:` or it presents a lasso token with the `ui` scope. The UI's API has no per-host checks, so an agent machine with it would reach every host's files and terminals; the MCP servers are where host scope is enforced.
+
+### Exempt paths and timeouts
+
+**Exempt paths are matched on clean paths only.** The prefixes that skip a credential (`/mcp`, `/client`, `/talk`, `/hooks/bots`, `/bot-channel`, the OAuth endpoints) are matched on the decoded path, and the mux serves the cleaned one. A request that names such a prefix in a form that is not canonical (a `.` or `..` segment, a doubled slash, a backslash, or an encoded slash, dot or backslash in the raw path) is answered 404 and never treated as exempt, so `/client/../api/...` cannot ride a prefix's exemption. One trailing slash is fine.
+
+**Slow headers are cut off.** Every listener sets a read-header timeout (15 seconds) and an idle timeout, nothing else: a read or write timeout would cut the event streams, websockets, terminals and proxies that live for hours.
 
 ### Tokens and `X-Lasso-Token`
 
@@ -75,6 +81,12 @@ A token's scope still applies behind a front door. A verified caller with no las
 A plain lasso token reaches the MCP surfaces only. A token whose consent granted the **`ui` scope** is a device token: it also reaches the UI and `/api` and satisfies `UI_AUTH`. Only the consent screen grants it, and the screen says so in as many words.
 
 The OAuth discovery, registration and token endpoints are open (they are the credential-less half of the handshake). The consent page, `/oauth/authorize`, stays behind `UI_AUTH` or a front door, so registering a client gets nobody a token until a human who can already get into lasso approves it.
+
+### Phone apps and outside people
+
+The phone app's API (`/client/v1`, [client-api.md](design/client-api.md)) lets a paired person reach only the bots they were granted, and lasso tells each bot who is speaking and whether that person is its owner, from lasso's own records. What lasso enforces: a person's device token reaches nothing of `/api`; their conversation is theirs alone; a bot can answer a person only with the one-time `reply_token` of a message that person sent (so a bot steered by one person cannot write into another's conversation, and cannot message someone who has not written to it); a message queued before a person was disabled, ungranted or had a device revoked is dropped before the bot sees it; a bot attaches files only from its outbox (`.lasso/client/outbox/`); stored files are capped per user and deleted after 30 days; and the tools that create users, grants and pairings on `/mcp` refuse a caller with no credential, which is what a local bot is on an open `/mcp`.
+
+What lasso cannot enforce: a bot that runs on the same machine as lasso with shell access can reach lasso's loopback listener, which trusts every local process as the owner. It can call the owner's `/api` (including `/api/app-users`, so it can make anyone an owner), read its own configuration and every person's uploads in its folder. So the owner/outsider distinction **protects the owner only as long as the bot itself refuses an outside person's instructions**. A bot granted to outside people should be one whose instructions and tool permissions are written for that (no shell, no broad file access, no secrets in its folder or environment), or one that runs where it cannot reach lasso's loopback. The owner flag is a fact about who is speaking, not a promise about what the bot will do.
 
 ### A machine lasso drives is not a client
 

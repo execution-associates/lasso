@@ -12,6 +12,7 @@ import {
   RotateCcw,
   Settings,
   SquareTerminal,
+  Users,
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
@@ -28,6 +29,7 @@ import { BotSessionsMenu } from "@/components/BotSessionsMenu"
 import { BotSettings } from "@/components/BotSettings"
 import { BotsManage } from "@/components/BotsManage"
 import { ChatView } from "@/components/ChatView"
+import { PeopleView } from "@/components/PeopleView"
 import { Button } from "@/components/ui/button"
 import {
   ContextMenu,
@@ -691,6 +693,15 @@ export function BotsView({
         onOpen={(name) => go({ page: "chat", name })}
         onSettings={(name) => go({ page: "settings", name })}
         onNew={() => go({ page: "new" })}
+        onPeople={() => go({ page: "people" })}
+      />
+    )
+  } else if (route.page === "people") {
+    page = (
+      <PeopleView
+        bots={bots}
+        lead={back}
+        onOpenBot={(name) => go({ page: "settings", name })}
       />
     )
   } else if (route.page === "new") {
@@ -893,6 +904,18 @@ export function BotsView({
           >
             <ListChecks className="size-4" />
             Manage bots
+          </button>
+          <button
+            type="button"
+            onClick={() => go({ page: "people" })}
+            aria-current={route.page === "people" ? "page" : undefined}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[12.5px] text-muted-foreground hover:bg-accent hover:text-foreground",
+              route.page === "people" && "bg-accent text-foreground"
+            )}
+          >
+            <Users className="size-4" />
+            People
           </button>
         </div>
       </nav>

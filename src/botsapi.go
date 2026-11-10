@@ -261,9 +261,13 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 		if url, ok := botLassoMCP(rec); ok && !slices.ContainsFunc(rec.MCP, func(m botMCPServer) bool { return m.Name == "lasso" }) {
 			lassoMCP = url
 		}
+		// Whether the phone app can talk to the bot now (client-api.md): the
+		// People screens say so beside a bot that cannot yet.
+		clientState, _, clientReason := botClientState(rec, time.Now())
 		writeJSON(w, map[string]any{
 			"bot":      v,
 			"dir_path": dir,
+			"client":   map[string]any{"state": clientState, "reason": clientReason},
 			"launch":   botLaunchScript(b, rec, dir, botEnvKeys(b, dir)),
 			// The instructions file: AGENTS.md, or an older claude bot's CLAUDE.md.
 			"claude_md": filepath.Join(dir, botInstructionsFile(b, rec, dir)),

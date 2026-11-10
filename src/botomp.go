@@ -177,6 +177,10 @@ type ompBot struct {
 	upSince   time.Time
 	waiters   map[string]chan ompResponse
 	delivery  bool // the job delivery loop runs (runner only)
+	// The client turn omp is in (clientapi_bot.go): the person whose message
+	// it is answering, and whether its closing message went out.
+	clientCur  *clientTurn
+	clientDone bool
 	// What the bridge said in host_hello: its protocol (below 4, an older
 	// lasso's bot host) and the lasso version that wrote it.
 	hello       bool
@@ -272,6 +276,7 @@ func (ob *ompBot) read(conn net.Conn, r *bufio.Reader, gen int) {
 		ob.modelKnown = false
 		ob.ready, ob.streaming = false, false
 		ob.pending = nil
+		ob.clientCur, ob.clientDone = nil, false
 		for id, w := range ob.waiters {
 			close(w)
 			delete(ob.waiters, id)
@@ -316,6 +321,17 @@ func (f ompFrame) uiRequest() (ompUIRequest, bool) {
 }
 
 func (ob *ompBot) observe(line []byte) {
+	// A finished message has an object under "message", which ompFrame's
+	// string field cannot hold: read it apart, for the client API's routing.
+	var peek struct {
+		Type    string          `json:"type"`
+		Message json.RawMessage `json:"message"`
+	}
+	if json.Unmarshal(line, &peek) == nil && peek.Type == "message_end" && len(peek.Message) > 0 && peek.Message[0] == '{' {
+		ob.observeMessageEnd(peek.Message)
+		ompChatNudge(ob.name)
+		return
+	}
 	var f ompFrame
 	if json.Unmarshal(line, &f) != nil {
 		return
@@ -397,6 +413,7 @@ func (ob *ompBot) observe(line []byte) {
 		go ob.refreshState()
 	}
 	if turnEnd {
+		ob.observeAgentEnd()
 		botOmpTurnEnded(ob.name)
 	}
 	if nudge {
@@ -1093,6 +1110,11 @@ func botOmpDeliver(name string, now time.Time) {
 	}
 	var ids []int64
 	for _, e := range events {
+		if e.Kind == "client" && e.Meta["event"] == "message" {
+			// Registered before the send: omp's user-message event is what
+			// opens the person's turn, and may arrive before the ack.
+			ompClientTurns.Store(e.Meta["nonce"], clientTurn{Bot: name, ConvID: e.Meta["conversation_id"], MsgID: e.Meta["message_id"], At: time.Now()})
+		}
 		if err := botOmpSend(name, botOmpEventMessage(e), false); err != nil {
 			log.Printf("bots:     %s: deliver event %d: %v", name, e.ID, err)
 			break
