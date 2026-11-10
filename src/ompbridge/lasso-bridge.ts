@@ -16,7 +16,7 @@ import net from "node:net";
 
 // botBridgeProtocol in botomp.go. Bump both whenever a frame or its meaning
 // changes: lasso restarts a bot whose bridge speaks another one.
-const PROTOCOL = 4;
+const PROTOCOL = 5;
 
 const env = process.env;
 
@@ -79,6 +79,9 @@ export default function lassoBridge(pi) {
       type: "host_hello",
       protocol: PROTOCOL,
       version: env.LASSO_BRIDGE_VERSION ?? "",
+      // The omp this process runs: omp installs updates in the background and
+      // runs them on the next launch, so lasso compares this with the host's.
+      omp_version: pi.pi?.VERSION ?? "",
       bot: env.LASSO_BOT_NAME ?? "",
       dir: process.cwd(),
       pid: process.pid,

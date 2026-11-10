@@ -15,24 +15,25 @@ import (
 	"time"
 )
 
-// Daily Claude Code update restarts (docs/design/bots.md, "Claude Code
-// updates"). Claude Code updates itself in the background, but a running
-// session keeps the version it started with until it is restarted ("Update
-// installed · Restart to update"). A bot runs for weeks, so with this setting
-// on, the bot runner restarts each claude bot whose running version is older
-// than the one installed on its host, once a day at a time of day the human
-// picks, in a timezone they pick.
+// Daily update restarts (docs/design/bots.md, "Daily update restarts"). Claude
+// Code and omp both install updates in the background, but a running process
+// keeps the version it started with until it is restarted (Claude Code's
+// "Update installed · Restart to update", omp's "v1 → v2 ✔ next launch"). A
+// bot runs for weeks, so with this setting on, the bot runner restarts each
+// bot whose running version is older than the one installed on its host, once
+// a day at a time of day the human picks, in a timezone they pick.
 //
-// The running version is Claude Code's own registry entry
-// (~/.claude/sessions/<pid>.json, "version"); the installed one is
-// `claude --version` in a login shell on the bot's host, which is what the
-// bot's `mise run bot` would launch. A bot is restarted only while it is idle
-// (no turn, no question waiting), so the check is repeated every tick for
-// botUpdateWindow after the chosen time; a bot still busy when the window
-// closes waits for the next day. omp bots are not Claude Code and are skipped.
+// The running version is, for a claude bot, Claude Code's own registry entry
+// (~/.claude/sessions/<pid>.json, "version"), and for an omp bot what its
+// bridge said in host_hello (omp_version, omp's own VERSION). The installed
+// one is `claude --version` or `omp --version` in a login shell on the bot's
+// host, which is what the bot's `mise run bot` would launch. A bot is
+// restarted only while it is idle (no turn, no question waiting), so the check
+// is repeated every tick for botUpdateWindow after the chosen time; a bot still
+// busy when the window closes waits for the next day.
 //
-// GET  /api/bot-updates   the setting, the next run, and each running claude
-//                         bot's running and installed version
+// GET  /api/bot-updates   the setting, the next run, and each running bot's
+//                         running and installed version
 // POST /api/bot-updates   merge-patch the setting
 
 const botUpdateSettingKey = "bot_updates"
@@ -41,7 +42,7 @@ const (
 	// botUpdateWindow is how long after the chosen time a busy bot is waited
 	// for. Longer would restart a bot in the middle of its human's day.
 	botUpdateWindow = 3 * time.Hour
-	// botUpdateInstalledTTL caches `claude --version` per host: the window
+	// botUpdateInstalledTTL caches `<tool> --version` per host: the window
 	// re-checks every tick, and an ssh round-trip each time is waste.
 	botUpdateInstalledTTL = 5 * time.Minute
 	botUpdateDefaultTime  = "04:00"
@@ -165,8 +166,8 @@ func botUpdateOutdated(running, installed string) bool {
 
 var botUpdates = struct {
 	sync.Mutex
-	tried     map[string]string // bot -> the day it was last restarted for an update
-	installed map[string]botInstalledVersion
+	tried     map[string]string              // bot -> the day it was last restarted for an update
+	installed map[string]botInstalledVersion // host + "\x00" + tool
 }{tried: map[string]string{}, installed: map[string]botInstalledVersion{}}
 
 type botInstalledVersion struct {
@@ -175,20 +176,36 @@ type botInstalledVersion struct {
 	at      time.Time
 }
 
-// botClaudeVersion runs `claude --version` on the host. A seam for tests.
-var botClaudeVersion = func(b Backend) (string, error) {
+// botUpdateTool is the program a bot runs: what is versioned and updated.
+func botUpdateTool(r *botRecord) string {
+	if r.isOmp() {
+		return "omp"
+	}
+	return "claude"
+}
+
+// botToolVersion runs `<tool> --version` on the host ("2.1.321 (Claude
+// Code)", "omp/18.18.6"). A seam for tests.
+var botToolVersion = func(b Backend, tool string) (string, error) {
 	home, _ := b.HomeDir()
-	out, err := botRun(b, home, "claude", []string{"--version"}, nil)
+	out, err := botRun(b, home, tool, []string{"--version"}, nil)
 	if err != nil {
 		return "", err
 	}
-	return toolVersion(string(out)), nil
+	return printedVersion(string(out)), nil
 }
 
-// botClaudeInstalled is the host's installed Claude Code version, cached.
-func botClaudeInstalled(b Backend, now time.Time) (string, error) {
+// printedVersion is the version in a --version line, either program's
+// spelling: "2.1.321 (Claude Code)" or "omp/18.18.6".
+func printedVersion(out string) string {
+	return toolVersion(strings.ReplaceAll(out, "/", " "))
+}
+
+// botToolInstalled is the host's installed version of tool, cached.
+func botToolInstalled(b Backend, tool string, now time.Time) (string, error) {
+	key := b.Name() + "\x00" + tool
 	botUpdates.Lock()
-	c, ok := botUpdates.installed[b.Name()]
+	c, ok := botUpdates.installed[key]
 	botUpdates.Unlock()
 	if ok && now.Sub(c.at) < botUpdateInstalledTTL && now.Sub(c.at) >= 0 {
 		if c.err != "" {
@@ -196,25 +213,61 @@ func botClaudeInstalled(b Backend, now time.Time) (string, error) {
 		}
 		return c.version, nil
 	}
-	v, err := botClaudeVersion(b)
+	v, err := botToolVersion(b, tool)
 	c = botInstalledVersion{version: v, at: now}
 	if err != nil {
 		c.err = err.Error()
 	} else if v == "" {
-		c.err = "claude --version printed no version"
+		c.err = tool + " --version printed no version"
 		err = errors.New(c.err)
 	}
 	botUpdates.Lock()
-	botUpdates.installed[b.Name()] = c
+	botUpdates.installed[key] = c
 	botUpdates.Unlock()
 	return v, err
 }
 
-// botUpdateRestart restarts a bot onto the installed Claude Code. A seam for
-// tests. restartBot marks the bot stopped before it starts it again, so a
-// start that fails clears the mark: an unattended restart must never leave a
-// bot down that keep-running would otherwise bring back.
+// botUpdateRunning is the version a running bot runs and whether it is idle.
+// ok is false when that cannot be told: not running, or not yet reporting.
+// sessions is the per-host Claude Code registry read, filled in as needed.
+func botUpdateRunning(b Backend, r *botRecord, sessions map[string][]claudeSessionEntry) (version string, idle, ok bool) {
+	if r.isOmp() {
+		// The bridge's host_hello carries it; one from before protocol 5 does
+		// not, and botOmpUpgrade moves that bot onto this bridge first.
+		s := ompBotFor(r.Name).snapshot()
+		if !s.connected || !s.hello || !s.ready || s.ompVersion == "" {
+			return "", false, false
+		}
+		return s.ompVersion, !s.streaming && len(s.pending) == 0, true
+	}
+	if _, ok := findBotPane(b, r); !ok {
+		return "", false, false
+	}
+	if _, ok := sessions[r.Host]; !ok {
+		sessions[r.Host] = readClaudeSessions(b)
+	}
+	s, found := findBotSession(sessions[r.Host], r.Name, expandTildeOn(b, r.Dir))
+	if !found {
+		return "", false, false
+	}
+	return s.Version, s.agentStatus() == "idle", true
+}
+
+// botUpdateRestart restarts a bot onto the installed version. A seam for
+// tests.
+//
+// An omp bot gets the restart marker, as `mise run restart` leaves it: its
+// bridge shuts omp down once nothing is running or waiting, and the launch
+// task relaunches it on the same conversation in the same pane.
+//
+// A claude bot goes through restartBot, which marks it stopped before it
+// starts it again, so a start that fails clears the mark: an unattended
+// restart must never leave a bot down that keep-running would otherwise bring
+// back.
 var botUpdateRestart = func(b Backend, r *botRecord) error {
+	if r.isOmp() {
+		return b.WriteFile(botRestartMarker(expandTildeOn(b, r.Dir)), nil, 0o644)
+	}
 	err := restartBot(b, r, false)
 	if err != nil && !errors.Is(err, errBotRunning) {
 		_ = setBotStopped(r.Name, false)
@@ -224,7 +277,7 @@ var botUpdateRestart = func(b Backend, r *botRecord) error {
 
 // botUpdateTick runs on the bot runner after the rest of botTick. Inside a
 // day's window it restarts at most one bot per tick: the first idle, running
-// claude bot whose installed Claude Code is newer than the one it runs.
+// bot whose host has a newer Claude Code or omp installed than the one it runs.
 // sessions is botTick's per-host registry read, filled in here for hosts it
 // did not need.
 func botUpdateTick(list []*botRecord, sessions map[string][]claudeSessionEntry, now time.Time) {
@@ -237,7 +290,7 @@ func botUpdateTick(list []*botRecord, sessions map[string][]claudeSessionEntry, 
 		return
 	}
 	for _, r := range list {
-		if r.isOmp() || r.Stopped || botHeld(r, now) {
+		if r.Stopped || botHeld(r, now) {
 			continue
 		}
 		botUpdates.Lock()
@@ -250,28 +303,23 @@ func botUpdateTick(list []*botRecord, sessions map[string][]claudeSessionEntry, 
 		if err != nil {
 			continue
 		}
-		if _, ok := findBotPane(b, r); !ok {
+		running, idle, ok := botUpdateRunning(b, r, sessions)
+		if !ok {
 			continue
 		}
-		if _, ok := sessions[r.Host]; !ok {
-			sessions[r.Host] = readClaudeSessions(b)
-		}
-		s, found := findBotSession(sessions[r.Host], r.Name, expandTildeOn(b, r.Dir))
-		if !found {
-			continue
-		}
-		installed, err := botClaudeInstalled(b, now)
-		if err != nil || !botUpdateOutdated(s.Version, installed) {
+		tool := botUpdateTool(r)
+		installed, err := botToolInstalled(b, tool, now)
+		if err != nil || !botUpdateOutdated(running, installed) {
 			continue
 		}
 		// Mid-turn, or waiting on its human: try again next tick.
-		if s.agentStatus() != "idle" {
+		if !idle {
 			continue
 		}
 		botUpdates.Lock()
 		botUpdates.tried[r.Name] = day
 		botUpdates.Unlock()
-		log.Printf("bots:     %s runs Claude Code %s, %s is installed; restarting (daily update)", r.Name, s.Version, installed)
+		log.Printf("bots:     %s runs %s %s, %s is installed; restarting (daily update)", r.Name, tool, running, installed)
 		if err := botUpdateRestart(b, r); err != nil && !errors.Is(err, errBotRunning) {
 			log.Printf("bots:     update restart %s: %v", r.Name, err)
 		}
@@ -279,10 +327,11 @@ func botUpdateTick(list []*botRecord, sessions map[string][]claudeSessionEntry, 
 	}
 }
 
-// botUpdateBotView is one running claude bot in GET /api/bot-updates.
+// botUpdateBotView is one running bot in GET /api/bot-updates.
 type botUpdateBotView struct {
 	Name      string `json:"name"`
 	Host      string `json:"host"`
+	Runtime   string `json:"runtime"` // claude | omp
 	Running   string `json:"running,omitempty"`
 	Installed string `json:"installed,omitempty"`
 	Outdated  bool   `json:"outdated"`
@@ -300,8 +349,8 @@ type botUpdateView struct {
 	Bots     []botUpdateBotView `json:"bots"`
 }
 
-// botUpdateBots lists every running claude bot with its versions, so the
-// Settings group can say who the next run would restart.
+// botUpdateBots lists every running bot with its versions, so the Settings
+// group can say who the next run would restart.
 func botUpdateBots(now time.Time) []botUpdateBotView {
 	out := []botUpdateBotView{}
 	list, err := listBots()
@@ -310,24 +359,24 @@ func botUpdateBots(now time.Time) []botUpdateBotView {
 	}
 	sessions := map[string][]claudeSessionEntry{}
 	for _, r := range list {
-		if r.isOmp() || r.Stopped {
+		if r.Stopped {
 			continue
 		}
 		b, err := botBackend(r.Host)
 		if err != nil {
 			continue
 		}
-		if _, ok := findBotPane(b, r); !ok {
+		if r.isOmp() {
+			if !ompBotFor(r.Name).snapshot().connected {
+				continue
+			}
+		} else if _, ok := findBotPane(b, r); !ok {
 			continue
 		}
-		if _, ok := sessions[r.Host]; !ok {
-			sessions[r.Host] = readClaudeSessions(b)
-		}
-		v := botUpdateBotView{Name: r.Name, Host: r.Host}
-		if s, ok := findBotSession(sessions[r.Host], r.Name, expandTildeOn(b, r.Dir)); ok {
-			v.Running = s.Version
-		}
-		installed, err := botClaudeInstalled(b, now)
+		tool := botUpdateTool(r)
+		v := botUpdateBotView{Name: r.Name, Host: r.Host, Runtime: tool}
+		v.Running, _, _ = botUpdateRunning(b, r, sessions)
+		installed, err := botToolInstalled(b, tool, now)
 		if err != nil {
 			v.Error = lastLines(err.Error(), 1)
 		}
@@ -358,7 +407,7 @@ func botUpdateViewOf(c botUpdateConfig, loadErr error, now time.Time, withBots b
 
 // botUpdatePatch is a POST to /api/bot-updates: only the named fields change.
 type botUpdatePatch struct {
-	Enabled  *bool   `json:"enabled,omitempty" jsonschema:"Restart claude bots once a day when a newer Claude Code is installed on their host."`
+	Enabled  *bool   `json:"enabled,omitempty" jsonschema:"Restart bots once a day when a newer Claude Code (claude bots) or omp (omp bots) is installed on their host."`
 	Time     *string `json:"time,omitempty" jsonschema:"The time of day, HH:MM on a 24-hour clock, e.g. 04:00. A bot busy then is waited for up to 3 hours."`
 	Timezone *string `json:"timezone,omitempty" jsonschema:"The IANA timezone the time is in, e.g. America/Los_Angeles, Europe/Berlin or UTC."`
 }

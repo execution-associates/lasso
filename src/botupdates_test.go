@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -176,20 +177,20 @@ func newUpdateHarness(t *testing.T) *updateHarness {
 	h.regPath = filepath.Join(sessions, fmt.Sprintf("%d.json", os.Getpid()))
 	h.session("2.1.319", "idle")
 
-	prevPane, prevVersion, prevRestart := pluginAgentPane, botClaudeVersion, botUpdateRestart
+	prevPane, prevVersion, prevRestart := pluginAgentPane, botToolVersion, botUpdateRestart
 	pluginAgentPane = func(_ Backend, agent string) (pane, error) {
 		if agent == "jess" {
 			return pane{PaneID: "w:p1", Cwd: dir, Agent: "claude"}, nil
 		}
 		return pane{}, errPluginAgentNotRunning
 	}
-	botClaudeVersion = func(Backend) (string, error) { return h.installed, nil }
+	botToolVersion = func(Backend, string) (string, error) { return h.installed, nil }
 	botUpdateRestart = func(_ Backend, r *botRecord) error {
 		h.restarted = append(h.restarted, r.Name)
 		h.session(h.installed, "idle")
 		return nil
 	}
-	t.Cleanup(func() { pluginAgentPane, botClaudeVersion, botUpdateRestart = prevPane, prevVersion, prevRestart })
+	t.Cleanup(func() { pluginAgentPane, botToolVersion, botUpdateRestart = prevPane, prevVersion, prevRestart })
 	botUpdates.Lock()
 	botUpdates.tried, botUpdates.installed = map[string]string{}, map[string]botInstalledVersion{}
 	botUpdates.Unlock()
@@ -307,5 +308,132 @@ func TestBotUpdateTickOncePerDay(t *testing.T) {
 	h.tick(24 * time.Hour)
 	if len(h.restarted) != 2 {
 		t.Fatalf("day two: %v", h.restarted)
+	}
+}
+
+func TestPrintedVersion(t *testing.T) {
+	for in, want := range map[string]string{
+		"2.1.321 (Claude Code)\n": "2.1.321",
+		"omp/18.18.6\n":           "18.18.6",
+		"omp v18.18.6":            "",
+	} {
+		if got := printedVersion(in); got != want {
+			t.Errorf("printedVersion(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// ompUpdateBot is a connected omp bot whose bridge said hello with the omp it
+// runs, on the claude harness's setting and clock.
+func ompUpdateBot(h *updateHarness, version string, streaming bool) *botRecord {
+	h.t.Helper()
+	r := &botRecord{Name: "luna", Dir: filepath.Join(h.t.TempDir(), "luna"), Runtime: botRuntimeOmp}
+	if err := r.normalize(); err != nil {
+		h.t.Fatal(err)
+	}
+	if err := insertBot(r); err != nil {
+		h.t.Fatal(err)
+	}
+	ob := ompBotFor(r.Name)
+	a, b := net.Pipe()
+	h.t.Cleanup(func() {
+		a.Close()
+		b.Close()
+		ompBots.Lock()
+		delete(ompBots.m, r.Name)
+		ompBots.Unlock()
+	})
+	ob.mu.Lock()
+	ob.conn = a
+	ob.mu.Unlock()
+	hello, _ := json.Marshal(map[string]any{"type": "host_hello", "protocol": botBridgeProtocol, "version": "test",
+		"omp_version": version, "ready": true, "streaming": streaming})
+	ob.observe(hello)
+	return r
+}
+
+func TestBotUpdateTickRestartsAnOutdatedOmpBot(t *testing.T) {
+	h := newUpdateHarness(t)
+	h.session("2.1.321", "idle") // the claude bot is current
+	botToolVersion = func(_ Backend, tool string) (string, error) {
+		if tool == "omp" {
+			return "18.18.6", nil
+		}
+		return h.installed, nil
+	}
+	ompUpdateBot(h, "18.18.5", true)
+	h.tick(2 * time.Hour) // 05:00, mid-turn throughout
+	if len(h.restarted) != 0 {
+		t.Fatalf("restarted mid-turn: %v", h.restarted)
+	}
+	ob := ompBotFor("luna")
+	ob.mu.Lock()
+	ob.streaming = false
+	ob.mu.Unlock()
+	h.tick(time.Minute)
+	if strings.Join(h.restarted, ",") != "luna" {
+		t.Fatalf("restarted = %v, want luna", h.restarted)
+	}
+	v := botUpdateBots(h.now)
+	var got []string
+	for _, b := range v {
+		got = append(got, b.Name+":"+b.Runtime+":"+b.Running+":"+b.Installed)
+	}
+	if want := "jess:claude:2.1.321:2.1.321,luna:omp:18.18.5:18.18.6"; strings.Join(got, ",") != want {
+		t.Fatalf("bots = %v, want %s", got, want)
+	}
+}
+
+func TestBotUpdateOmpSkips(t *testing.T) {
+	t.Run("up to date", func(t *testing.T) {
+		h := newUpdateHarness(t)
+		h.session("2.1.321", "idle")
+		botToolVersion = func(_ Backend, tool string) (string, error) {
+			if tool == "omp" {
+				return "18.18.6", nil
+			}
+			return h.installed, nil
+		}
+		ompUpdateBot(h, "18.18.6", false)
+		h.tick(2 * time.Hour)
+		if len(h.restarted) != 0 {
+			t.Fatalf("restarted = %v", h.restarted)
+		}
+	})
+	t.Run("an older bridge says no version", func(t *testing.T) {
+		h := newUpdateHarness(t)
+		h.session("2.1.321", "idle")
+		botToolVersion = func(_ Backend, tool string) (string, error) {
+			if tool == "omp" {
+				return "18.18.6", nil
+			}
+			return h.installed, nil
+		}
+		ompUpdateBot(h, "", false)
+		h.tick(2 * time.Hour)
+		if len(h.restarted) != 0 {
+			t.Fatalf("restarted = %v", h.restarted)
+		}
+	})
+}
+
+// An omp bot is restarted the way `mise run restart` does it: the marker,
+// which its bridge acts on once idle.
+func TestBotUpdateRestartOmpLeavesTheMarker(t *testing.T) {
+	useBotTestEnv(t)
+	dir := t.TempDir()
+	r := &botRecord{Name: "luna", Dir: dir, Runtime: botRuntimeOmp}
+	b, err := botBackend("local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(botRestartMarker(dir)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := botUpdateRestart(b, r); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(botRestartMarker(dir)); err != nil {
+		t.Fatalf("no restart marker: %v", err)
 	}
 }

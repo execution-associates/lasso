@@ -530,7 +530,7 @@ lasso watches every bot on its runner's tick and alerts when one stops working: 
 
 A bot's own settings are `update_bot`'s `alerts`; the defaults are `update_settings`' `alerts`.
 
-Claude Code updates itself, but a running claude bot keeps the version it started with. `update_settings`' `bot_updates` turns on a daily restart onto the newer one, at a time of day and in a timezone you choose.
+Claude Code and omp update themselves, but a running bot keeps the version it started with. `update_settings`' `bot_updates` turns on a daily restart onto the newer one, claude and omp bots alike, at a time of day and in a timezone you choose.
 
 ### `hold_bot`, `release_bot`
 
@@ -582,7 +582,7 @@ Returns one key per section:
 | `theme` | herdr's current theme, the selectable `themes`, `sync_agent_themes`, `theme_sync_off` and the installable `catalog`. |
 | `notifications` | Registered push `devices`, by id and label, each with its notify `device` id and `kinds`. Endpoints are never returned. |
 | `alerts` | Bot alerts: `settings` (`enabled`, the default `channels`, `down_after`, `up_after`, `remind_every`, `remind_max`, `handle_within` in seconds, `link_base`) and `channels` (secrets never included). |
-| `bot_updates` | Daily Claude Code update restarts for claude bots: `enabled`, `time` (HH:MM), `timezone` (IANA), `next_run`, `in_window`, `window_minutes`, and `bots`, each running claude bot's `running` and `installed` Claude Code version and whether it is `outdated`. |
+| `bot_updates` | Daily update restarts for claude and omp bots: `enabled`, `time` (HH:MM), `timezone` (IANA), `next_run`, `in_window`, `window_minutes`, and `bots`, each running bot's `runtime` (`claude` or `omp`), its `running` and `installed` version of that program, and whether it is `outdated`. |
 | `browser` | The browsers' status. `list_browsers` and the other browser tools manage them. |
 | `transcribe` | The speech-to-text provider `/api/transcribe` uses: `provider` (`off`, `groq`, `openai`, `openai-compatible`), `model`, `base_url` and `key_name`, the NAME of the key's variable. Never a key. |
 | `plugins` | Each plugin's state. |

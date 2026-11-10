@@ -9,9 +9,9 @@ import { qk } from "@/lib/query"
 import { cn } from "@/lib/utils"
 
 // Settings → Bot updates (botupdates.go): once a day, at a time and in a
-// timezone the human picks, lasso restarts each idle claude bot whose host has
-// a newer Claude Code installed than the one it runs. Server-level, like the
-// bot alerts beside it.
+// timezone the human picks, lasso restarts each idle bot whose host has a
+// newer Claude Code (claude bots) or omp (omp bots) installed than the one it
+// runs. Server-level, like the bot alerts beside it.
 
 const sep = " · "
 
@@ -99,15 +99,16 @@ export function BotUpdatesSettings({ active }: { active: boolean }) {
             disabled={save.isPending}
             onCheckedChange={(c) => save.mutate({ enabled: c === true })}
           />
-          Restart bots daily onto a newer Claude Code
+          Restart bots daily onto a newer Claude Code or omp
         </label>
         <p className="text-[11px] text-muted-foreground">
-          Claude Code updates itself, but a running bot keeps the version it
-          started with until it restarts. Once a day lasso restarts each claude
-          bot whose host has a newer one installed, resuming its conversation. A
-          bot in the middle of a turn or waiting on you is left alone until it
-          is idle, for up to {hours} {hours === 1 ? "hour" : "hours"}; after
-          that it waits for the next day. omp bots are not affected.
+          Claude Code and omp update themselves, but a running bot keeps the
+          version it started with until it restarts. Once a day lasso restarts
+          each bot whose host has a newer one installed, resuming its
+          conversation. A bot in the middle of a turn or waiting on you is left
+          alone until it is idle, for up to {hours}{" "}
+          {hours === 1 ? "hour" : "hours"}; after that it waits for the next
+          day.
         </p>
       </div>
       <div className="flex flex-wrap items-end gap-3">
@@ -152,18 +153,16 @@ export function BotUpdatesSettings({ active }: { active: boolean }) {
   )
 }
 
-// BotVersions lists the running claude bots with the Claude Code each runs
+// BotVersions lists the running bots with the Claude Code or omp each runs
 // and the one installed on its host, so the next run's restarts are visible.
 function BotVersions({ bots }: { bots: BotUpdates["bots"] }) {
   if (bots.length === 0)
     return (
-      <p className="text-[11px] text-muted-foreground">
-        No claude bots are running.
-      </p>
+      <p className="text-[11px] text-muted-foreground">No bots are running.</p>
     )
   return (
     <div className="flex flex-col gap-1">
-      <span className={labelClass}>Running claude bots</span>
+      <span className={labelClass}>Running bots</span>
       <ul className="flex flex-col gap-0.5 text-[12px]">
         {bots.map((b) => (
           <li key={`${b.host}/${b.name}`} className="flex flex-wrap gap-x-2">
@@ -172,6 +171,7 @@ function BotVersions({ bots }: { bots: BotUpdates["bots"] }) {
               <span className="text-muted-foreground">on {b.host}</span>
             )}
             <span className="font-mono text-muted-foreground">
+              {b.runtime === "omp" ? "omp " : "claude "}
               {b.running || "?"}
               {b.outdated && b.installed ? ` → ${b.installed}` : ""}
             </span>
