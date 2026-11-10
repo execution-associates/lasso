@@ -139,6 +139,37 @@ func TestMCPCLICoercesToTheSchemaType(t *testing.T) {
 	}
 }
 
+// A list of objects (browser_batch's `steps`) takes one JSON array, or one
+// object per occurrence.
+func TestMCPCLIArrayOfObjects(t *testing.T) {
+	tool := &mcp.Tool{Name: "browser_batch", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"steps":             map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+			"continue_on_error": map[string]any{"type": "boolean"},
+		},
+	}}
+	full := false
+	args, err := parseToolArgs(tool, []string{"-steps", `[{"tool":"a"},{"tool":"b","quiet":true}]`, "-continue-on-error"}, &full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, ok := args["steps"].([]any)
+	if !ok || len(list) != 2 || list[1].(map[string]any)["tool"] != "b" || args["continue_on_error"] != true {
+		t.Errorf("array form: %#v", args)
+	}
+	args, err = parseToolArgs(tool, []string{"-steps", `{"tool":"a"}`, "-steps", `{"tool":"b"}`}, &full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list, ok := args["steps"].([]any); !ok || len(list) != 2 {
+		t.Errorf("repeated form: %#v", args)
+	}
+	if _, err := parseToolArgs(tool, []string{"-steps", `[1,2]`}, &full); err == nil {
+		t.Error("an array of non-objects should be refused")
+	}
+}
+
 func TestMCPCLIRejectsBadValues(t *testing.T) {
 	tool := &mcp.Tool{Name: "t", InputSchema: map[string]any{
 		"type": "object",
