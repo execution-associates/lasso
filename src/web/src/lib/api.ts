@@ -1527,6 +1527,9 @@ export interface HarnessDef {
   // first. Absent/empty = no effort knob, so the creator hides the select.
   effort_levels?: string[] | null
   model_suggestions: string[] | null
+  // omp @role aliases mapped to the model each resolves to, for the model
+  // picker's hover hint. Absent for every other harness.
+  model_aliases?: Record<string, string> | null
   // omp's model presets on this host, in config order. Absent/empty = no
   // presets (every other harness), so the creator hides its preset select.
   model_presets?: string[] | null

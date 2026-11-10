@@ -1271,6 +1271,7 @@ export function NewDialog({
                       value={model}
                       onValueChange={setModel}
                       suggestions={harness.model_suggestions ?? []}
+                      hints={harness.model_aliases ?? undefined}
                       placeholder="default"
                       // Blank means "pass no --model flag", so the list needs a
                       // row that returns to it after a model has been picked.
