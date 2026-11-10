@@ -67,6 +67,17 @@ func botSpoolBeatClient(beat string) bool {
 	return slices.Contains(strings.Fields(beat), "client2")
 }
 
+// botSpoolBeatSession reads the session report a heartbeat carries
+// ("session=<id>:<source>:<stamp>"), or "".
+func botSpoolBeatSession(beat string) string {
+	for _, w := range strings.Fields(beat) {
+		if v, ok := strings.CutPrefix(w, "session="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
 // botSpoolBeatTalk reads the heartbeat's capability: a channel with Talk's
 // reply tool writes "talk" after its pid. An older one's beat has no such word.
 func botSpoolBeatTalk(beat string) bool {
@@ -233,7 +244,9 @@ func botSpoolSync(b Backend, r *botRecord, now time.Time) error {
 		// Changed since the last read means the channel is alive now. Its
 		// own clock never counts: the host's may be off.
 		if prev, known := botSpoolBeats.Swap(r.Name, string(beat)); known && prev.(string) != string(beat) {
-			botChannelSeenCaps(r.Name, now, botSpoolBeatTalk(string(beat)), botSpoolBeatClient(string(beat)))
+			botChannelSeenAll(r.Name, now, botChannelCapSet{talk: botSpoolBeatTalk(string(beat)), client: botSpoolBeatClient(string(beat)),
+				threads: slices.Contains(strings.Fields(string(beat)), "threads1")})
+			clientSessionReport(r.Name, botSpoolBeatSession(string(beat)))
 		}
 	}
 

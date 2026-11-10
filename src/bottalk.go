@@ -1068,12 +1068,18 @@ func botSpoolCollectReplies(b Backend, bot, spool string, now time.Time) error {
 			if err := json.Unmarshal(bytes.TrimSpace(raw), &ce); err != nil {
 				log.Printf("bots:     %s: outbox %s is not a client call; removing it", bot, n)
 			} else if kind.Kind == "client_reply" {
-				if _, err := botClientReply(bot, ce.ConversationID, ce.ReplyToken, ce.Text, ce.Done == nil || *ce.Done, ce.Attachments, true, now); err != nil {
+				tid := ce.ThreadID
+				if tid == "" {
+					tid = ce.ConversationID
+				}
+				if _, err := botClientReplyM(bot, tid, ce.ReplyToken, ce.Text, ce.Done == nil || *ce.Done, ce.Attachments, ce.Mentions, true, now); err != nil {
 					log.Printf("bots:     %s: a client reply: %v", bot, err)
 				}
 			} else if err := botClientEndCall(bot, ce.CallID, ce.ReplyToken, ce.LastWords, now); err != nil {
 				log.Printf("bots:     %s: end call: %v", bot, err)
 			}
+		case "thread_create", "thread_update", "thread_summary", "thread_propose_bot":
+			botSpoolThreadTool(bot, raw, now)
 		default:
 			var e botTalkOutboxEntry
 			if err := json.Unmarshal(bytes.TrimSpace(raw), &e); err != nil {

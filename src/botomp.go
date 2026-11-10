@@ -32,7 +32,7 @@ func botSocketPath(name string) string { return filepath.Join(lassoDir(), "bots"
 // bridge and lasso exchange. Bump both together. A bot whose bridge speaks
 // another is restarted onto this one once idle (botOmpUpgrade); below 4 it is
 // the bot host an older lasso ran omp under.
-const botBridgeProtocol = 5
+const botBridgeProtocol = 6
 
 // botOmpAgent is the herdr agent an omp bot's pane reports, as the bridge
 // reports it.
@@ -376,6 +376,10 @@ func (ob *ompBot) observe(line []byte) {
 	case "session_changed":
 		// A conversation started or resumed, from the terminal or by lasso.
 		askState, nudge = true, true
+	case "auto_compaction_end", "session_compacted":
+		// omp compacted the context (on its own, or a /compact typed in the
+		// terminal): every thread is handed over again on its next message.
+		go bumpClientEpoch(ob.name)
 	case "extension_ui_request":
 		if q, ok := f.uiRequest(); ok {
 			ob.dropPending(q.ID)
@@ -443,6 +447,7 @@ func (ob *ompBot) refreshState() {
 	if !ok {
 		return
 	}
+	go clientOmpSession(ob.name, st.SessionID)
 	ob.mu.Lock()
 	ob.sessionID = st.SessionID
 	ob.streaming = st.Streaming
@@ -1110,10 +1115,14 @@ func botOmpDeliver(name string, now time.Time) {
 	}
 	var ids []int64
 	for _, e := range events {
-		if e.Kind == "client" && e.Meta["event"] == "message" {
+		if ev := e.Meta["event"]; e.Kind == "client" && (ev == "message" || ev == "bot_message") {
 			// Registered before the send: omp's user-message event is what
 			// opens the person's turn, and may arrive before the ack.
-			ompClientTurns.Store(e.Meta["nonce"], clientTurn{Bot: name, ConvID: e.Meta["conversation_id"], MsgID: e.Meta["message_id"], At: time.Now()})
+			tid := e.Meta["thread_id"]
+			if tid == "" {
+				tid = e.Meta["conversation_id"]
+			}
+			ompClientTurns.Store(e.Meta["nonce"], clientTurn{Bot: name, ConvID: tid, MsgID: e.Meta["message_id"], UserID: e.Meta["user_id"], Kind: ev, At: time.Now()})
 		}
 		if err := botOmpSend(name, botOmpEventMessage(e), false); err != nil {
 			log.Printf("bots:     %s: deliver event %d: %v", name, e.ID, err)

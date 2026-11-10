@@ -16,7 +16,7 @@ import net from "node:net";
 
 // botBridgeProtocol in botomp.go. Bump both whenever a frame or its meaning
 // changes: lasso restarts a bot whose bridge speaks another one.
-const PROTOCOL = 5;
+const PROTOCOL = 6;
 
 const env = process.env;
 
@@ -145,6 +145,11 @@ export default function lassoBridge(pi) {
     attach(ctx);
     broadcast({ type: "session_changed" });
     queueMicrotask(reportHerdr);
+  });
+  // A compaction (typed in the terminal, or omp's own): lasso hands the bot
+  // each thread's context again on its next message from the app.
+  pi.on("session_compact", () => {
+    broadcast({ type: "session_compacted" });
   });
   pi.on("session_shutdown", () => {
     shuttingDown = true;

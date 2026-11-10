@@ -579,6 +579,18 @@ func claimBotEventsWhere(bot string, now time.Time, cond string, args ...any) ([
 			}
 			e.Meta["is_owner"] = fmt.Sprint(owner)
 			e.Meta["user_name"] = clientMetaClean(name, clientNameMax)
+			// The thread: still there, the bot still in it, and what the bot
+			// needs of it handed over (the context hand-off).
+			drop, err := clientClaimThread(tx, bot, &e, now)
+			if err != nil {
+				return nil, err
+			}
+			if drop != "" {
+				if _, err := tx.Exec(`UPDATE bot_events SET status = 'dropped', reason = ?, content = '', meta = '', done_at = ? WHERE id = ?`, drop, nowStamp(now), e.ID); err != nil {
+					return nil, err
+				}
+				continue
+			}
 		}
 		kept = append(kept, e)
 	}
@@ -766,8 +778,8 @@ func ensureBotChannelToken(name string) (string, error) {
 var botChannelSeenAt sync.Map // bot -> botChannelSighting
 
 type botChannelSighting struct {
-	at           time.Time
-	talk, client bool
+	at                    time.Time
+	talk, client, threads bool
 }
 
 func botChannelSeen(bot string, now time.Time, talk bool) {
@@ -776,28 +788,48 @@ func botChannelSeen(bot string, now time.Time, talk bool) {
 
 // botChannelSeenCaps is botChannelSeen with the client API's capability too:
 // the channel has client_reply and end_call (clientapi_bot.go).
+// A client channel here is one of the current generation: client2 and
+// threads1 both.
 func botChannelSeenCaps(bot string, now time.Time, talk, client bool) {
+	botChannelSeenAll(bot, now, botChannelCapSet{talk: talk, client: client, threads: client})
+}
+
+// botChannelCapSet is what a channel announced: talk (Talk's reply tool),
+// client (client2: the client tools that present reply tokens) and threads
+// (threads1: thread attributes, the context block and the thread tools).
+type botChannelCapSet struct{ talk, client, threads bool }
+
+func botChannelSeenAll(bot string, now time.Time, c botChannelCapSet) {
 	if v, ok := botChannelSeenAt.Load(bot); ok {
-		if s := v.(botChannelSighting); now.Sub(s.at) < 15*time.Second && s.talk == talk && s.client == client {
+		if s := v.(botChannelSighting); now.Sub(s.at) < 15*time.Second && s.talk == c.talk && s.client == c.client && s.threads == c.threads {
 			return
 		}
 	}
-	botChannelSeenAt.Store(bot, botChannelSighting{at: now, talk: talk, client: client})
-	_, _ = db.Exec(`UPDATE bots SET channel_seen_at = ?, channel_talk = ?, channel_client = ? WHERE name = ?`, nowStamp(now), talk, client, bot)
+	botChannelSeenAt.Store(bot, botChannelSighting{at: now, talk: c.talk, client: c.client, threads: c.threads})
+	_, _ = db.Exec(`UPDATE bots SET channel_seen_at = ?, channel_talk = ?, channel_client = ?, channel_threads = ? WHERE name = ?`, nowStamp(now), c.talk, c.client, c.threads, bot)
 }
 
-// botChannelCaps reads the capabilities a channel announced in its poll header
-// (a space-separated list: talk, client2).
-func botChannelCaps(h string) (talk, client bool) {
+// botChannelCapsOf reads the capabilities a channel announced in its poll
+// header (a space-separated list: talk, client2, threads1).
+func botChannelCapsOf(h string) botChannelCapSet {
+	var c botChannelCapSet
 	for _, w := range strings.Fields(h) {
 		switch w {
 		case "talk":
-			talk = true
+			c.talk = true
 		case "client2":
-			client = true
+			c.client = true
+		case "threads1":
+			c.threads = true
 		}
 	}
-	return
+	return c
+}
+
+// botChannelCaps is botChannelCapsOf's talk and client.
+func botChannelCaps(h string) (talk, client bool) {
+	c := botChannelCapsOf(h)
+	return c.talk, c.client
 }
 
 func botChannelSeenStamp(bot string) string {
@@ -833,8 +865,9 @@ func serveBotChannel(w http.ResponseWriter, r *http.Request) {
 		deadline := time.Now().Add(time.Duration(wait) * time.Second)
 		for {
 			now := time.Now()
-			talk, client := botChannelCaps(r.Header.Get("X-Lasso-Channel"))
-			botChannelSeenCaps(name, now, talk, client)
+			caps := botChannelCapsOf(r.Header.Get("X-Lasso-Channel"))
+			botChannelSeenAll(name, now, caps)
+			clientSessionReport(name, r.Header.Get("X-Lasso-Channel-Session"))
 			wake := botEventWaiter(name)
 			events, err := claimBotEvents(name, now)
 			if err != nil {
@@ -904,11 +937,16 @@ func serveBotChannel(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		done := in.Done == nil || *in.Done
-		if _, err := botClientReply(name, in.ConversationID, in.ReplyToken, in.Text, done, in.Attachments, false, time.Now()); err != nil {
+		tid := in.ThreadID
+		if tid == "" {
+			tid = in.ConversationID
+		}
+		m, err := botClientReplyM(name, tid, in.ReplyToken, in.Text, done, in.Attachments, in.Mentions, false, time.Now())
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, map[string]any{"ok": true})
+		writeJSON(w, map[string]any{"ok": true, "message_id": m.ID, "thread_id": m.ThreadID})
 	case "end-call":
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST", http.StatusMethodNotAllowed)
@@ -925,6 +963,13 @@ func serveBotChannel(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, map[string]any{"ok": true})
 	default:
+		if strings.HasPrefix(action, "thread-") {
+			switch action {
+			case "thread-list", "thread-read", "thread-search", "thread-create", "thread-update", "thread-summary", "thread-propose-bot":
+				serveBotChannelThreadTool(w, r, name, action)
+				return
+			}
+		}
 		http.NotFound(w, r)
 	}
 }

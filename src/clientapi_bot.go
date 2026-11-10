@@ -59,6 +59,11 @@ type clientCaps struct {
 	AttachmentsOut bool `json:"attachments_out"`
 	EndCall        bool `json:"end_call"`
 	StreamingText  bool `json:"streaming_text"`
+	// Threads: the bot can take thread messages. ThreadTools: full, write
+	// (a claude bot on another host) or none (an omp bot without lasso's MCP
+	// server).
+	Threads     bool   `json:"threads"`
+	ThreadTools string `json:"thread_tools"`
 }
 
 var botClientStateCache sync.Map // bot -> clientStateSighting
@@ -82,14 +87,17 @@ func botClientToolsOnMCP(r *botRecord) bool {
 // (cannot take app messages now; reason says why).
 func botClientState(rec *botRecord, now time.Time) (state string, caps clientCaps, reason string) {
 	if rec.Stopped {
-		return "stopped", clientCaps{}, "The bot is stopped."
+		return "stopped", clientCaps{ThreadTools: "none"}, "The bot is stopped."
 	}
 	if rec.isOmp() {
 		ob := ompBotFor(rec.Name)
 		ob.ensure()
 		s := ob.snapshot()
 		tools := botClientToolsOnMCP(rec)
-		caps = clientCaps{Chat: true, Voice: true, AttachmentsIn: true, AttachmentsOut: tools, EndCall: tools}
+		caps = clientCaps{Chat: true, Voice: true, AttachmentsIn: true, AttachmentsOut: tools, EndCall: tools, Threads: true, ThreadTools: "none"}
+		if tools {
+			caps.ThreadTools = "full"
+		}
 		switch {
 		case !s.connected || !s.ready:
 			return "starting", caps, ""
@@ -99,17 +107,20 @@ func botClientState(rec *botRecord, now time.Time) (state string, caps clientCap
 		return "available", caps, ""
 	}
 	if offered, why := botChannelOffered(rec); !offered {
-		return "unavailable", clientCaps{}, "The bot gets no lasso channel: " + why + "."
+		return "unavailable", clientCaps{ThreadTools: "none"}, "The bot gets no lasso channel: " + why + "."
 	}
 	var seen string
-	var client bool
-	_ = db.QueryRow(`SELECT channel_seen_at, channel_client FROM bots WHERE name = ?`, rec.Name).Scan(&seen, &client)
+	var client, threads bool
+	_ = db.QueryRow(`SELECT channel_seen_at, channel_client, channel_threads FROM bots WHERE name = ?`, rec.Name).Scan(&seen, &client, &threads)
 	t, ok := parseStamp(seen)
 	connected := ok && now.Sub(t) < botChannelFresh
-	if connected && !client {
-		return "unavailable", clientCaps{}, "The bot must restart to take messages from the app."
+	if connected && (!client || !threads) {
+		return "unavailable", clientCaps{ThreadTools: "none"}, "The bot must restart to take messages from the app."
 	}
-	caps = clientCaps{Chat: true, Voice: true, AttachmentsIn: true, AttachmentsOut: true, EndCall: true}
+	caps = clientCaps{Chat: true, Voice: true, AttachmentsIn: true, AttachmentsOut: true, EndCall: true, Threads: true, ThreadTools: "full"}
+	if rec.Host != "local" {
+		caps.ThreadTools = "write"
+	}
 	if !connected {
 		return "starting", caps, ""
 	}
@@ -450,135 +461,20 @@ type clientSendIn struct {
 	Mode        string   `json:"mode"`
 	CallID      string   `json:"call_id"`
 	ClientID    string   `json:"client_id"`
+	// Mentions are the bots the person picked in the app's @ picker: the
+	// message goes to them (else to the lead). The text is display only.
+	Mentions []string `json:"mentions"`
 }
 
 var clientClientIDRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
-// clientSend records a person's message and queues it for the bot. replay is
-// true when client_id matched a message already sent (nothing is queued).
-func clientSend(id *clientIdentity, conv *appConv, in clientSendIn, now time.Time) (m clientMessageView, replay bool, err error) {
-	text := strings.TrimSpace(in.Text)
-	if !utf8.ValidString(text) || len(text) > clientTextMax*4 || utf8.RuneCountInString(text) > clientTextMax {
-		return m, false, cerr(http.StatusBadRequest, "invalid_request", fmt.Sprintf("text must be UTF-8, at most %d characters.", clientTextMax))
+// clientSend is clientSendThread for a conversation: its main thread.
+func clientSend(id *clientIdentity, conv *appConv, in clientSendIn, now time.Time) (clientMessageView, bool, error) {
+	t, err := threadByID(conv.ID)
+	if err != nil {
+		return clientMessageView{}, false, cerr(http.StatusNotFound, "not_found", "Not found.")
 	}
-	if len(in.Attachments) > clientAttachPerMsg {
-		return m, false, cerr(http.StatusBadRequest, "invalid_request", fmt.Sprintf("at most %d attachments per message.", clientAttachPerMsg))
-	}
-	if text == "" && len(in.Attachments) == 0 {
-		return m, false, cerr(http.StatusBadRequest, "invalid_request", "A message needs text or an attachment.")
-	}
-	mode := in.Mode
-	switch mode {
-	case "":
-		mode = "text"
-	case "text", "voice":
-	default:
-		return m, false, cerr(http.StatusBadRequest, "invalid_request", `mode must be "text" or "voice".`)
-	}
-	if in.ClientID != "" && !clientClientIDRE.MatchString(in.ClientID) {
-		return m, false, cerr(http.StatusBadRequest, "invalid_request", "client_id must be 1-64 letters, digits, . _ or -.")
-	}
-	if in.ClientID != "" {
-		var mid string
-		if db.QueryRow(`SELECT id FROM app_messages WHERE conv_id = ? AND client_id = ?`, conv.ID, in.ClientID).Scan(&mid) == nil {
-			m, err = messageByID(conv.ID, mid)
-			return m, true, err
-		}
-	}
-	callID := ""
-	if mode == "voice" {
-		call, e := appCallByID(in.CallID)
-		if e != nil || call.ConvID != conv.ID || call.UserID != conv.UserID || call.State != "open" {
-			return m, false, cerr(http.StatusBadRequest, "invalid_request", "A voice message needs the call_id of an open call in this conversation.")
-		}
-		callID = call.ID
-	} else if in.CallID != "" {
-		return m, false, cerr(http.StatusBadRequest, "invalid_request", `call_id goes with mode "voice".`)
-	}
-	rec, e := getBot(conv.Bot)
-	if e != nil {
-		return m, false, cerr(http.StatusNotFound, "not_found", "Not found.")
-	}
-	state, _, reason := botClientState(rec, now)
-	if state == "stopped" || state == "unavailable" {
-		return m, false, cerr(http.StatusConflict, "bot_unavailable", reason)
-	}
-	// The attachments must be this person's own uploads to this conversation,
-	// not yet used.
-	var atts []appAttachment
-	seen := map[string]bool{}
-	for _, aid := range in.Attachments {
-		a, e := appAttachmentByID(aid)
-		if e != nil || seen[aid] || a.UserID != conv.UserID || a.ConvID != conv.ID || a.Direction != "in" || a.MessageID != "" || a.ExpiredAt != "" {
-			return m, false, cerr(http.StatusBadRequest, "invalid_request", "An attachment id is unknown or already used.")
-		}
-		seen[aid] = true
-		atts = append(atts, a)
-	}
-	grant, e := getAppGrant(conv.UserID, conv.Bot)
-	if e != nil {
-		return m, false, cerr(http.StatusNotFound, "not_found", "Not found.")
-	}
-	b, e := botBackend(rec.Host)
-	if e != nil {
-		return m, false, cerr(http.StatusBadGateway, "bot_unavailable", "lasso cannot reach the bot's host.")
-	}
-	root := expandTildeOn(b, rec.Dir)
-
-	views := make([]clientAttachmentView, 0, len(atts))
-	files := make([]map[string]any, 0, len(atts))
-	var footer []string
-	for _, a := range atts {
-		views = append(views, a.view())
-		abs := filepath.Join(root, a.Path)
-		files = append(files, map[string]any{"path": abs, "name": a.Name, "type": a.Mime, "size": a.Size})
-		kind := "file"
-		if strings.HasPrefix(a.Mime, "image/") {
-			kind = "image"
-		}
-		footer = append(footer, fmt.Sprintf("Attached %s: %s", kind, abs))
-	}
-	ab, _ := json.Marshal(views)
-	msgID := clientID("m_", 12)
-	if _, err := db.Exec(`INSERT INTO app_messages (id, conv_id, role, text, done, mode, call_id, attachments, state, client_id, created_at)
-		VALUES (?, ?, 'user', ?, 1, ?, ?, ?, 'queued', ?, ?)`, msgID, conv.ID, text, mode, callID, string(ab), in.ClientID, nowStamp(now)); err != nil {
-		// The same client_id raced in from another request: that message wins.
-		var mid string
-		if in.ClientID != "" && db.QueryRow(`SELECT id FROM app_messages WHERE conv_id = ? AND client_id = ?`, conv.ID, in.ClientID).Scan(&mid) == nil {
-			m, err = messageByID(conv.ID, mid)
-			return m, true, err
-		}
-		return m, false, err
-	}
-	for _, a := range atts {
-		_, _ = db.Exec(`UPDATE app_attachments SET message_id = ? WHERE id = ?`, msgID, a.ID)
-	}
-	meta := clientEventMeta(id.User, id.Device, grant, conv, msgID, mode, callID, files)
-	meta["reply_token"] = issueReplyToken(conv, msgID, callID, now)
-	clientMakeOutbox(b, root)
-	content := clientNeutralize(text)
-	if len(footer) > 0 {
-		if content != "" {
-			content += "\n\n"
-		}
-		content += strings.Join(footer, "\n")
-	}
-	eventID, e := enqueueBotClientEvent(conv.Bot, content, meta, now)
-	if e != nil {
-		_, _ = db.Exec(`UPDATE app_messages SET state = 'failed', failed_reason = 'lasso could not queue it' WHERE id = ?`, msgID)
-		return m, false, e
-	}
-	_, _ = db.Exec(`UPDATE app_messages SET event_id = ? WHERE id = ?`, eventID, msgID)
-	if callID != "" {
-		_, _ = db.Exec(`UPDATE app_calls SET touched_at = ? WHERE id = ?`, nowStamp(now), callID)
-	}
-	m, e = messageByID(conv.ID, msgID)
-	if e != nil {
-		return m, false, e
-	}
-	appendClientEvent(conv.ID, "message", m, now)
-	clientReconcile(conv.ID, now)
-	return m, false, nil
+	return clientSendThread(id, t, in, now)
 }
 
 // clientMetaClean makes a value safe as a channel attribute or a header field:
@@ -616,6 +512,9 @@ func clientNeutralize(s string) string {
 	s = strings.ReplaceAll(s, "[lasso client event", "(lasso client event")
 	s = strings.ReplaceAll(s, "[lasso job", "(lasso job")
 	s = strings.ReplaceAll(s, "----- the person's words", "\u2010\u2010\u2010\u2010\u2010 the person's words")
+	s = strings.ReplaceAll(s, "----- the bot's words", "\u2010\u2010\u2010\u2010\u2010 the bot's words")
+	s = strings.ReplaceAll(s, clientCtxMarkerPrefix, "\u2010\u2010\u2010\u2010\u2010 lasso thread context")
+	s = strings.ReplaceAll(s, ompBotMessagePrefix, "(lasso bot message ")
 	return s
 }
 
@@ -681,7 +580,7 @@ func clientEventMeta(u *appUser, d appDevice, g *appGrant, conv *appConv, msgID,
 
 // clientInternalMeta are the attributes a delivery strips before a bot sees
 // them.
-var clientInternalMeta = []string{"nonce", "device_id"}
+var clientInternalMeta = []string{"nonce", "device_id", "context_block"}
 
 // clientAccessNow re-reads, at the moment a queued event is claimed, whether
 // the person may still reach the bot: the user exists and is enabled, the grant
@@ -724,49 +623,6 @@ func enqueueBotClientEvent(bot, content string, meta map[string]string, now time
 	return id, nil
 }
 
-// clientReconcile moves queued messages whose event the bot's channel took
-// (delivered) or lasso gave up on (dropped) to their state, and announces it.
-// convID "" covers every conversation.
-func clientReconcile(convID string, now time.Time) {
-	q := `SELECT m.id, m.conv_id, e.status, e.reason FROM app_messages m JOIN bot_events e ON e.id = m.event_id
-		WHERE m.state = 'queued' AND m.role = 'user' AND m.event_id > 0 AND e.status IN ('delivered', 'dropped')`
-	var args []any
-	if convID != "" {
-		q += ` AND m.conv_id = ?`
-		args = append(args, convID)
-	}
-	rows, err := db.Query(q, args...)
-	if err != nil {
-		return
-	}
-	type change struct{ id, conv, status, reason string }
-	var changes []change
-	for rows.Next() {
-		var c change
-		if rows.Scan(&c.id, &c.conv, &c.status, &c.reason) == nil {
-			changes = append(changes, c)
-		}
-	}
-	rows.Close()
-	for _, c := range changes {
-		state, reason := "delivered", ""
-		if c.status == "dropped" {
-			state, reason = "failed", clientFailReason(c.reason)
-		}
-		res, err := db.Exec(`UPDATE app_messages SET state = ?, failed_reason = ? WHERE id = ? AND state = 'queued'`, state, reason, c.id)
-		if err != nil {
-			continue
-		}
-		if n, _ := res.RowsAffected(); n == 1 {
-			data := map[string]any{"message_id": c.id, "state": state}
-			if reason != "" {
-				data["reason"] = reason
-			}
-			appendClientEvent(c.conv, "message_state", data, now)
-		}
-	}
-}
-
 // clientFailReason is what a person is told when a message did not reach the
 // bot: no internal detail.
 func clientFailReason(reason string) string {
@@ -777,6 +633,10 @@ func clientFailReason(reason string) string {
 		return "The bot did not pick the message up."
 	case strings.Contains(reason, "access revoked"):
 		return "Your access to this bot changed before it took the message."
+	case strings.Contains(reason, "left the thread"):
+		return "The bot left the thread before it took the message."
+	case strings.Contains(reason, "thread was deleted"):
+		return "The thread was deleted before the bot took the message."
 	}
 	return "The message could not be delivered."
 }
@@ -788,12 +648,12 @@ func clientStartCall(conv *appConv, now time.Time) (*appCall, error) {
 	if old, err := openCallOf(conv.ID); err == nil {
 		clientEndCall(old, "replaced", "", now, false)
 	}
-	c := &appCall{ID: clientID("call_", 8), ConvID: conv.ID, UserID: conv.UserID, Bot: conv.Bot, State: "open", StartedAt: nowStamp(now)}
+	c := &appCall{ID: clientID("call_", 8), ConvID: conv.ID, ThreadID: conv.ID, UserID: conv.UserID, Bot: conv.Bot, State: "open", StartedAt: nowStamp(now)}
 	if _, err := db.Exec(`INSERT INTO app_calls (id, conv_id, user_id, bot, state, started_at, touched_at) VALUES (?, ?, ?, ?, 'open', ?, ?)`,
 		c.ID, c.ConvID, c.UserID, c.Bot, c.StartedAt, c.StartedAt); err != nil {
 		return nil, err
 	}
-	appendClientEvent(conv.ID, "call_started", map[string]any{"call_id": c.ID, "started_at": c.StartedAt}, now)
+	appendClientEvent(conv.ID, "call_started", map[string]any{"thread_id": conv.ID, "call_id": c.ID, "bot": c.Bot, "started_at": c.StartedAt}, now)
 	return c, nil
 }
 
@@ -808,7 +668,7 @@ func clientEndCall(c *appCall, reason, lastWords string, now time.Time, tellBot 
 	if n, _ := res.RowsAffected(); n != 1 {
 		return false
 	}
-	data := map[string]any{"call_id": c.ID, "reason": reason, "ended_at": nowStamp(now)}
+	data := map[string]any{"thread_id": c.ConvID, "call_id": c.ID, "bot": c.Bot, "reason": reason, "ended_at": nowStamp(now)}
 	if lastWords != "" {
 		data["last_words"] = lastWords
 	}
@@ -820,10 +680,11 @@ func clientEndCall(c *appCall, reason, lastWords string, now time.Time, tellBot 
 }
 
 func clientTellBotHangup(c *appCall, reason string, now time.Time) {
-	conv, err := convByID(c.ConvID)
+	t, err := threadByID(c.ConvID)
 	if err != nil {
 		return
 	}
+	conv := t.conv(c.Bot)
 	u, err := getAppUser(conv.UserID)
 	if err != nil {
 		return
@@ -835,7 +696,7 @@ func clientTellBotHangup(c *appCall, reason string, now time.Time) {
 	meta := map[string]string{
 		"event": "call_ended", "user_id": u.ID, "user_name": clientMetaClean(u.Name, clientNameMax),
 		"verified": "true", "verified_via": "paired", "is_owner": fmt.Sprint(g.Owner),
-		"conversation_id": conv.ID, "call_id": c.ID, "mode": "voice", "end_reason": reason, "nonce": randHex(8),
+		"conversation_id": conv.ID, "thread_id": conv.ID, "call_id": c.ID, "mode": "voice", "end_reason": reason, "nonce": randHex(8),
 	}
 	why := "The person hung up."
 	if reason == "timeout" {
@@ -847,35 +708,43 @@ func clientTellBotHangup(c *appCall, reason string, now time.Time) {
 // --- the bot's tools ------------------------------------------------------------------
 
 // botClientReply is client_reply: the bot's message to the person in one
-// conversation, with files from its outbox. token is the reply_token of the
-// message being answered: it must belong to that conversation, be open (not
-// closed by a final reply, not expired), and a final reply (done=true) closes
-// it. Interim notes (done=false) leave it usable. lenient (the spool, where
-// nobody can be told of an error) delivers the text even when an attachment
-// cannot be sent, and says so in the message.
-func botClientReply(bot, convID, token, text string, done bool, paths []string, lenient bool, now time.Time) (clientMessageView, error) {
+// thread, with files from its outbox. token is the reply_token of the message
+// being answered: it must be this bot's and open (not closed by a final reply,
+// not expired). Into the message's own thread a final reply (done=true)
+// closes it and interim notes leave it usable; into another thread of the
+// same person the bot is in, the post is a final message that does not close
+// it (at most clientCrossPostsMax per token). lenient (the spool, where nobody
+// can be told of an error) delivers the text even when an attachment cannot
+// be sent, and says so in the message.
+func botClientReply(bot, threadID, token, text string, done bool, paths []string, lenient bool, now time.Time) (clientMessageView, error) {
+	return botClientReplyM(bot, threadID, token, text, done, paths, nil, lenient, now)
+}
+
+// botClientReplyM is botClientReply with the thread's bots the message
+// addresses.
+func botClientReplyM(bot, threadID, token, text string, done bool, paths, mentions []string, lenient bool, now time.Time) (clientMessageView, error) {
 	var zero clientMessageView
-	conv, err := convByID(strings.TrimSpace(convID))
-	if err != nil || conv.Bot != bot {
-		return zero, errors.New("no conversation with that id for this bot")
-	}
-	if err := checkReplyToken(token, bot, conv.ID, false, now); err != nil {
+	a, err := botActorFromToken(bot, token, false, now)
+	if err != nil {
 		return zero, err
 	}
-	// The reply answers the message the token was made for, and belongs to the
-	// call that message was sent in, if any.
-	var replyTo, callID string
-	if t, ok := lookupReplyToken(strings.TrimSpace(token)); ok {
-		replyTo, callID = t.MessageID, t.CallID
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return zero, errors.New("thread_id is required: the thread_id of the message you are answering")
 	}
-	return botClientSend(conv, bot, token, text, done, paths, lenient, replyTo, callID, now)
+	return botReplyInThread(a, threadID, text, done, paths, mentions, lenient, now)
 }
 
 // botClientSend is the part of client_reply after the bot has shown it may
 // write here.
-// replyTo is the id of the person's message being answered and callID the call
-// that message was sent in; both may be empty.
 func botClientSend(conv *appConv, bot, token, text string, done bool, paths []string, lenient bool, replyTo, callID string, now time.Time) (clientMessageView, error) {
+	return botClientSendM(conv, bot, token, text, done, paths, nil, lenient, replyTo, callID, now)
+}
+
+// botClientSendM is botClientSend naming the bots the message addresses.
+// replyTo is the id of the message being answered and callID the call that
+// message was sent in; both may be empty.
+func botClientSendM(conv *appConv, bot, token, text string, done bool, paths, mentions []string, lenient bool, replyTo, callID string, now time.Time) (clientMessageView, error) {
 	var zero clientMessageView
 	if u, err := getAppUser(conv.UserID); err != nil || u.Disabled {
 		return zero, errors.New("that conversation is closed")
@@ -927,7 +796,7 @@ func botClientSend(conv *appConv, bot, token, text string, done bool, paths []st
 	if done && token != "" && !closeReplyToken(token, now) {
 		return zero, errReplyToken
 	}
-	m, err := addBotReply(conv, text, done, callID, replyTo, views, now)
+	m, err := addBotReplyMentions(conv, text, done, callID, replyTo, views, mentions, now)
 	if err != nil {
 		if done && token != "" {
 			reopenReplyToken(token)
@@ -973,10 +842,11 @@ func endCallAs(call *appCall, lastWords string, now time.Time) error {
 	if len(lastWords) > clientBotTextMax || !utf8.ValidString(lastWords) {
 		return errors.New("last_words must be UTF-8, under 64 KB")
 	}
-	conv, err := convByID(call.ConvID)
+	t, err := threadByID(call.ConvID)
 	if err != nil {
 		return errors.New("that call is over")
 	}
+	conv := t.conv(call.Bot)
 	if lastWords != "" {
 		if _, err := addBotMessage(conv, lastWords, true, call.ID, nil, now); err != nil {
 			return err
@@ -995,7 +865,13 @@ func endCallAs(call *appCall, lastWords string, now time.Time) error {
 // bot's answer is routed by what lasso delivered, never by what text claims.
 type clientTurn struct {
 	Bot, ConvID, MsgID string
-	At                 time.Time
+	// UserID is the person the turn acts for; Kind is "message" (theirs) or
+	// "bot_message" (another bot's in a thread).
+	UserID, Kind string
+	At           time.Time
+	// crossPosts counts posts into the person's other threads (at most
+	// clientCrossPostsMax).
+	crossPosts int
 }
 
 var ompClientTurns sync.Map // nonce -> clientTurn
@@ -1004,10 +880,15 @@ var ompHeaderNonceRE = regexp.MustCompile(`\bnonce=([0-9a-f]{16})\b`)
 
 const ompClientMessagePrefix = "[lasso client message "
 
+// ompBotMessagePrefix starts the header of another bot's message in a thread,
+// as an omp bot receives it.
+const ompBotMessagePrefix = "[lasso bot message "
+
 // ompHeaderNonce reads the nonce out of a user message that starts with
-// lasso's client header; "" for any other message.
+// lasso's client header (a person's message, or another bot's in a thread);
+// "" for any other message.
 func ompHeaderNonce(text string) string {
-	if !strings.HasPrefix(text, ompClientMessagePrefix) {
+	if !strings.HasPrefix(text, ompClientMessagePrefix) && !strings.HasPrefix(text, ompBotMessagePrefix) {
 		return ""
 	}
 	first, _, _ := strings.Cut(text, "\n")
@@ -1071,7 +952,7 @@ func (ob *ompBot) observeMessageEnd(raw json.RawMessage) {
 			}
 		}
 		ob.clientCur, ob.clientDone = next, false
-		if prev != nil && !prevDone {
+		if prev != nil && !prevDone && prev.Kind != "bot_message" {
 			t := *prev
 			post = func() { clientTurnEnd(t) }
 		}
@@ -1080,6 +961,11 @@ func (ob *ompBot) observeMessageEnd(raw json.RawMessage) {
 			done := !hasTool && stop != "toolUse"
 			if done {
 				ob.clientDone = true
+			}
+			// NO_REPLY: the bot has nothing to say (another bot's message that
+			// needed nothing from it). Nothing is posted.
+			if isNoReply(text) {
+				break
 			}
 			t := *cur
 			post = func() { clientBotTurnMessage(t, text, done) }
@@ -1097,7 +983,7 @@ func (ob *ompBot) observeAgentEnd() {
 	cur, done := ob.clientCur, ob.clientDone
 	ob.clientCur, ob.clientDone = nil, false
 	ob.mu.Unlock()
-	if cur != nil && !done {
+	if cur != nil && !done && cur.Kind != "bot_message" {
 		clientTurnEnd(*cur)
 	}
 }
@@ -1105,10 +991,11 @@ func (ob *ompBot) observeAgentEnd() {
 // clientBotTurnMessage forwards an omp bot's text to the conversation its turn
 // belongs to.
 func clientBotTurnMessage(t clientTurn, text string, done bool) {
-	conv, err := convByID(t.ConvID)
-	if err != nil || conv.Bot != t.Bot {
+	th, err := threadByID(t.ConvID)
+	if err != nil || !isActiveParticipant(th.ID, t.Bot) {
 		return
 	}
+	conv := th.conv(t.Bot)
 	if _, err := getAppGrant(conv.UserID, conv.Bot); err != nil {
 		return
 	}
@@ -1124,13 +1011,14 @@ func clientBotTurnMessage(t clientTurn, text string, done bool) {
 
 // clientTurnEnd says a turn is over without a closing message.
 func clientTurnEnd(t clientTurn) {
-	appendClientEvent(t.ConvID, "turn_end", map[string]any{"message_id": t.MsgID}, time.Now())
+	appendClientEvent(t.ConvID, "turn_end", map[string]any{"thread_id": t.ConvID, "message_id": t.MsgID, "bot": t.Bot}, time.Now())
 }
 
 // --- maintenance (the runner's) ---------------------------------------------------------
 
 func clientMaintain(now time.Time) {
 	clientReconcile("", now)
+	clientExpireProposals(now)
 	cut := nowStamp(now.Add(-clientEventKeep))
 	_, _ = db.Exec(`DELETE FROM app_events WHERE created_at < ?`, cut)
 	_, _ = db.Exec(`DELETE FROM bot_events WHERE kind = 'client' AND status IN ('delivered', 'dropped') AND created_at < ?`, cut)
@@ -1196,15 +1084,25 @@ func clientRemoveFiles(atts []appAttachment) {
 	}
 	var victims []victim
 	for _, a := range atts {
-		rec, err := getBot(a.Bot)
-		if err != nil || !filepath.IsLocal(a.Path) {
-			continue
+		// The primary copy and every bot's copy of it (attachments the person
+		// sent into a thread with several bots).
+		holders := attachmentHolders(a)
+		if a.Path == "" && a.Bot != "" {
+			// Removed already: its copies may still be there.
+			delete(holders, a.Bot)
 		}
-		b, err := botBackend(rec.Host)
-		if err != nil {
-			continue
+		for bot, p := range holders {
+			rec, err := getBot(bot)
+			if err != nil || !filepath.IsLocal(p) {
+				continue
+			}
+			b, err := botBackend(rec.Host)
+			if err != nil {
+				continue
+			}
+			victims = append(victims, victim{b, filepath.Join(expandTildeOn(b, rec.Dir), p)})
 		}
-		victims = append(victims, victim{b, filepath.Join(expandTildeOn(b, rec.Dir), a.Path)})
+		_, _ = db.Exec(`DELETE FROM app_attachment_copies WHERE attachment_id = ?`, a.ID)
 	}
 	if len(victims) == 0 {
 		return
@@ -1237,21 +1135,26 @@ func ompAnsweringTurn(bot, convID string) (clientTurn, bool) {
 	return *ob.clientCur, true
 }
 
-// mcpClientReply is client_reply on /mcp: for the conversation the omp bot is
-// answering. /mcp does not know which bot is calling, so what bounds it is the
-// open client turn lasso opened itself from a nonce it issued (observeMessageEnd):
+// mcpClientReply is client_reply on /mcp: for the person the omp bot is
+// answering, in the thread of that message or another thread of theirs it is
+// in. /mcp does not know which bot is calling, so what bounds it is the open
+// client turn lasso opened itself from a nonce it issued (observeMessageEnd):
 // there is no reply_token to present, because an omp bot is handed none, and a
 // turn that is not open cannot be written into.
-func mcpClientReply(bot, convID, text string, done bool, paths []string) error {
-	conv, err := convByID(strings.TrimSpace(convID))
+func mcpClientReply(bot, threadID, text string, done bool, paths []string) error {
+	return mcpClientReplyM(bot, threadID, text, done, paths, nil)
+}
+
+// mcpClientReplyM is mcpClientReply naming the bots the message addresses.
+func mcpClientReplyM(bot, threadID, text string, done bool, paths, mentions []string) error {
+	a, err := botActorFromTurn(bot)
 	if err != nil {
-		return errors.New("you can send into the conversation you are answering right now, the one in the header of the message you are handling")
+		return errors.New("you can send only while you are answering a person's message from lasso's app, into their threads")
 	}
-	turn, ok := ompAnsweringTurn(bot, conv.ID)
-	if conv.Bot != bot || !ok {
-		return errors.New("you can send into the conversation you are answering right now, the one in the header of the message you are handling")
+	if strings.TrimSpace(threadID) == "" {
+		threadID = a.Thread
 	}
-	_, err = botClientSend(conv, bot, "", text, done, paths, false, turn.MsgID, callOfMessage(conv.ID, turn.MsgID), time.Now())
+	_, err = botReplyInThread(a, threadID, text, done, paths, mentions, false, time.Now())
 	return err
 }
 

@@ -259,24 +259,31 @@ func registerAppUserTools(s *mcp.Server) {
 		return userOut(in.ID)
 	})
 
-	// The two tools an omp bot has beyond its answer text (a claude bot has
-	// them on its channel).
+	// The tools an omp bot has beyond its answer text (a claude bot has them
+	// on its channel). Every one acts only inside the bot's open client turn,
+	// for that turn's person.
 	type clientReplyIn struct {
 		Name           string   `json:"name" jsonschema:"your own name, the bot's"`
-		ConversationID string   `json:"conversation_id" jsonschema:"the conversation id from the header of the person's message"`
-		Text           string   `json:"text,omitempty" jsonschema:"a caption; your answer text is delivered on its own, do not repeat it"`
-		Done           *bool    `json:"done,omitempty" jsonschema:"false for an interim note; true (the default) closes your turn"`
+		ThreadID       string   `json:"thread_id,omitempty" jsonschema:"the thread to write in: usually the thread of the message you are answering (its header's thread=)"`
+		ConversationID string   `json:"conversation_id,omitempty" jsonschema:"older name for thread_id"`
+		Text           string   `json:"text,omitempty" jsonschema:"a caption, or a message into another thread; your answer text is delivered on its own, do not repeat it"`
+		Done           *bool    `json:"done,omitempty" jsonschema:"false for an interim note; true (the default) closes your turn. Ignored when writing into another thread"`
 		Attachments    []string `json:"attachments,omitempty" jsonschema:"paths of files in your outbox, .lasso/client/outbox/ in your folder, to send (images, PDF, text, audio, video, zip; at most 4, 20 MB each)"`
+		Mentions       []string `json:"mentions,omitempty" jsonschema:"bots of the thread this message is addressed to; the others get it for information"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "client_reply",
-		Description: "Send a message with files to a person using lasso's phone app, in the conversation named in their message's header. The app shows images inline. Attach only files in your outbox, .lasso/client/outbox/ in your folder (copy or write the file there first): lasso reads from nowhere else, sends a copy and removes the file from the outbox once it is sent. Your normal answer text already reaches the person; use this for attachments. It works only for the conversation you are answering at that moment: you cannot start one with a person who has not written to you.",
+		Description: "Send a message with files to a person using lasso's phone app, in a thread of theirs you are in (the one named in the header of the message you are answering, or another of theirs: a final message there). The app shows images inline. Attach only files in your outbox, .lasso/client/outbox/ in your folder (copy or write the file there first): lasso reads from nowhere else, sends a copy and removes the file from the outbox once it is sent. Your normal answer text already reaches the person; use this for attachments, mentions and other threads. It works only while you answer a person's message: you cannot start one with a person who has not written to you.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in clientReplyIn) (*mcp.CallToolResult, okOut, error) {
 		rec, _, err := botForCaller(req, in.Name)
 		if err != nil {
 			return nil, okOut{}, err
 		}
-		err = mcpClientReply(rec.Name, in.ConversationID, in.Text, in.Done == nil || *in.Done, in.Attachments)
+		tid := in.ThreadID
+		if tid == "" {
+			tid = in.ConversationID
+		}
+		err = mcpClientReplyM(rec.Name, tid, in.Text, in.Done == nil || *in.Done, in.Attachments, in.Mentions)
 		return nil, okOut{OK: err == nil}, err
 	})
 	type clientEndCallIn struct {
@@ -295,4 +302,5 @@ func registerAppUserTools(s *mcp.Server) {
 		err = mcpClientEndCall(rec.Name, in.CallID, in.LastWords)
 		return nil, okOut{OK: err == nil}, err
 	})
+	registerClientThreadTools(s)
 }
