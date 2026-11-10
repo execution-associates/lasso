@@ -74,7 +74,7 @@ public struct BotsListView: View {
 
     private func rowView(_ b: BotView) -> some View {
         let lit = model.keyboardLit ? model.selected == b.name : model.hovered == b.name
-        return Button { model.open(b) } label: {
+        return Button { PopOut.commandClick ? model.popOut(b) : model.open(b) } label: {
             HStack(alignment: .top, spacing: Theme.space("l")) {
                 BotAvatarView(name: b.name, image: avatars[b.name], standing: b.standing)
                 VStack(alignment: .leading, spacing: Theme.space("2xs")) {
@@ -82,6 +82,7 @@ public struct BotsListView: View {
                         Text(b.name).font(Theme.Fonts.name.font).foregroundStyle(Theme.Text.primary.color).lineLimit(1)
                         Spacer(minLength: Theme.space("m"))
                         Text(subtitle(b)).font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color).lineLimit(1)
+                            .opacity(lit ? 0 : 1)
                     }
                     if let line = b.lastLine {
                         Text(line).font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color).lineLimit(1)
@@ -97,7 +98,21 @@ public struct BotsListView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .overlay(alignment: .topTrailing) {
+            // In the state's place while the row is lit.
+            if lit {
+                PopOutRowButton(name: b.name) { model.popOut(b) }
+                    .padding(.trailing, row.number("pad_h") - Theme.space("m"))
+                    .padding(.top, Theme.space("s"))
+                    .parityAnchor("bots.popout")
+            }
+        }
         .columnRow(b.name)
+        .contextMenu {
+            Button("Open") { model.open(b) }
+            Button(PopOut.label) { model.popOut(b) }
+        }
+        .accessibilityAction(named: PopOut.label) { model.popOut(b) }
         .accessibilityLabel("\(b.name), \(b.standing.label), \(b.runtime)\(b.lastLine.map { ": \($0)" } ?? "")")
         .parityAnchor("bots.row[\(b.name)]")
     }
@@ -226,6 +241,10 @@ public final class BotsController {
 
     /// J/K or ↑/↓ move, ⏎ opens, esc closes.
     private func handle(_ e: NSEvent) -> Bool {
+        if PopOut.isKey(e) {
+            model.popOutSelected()
+            return true
+        }
         let mods = e.modifierFlags.intersection([.command, .control, .option])
         guard mods.isEmpty else { return false }
         switch e.keyCode {

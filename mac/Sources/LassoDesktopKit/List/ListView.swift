@@ -123,7 +123,7 @@ public struct ListView: View {
                 .columnRow(id)
             } else {
                 HStack(spacing: 0) {
-                    Button { model.open(p) } label: {
+                    Button { PopOut.commandClick ? model.popOut(p) : model.open(p) } label: {
                         HStack(spacing: 0) {
                             Circle()
                                 .fill(StateStyle.color(p.state))
@@ -162,6 +162,10 @@ public struct ListView: View {
                     .accessibilityLabel(
                         "\(p.displayName), \(p.state.label), \(p.agent) in \(p.group) on \(p.host_label)\(pinned ? ", pinned" : "")"
                             + (fleet.bot(for: p) != nil ? ", a bot" : ""))
+                    if lit && model.renaming != key {
+                        PopOutRowButton(name: p.displayName) { model.popOut(p) }
+                            .parityAnchor(pinnedSection ? "list.popout.pinned[\(key)]" : "list.popout[\(key)]")
+                    }
                     Button { model.askEnd(p) } label: {
                         LucideIcon(.x, size: Theme.icon.number("control"))
                             .frame(width: row.number("action_w"), height: row.number("height")).contentShape(Rectangle())
@@ -181,6 +185,7 @@ public struct ListView: View {
                 )
                 .columnRow(id)
                 .contextMenu {
+                    Button(PopOut.label) { model.popOut(p) }
                     Button(pinned ? "Unpin" : "Pin") { model.togglePin(p) }
                     // A bot is found by its herdr name: it is renamed in its settings.
                     if fleet.bot(for: p) == nil { Button("Rename…") { model.startRename(p) } }
@@ -188,6 +193,7 @@ public struct ListView: View {
                     Divider()
                     Button("End agent…") { model.askEnd(p) }
                 }
+                .accessibilityAction(named: PopOut.label) { model.popOut(p) }
                 .accessibilityAction(named: pinned ? "Unpin" : "Pin") { model.togglePin(p) }
                 .accessibilityAction(named: "Focus in herdr") { model.focus(p) }
                 .accessibilityAction(named: "Rename") { model.startRename(p) }

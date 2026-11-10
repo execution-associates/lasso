@@ -203,6 +203,8 @@ public final class BotsListModel: ObservableObject, HoverColumn {
     /// The hover's: a layout landed (`ColumnHover`).
     public var rowFramesChanged: () -> Void = {}
     public var onOpen: (BotView) -> Void = { _ in }
+    /// Its window, and the column put away (PopOut).
+    public var onPopOut: (BotView) -> Void = { _ in }
     public var onManage: () -> Void = {}
     public var onClose: () -> Void = {}
     public let now: () -> Date
@@ -245,5 +247,16 @@ public final class BotsListModel: ObservableObject, HoverColumn {
     public func open(_ b: BotView) {
         selected = b.name
         onOpen(b)
+    }
+
+    /// ⌘⏎: the selected bot's window, and the column goes.
+    public func popOutSelected() {
+        guard let b = bots.first(where: { $0.name == selected }) else { return }
+        popOut(b)
+    }
+
+    public func popOut(_ b: BotView) {
+        selected = b.name
+        onPopOut(b)
     }
 }
