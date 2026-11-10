@@ -81,7 +81,7 @@ Everything except `GET /client/pair` and `POST /client/v1/pair` takes `Authoriza
 
 A `401` from lasso always has the JSON error body below (`unauthorized`, or `pairing_failed` on the pairing exchange), so a client treats a `401` **without** it, such as an HTML page from a proxy, gateway or captive portal, as a transport error: keep the token and retry later. Only the JSON `unauthorized` means the device is signed out and must pair again.
 
-**JSON convention.** An optional field with no value is omitted, never sent as `""`: `call_id`, `client_id`, `in_reply_to`, `state`, `failed_reason`, `state_reason`, `bot_state_reason`, `last_words`, `width`, `height`, `url`, `expired`, `avatar_url`, `end_reason`, `ended_at` and the like are present only when they mean something, and a client reads a missing key as "none". Fields shown in an example are always present unless the text says otherwise. The exceptions are the explicit nulls documented where they occur (`older_cursor`, `hello.call`) and `attachments`, which is `[]` rather than absent.
+**JSON convention.** An optional field with no value is omitted, never sent as `""`: `call_id`, `client_id`, `in_reply_to`, `state`, `failed_reason`, `state_reason`, `bot_state_reason`, `last_words`, `width`, `height`, `url`, `expired`, `avatar_url`, `end_reason`, `ended_at`, `removed` and the like are present only when they mean something, and a client reads a missing key as "none". Fields shown in an example are always present unless the text says otherwise. The exceptions are the explicit nulls documented where they occur (`older_cursor`, `hello.call`) and `attachments`, which is `[]` rather than absent.
 
 Errors are JSON with a status and a stable `code`:
 
@@ -94,12 +94,12 @@ Errors are JSON with a status and a stable `code`:
 | 400 | `invalid_request` | a malformed body, field, cursor or id |
 | 401 | `unauthorized` | the token does not identify an enabled user's device |
 | 401 | `pairing_failed` | the pairing did not work, for any reason |
-| 403 | `quota_exceeded` | a stored-file quota is full ([Attachments](#attachments)); `message` says which |
+| 403 | `quota_exceeded` | a stored-file quota is full ([Attachments](#attachments)); `message` says what to do: delete files or choose a shorter retention |
 | 404 | `not_found` | the id is unknown, or belongs to someone else, or to a bot the user is not granted: the same answer |
 | 405 | `method_not_allowed` | `Allow` names the methods |
 | 409 | `bot_unavailable` | the bot is stopped, or cannot take app messages now; `message` says why |
 | 413 | `too_large` | a body or file over its limit |
-| 410 | `file_expired` | the file was deleted after the retention window; the message still shows its marker |
+| 410 | `file_expired` | the file was removed, by the person or by their retention; the message still shows its marker |
 | 415 | `unsupported_type` | an attachment of a type not allowed |
 | 429 | `rate_limited` | `Retry-After` in seconds |
 | 502 | `bot_unavailable` | lasso cannot reach the bot's host |
@@ -114,7 +114,9 @@ All under `/client/v1`, JSON unless stated. `{bot}` is the bot's name, ids are t
 | route | purpose |
 | --- | --- |
 | `POST /pair` | exchange a pairing code for a device token (above) |
-| `GET /me` | who the token is, and the user's bots |
+| `GET /me` | who the token is, their settings, limits and storage, and their bots |
+| `PUT /me/settings` | choose how long files are kept ([Settings and files](#settings-and-files)) |
+| `POST /me/files/purge` | remove all of the person's stored files older than a number of days |
 | `GET /bots` | `{"bots": […]}`, the same bot objects as `/me` |
 | `GET /bots/{bot}` | `{"bot": {…}}` |
 | `GET /bots/{bot}/avatar` | the bot's picture (PNG, JPEG, WebP or GIF, `Cache-Control` immutable); 404 when it has none |
@@ -123,6 +125,7 @@ All under `/client/v1`, JSON unless stated. `{bot}` is the bot's name, ids are t
 | `GET /conversations/{id}/events` | the live stream (SSE) |
 | `POST /conversations/{id}/attachments` | upload a file |
 | `GET /attachments/{id}` | download a file of the user's (their own upload, or one the bot sent them) |
+| `DELETE /attachments/{id}` | remove such a file ([Attachments](#attachments)) |
 | `POST /conversations/{id}/calls` | start a voice call |
 | `GET /calls/{id}` | a call |
 | `POST /calls/{id}/end` | hang up |
@@ -135,6 +138,9 @@ All under `/client/v1`, JSON unless stated. `{bot}` is the bot's name, ids are t
   "api": 1,
   "user": {"id": "u_…", "name": "Ann"},
   "device": {"id": "d_…", "label": "Ann's iPhone", "platform": "ios", "created_at": "…"},
+  "settings": {"file_retention_days": null},
+  "limits": {"max_file_retention_days": null},
+  "storage": {"used_bytes": 1048576, "used_files": 3, "quota_bytes": 524288000, "quota_files": 3000},
   "bots": [{
     "name": "jess",
     "avatar_url": "/client/v1/bots/jess/avatar?v=1731200000",
@@ -146,7 +152,9 @@ All under `/client/v1`, JSON unless stated. `{bot}` is the bot's name, ids are t
 }
 ```
 
-Only granted bots appear, and only this: a name, a picture, a coarse state, what the bot can do for the app, whether the user owns it, and their conversation id. No folder, host, model, runtime, instructions or other user.
+`settings.file_retention_days` is how long the person's files are kept under what is in force now: a whole number of days, or `null` for "until I delete them" ([Settings and files](#settings-and-files)). `limits.max_file_retention_days` is the owner's maximum (`LASSO_CLIENT_RETENTION_DAYS`), or `null` when there is none: an app that cannot offer "keep" says why from it. `storage` is the person's stored uploads against their limits, the numbers the quota check uses (the files bots sent them do not count, [Attachments](#attachments)); `quota_bytes` and `quota_files` are the person's own, which the owner may have raised or lowered.
+
+Only granted bots appear in `bots`, and only this: a name, a picture, a coarse state, what the bot can do for the app, whether the user owns it, and their conversation id. No folder, host, model, runtime, instructions or other user.
 
 `state_reason` is present only for `unavailable`. `state` is one of `available`, `busy` (working a turn or waiting on its human), `starting` (running but not yet listening: a message waits for it), `stopped` (a message is refused) and `unavailable` (cannot take app messages now: for a claude bot, a channel without the client tools that needs the bot restarted, or no channel; `state_reason` says). The state is cached for five seconds per bot. `capabilities.chat` and `voice` are false when `unavailable`. `attachments_out` and `end_call` are the bot's ability to send files and hang up: always true for a claude bot, and for an omp bot only when it has lasso's MCP server ([omp](#omp-bots)). `streaming_text` is always false: replies arrive whole ([omp](#omp-bots)). `avatar_url` is absent without a picture; its query is the revision, so the URL can be cached forever.
 
@@ -178,7 +186,7 @@ Query: `limit` (1-100, default 50), and at most one of `before` and `after`, eac
 - `call_id` is present on a voice message of the person's, and on a bot message **that answers a message sent in that call** (such a message has `mode: "voice"`); the last words of a bot's `end_call` carry the call's id too. A bot message answering a text message has no `call_id`, even if a call happened to be open when that message was sent or when the reply arrives. The second message in the example is a bot's reply to a voice message.
 - `client_id` is the `client_id` the client sent with that message, so a client can match its optimistic row exactly. It is on the person's own messages only (in the send response, in the history and in the `message` stream event, which only that person's devices receive), and only when the client sent one. A bot message never has it.
 - `in_reply_to` is on a bot message: the id of the person's message it answers. For a claude bot that is the message whose `reply_token` the reply was sent with; for an omp bot it is the message of the matched turn. Interim (`done: false`) and final replies both carry it. It is absent on the last words of `end_call`, and never on a person's message. A bot's reply can arrive on the stream **before** `message_state: delivered` for the message it answers (the bot answers faster than lasso reconciles the state), so a client must not wait for `delivered` before showing a reply, and may treat a reply as proof its message was delivered.
-- An attachment whose file has been deleted by the retention window reads `{"id", "name", "type", "size", "expired": true}` (plus `width` and `height` for an image) with **no `url`**: render a "file expired" marker from the name, type and size. A message already on screen learns of it on the next history read; downloading it answers `410 file_expired`.
+- An attachment whose file has been removed, by the person or by their retention, reads `{"id", "name", "type", "size", "expired": true, "removed": "user"|"retention"}` (plus `width` and `height` for an image) with **no `url`**: render a "file removed" marker from the name, type and size. `expired` is true for both reasons; `removed` says which. A message already on screen learns of it from the `attachment_removed` event or the next history read; downloading it answers `410 file_expired`.
 - `state` is on the person's own messages only, never on a bot's: `queued` (lasso has it, the bot has not taken it), `delivered` (the bot's channel took it), `failed` (with `failed_reason`, absent otherwise: the bot was stopped, never picked it up within a day, or the person's access to the bot changed before it did).
 - `older_cursor` is the `before` for the next older page, or `null` at the start of history. After a page fetched with `after` it is `null`.
 - `events_cursor` is the stream's position as of just before the page was read. Open the stream with it as `Last-Event-ID` and nothing that landed while paging is missed; a message seen twice (in the page and the stream) is deduplicated by `id`.
@@ -215,6 +223,7 @@ The identity sent to the bot comes from the token. Any other field in the body (
 | `turn_end` | yes | `{message_id}`: the bot finished the turn for that message without a closing message (omp, a turn that ended on tool calls) |
 | `call_started` | yes | `{call_id, started_at}` |
 | `call_ended` | yes | `{call_id, reason: "user"\|"bot"\|"timeout"\|"replaced", ended_at, last_words?}`: the app speaks `last_words` (if any) and hangs up; they are also stored as a bot message with that `call_id`. A resumed stream can replay a past `call_ended`: ignore it for a call you are not in |
+| `attachment_removed` | yes | `{conversation_id, message_id, attachment_id, removed: "user"\|"retention"}`: a file of a message in this conversation was removed (the person deleted it, purged their files, or a retention sweep deleted it): show its marker. Not sent for an upload that was never put in a message |
 | `activity` | no | `{text, message_id}`: what the bot is doing, e.g. "Reading a file", "Running a command". **Plain only**: the kind of each step, never a path, command or server name (the terminal may hold other people's business). claude bots only |
 | `bot_state` | no | `{state, reason?}`: when the bot's coarse state changes (polled every three seconds) |
 | `closed` | no | `{reason: "access_revoked"\|"reconnect"}` |
@@ -237,7 +246,26 @@ The app does speech recognition and synthesis; lasso carries text. A call exists
 
 **Types are sniffed from the bytes** (`http.DetectContentType`), never taken from the name or the client's header. Allowed: PNG, JPEG, WebP, GIF, PDF, plain text (valid UTF-8 with no NUL; this includes SVG, which is therefore only ever text and is downloaded, never rendered), MP3, WAV, AIFF, Ogg, MP4, WebM and ZIP. Anything else is `415`. **HEIC is not detected**: the app converts photos to JPEG before it uploads. An upload not sent in a message within 24 hours is deleted, file and row.
 
-**Quotas and retention.** Uploads count against the person, not the conversation: at most **500 MB** and **3000 files** of stored uploads per user (`LASSO_CLIENT_QUOTA_MB`, `LASSO_CLIENT_QUOTA_FILES` change them). Past either, an upload answers `403 quota_exceeded`; sending the files in a message does not free the space, only their expiry or the user's deletion does. Every stored file, the person's and the bot's, is **deleted 30 days after it was stored** (`LASSO_CLIENT_RETENTION_DAYS`); the message stays, with the attachment as `expired: true` and no `url` (above), and the space is free again. The files the bot sends are capped separately, at 200 files and 200 MB per conversation and 2 GB per bot; past that a bot's `client_reply` with files is refused.
+**Quotas.** Uploads count against the person, not the conversation: at most **500 MB** and **3000 files** of stored uploads per user (`LASSO_CLIENT_QUOTA_MB`, `LASSO_CLIENT_QUOTA_FILES` change the defaults; the owner can override both for one person, [Managing people](#managing-people)). Past either, an upload answers `403 quota_exceeded`, and its message tells the person to delete files or choose a shorter retention; sending the files in a message does not free the space, only a file's removal does, by the person or by retention. The files the bot sends are capped separately, at 200 files and 200 MB per conversation and 2 GB per bot (past that a bot's `client_reply` with files is refused), do not count against the person's quota, and are kept or removed by the person's retention and deletions like the rest.
+
+**Removing a file.** `DELETE /attachments/{id}` removes a file in one of the caller's conversations, whether they sent it or a bot sent it to them: the stored bytes go (for an upload that is the file in the bot's folder, `.lasso/client/<user id>/<attachment id>.<ext>`, so the bot's copy is removed with it; for a bot-sent file, the stored copy under `out/`), the quota is freed, and the message keeps the entry as a marker:
+
+```json
+{"id": "a_…", "name": "photo.jpg", "type": "image/jpeg", "size": 123456, "width": 4032, "height": 3024, "expired": true, "removed": "user"}
+```
+
+The answer is `200 {"attachment": {…marker…}}`. It is idempotent: removing a file already removed answers the same. An unknown id and someone else's file are the same `404`. A removal is announced to the conversation's streams as `attachment_removed`. A file removed by retention reads `"removed": "retention"`. The copy a bot made from the file into its own folder is the bot's own; the bot is told in its instructions that a person may remove a file they sent and that it should copy what it needs to keep.
+
+`POST /me/files/purge` with `{"older_than_days": n}` (a whole number, `0` for all; at most 36500) removes every stored file of the caller's, uploads and bot-sent files, created more than `n` days ago, and answers `{"removed_files": 12, "freed_bytes": 3456789}` (`freed_bytes` counts every file removed). Each file announces `attachment_removed` as above, and nothing is left to undo. At most six purges a minute (`429 rate_limited`).
+
+### Settings and files
+
+`PUT /me/settings` with `{"file_retention_days": n}` (a whole number from 1 to 3650) or `{"file_retention_days": null}` ("keep my files until I delete them") sets how long the person's files are kept. It answers `{"settings": {"file_retention_days": n | null}}`, the value in force after the owner's maximum is applied; a missing, non-integer or out-of-range value is `400 invalid_request`. A person who never chose has `null`: files are kept.
+
+- The setting covers the files the person sent **and** the files bots sent them, in all their conversations.
+- It applies to **existing files**. A file expires when its stored time plus the retention has passed under the setting in force when the sweep runs (every ten minutes or so, with the rest of lasso's maintenance). Shortening the setting therefore deletes older files at the next sweep; lengthening it, or choosing `null`, keeps the files that have not been deleted yet. A deleted file does not come back.
+- An upload not yet sent in a message is not judged by retention: it is deleted after a day if it is never sent.
+- `LASSO_CLIENT_RETENTION_DAYS` is the **owner's maximum**. Unset (the default) there is none. When set, a person's choice is clamped to it, and `null` is treated as the maximum: `settings.file_retention_days` then reads the maximum, and `limits.max_file_retention_days` says why "keep" is unavailable. The person's own choice is stored as they made it, so removing or raising the maximum gives it back.
 
 **Download:** `GET /attachments/{id}` serves the bytes as what they are (the sniffed type must still equal the recorded one), with `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, a `Content-Disposition` of `inline` for images, audio, video and PDF and `attachment` for the rest, and Range support for audio and video. Only attachments of the token's user and a conversation they still hold are served; anything else is `404`.
 
@@ -256,8 +284,10 @@ The outbox is the bot's own choice of what to give the person it is talking to; 
 | --- | --- |
 | message text | 16000 characters; request body 256 KB |
 | attachments | 20 MB each, 4 per message, 20 uploads waiting to be sent, 20 uploads a minute |
-| stored uploads | 500 MB and 3000 files per user (`quota_exceeded`); every stored file deleted after 30 days (`expired`) |
-| bot-sent copies | 200 files and 200 MB per conversation, 2 GB per bot; 4 per reply, from the outbox only |
+| stored uploads | 500 MB and 3000 files per user, overridable per person by the owner (`quota_exceeded`); a deleted or expired file frees its space |
+| file retention | the person's choice, 1-3650 days or none (files kept until they delete them), within the owner's optional maximum (`LASSO_CLIENT_RETENTION_DAYS`, none by default) |
+| bot-sent copies | 200 files and 200 MB per conversation, 2 GB per bot; 4 per reply, from the outbox only; kept per the receiving person's retention |
+| purge | 6 a minute per user |
 | calls | 6 a minute and 60 an hour per user to start; idle 30 minutes or open four hours ends one |
 | messages | 30 a minute per user |
 | history page | 100 messages |
@@ -345,7 +375,7 @@ The owner's side is `/api/app-users` (behind `UI_AUTH` like the rest of `/api`, 
 | `GET /api/app-users[?bot=]` | `list_app_users` | every user with `grants` and `devices` (never tokens); filtered to a bot's users with `bot` |
 | `POST /api/app-users {name, email?}` | `create_app_user` | |
 | `GET /api/app-users/<id>` | | one user |
-| `PUT /api/app-users/<id> {name?, email?, disabled?}` | `update_app_user` | disabling ends their requests and streams |
+| `PUT /api/app-users/<id> {name?, email?, disabled?, quota_mb?, quota_files?}` | `update_app_user` | disabling ends their requests and streams. `quota_mb` (1-1048576) and `quota_files` (1-10000000) override the stored-upload limits for this person; `null` clears the override, a missing key leaves it. The tool takes the same fields, with `null` in its arguments clearing |
 | `DELETE /api/app-users/<id>` | `delete_app_user` | the user, devices, grants, pairings, conversations, messages, events, calls and uploaded files |
 | `PUT /api/app-users/<id>/grants/<bot> {owner?}` | `set_app_user_grant` | grants, or changes the owner flag |
 | `DELETE /api/app-users/<id>/grants/<bot>` | `revoke_app_user_grant` | |
@@ -355,7 +385,7 @@ The owner's side is `/api/app-users` (behind `UI_AUTH` like the rest of `/api`, 
 | `GET /api/app-users/<id>/devices` | | the user's devices |
 | `DELETE /api/app-users/<id>/devices/<did>` | `revoke_app_device` | revoke one device |
 
-A user view: `{id, name, email, disabled, created_at, updated_at, grants: [{bot, owner, created_at}], devices: [{id, label, platform, paired_by, created_at, last_seen_at, revoked_at?}]}`. Deleting a bot removes its grants, conversations and attachments rows (its folder is the owner's).
+A user view: `{id, name, email, disabled, created_at, updated_at, grants: [{bot, owner, created_at}], devices: [{id, label, platform, paired_by, created_at, last_seen_at, revoked_at?}], quota_mb, quota_files, file_retention_days, storage: {used_bytes, used_files, quota_bytes, quota_files}}`. `quota_mb` and `quota_files` are the owner's override or `null` (the default applies); `storage` is the person's use against the limits in force; `file_retention_days` is the person's own choice as in force (`null`: they keep files until they delete them), which the owner reads but does not set. The People page shows the storage and the choice, and edits the override. Deleting a bot removes its grants, conversations and attachments rows (its folder is the owner's).
 
 The tools that mint pairings return the code to the calling agent: it is single-use and expires in ten minutes, but it should go to the person, not into a shared channel.
 
@@ -371,7 +401,7 @@ The tools that mint pairings return the code to the calling agent: it is single-
 - **Replies cannot cross.** A claude reply names its conversation, which must belong to the calling bot (its channel token) and to a user still enabled and granted, and must present the reply token of an open message of that conversation, which only that person's own message carried; an omp reply is routed by nonce. Nothing is carried from one request to another, unlike Talk's late replies. A bot cannot start a conversation with a person who has not written to it.
 - **Access is re-read at delivery.** A message queued before a user was disabled or deleted, a grant removed or a device revoked never reaches the bot, and the owner flag it carries is the grant's at that moment.
 - **A bot sends from its outbox only**, and what it reads is opened once with no-follow and checked on the descriptor.
-- **Storage is bounded**: per-user upload quota, per-conversation and per-bot caps on what a bot sends, a 30-day retention window, call-start and upload rate limits.
+- **Storage is bounded**: per-user upload quota, per-conversation and per-bot caps on what a bot sends, the person's own retention within the owner's optional maximum, their right to delete their files, call-start, upload and purge rate limits. Deleting is scoped like every other route: the attachment must be the token's user's, in a conversation they still hold.
 - **Files**: described above. The sniffed type decides what a file is, with `nosniff` and a sandbox CSP; no SVG is ever an image; names are generated; the per-user directory is `.lasso/client/<id>`. A bot reads every person's uploads in its folder (one folder, one session), which is part of why a bot serving outside people must be written for it.
 - **Untrusted text everywhere**: the person's words, the bot's words and file names are data. The page for the pairing link reflects nothing.
 - **Logging**: the API logs nothing of requests. Pairing failures are counted in memory, by source address, only.
@@ -391,7 +421,7 @@ The API is the same binary and the same listeners; nothing needs a new port.
 
 - The pairing link is a web page that opens the app through the `lasso://` custom scheme; there is no platform app link or universal link association (no `apple-app-site-association`, no `assetlinks.json`), so the OS does not route the HTTPS link to the app.
 - Push notifications (APNs, FCM), server-side speech synthesis or recognition, and a web UI for people and devices are not built. The seams: `appendClientEvent` is the single place a message or call event is born (a push transport would subscribe there, as `publishNotification` does for bots), the app does speech, and the management routes are complete for a UI.
-- Messages are kept until the user or bot is deleted; there is no per-conversation delete. Files (uploads and the bot's copies) are deleted after the retention window, unused uploads after a day.
+- Messages are kept until the user or bot is deleted; there is no per-conversation delete. Files (uploads and the bot's copies) are kept until the person deletes them or their retention removes them, unused uploads for a day.
 - Bots cannot start a conversation: every reply answers a message the person sent. A push or a scheduled note from a bot would need a deliberate grant that does not exist yet.
 - A stream's `activity` and the state are polled (two to four seconds; the terminal is read, over SFTP for a remote bot).
 - The two limits that are per process (rate windows, stream counts) reset on a restart and are not shared between two lassos on one db.

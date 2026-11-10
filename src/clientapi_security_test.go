@@ -466,7 +466,9 @@ func TestClientUploadQuota(t *testing.T) {
 
 func TestClientFilesExpireAfterRetention(t *testing.T) {
 	c := newClientTest(t)
-	_, ann := c.person("Ann", false, "jess")
+	annID, ann := c.person("Ann", false, "jess")
+	thirty := 30
+	_ = setFileRetention(annID, &thirty, time.Now())
 	cid := c.conv(ann, "jess")
 	_, att := c.upload(ann, cid, "old.png", pngBytes())
 	_, m := c.send(ann, cid, `{"text":"a picture","attachments":["`+att.ID+`"]}`)
@@ -490,7 +492,7 @@ func TestClientFilesExpireAfterRetention(t *testing.T) {
 	if dl, _ := c.do("GET", att.URL, ann, ""); dl.StatusCode != 200 {
 		t.Fatalf("fresh file: %d", dl.StatusCode)
 	}
-	old := nowStamp(time.Now().Add(-clientRetention() - time.Hour))
+	old := nowStamp(time.Now().Add(-30*24*time.Hour - time.Hour))
 	_, _ = db.Exec(`UPDATE app_attachments SET created_at = ?`, old)
 	clientMaintain(time.Now())
 
@@ -517,7 +519,7 @@ func TestClientFilesExpireAfterRetention(t *testing.T) {
 		t.Fatalf("attachments = %+v", shown)
 	}
 	for _, v := range shown {
-		if !v.Expired || v.URL != "" || v.Name == "" || v.Type != "image/png" || v.Size == 0 {
+		if !v.Expired || v.Removed != "retention" || v.URL != "" || v.Name == "" || v.Type != "image/png" || v.Size == 0 {
 			t.Errorf("expired marker = %+v", v)
 		}
 	}

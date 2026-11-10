@@ -215,11 +215,26 @@ func serveClient(w http.ResponseWriter, r *http.Request) {
 	case len(segs) == 3 && segs[0] == "conversations":
 		serveClientConversation(w, r, id, segs[1], segs[2])
 	case len(segs) == 2 && segs[0] == "attachments":
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			clientMethod(w, "GET")
+		switch r.Method {
+		case http.MethodGet, http.MethodHead:
+			serveClientAttachment(w, r, id, segs[1])
+		case http.MethodDelete:
+			serveClientAttachmentDelete(w, id, segs[1])
+		default:
+			clientMethod(w, "GET, DELETE")
+		}
+	case len(segs) == 2 && segs[0] == "me" && segs[1] == "settings":
+		if r.Method != http.MethodPut {
+			clientMethod(w, "PUT")
 			return
 		}
-		serveClientAttachment(w, r, id, segs[1])
+		serveClientSettings(w, r, id)
+	case len(segs) == 3 && segs[0] == "me" && segs[1] == "files" && segs[2] == "purge":
+		if r.Method != http.MethodPost {
+			clientMethod(w, "POST")
+			return
+		}
+		serveClientPurge(w, r, id)
 	case len(segs) == 2 && segs[0] == "calls":
 		if r.Method != http.MethodGet {
 			clientMethod(w, "GET")
@@ -444,14 +459,119 @@ func clientBotViewOf(id *clientIdentity, name string, now time.Time) (clientBotV
 	return v, true
 }
 
+// clientSettingsView is the person's settings as in force: the file retention
+// they chose, within the owner's maximum (null: files are kept until the
+// person deletes them).
+func clientSettingsView(u *appUser) map[string]any {
+	var days any
+	if d := clientRetentionDaysOf(u); d > 0 {
+		days = d
+	}
+	return map[string]any{"file_retention_days": days}
+}
+
+func clientLimitsView() map[string]any {
+	var max any
+	if m := clientRetentionMaxDays(); m > 0 {
+		max = m
+	}
+	return map[string]any{"max_file_retention_days": max}
+}
+
+func clientStorageView(u *appUser) map[string]any {
+	used, files := userStoredUploads(u.ID)
+	return map[string]any{"used_bytes": used, "used_files": files,
+		"quota_bytes": clientQuotaBytesFor(u), "quota_files": clientQuotaFilesFor(u)}
+}
+
 func serveClientMe(w http.ResponseWriter, id *clientIdentity) {
 	clientJSON(w, http.StatusOK, map[string]any{
 		"api":  clientAPIVersion,
 		"user": map[string]any{"id": id.User.ID, "name": id.User.Name},
 		"device": map[string]any{"id": id.Device.ID, "label": id.Device.Label, "platform": id.Device.Platform,
 			"created_at": id.Device.CreatedAt},
-		"bots": clientBotsOf(id, time.Now()),
+		"settings": clientSettingsView(id.User),
+		"limits":   clientLimitsView(),
+		"storage":  clientStorageView(id.User),
+		"bots":     clientBotsOf(id, time.Now()),
 	})
+}
+
+// serveClientSettings is PUT /me/settings {"file_retention_days": 1..3650 | null}.
+func serveClientSettings(w http.ResponseWriter, r *http.Request, id *clientIdentity) {
+	var in struct {
+		FileRetentionDays optInt `json:"file_retention_days"`
+	}
+	if !clientDecode(w, r, 4<<10, &in) {
+		return
+	}
+	if !in.FileRetentionDays.Set {
+		clientError(w, http.StatusBadRequest, "invalid_request", "file_retention_days is required: a number of days, or null to keep files until you delete them.")
+		return
+	}
+	if v := in.FileRetentionDays.Val; v != nil && (*v < 1 || *v > clientRetentionDaysMax) {
+		clientError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("file_retention_days must be 1-%d, or null.", clientRetentionDaysMax))
+		return
+	}
+	if err := setFileRetention(id.User.ID, in.FileRetentionDays.Val, time.Now()); err != nil {
+		clientFail(w, err)
+		return
+	}
+	u, err := getAppUser(id.User.ID)
+	if err != nil {
+		clientFail(w, err)
+		return
+	}
+	clientJSON(w, http.StatusOK, map[string]any{"settings": clientSettingsView(u)})
+}
+
+// serveClientPurge is POST /me/files/purge {"older_than_days": n}: every stored
+// file of the person's older than n days (0: all of them).
+func serveClientPurge(w http.ResponseWriter, r *http.Request, id *clientIdentity) {
+	now := time.Now()
+	var in struct {
+		OlderThanDays *int `json:"older_than_days"`
+	}
+	if !clientDecode(w, r, 4<<10, &in) {
+		return
+	}
+	if in.OlderThanDays == nil || *in.OlderThanDays < 0 || *in.OlderThanDays > 36500 {
+		clientError(w, http.StatusBadRequest, "invalid_request", "older_than_days is required: 0 or more (0 removes all your files).")
+		return
+	}
+	if !clientLimits.allow("purge:"+id.User.ID, clientPurgesPerMin, time.Minute, now) {
+		w.Header().Set("Retry-After", "30")
+		clientError(w, http.StatusTooManyRequests, "rate_limited", "Slow down: too many deletions.")
+		return
+	}
+	var cut time.Time
+	if d := *in.OlderThanDays; d > 0 {
+		cut = now.Add(-time.Duration(d) * 24 * time.Hour)
+	}
+	files, bytes := removeAttachments(userAttachmentsOlderThan(id.User.ID, cut, false), clientRemovedUser, now)
+	clientJSON(w, http.StatusOK, map[string]any{"removed_files": files, "freed_bytes": bytes})
+}
+
+// serveClientAttachmentDelete is DELETE /attachments/{id}: the person removes a
+// file of theirs (sent or received). Removing a file already removed succeeds.
+func serveClientAttachmentDelete(w http.ResponseWriter, id *clientIdentity, aid string) {
+	a, err := appAttachmentByID(aid)
+	if err != nil || a.UserID != id.User.ID {
+		clientNotFound(w)
+		return
+	}
+	if _, ok := clientOwnConv(id, a.ConvID); !ok {
+		clientNotFound(w)
+		return
+	}
+	if a.ExpiredAt == "" {
+		removeAttachments([]appAttachment{a}, clientRemovedUser, time.Now())
+		if a, err = appAttachmentByID(aid); err != nil {
+			clientNotFound(w)
+			return
+		}
+	}
+	clientJSON(w, http.StatusOK, map[string]any{"attachment": a.view()})
 }
 
 func serveClientBot(w http.ResponseWriter, id *clientIdentity, name string) {
@@ -603,8 +723,8 @@ func serveClientUpload(w http.ResponseWriter, r *http.Request, id *clientIdentit
 		clientError(w, http.StatusTooManyRequests, "rate_limited", "Too many uploads waiting to be sent in a message.")
 		return
 	}
-	if used, files := userStoredUploads(id.User.ID); files >= clientQuotaFiles() || used >= clientQuotaBytes() {
-		clientError(w, http.StatusForbidden, clientQuotaCode, fmt.Sprintf(clientQuotaMsg, int(clientRetention()/(24*time.Hour))))
+	if used, files := userStoredUploads(id.User.ID); files >= clientQuotaFilesFor(id.User) || used >= clientQuotaBytesFor(id.User) {
+		clientError(w, http.StatusForbidden, clientQuotaCode, clientQuotaMsg)
 		return
 	}
 	if r.ContentLength > clientAttachMax {
@@ -655,7 +775,7 @@ func serveClientAttachment(w http.ResponseWriter, r *http.Request, id *clientIde
 		return
 	}
 	if a.ExpiredAt != "" {
-		clientError(w, http.StatusGone, "file_expired", "This file was deleted after the retention period.")
+		clientError(w, http.StatusGone, "file_expired", "This file has been removed.")
 		return
 	}
 	rec, err := getBot(a.Bot)

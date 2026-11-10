@@ -45,6 +45,11 @@ import {
   lastSeen,
   personNameProblem,
   platformLabel,
+  QUOTA_FILES_MAX,
+  QUOTA_MB_MAX,
+  quotaProblem,
+  retentionLabel,
+  storageSize,
   usePeople,
 } from "@/lib/people"
 import { cn } from "@/lib/utils"
@@ -385,6 +390,18 @@ function ManagePerson({
 
   const nameProblem = personNameProblem(name)
   const nameDirty = name.trim() !== user.name
+  const [quotaMB, setQuotaMB] = React.useState(
+    user.quota_mb === null ? "" : String(user.quota_mb)
+  )
+  const [quotaFiles, setQuotaFiles] = React.useState(
+    user.quota_files === null ? "" : String(user.quota_files)
+  )
+  const quotaMBProblem = quotaProblem(quotaMB, QUOTA_MB_MAX)
+  const quotaFilesProblem = quotaProblem(quotaFiles, QUOTA_FILES_MAX)
+  const quotaDirty =
+    quotaMB.trim() !== (user.quota_mb === null ? "" : String(user.quota_mb)) ||
+    quotaFiles.trim() !==
+      (user.quota_files === null ? "" : String(user.quota_files))
   const stored = picksOf(user)
   const grantsDirty = picksDiffer(stored, picks)
 
@@ -474,6 +491,78 @@ function ManagePerson({
             </Button>
           )}
         </div>
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <span className={labelClass}>Storage</span>
+        <p className="text-[12.5px] text-foreground">
+          {storageSize(user.storage.used_bytes)} of{" "}
+          {storageSize(user.storage.quota_bytes)} ·{" "}
+          {user.storage.used_files.toLocaleString()} of{" "}
+          {user.storage.quota_files.toLocaleString()} files
+        </p>
+        <p className="text-[11.5px] text-muted-foreground">
+          Uploads they sent; deleting a file frees its space. Their choice:{" "}
+          {retentionLabel(user.file_retention_days)}.
+        </p>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="flex flex-col gap-1">
+            <label className={labelClass} htmlFor={`quota-mb-${user.id}`}>
+              Limit (MB)
+            </label>
+            <Input
+              id={`quota-mb-${user.id}`}
+              inputMode="numeric"
+              value={quotaMB}
+              placeholder={String(
+                Math.round(user.storage.quota_bytes / 2 ** 20)
+              )}
+              onChange={(e) => setQuotaMB(e.target.value)}
+              aria-invalid={!!quotaMBProblem}
+              className="w-28"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass} htmlFor={`quota-files-${user.id}`}>
+              Limit (files)
+            </label>
+            <Input
+              id={`quota-files-${user.id}`}
+              inputMode="numeric"
+              value={quotaFiles}
+              placeholder={String(user.storage.quota_files)}
+              onChange={(e) => setQuotaFiles(e.target.value)}
+              aria-invalid={!!quotaFilesProblem}
+              className="w-28"
+            />
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={
+              busy || !quotaDirty || !!quotaMBProblem || !!quotaFilesProblem
+            }
+            onClick={() =>
+              void run(async () => {
+                await api.appUsers.update(user.id, {
+                  quota_mb: quotaMB.trim() === "" ? null : Number(quotaMB),
+                  quota_files:
+                    quotaFiles.trim() === "" ? null : Number(quotaFiles),
+                })
+              }, "Storage limits saved")
+            }
+          >
+            Save limits
+          </Button>
+        </div>
+        {(quotaMBProblem || quotaFilesProblem) && (
+          <p className="text-[11px] text-destructive">
+            {quotaMBProblem || quotaFilesProblem}
+          </p>
+        )}
+        <p className="text-[11.5px] text-muted-foreground">
+          Empty uses the default.
+        </p>
       </section>
 
       <section className="flex flex-col gap-2">
