@@ -358,8 +358,16 @@ func botMCPJSON(r *botRecord, dir string, signedIn map[string]bool) []byte {
 		if s.Type == "stdio" {
 			e["command"] = s.Command
 			e["args"] = append([]string{}, s.Args...)
-			if len(s.Env) > 0 {
-				e["env"] = s.Env
+			env := map[string]string{}
+			for k, v := range s.Env {
+				env[k] = v
+			}
+			// A claude bot's channel servers reach the session themselves
+			// (Claude Code channels), so they get no push credential: only a
+			// runtime without channels (botOmpMCPJSON) routes them through
+			// lasso's push door.
+			if len(env) > 0 {
+				e["env"] = env
 			}
 		} else {
 			e["url"] = s.URL

@@ -99,6 +99,9 @@ func main() {
 		case "channel":
 			cliChannel(os.Args[2:])
 			return
+		case "push":
+			cliPush(os.Args[2:])
+			return
 		case "bot-attach":
 			cliBotAttach(os.Args[2:])
 			return
