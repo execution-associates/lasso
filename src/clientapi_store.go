@@ -353,8 +353,9 @@ func updateAppUser(id string, p appUserPatch, now time.Time) (*appUser, error) {
 
 // deleteAppUser removes a user and everything of theirs: devices, grants,
 // pairings, conversations with their messages, events, attachments and calls.
-// The files of their uploads stay in the bots' folders for botClientForget to
-// remove; it returns the rows it dropped so the caller can.
+// The files of their uploads, and every bot's copy of them, stay in the bots'
+// folders for clientRemoveFiles to remove; it returns the rows it dropped so
+// the caller can.
 func deleteAppUser(id string) ([]appAttachment, error) {
 	atts, _ := listAppAttachmentsOfUser(id)
 	tx, err := db.Begin()
@@ -373,7 +374,8 @@ func deleteAppUser(id string) ([]appAttachment, error) {
 		`DELETE FROM app_messages WHERE conv_id IN (SELECT id FROM app_threads WHERE user_id = ?)`,
 		`DELETE FROM app_messages WHERE conv_id IN (SELECT id FROM app_convs WHERE user_id = ?)`,
 		`DELETE FROM app_calls WHERE user_id = ?`,
-		`DELETE FROM app_attachment_copies WHERE attachment_id IN (SELECT id FROM app_attachments WHERE user_id = ?)`,
+		// app_attachment_copies stay for clientRemoveFiles, which reads them to
+		// find every bot's copy and then deletes them.
 		`DELETE FROM app_attachments WHERE user_id = ?`,
 		`DELETE FROM app_proposals WHERE user_id = ?`,
 		`DELETE FROM app_thread_bots WHERE thread_id IN (SELECT id FROM app_threads WHERE user_id = ?)`,
