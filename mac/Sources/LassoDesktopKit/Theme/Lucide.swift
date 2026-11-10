@@ -64,6 +64,7 @@ public enum Lucide: String, CaseIterable, Sendable {
     case shield
     case sparkles
     case square
+    case squareArrowOutUpRight = "square-arrow-out-up-right"
     case squareTerminal = "square-terminal"
     case tag
     case triangleAlert = "triangle-alert"

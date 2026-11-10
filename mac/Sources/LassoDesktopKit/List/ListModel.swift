@@ -68,6 +68,8 @@ public final class ListModel: ObservableObject, HoverColumn {
     public let actions: FleetActions
     public let now: () -> Date
     public var onOpen: (HostPane) -> Void = { _ in }
+    /// Its window, and the column put away (PopOut).
+    public var onPopOut: (HostPane) -> Void = { _ in }
     public var onClose: () -> Void = {}
     /// Start a new agent (the header's New, as ⌘O).
     public var onNew: () -> Void = {}
@@ -159,6 +161,17 @@ public final class ListModel: ObservableObject, HoverColumn {
     public func openSelected() {
         guard let key = selected, let p = fleet.agents.first(where: { $0.key == key }) else { return }
         open(p)
+    }
+
+    /// ⌘⏎: the selected agent's window, and the column goes.
+    public func popOutSelected() {
+        guard let key = selected, let p = fleet.agents.first(where: { $0.key == key }) else { return }
+        popOut(p)
+    }
+
+    public func popOut(_ p: HostPane) {
+        selected = p.key
+        onPopOut(p)
     }
 
     public func togglePin(_ p: HostPane) {

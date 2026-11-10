@@ -56,6 +56,8 @@ public final class FilesListModel: ObservableObject, HoverColumn {
     public var rowFramesChanged: () -> Void = {}
 
     public var onOpen: (RecentFile) -> Void = { _ in }
+    /// Its window, and the column put away (PopOut).
+    public var onPopOut: (RecentFile) -> Void = { _ in }
     /// Into ~/Downloads; answers where it went.
     var download: (RecentFile) async throws -> URL = { _ in throw RecentFileError.offline }
     /// Off its machine, then off the list.
@@ -136,6 +138,18 @@ public final class FilesListModel: ObservableObject, HoverColumn {
         selected = f.id
         notes[f.id] = nil
         onOpen(f)
+    }
+
+    /// ⌘⏎: the selected file's window (else the first match's), and the column goes.
+    public func popOutSelected() {
+        guard let f = drawn.first(where: { $0.id == selected }) ?? drawn.first else { return }
+        popOut(f)
+    }
+
+    public func popOut(_ f: RecentFile) {
+        selected = f.id
+        notes[f.id] = nil
+        onPopOut(f)
     }
 
     /// Opening it came to nothing: the row says why.
@@ -320,8 +334,9 @@ public struct FilesListView: View {
             if model.confirmDelete == f.id {
                 confirm(f, host: host)
             } else {
-                Button { model.open(f) } label: { label(f, host: host) }
+                Button { PopOut.commandClick ? model.popOut(f) : model.open(f) } label: { label(f, host: host, lit: lit) }
                     .buttonStyle(.plain)
+                    .help("\(host) · \(f.path)\(f.from.map { " · \($0)" } ?? "")")
                     .accessibilityLabel(
                         "\(f.name) on \(host), in \(f.folder), \(f.opened ? "opened by \(f.from ?? "an agent")" : "not opened")"
                             + (model.openWindows.contains(f.id) ? ", its window is open" : ""))
@@ -333,23 +348,34 @@ public struct FilesListView: View {
             RoundedRectangle(cornerRadius: Theme.Row.radius.pt)
                 .fill(lit && model.confirmDelete != f.id ? (model.keyboardLit ? Theme.Row.selected.color : Theme.Row.hover.color) : .clear)
                 .padding(.horizontal, Theme.space("m")))
+        .overlay(alignment: .topTrailing) {
+            // In the age's place while the row is lit.
+            if lit && model.confirmDelete != f.id {
+                PopOutRowButton(name: f.name) { model.popOut(f) }
+                    .padding(.trailing, row.number("pad_h") - Theme.space("m"))
+                    .padding(.top, Theme.space("s"))
+                    .parityAnchor("files.popout")
+            }
+        }
         .contentShape(Rectangle())
         .columnRow(f.id)
         .contextMenu {
             Button("Open") { model.open(f) }
+            Button(PopOut.label) { model.popOut(f) }
             Button("Download") { model.downloadFile(f) }
             Divider()
             Button("Hide from list") { model.hide(f) }
             Divider()
             Button("Delete on \(host)…", role: .destructive) { model.askDelete(f) }
         }
+        .accessibilityAction(named: PopOut.label) { model.popOut(f) }
         .accessibilityAction(named: "Download") { model.downloadFile(f) }
         .accessibilityAction(named: "Hide from list") { model.hide(f) }
         .accessibilityAction(named: "Delete") { model.askDelete(f) }
         .parityAnchor("files.row[\(f.name)]")
     }
 
-    private func label(_ f: RecentFile, host: String) -> some View {
+    private func label(_ f: RecentFile, host: String, lit: Bool) -> some View {
         HStack(alignment: .top, spacing: Theme.space("l")) {
             LucideIcon(f.kind.icon, size: Theme.Rail.icon.number("size") - 1)
                 .foregroundStyle(Theme.Text.secondary.color)
@@ -362,16 +388,17 @@ public struct FilesListView: View {
                     if model.openWindows.contains(f.id) { OpenDot().parityAnchor("files.open[\(f.name)]") }
                     Spacer(minLength: Theme.space("m"))
                     Text(age(f)).font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color).fixedSize()
+                        .opacity(lit && model.confirmDelete != f.id ? 0 : 1)
                 }
-                HStack(spacing: Theme.space("m")) {
+                // A long agent name truncates too: held whole, it pushed the
+                // row past the column's edge and the name and age with it.
+                LeadTrail(spacing: Theme.space("m")) {
                     Text("\(host) · \(f.folder)").font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color)
                         .lineLimit(1).truncationMode(.head)
-                    Spacer(minLength: Theme.space("m"))
                     Text(f.opened ? (f.from ?? "") : "not opened")
                         .font(Theme.Fonts.small.font)
                         .foregroundStyle(f.opened ? Theme.Text.secondary.color : Theme.accent.color)
-                        .lineLimit(1)
-                        .fixedSize()
+                        .lineLimit(1).truncationMode(.tail)
                 }
                 if let n = model.notes[f.id] {
                     Text(n.text).font(Theme.Fonts.small.font)
@@ -445,7 +472,8 @@ public final class FilesController {
             guard let self, let f = self.model.recent.items.first(where: { $0.id == id }) else { return nil }
             let m = FilePreviewModel(
                 file: f, hostLabel: self.model.hostLabel(f.host), windowOpen: self.model.openWindows.contains(id), now: self.model.now)
-            m.onOpen = { [weak self] in self?.model.open(f) }
+            // Everything on the preview pops out: it leaves the column behind.
+            m.onOpen = { [weak self] in self?.model.popOut(f) }
             return m
         }
         panel.onKey = { [weak self] e in self?.handle(e) ?? false }
@@ -519,7 +547,7 @@ public final class FilesController {
         case KeyCode.down: move(1)
         case KeyCode.returnKey, KeyCode.keypadEnter:
             guard model.confirmDelete == nil else { return false }
-            model.openSelected()
+            if PopOut.isKey(e) { model.popOutSelected() } else { model.openSelected() }
         default:
             if filters(e) { focusFilter() }
             return false

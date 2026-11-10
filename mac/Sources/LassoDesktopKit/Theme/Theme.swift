@@ -332,6 +332,13 @@ public enum Theme {
         public static let hover = Token(
             "list.hover", ["open_ms": 60, "switch_ms": 50, "close_ms": 300],
             .measured("reference app's hover timings: a row's preview opens 0.06 s after the pointer lands on it, moves to another row after 0.05 s, and goes 0.3 s after the pointer has left the rows and the preview"))
+        /// A row's pop-out glyph (its box's height; the width is the row's
+        /// action_w) and how much of a row's second line its trailing side
+        /// (the agent) may keep before it truncates.
+        public static let popOut = Token(
+            "list.popout", ["button_h": 21, "trail_cap": 0.4],
+            .inferred("button_h: action_w 30 x 0.7, a glyph box no taller than a small line pair; trail_cap: the folder keeps the larger share"),
+            proposed: true)
     }
 
     /// An agent's own window (a click on its row) and its hover preview,
@@ -541,7 +548,7 @@ public enum Theme {
         Text.primary, Text.secondary, Text.placeholder, accent, dangerText,
         Row.hover, Row.selected, Row.radius,
         Fonts.display, Fonts.title, Fonts.body, Fonts.chat, Fonts.name, Fonts.label, Fonts.header, Fonts.small, Fonts.terminal,
-        List.size, List.row, Chat.bubble, Chat.fold, focusRing,
+        List.size, List.row, List.popOut, Chat.bubble, Chat.fold, focusRing,
         spaceScale, Layout.card, Layout.chat,
         avatar, icon, lucide,
         Motion.railExpand, Motion.railCollapse, Motion.cardOpen, Motion.cardClose, Motion.toastIn, Motion.cardPaging,

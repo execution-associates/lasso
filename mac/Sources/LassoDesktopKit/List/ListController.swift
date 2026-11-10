@@ -115,7 +115,8 @@ public final class ListController {
         case KeyCode.down:
             model.move(1)
             hover.keyboardMoved()
-        case KeyCode.returnKey, KeyCode.keypadEnter: model.openSelected()
+        case KeyCode.returnKey, KeyCode.keypadEnter:
+            if PopOut.isKey(e) { model.popOutSelected() } else { model.openSelected() }
         default:
             if filters(e) { focusFilter() }
             return false
