@@ -72,8 +72,8 @@ func registerBotTools(s *mcp.Server) {
 		Description: "Change a bot's settings: runtime, folder, model, effort, permission mode, MCP servers (the complete list, replacing the current one), strict MCP, extra args, keep-running, notifications. Only the fields you pass change. Lasso rewrites the bot's launch script and MCP config; a running bot picks the change up when it restarts (restart_needed). " +
 			"runtime and dir change only while the bot is stopped: the call is refused while it runs, so stop_bot first, update_bot, then start_bot. A runtime switch rewrites the bot task and MCP config for the new runtime and keeps the MCP servers (signed-in OAuth ones included), the environment and secrets, the jobs and .claude/skills; " +
 			"model and permission mode reset to the new runtime's default unless passed in the same call, and effort is kept only when the new runtime has that level. The bot starts a new conversation on its next start (the two keep different session files). " +
-			"Switching to claude with only an AGENTS.md writes a CLAUDE.md that imports it (@AGENTS.md), and switching to omp with only a CLAUDE.md copies it to AGENTS.md. A claude bot signs in to Claude with the host's own Claude Code login, or with a CLAUDE_CODE_OAUTH_TOKEN secret (from `claude setup-token`) set with set_bot_env. " +
-			"Its instructions (AGENTS.md for an omp bot, CLAUDE.md for a claude bot) and skills are files in its folder, edited directly or with add_bot_skill / remove_bot_skill.",
+			"Switching to omp with only a CLAUDE.md copies it to AGENTS.md (omp does not read CLAUDE.md). A claude bot signs in to Claude with the host's own Claude Code login, or with a CLAUDE_CODE_OAUTH_TOKEN secret (from `claude setup-token`) set with set_bot_env. " +
+			"Its instructions (AGENTS.md; an older claude bot may have only a CLAUDE.md) and skills are files in its folder, edited directly or with add_bot_skill / remove_bot_skill.",
 	}, updateBotTool)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "set_bot_env",
@@ -110,7 +110,7 @@ func registerBotTools(s *mcp.Server) {
 type getBotOut struct {
 	Bot    botSummary     `json:"bot"`
 	Config *botRecord     `json:"config"`
-	Folder string         `json:"folder" jsonschema:"the bot's folder on its host: its instructions (AGENTS.md for omp, CLAUDE.md for claude) and .claude/skills/ are files there to edit directly"`
+	Folder string         `json:"folder" jsonschema:"the bot's folder on its host: its instructions (AGENTS.md, or an older claude bot's CLAUDE.md) and .claude/skills/ are files there to edit directly"`
 	Env    []botEnvVar    `json:"env" jsonschema:"the bot's environment variables; a secret's value is never shown"`
 	Skills []botSkill     `json:"skills" jsonschema:"the bot's own project skills"`
 	OAuth  map[string]any `json:"oauth,omitempty" jsonschema:"OAuth sign-ins by MCP server; begin_bot_oauth starts one, which the human approves in their browser"`

@@ -222,9 +222,10 @@ func botSeedInstructions(b Backend, r *botRecord, text string) (string, error) {
 		return "", nil
 	}
 	dir := expandTildeOn(b, r.Dir)
-	path := filepath.Join(dir, botInstructionsFile(r))
+	name := botInstructionsFile(b, r, dir)
+	path := filepath.Join(dir, name)
 	if _, err := b.Stat(path); err == nil {
-		return "the folder already has " + botInstructionsFile(r) + ", which was kept", nil
+		return "the folder already has " + name + ", which was kept", nil
 	}
 	if err := b.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create %s: %w", dir, err)
@@ -233,7 +234,7 @@ func botSeedInstructions(b Backend, r *botRecord, text string) (string, error) {
 		text += "\n"
 	}
 	if err := b.WriteFile(path, []byte(text), 0o644); err != nil {
-		return "", fmt.Errorf("write %s: %w", botInstructionsFile(r), err)
+		return "", fmt.Errorf("write %s: %w", name, err)
 	}
 	return "", nil
 }
@@ -255,8 +256,8 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 			"bot":      v,
 			"dir_path": dir,
 			"launch":   botLaunchScript(b, rec, dir, botEnvKeys(b, dir)),
-			// The instructions file: CLAUDE.md for claude, AGENTS.md for omp.
-			"claude_md": filepath.Join(dir, botInstructionsFile(rec)),
+			// The instructions file: AGENTS.md, or an older claude bot's CLAUDE.md.
+			"claude_md": filepath.Join(dir, botInstructionsFile(b, rec, dir)),
 			"lasso_mcp": lassoMCP,
 			// lasso's channel, shown as a read-only connection when the bot gets it.
 			"lasso_channel": rec.channelToken != "" && slices.Contains(rec.channelGrants(), botChannelName),

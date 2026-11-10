@@ -210,15 +210,13 @@ export function DeleteBotDialog({
             {withFolder ? (
               <>
                 Its folder ({folder}) on {where} is deleted too, with everything
-                in it: its {omp ? "AGENTS.md" : "CLAUDE.md"}, skills,
-                environment and secrets{omp ? ", and its conversations" : ""}.
-                This cannot be undone.
+                in it: its instructions, skills, environment and secrets
+                {omp ? ", and its conversations" : ""}. This cannot be undone.
               </>
             ) : (
               <>
-                Its folder ({folder}) stays on {where}, with its{" "}
-                {omp ? "AGENTS.md" : "CLAUDE.md"}, skills and environment, and
-                its conversations stay{" "}
+                Its folder ({folder}) stays on {where}, with its instructions,
+                skills and environment, and its conversations stay{" "}
                 {omp ? "in that folder" : "in Claude Code's history"}.
               </>
             )}

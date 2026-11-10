@@ -641,7 +641,7 @@ function GeneralTab({
           <Field
             label="Folder"
             htmlFor="bot-dir"
-            hint={`Its working directory, holding ${omp ? "AGENTS.md" : "CLAUDE.md"}, skills and mise.toml.`}
+            hint="Its working directory, holding AGENTS.md, skills and mise.toml."
           >
             <input
               {...NO_AUTOCORRECT}
@@ -1864,7 +1864,7 @@ function NewInstructions({
   draft: Draft
   set: (patch: Partial<Draft>) => void
 }) {
-  const file = draft.runtime === "omp" ? "AGENTS.md" : "CLAUDE.md"
+  const file = "AGENTS.md"
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <p className="text-[12.5px] text-muted-foreground">
@@ -1878,7 +1878,7 @@ function NewInstructions({
         value={draft.instructions}
         onChange={(e) => set({ instructions: e.target.value })}
         aria-label={file}
-        placeholder={`# ${draft.name || "my-bot"}\n\nWhat this bot does, who it works for, and what it must never do.`}
+        placeholder={`# ${draft.name || "my-bot"}\n\nWhat this bot does, who it works for, and what it must never do.\n\n## Notes\n\nNOTES.md in this folder is your working memory. Keep it current and short.`}
         className={cn(
           fieldClass,
           "min-h-[50vh] flex-1 resize-y font-mono text-[13px] leading-relaxed md:text-[12.5px]"
@@ -1889,8 +1889,8 @@ function NewInstructions({
 }
 
 function InstructionsTab({ bot, path }: { bot: BotView; path: string }) {
-  // CLAUDE.md for a claude bot, AGENTS.md for an omp one: the server names it.
-  const name = path.split("/").pop() || "CLAUDE.md"
+  // AGENTS.md, or an older claude bot's CLAUDE.md: the server names it.
+  const name = path.split("/").pop() || "AGENTS.md"
   const file = useQuery({
     queryKey: ["bot-claude-md", bot.host, path],
     queryFn: () => api.fileTextStamped(path, bot.host),
@@ -2298,10 +2298,10 @@ function LaunchTab({
       )}
       <p className="text-[12.5px] text-muted-foreground leading-relaxed">
         The bot runs as <code className="font-mono">mise run bot</code> in{" "}
-        <code className="font-mono">{dirPath}</code>, in herdr's Bots
-        workspace: mise loads its environment, then runs the script below.{" "}
-        lasso writes that script from these settings on every save; edit the
-        settings, not the file.
+        <code className="font-mono">{dirPath}</code>, in herdr's Bots workspace:
+        mise loads its environment, then runs the script below. lasso writes
+        that script from these settings on every save; edit the settings, not
+        the file.
         {bot.session_id && (
           <>
             {" "}

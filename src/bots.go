@@ -3,7 +3,8 @@ package main
 // Bots: long-lived Claude Code sessions lasso defines, launches and keeps
 // running (docs/design/bots.md). A bot is a row here plus a folder on its host:
 //
-//	<dir>/CLAUDE.md            the bot's instructions (a real file, edited in place)
+//	<dir>/AGENTS.md            the bot's instructions (a real file, edited in place;
+//	                           an older bot may have a CLAUDE.md instead)
 //	<dir>/.claude/skills/      its project skills
 //	<dir>/mise.toml            its env — plain and age-encrypted — written ONLY by
 //	                           the mise CLI (botenv.go), never parsed here
@@ -472,10 +473,10 @@ const botAutoApproveSettings = `{"hooks":{"PermissionRequest":[{"hooks":[{"type"
 func botSystemPrompt(r *botRecord, dir string) string {
 	return fmt.Sprintf(`You are the bot %q: a long-lived Claude Code session that lasso manages. You run in a herdr pane (HERDR_PANE_ID) in %s, launched there with `+"`mise run bot`"+`. When herdr restarts it brings you back with `+"`mise run bot -- --resume <this session>`"+`, and lasso relaunches you if you stop unexpectedly, so this conversation outlives any one process. A bare `+"`mise run bot`"+` resumes this conversation too; `+"`mise run bot -- --fresh`"+` starts a new one.
 
-- CLAUDE.md in that folder is your standing instructions. Project skills go in .claude/skills/ there.
+- AGENTS.md in that folder is your standing instructions (an older bot may have only a CLAUDE.md). Project skills go in .claude/skills/ there.
 - lasso generates .lasso/mcp.json, .mise/config.toml, .mise/tasks/bot and .mise/tasks/restart from its Bots settings and overwrites them on every save: change those through lasso, not by editing the files. lasso always launches you with that bot task.
 - Your environment and secrets come from fnox.toml through mise, and only reach you at launch.
-- You can configure yourself when your human asks. Lasso's MCP tools (server "lasso") take your name, %q: get_bot reads your settings, update_bot changes your model, effort, permission mode, MCP servers (including which are channels), extra args, keep-running and avatar, set_bot_avatar sets your picture from an image file, and set_bot_env / unset_bot_env manage your variables (secret ones encrypted). Edit CLAUDE.md and the files in .claude/skills/ directly (add_bot_skill copies one in from a skill library). To sign in a server that needs OAuth, call begin_bot_oauth and give your human the address it returns to open and approve. Settings, MCP servers and variables take effect after you restart.
+- You can configure yourself when your human asks. Lasso's MCP tools (server "lasso") take your name, %q: get_bot reads your settings, update_bot changes your model, effort, permission mode, MCP servers (including which are channels), extra args, keep-running and avatar, set_bot_avatar sets your picture from an image file, and set_bot_env / unset_bot_env manage your variables (secret ones encrypted). Edit that instructions file and the files in .claude/skills/ directly (add_bot_skill copies one in from a skill library). To sign in a server that needs OAuth, call begin_bot_oauth and give your human the address it returns to open and approve. Settings, MCP servers and variables take effect after you restart.
 - You CAN restart yourself, and it is safe: run `+"`mise run restart`"+` in %s with your shell tool. That is the supported way, made for exactly this; it is not killing a process or closing a pane by hand. It ends this session a few seconds after your turn finishes and starts it again in the same pane, on this same conversation. Do it whenever your human asks you to restart, and when you need a new skill, MCP server, setting or variable to take effect; say you are restarting before you run it.`,
 		r.Name, dir, r.Name, dir)
 }
@@ -687,8 +688,8 @@ func validateResumeArgv(argv []string) error {
 }
 
 // botMaterialize writes the bot's folder on its host: lasso's mise config, a
-// fnox.toml if there is none, the generated task and mcp.json, and a CLAUDE.md
-// if there is none. It never overwrites CLAUDE.md, skills, fnox.toml or the
+// fnox.toml if there is none, the generated task and mcp.json, and an
+// AGENTS.md if it has no instructions. It never overwrites instructions, skills, fnox.toml or the
 // bot's own mise.toml.
 func botMaterialize(b Backend, r *botRecord) error {
 	if r.isOmp() {

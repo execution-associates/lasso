@@ -539,8 +539,11 @@ func TestBotsAPI(t *testing.T) {
 	if fi, _ := os.Stat(botTaskPath(dir)); fi.Mode().Perm()&0o100 == 0 {
 		t.Error("task script is not executable")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "CLAUDE.md")); err != nil {
-		t.Error("no CLAUDE.md stub")
+	if md, err := os.ReadFile(filepath.Join(dir, "AGENTS.md")); err != nil || !bytes.Contains(md, []byte("NOTES.md")) {
+		t.Errorf("AGENTS.md stub = %q, %v", md, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "CLAUDE.md")); err == nil {
+		t.Error("a new claude bot got a CLAUDE.md")
 	}
 	if w := do("POST", "/api/bots", `{"name":"news"}`); w.Code != http.StatusConflict {
 		t.Errorf("duplicate name: %d", w.Code)
@@ -558,8 +561,8 @@ func TestBotsAPI(t *testing.T) {
 		t.Fatalf("list = %s", w.Body)
 	}
 
-	// CLAUDE.md is the human's: a save never overwrites it.
-	os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("mine"), 0o644)
+	// AGENTS.md is the human's: a save never overwrites it.
+	os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("mine"), 0o644)
 	if w := do("PUT", "/api/bots/news", `{"name":"renamed","dir":"`+dir+`","model":"sonnet","mcp":[]}`); w.Code != 200 {
 		t.Fatalf("update: %d %s", w.Code, w.Body)
 	}
@@ -567,8 +570,8 @@ func TestBotsAPI(t *testing.T) {
 	if got == nil || got.Model != "sonnet" {
 		t.Fatalf("after update: %+v", got)
 	}
-	if md, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md")); string(md) != "mine" {
-		t.Error("save overwrote CLAUDE.md")
+	if md, _ := os.ReadFile(filepath.Join(dir, "AGENTS.md")); string(md) != "mine" {
+		t.Error("save overwrote AGENTS.md")
 	}
 	if task, _ := os.ReadFile(botTaskPath(dir)); !bytes.Contains(task, []byte("'sonnet'")) || bytes.Contains(task, []byte("server:c")) {
 		t.Errorf("task not regenerated:\n%s", task)
