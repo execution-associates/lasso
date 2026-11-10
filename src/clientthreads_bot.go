@@ -268,7 +268,7 @@ func clientFullContext(q rowQuerier, t *appThread, bot, person string, names []s
 		fmt.Fprintf(&sb, "\nIt hangs off this message (%s, %s): %s", clientNeutralize(who), ctxStamp(t.AnchorAt), clientNeutralize(clientPreview(t.AnchorText, clientCtxMessageChars)))
 	}
 	if t.Summary != "" {
-		fmt.Fprintf(&sb, "\nSummary (by %s, %s):\n%s", t.SummaryBy, ctxStamp(t.SummaryAt), clientNeutralize(t.Summary))
+		fmt.Fprintf(&sb, "\nSummary (by %s, %s):\n  %s", t.SummaryBy, ctxStamp(t.SummaryAt), ctxIndent(clientNeutralize(t.Summary)))
 	}
 	recent := ctxMessagesQ(q, t.ID, `seq < ? ORDER BY seq DESC LIMIT ?`, msgSeq, clientCtxFullMessages)
 	var total int
@@ -345,7 +345,7 @@ func ctxLine(m ctxMessage, person string, clip int) string {
 	if clip > 0 && utf8.RuneCountInString(text) > clip {
 		text = string([]rune(text)[:clip-1]) + "…"
 	}
-	text = strings.ReplaceAll(clientNeutralize(text), "\n", "\n  ")
+	text = ctxIndent(clientNeutralize(text))
 	for _, a := range m.Atts {
 		kind := "file"
 		if strings.HasPrefix(a.Type, "image/") {
@@ -360,6 +360,16 @@ func ctxLine(m ctxMessage, person string, clip int) string {
 		text = "(interim) " + text
 	}
 	return fmt.Sprintf("[%s %s] %s", ctxStamp(m.CreatedAt), clientNeutralize(who), text)
+}
+
+// ctxBreaks are the characters a reader may take for a line break.
+var ctxBreaks = strings.NewReplacer("\r\n", "\n", "\r", "\n", "\v", "\n", "\f", "\n", "\u0085", "\n", " ", "\n", " ", "\n")
+
+// ctxIndent indents every line of a text but its first, so nothing inside a
+// message or the summary can start a line that reads as one of the block's
+// own (a message line "[<date> <who>] …").
+func ctxIndent(s string) string {
+	return strings.ReplaceAll(ctxBreaks.Replace(s), "\n", "\n  ")
 }
 
 // clientContextWrap is the block between its markers.
