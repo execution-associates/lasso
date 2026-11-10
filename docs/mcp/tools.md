@@ -496,6 +496,18 @@ A claude bot's Talk: an OpenAI-compatible door (Chat Completions at lasso's orig
 
 Whoever holds the key can ask the bot for anything its instructions allow, so a bot's AGENTS.md should say what it does for them.
 
+### `get_bot_channel`, `enable_bot_channel`, `rotate_bot_channel_key`, `disable_bot_channel`
+
+A bot's lasso channel: the one way to push a message into a bot whatever it runs. Its webhook is lasso's origin + `/hooks/bots/<bot>`; POST the message with the channel key as a Bearer token (or `?key=`). A plain-text body is the message, or JSON `{content, source?, id?, meta?}`. Lasso delivers it as a Claude Code channel event to a claude bot and through its omp plugin to an omp bot. Each takes the bot's `name` and returns `channel`:
+- `enabled`, `path` and `key` (the key only when the webhook is on)
+- `runtime`: `claude` or `omp`, how lasso delivers
+- `available`, and `reason` when lasso cannot deliver to the bot at all
+
+- `enable_bot_channel` turns the webhook on with a new key; already on, it changes nothing. It takes effect at once, with no restart.
+- `rotate_bot_channel_key` replaces the key; the old one stops working at once. `disable_bot_channel` turns the webhook off and forgets the key. Jobs, Talk and the bot's own channel servers are not affected.
+
+Whoever holds the key can send the bot messages. The bot is shown `via="webhook"` on them and told they come from outside, not from its human, so a bot's AGENTS.md should say what it does with such messages.
+
 ### `list_app_users`, `create_app_user`, `update_app_user`, `delete_app_user`, `set_app_user_grant`, `revoke_app_user_grant`, `create_app_pairing`, `revoke_app_device`
 
 The people who use lasso's phone app ([the client API](../design/client-api.md)): each has their own paired devices and reaches only the bots granted to them. These need **a real MCP credential with fleet reach**: a lasso token (from `MCP_OAUTH`) that is not host-scoped. An app user belongs to no one host, and an anonymous `/mcp` caller, which is what a bot on lasso's machine is on an open `/mcp`, is refused with a tool error ("the app-user tools need a real MCP credential") and is not shown these tools in `tools/list`: they could make an outside person an owner or pair a device. Without `MCP_OAUTH` they are unusable; manage app users through the owner's `/api/app-users`.

@@ -61,6 +61,7 @@ func registerBotTools(s *mcp.Server) {
 	registerBotJobTools(s)
 	registerBotJobExtraTools(s)
 	registerBotTalkTools(s)
+	registerBotChannelTools(s)
 	registerAppUserTools(s)
 	registerAlertTools(s)
 	registerBotManageTools(s)

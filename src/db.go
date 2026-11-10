@@ -205,6 +205,7 @@ func openDB() error {
 		`ALTER TABLE app_attachments ADD COLUMN height INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE app_messages ADD COLUMN in_reply_to TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE bot_events ADD COLUMN push_key TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE bots ADD COLUMN push_key TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := h.Exec(alter); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 			h.Close()

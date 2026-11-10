@@ -23,6 +23,7 @@ import {
   BotLivenessSection,
 } from "@/components/BotAlerts"
 import { JobsTab } from "@/components/BotJobs"
+import { BotLassoChannel } from "@/components/BotLassoChannel"
 import {
   BotAvatar,
   BotStateMark,
@@ -1019,7 +1020,7 @@ function ConnectionsTab({
   set,
   bot,
   lassoMCP,
-  lassoChannel,
+  // The saved bot; signing in needs the server saved first.
 }: {
   draft: Draft
   set: (patch: Partial<Draft>) => void
@@ -1027,8 +1028,6 @@ function ConnectionsTab({
   bot?: BotView
   // The server lasso adds for the bot's own settings tools, or "".
   lassoMCP?: string
-  // Whether lasso adds its channel, which delivers the bot's jobs.
-  lassoChannel?: boolean
 }) {
   const oauthKey = ["bot-oauth", bot?.name ?? ""]
   const oauth = useQuery({
@@ -1051,10 +1050,7 @@ function ConnectionsTab({
       localStorage.setItem(CONN_FILTER_KEY, f)
     } catch {}
   }
-  // Channels are Claude Code's: an omp bot's servers are all tools, and its
-  // outside messages arrive as jobs and send_agent instead.
-  const omp = draft.runtime === "omp"
-  const view: ConnFilter = omp ? "all" : filter
+  const view: ConnFilter = filter
   const [editing, setEditing] = React.useState<number | null>(null)
   const setServer = (id: number, patch: Partial<DraftServer>) =>
     set({ mcp: draft.mcp.map((s) => (s.id === id ? { ...s, ...patch } : s)) })
@@ -1062,15 +1058,14 @@ function ConnectionsTab({
   const channels = draft.mcp.filter((s) => s.channel)
   const lassoCard = !!lassoMCP
   const counts = {
-    all: draft.mcp.length + (lassoCard ? 1 : 0) + (lassoChannel ? 1 : 0),
-    channels: channels.length + (lassoChannel ? 1 : 0),
+    all: draft.mcp.length + (lassoCard ? 1 : 0),
+    channels: channels.length,
     tools: draft.mcp.length - channels.length + (lassoCard ? 1 : 0),
   }
   const shown = draft.mcp.filter((s) =>
     view === "all" ? true : view === "channels" ? s.channel : !s.channel
   )
   const showLasso = lassoCard && view !== "channels"
-  const showChannel = !!lassoChannel && view !== "tools"
   const add = () => {
     const s = blankServer(view === "channels")
     set({ mcp: [...draft.mcp, s] })
@@ -1093,19 +1088,9 @@ function ConnectionsTab({
   return (
     <div className="flex flex-col gap-4">
       <p className="text-[12.5px] text-muted-foreground leading-relaxed">
-        The MCP servers this bot gets.{" "}
-        {omp ? (
-          <>
-            Messages from outside (mail, chat, a schedule) reach it through its
-            Jobs.{" "}
-          </>
-        ) : (
-          <>
-            A <b>channel</b> also delivers messages (mail, chat, a schedule)
-            that the bot answers without being asked.{" "}
-          </>
-        )}
-        Keep secrets out of this page: write{" "}
+        The MCP servers this bot gets. A <b>channel</b> also delivers messages
+        (mail, chat, a schedule) that the bot answers without being asked. Keep
+        secrets out of this page: write{" "}
         <code className="rounded bg-muted px-1 font-mono text-[11.5px]">
           ${"{VAR}"}
         </code>{" "}
@@ -1115,33 +1100,33 @@ function ConnectionsTab({
         </code>{" "}
         under Environment, where it is stored encrypted.
       </p>
+      {bot && <BotLassoChannel bot={bot} />}
       <div className="flex flex-wrap items-center gap-1.5">
-        {!omp &&
-          chips.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              aria-pressed={filter === c.id}
-              onClick={() => setFilter(c.id)}
-              className={cn(
-                "rounded-full border px-3 py-1 text-[12px] transition-colors",
-                filter === c.id
-                  ? "border-primary/50 bg-primary/15 text-foreground"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {c.label}{" "}
-              <span className="text-muted-foreground tabular-nums">
-                {counts[c.id]}
-              </span>
-            </button>
-          ))}
+        {chips.map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            aria-pressed={filter === c.id}
+            onClick={() => setFilter(c.id)}
+            className={cn(
+              "rounded-full border px-3 py-1 text-[12px] transition-colors",
+              filter === c.id
+                ? "border-primary/50 bg-primary/15 text-foreground"
+                : "border-border text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {c.label}{" "}
+            <span className="text-muted-foreground tabular-nums">
+              {counts[c.id]}
+            </span>
+          </button>
+        ))}
         <Button variant="outline" size="sm" className="ml-auto" onClick={add}>
           <Plus />
           Add connection
         </Button>
       </div>
-      {shown.length === 0 && !showLasso && !showChannel ? (
+      {shown.length === 0 && !showLasso ? (
         <p className="rounded-lg border border-border border-dashed px-3 py-6 text-center text-[12.5px] text-muted-foreground">
           {view === "channels"
             ? "No channels yet. A channel is an MCP server that delivers messages to the bot."
@@ -1154,14 +1139,13 @@ function ConnectionsTab({
           {shown.map((s) => (
             <ServerCard
               key={s.id}
-              server={omp ? { ...s, channel: false } : s}
+              server={s}
               status={oauth.data?.servers[s.name.trim()]}
               dirty={!!bot && !saved.has(serverKey(serverOf(s)))}
               onOpen={() => setEditing(s.id)}
             />
           ))}
           {showLasso && <LassoCard url={lassoMCP ?? ""} />}
-          {showChannel && <LassoChannelCard />}
         </div>
       )}
       {draft.runtime === "omp" ? (
@@ -1195,7 +1179,6 @@ function ConnectionsTab({
             </DialogHeader>
             <ServerFields
               s={current}
-              channels={!omp}
               setServer={setServer}
               bot={bot}
               status={oauth.data?.servers[current.name.trim()]}
@@ -1326,40 +1309,15 @@ function LassoCard({ url }: { url: string }) {
   )
 }
 
-// lasso's channel for the bot, read-only like LassoCard: it delivers the
-// Jobs tab's scheduled prompts and webhooks.
-function LassoChannelCard() {
-  return (
-    <div className="flex min-w-0 flex-col gap-1 rounded-lg border border-border border-dashed p-3">
-      <span className="flex min-w-0 items-center gap-1.5">
-        <Radio className="size-3.5 shrink-0 text-primary" />
-        <span className="min-w-0 truncate font-medium font-mono text-[12.5px] text-foreground">
-          lasso-channel
-        </span>
-        <span className="ml-auto shrink-0 text-[10.5px] text-muted-foreground">
-          added by lasso
-        </span>
-      </span>
-      <span className="text-[11.5px] text-muted-foreground leading-snug">
-        Delivers this bot's jobs: scheduled prompts and webhooks, set up in the
-        Jobs tab.
-      </span>
-    </div>
-  )
-}
-
 // One server's settings, edited in the Connections dialog.
 function ServerFields({
   s,
-  channels,
   setServer,
   bot,
   status,
   refreshOAuth,
 }: {
   s: DraftServer
-  // Whether the bot's runtime has channels (Claude Code's; omp has none).
-  channels: boolean
   setServer: (id: number, patch: Partial<DraftServer>) => void
   bot?: BotView
   status?: BotOAuthStatus
@@ -1532,18 +1490,16 @@ function ServerFields({
           )}
         </>
       )}
-      {channels && (
-        <Check
-          id={`mcp-channel-${s.id}`}
-          checked={s.channel}
-          onChange={(channel) => setServer(s.id, { channel })}
-        >
-          Channel
-          <span className="block text-[11.5px] text-muted-foreground">
-            Messages it delivers reach the bot as incoming messages.
-          </span>
-        </Check>
-      )}
+      <Check
+        id={`mcp-channel-${s.id}`}
+        checked={s.channel}
+        onChange={(channel) => setServer(s.id, { channel })}
+      >
+        Channel
+        <span className="block text-[11.5px] text-muted-foreground">
+          Messages it delivers reach the bot as incoming messages.
+        </span>
+      </Check>
     </div>
   )
 }
@@ -2487,7 +2443,6 @@ export function BotSettings({
               set={set}
               bot={bot}
               lassoMCP={detail.data?.lasso_mcp}
-              lassoChannel={!!detail.data?.lasso_channel}
             />
           ) : creating && tab === "instructions" ? (
             <NewInstructions draft={draft} set={set} />
