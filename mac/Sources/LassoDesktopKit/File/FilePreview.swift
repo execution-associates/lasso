@@ -212,6 +212,11 @@ struct FilePreviewView: View {
                     Text("\(model.hostLabel) · \(f.path)").font(Theme.Fonts.small.font).foregroundStyle(Theme.Text.secondary.color)
                         .lineLimit(1).truncationMode(.middle)
                 }
+                Spacer(minLength: Theme.space("m"))
+                WindowButton(glyph: .lucide(.squareArrowOutUpRight), label: "\(PopOut.label) \(f.name)") { model.onOpen() }
+                    .fixedSize()
+                    .layoutPriority(1)
+                    .parityAnchor("file.preview.popout")
             }
             .padding(inset)
             .parityAnchor("file.preview.title")

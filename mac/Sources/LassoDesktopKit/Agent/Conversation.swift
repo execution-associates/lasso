@@ -225,6 +225,8 @@ struct ConversationWindowView<M: Conversation>: View {
 /// clicked: the composer takes typing, and the choices their answer.
 struct ConversationPreviewView<M: Conversation>: View {
     @ObservedObject var model: M
+    /// Its window, and the column put away (PopOut).
+    var onPopOut: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 0) {
@@ -236,6 +238,9 @@ struct ConversationPreviewView<M: Conversation>: View {
                         model.showInHerdr()
                     }
                     .parityAnchor("preview.herdr")
+                    WindowButton(glyph: .lucide(.squareArrowOutUpRight), label: "\(PopOut.label) \(model.title)") { onPopOut() }
+                        .help(PopOut.help)
+                        .parityAnchor("preview.popout")
                     Circle()
                         .fill(StateStyle.color(model.dotState))
                         .frame(width: Theme.space("l"), height: Theme.space("l"))
@@ -629,6 +634,7 @@ typealias BotWindowController = ConversationWindowController<BotWindowModel>
 @MainActor
 final class PreviewHolder<M: Conversation>: ObservableObject {
     @Published var model: M?
+    var popOut: () -> Void = {}
 }
 
 struct PreviewHost<M: Conversation>: View {
@@ -637,7 +643,7 @@ struct PreviewHost<M: Conversation>: View {
     let media: MediaSource?
 
     var body: some View {
-        Group { if let m = holder.model { ConversationPreviewView(model: m).environment(\.mediaSource, media) } }
+        Group { if let m = holder.model { ConversationPreviewView(model: m, onPopOut: holder.popOut).environment(\.mediaSource, media) } }
             .opacity(presence.shown ? 1 : 0)
             .offset(x: presence.shown ? 0 : Theme.Motion.cardOpen.number("slide"))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -657,6 +663,8 @@ final class ConversationPreviewController<M: Conversation> {
     var make: (String) -> M? = { _ in nil }
     /// Unsent replies by row, kept when the preview goes or moves on.
     private var drafts: [String: ComposerDraft] = [:]
+    /// The header's pop out, for the row it shows.
+    var onPopOut: (String) -> Void = { _ in }
 
     init(media: MediaSource?) {
         let size = Theme.Agent.preview.size2("size")
@@ -665,6 +673,10 @@ final class ConversationPreviewController<M: Conversation> {
         panel = RailPanel(content: host, size: size)
         panel.hasShadow = true
         panel.onKey = { [weak self] e in self?.handle(e) ?? false }
+        holder.popOut = { [weak self] in
+            guard let self, let key = self.key else { return }
+            self.onPopOut(key)
+        }
     }
 
     var isOpen: Bool { presence.shown }

@@ -305,6 +305,11 @@ public final class AppCoordinator {
         wireFiles(railFrame: railFrame)
         bots.railFrame = railFrame
         bots.model.onOpen = { [weak self] b in self?.openBotWindow(b) }
+        bots.model.onPopOut = { [weak self] b in self?.popOutBot(b) }
+        bots.previews.onPopOut = { [weak self] name in
+            guard let self, let b = self.bots.model.bots.first(where: { $0.name == name }) else { return }
+            self.popOutBot(b)
+        }
         bots.makePreview = { [weak self] b in self?.botModel(b) }
         preview.make = { [weak self] key in
             guard let self, let p = self.fleet.agents.first(where: { $0.key == key }) else { return nil }
@@ -338,6 +343,11 @@ public final class AppCoordinator {
         card.openWindow = { [weak self] p in self?.openWindowFromCard(p) }
 
         list.model.onOpen = { [weak self] p in self?.openWindow(p) }
+        list.model.onPopOut = { [weak self] p in self?.popOutAgent(p) }
+        preview.onPopOut = { [weak self] key in
+            guard let self, let p = self.fleet.agents.first(where: { $0.key == key }) else { return }
+            self.popOutAgent(p)
+        }
         list.hover.onShow = { [weak self] key, row in
             guard let self else { return }
             self.preview.show(key, beside: self.list.panel.frame, row: row)
@@ -516,14 +526,14 @@ public final class AppCoordinator {
 
     /// A bot's own window: one per bot, brought forward if open. Like an
     /// agent's, it floats free of the rail and outlives the column.
-    func openBotWindow(_ b: BotView) {
+    func openBotWindow(_ b: BotView, near anchor: NSRect? = nil) {
         bots.hidePreview()
         viewed(.bot_window)
         if let w = botWindows[b.name] {
             w.show()
             return
         }
-        let w = BotWindowController(model: botModel(b), near: bots.isOpen ? bots.panel.frame : rail.panel.frame, media: media)
+        let w = BotWindowController(model: botModel(b), near: anchor ?? (bots.isOpen ? bots.panel.frame : rail.panel.frame), media: media)
         w.onClosed = { [weak self] in self?.botWindows[b.name] = nil }
         botWindows[b.name] = w
         w.show()
@@ -971,6 +981,25 @@ public final class AppCoordinator {
         Trace.event("agent window opened")
     }
 
+    /// Pop out (PopOut): the agent's window, beside the column it came
+    /// from, and every panel off the rail put away.
+    /// The panels go first, as the inbox card's window button does, so
+    /// their keyboard goes with them and the window keeps its own.
+    func popOutAgent(_ p: HostPane) {
+        let at = list.isOpen ? list.panel.frame : rail.panel.frame
+        closeRailPanels()
+        openWindow(p, near: at)
+        Trace.event("popped out an agent")
+    }
+
+    /// Pop out for a bot: the rail's panels put away, then its window.
+    func popOutBot(_ b: BotView) {
+        let at = bots.isOpen ? bots.panel.frame : rail.panel.frame
+        closeRailPanels()
+        openBotWindow(b, near: at)
+        Trace.event("popped out a bot")
+    }
+
     /// An agent that ended (closed itself, or was closed elsewhere) takes its
     /// window with it.
     func closeGoneWindows() {
@@ -1076,6 +1105,7 @@ public final class AppCoordinator {
         let m = filesColumn.model
         m.hostLabel = { [weak self] h in self?.fleet.panes.first { $0.host == h }?.host_label ?? h }
         m.onOpen = { [weak self] f in self?.openRecentFile(f) }
+        m.onPopOut = { [weak self] f in self?.openRecentFile(f) { self?.closeRailPanels() } }
         m.isDirty = { [weak self] key in self?.files?.window(key)?.dirty ?? false }
         m.download = { [weak self] f in
             guard let source = self?.filesSource else { throw RecentFileError.offline }
@@ -1103,7 +1133,9 @@ public final class AppCoordinator {
     /// A row of the Files column: the file's window, as the person asked
     /// (whoever is at the Mac, whatever the setting). A file that is gone
     /// says so on its row.
-    func openRecentFile(_ r: RecentFile) {
+    /// `opened` runs once its window is up (pop out puts the column away
+    /// then); a file that could not open leaves the column up, saying why.
+    func openRecentFile(_ r: RecentFile, opened: @escaping () -> Void = {}) {
         filesColumn.hidePreview()
         guard let f = fileWindows() else { return }
         Task {
@@ -1113,6 +1145,7 @@ public final class AppCoordinator {
             } else {
                 recentFiles.markOpened(r.id)
                 viewed(.file_window)
+                opened()
             }
         }
     }

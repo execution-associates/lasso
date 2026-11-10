@@ -808,8 +808,8 @@ func TestBotCreateSeedsInstructions(t *testing.T) {
 	if w := do(`{"name":"c","runtime":"claude","dir":"` + claudeDir + `","instructions":"Answer mail."}`); w.Code != 200 {
 		t.Fatalf("create claude: %d %s", w.Code, w.Body)
 	}
-	if b, _ := os.ReadFile(filepath.Join(claudeDir, "CLAUDE.md")); string(b) != "Answer mail.\n" {
-		t.Errorf("CLAUDE.md = %q", b)
+	if b, _ := os.ReadFile(filepath.Join(claudeDir, "AGENTS.md")); string(b) != "Answer mail.\n" {
+		t.Errorf("AGENTS.md = %q", b)
 	}
 	// An existing file is kept, and the answer says so.
 	keepDir := filepath.Join(root, "k")

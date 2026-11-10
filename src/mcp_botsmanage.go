@@ -34,7 +34,7 @@ type createBotIn struct {
 	KeepRunning    *bool          `json:"keep_running,omitempty" jsonschema:"relaunch it if it stops unexpectedly; default true"`
 	Notify         *bool          `json:"notify,omitempty" jsonschema:"push a notification when it finishes a reply; default true"`
 	AutoApprove    bool           `json:"auto_approve,omitempty" jsonschema:"as update_bot's auto_approve"`
-	Instructions   string         `json:"instructions,omitempty" jsonschema:"its first AGENTS.md (omp) or CLAUDE.md (claude), at most 256 KB; a folder that already has one keeps it"`
+	Instructions   string         `json:"instructions,omitempty" jsonschema:"its first AGENTS.md, at most 256 KB; a folder that already has one keeps it"`
 	Start          bool           `json:"start,omitempty" jsonschema:"start it right away"`
 }
 
