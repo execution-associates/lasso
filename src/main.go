@@ -448,7 +448,7 @@ func runServer() {
 	mux.HandleFunc("/api/notices", serveNotices)
 	mux.HandleFunc("/api/notify/device", serveNotifyDevice)
 	// Bot liveness alerts (bothealth.go): channels hold write-only secrets.
-	// Daily Claude Code update restarts for bots (botupdates.go).
+	// Daily update restarts for bots onto a newer Claude Code or omp (botupdates.go).
 	mux.HandleFunc("/api/bot-updates", serveBotUpdates)
 	mux.HandleFunc("/api/alerts", serveAlerts)
 	mux.HandleFunc("/api/alerts/", serveAlerts)

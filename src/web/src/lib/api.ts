@@ -2014,6 +2014,7 @@ export interface BotUpdates {
 export interface BotUpdateBot {
   name: string
   host: string
+  runtime: "claude" | "omp"
   running?: string
   installed?: string
   outdated: boolean

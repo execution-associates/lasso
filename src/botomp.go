@@ -32,7 +32,7 @@ func botSocketPath(name string) string { return filepath.Join(lassoDir(), "bots"
 // bridge and lasso exchange. Bump both together. A bot whose bridge speaks
 // another is restarted onto this one once idle (botOmpUpgrade); below 4 it is
 // the bot host an older lasso ran omp under.
-const botBridgeProtocol = 4
+const botBridgeProtocol = 5
 
 // botOmpAgent is the herdr agent an omp bot's pane reports, as the bridge
 // reports it.
@@ -182,6 +182,7 @@ type ompBot struct {
 	hello       bool
 	hostProto   int
 	hostVersion string
+	ompVersion  string // the omp the bot runs, for the daily update check
 	upgrading   bool
 	// What omp says it runs (get_state): the model, its thinking levels, the
 	// current level and how full the context is. modelKnown is set by the
@@ -300,6 +301,7 @@ type ompFrame struct {
 	ModelChg   bool              `json:"model_changed"`
 	ThinkChg   bool              `json:"thinking_changed"`
 	Version    string            `json:"version"`
+	OmpVersion string            `json:"omp_version"`
 	Code       *int              `json:"code"`
 	Stderr     []string          `json:"stderr"`
 }
@@ -322,7 +324,7 @@ func (ob *ompBot) observe(line []byte) {
 	ob.mu.Lock()
 	switch f.Type {
 	case "host_hello":
-		ob.hello, ob.hostProto, ob.hostVersion = true, f.Protocol, f.Version
+		ob.hello, ob.hostProto, ob.hostVersion, ob.ompVersion = true, f.Protocol, f.Version, f.OmpVersion
 		ob.hostModelChg, ob.hostThinkChg = f.ModelChg, f.ThinkChg
 		ob.ready, ob.streaming, ob.pending = f.Ready, f.Streaming, nil
 		for _, raw := range f.Pending {
@@ -635,7 +637,7 @@ type ompSnapshot struct {
 	context                     ompContextUsage
 	hello                       bool
 	hostProto                   int
-	hostVersion                 string
+	hostVersion, ompVersion     string
 	pending                     []ompUIRequest
 	sessionID, exit             string
 	upSince                     time.Time
@@ -646,7 +648,7 @@ func (ob *ompBot) snapshot() ompSnapshot {
 	defer ob.mu.Unlock()
 	return ompSnapshot{
 		connected: ob.conn != nil, ready: ob.ready, streaming: ob.streaming,
-		hello: ob.hello, hostProto: ob.hostProto, hostVersion: ob.hostVersion,
+		hello: ob.hello, hostProto: ob.hostProto, hostVersion: ob.hostVersion, ompVersion: ob.ompVersion,
 		model: ob.model, thinking: ob.thinking, efforts: append([]string(nil), ob.efforts...), context: ob.context,
 		pending: append([]ompUIRequest(nil), ob.pending...), sessionID: ob.sessionID,
 		exit: ob.exit, upSince: ob.upSince,
