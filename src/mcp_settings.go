@@ -345,6 +345,14 @@ func updateSettingsTool(ctx context.Context, req *mcp.CallToolRequest, in update
 	if err := requireSettingsReach(req, in.Host); err != nil {
 		return nil, nil, err
 	}
+	// The phone apps' push credentials are managed like the people who use
+	// them: never by an anonymous caller, which is what a local bot is on an
+	// open /mcp. Checked before anything changes.
+	if in.ClientPush != nil {
+		if _, err := appAdmin(req); err != nil {
+			return nil, nil, fmt.Errorf("client_push: %w (or set it in lasso's Settings tab)", err)
+		}
+	}
 	out := map[string]any{}
 	did := false
 
