@@ -38,11 +38,35 @@ func botOmpSessionDir(dir string) string { return filepath.Join(dir, ".lasso", "
 func botOmpRetiredPaths(dir string) []string {
 	return []string{filepath.Join(dir, ".mise", "tasks", "attach")}
 }
-func botInstructionsFile(r *botRecord) string {
-	if r.isOmp() {
-		return "AGENTS.md"
+
+// botInstructionsFile names the bot's instructions file: AGENTS.md, which
+// both runtimes read. A claude bot whose folder has only a CLAUDE.md keeps
+// it, so the Instructions tab edits the file Claude Code actually loads.
+func botInstructionsFile(b Backend, r *botRecord, dir string) string {
+	if !r.isOmp() && !botHasFile(b, dir, "AGENTS.md") && botHasFile(b, dir, "CLAUDE.md") {
+		return "CLAUDE.md"
 	}
-	return "CLAUDE.md"
+	return "AGENTS.md"
+}
+
+func botHasFile(b Backend, dir, name string) bool {
+	_, err := b.Stat(filepath.Join(dir, name))
+	return err == nil
+}
+
+// botInstructionsStub is a new bot's AGENTS.md when its human wrote none.
+func botInstructionsStub(name string) string {
+	return "# " + name + `
+
+Describe what this bot does, who it works for, and what it must never do.
+
+## Notes
+
+NOTES.md in this folder is your working memory: the people, clients,
+conventions and preferences you learn, and what is live right now. Read it at
+the start of every session, keep it current and short, and prune what's
+resolved.
+`
 }
 
 // botOmpMaterialize writes an omp bot's folder: lasso's mise config, a
@@ -78,28 +102,21 @@ func botOmpMaterialize(b Backend, r *botRecord) error {
 	return botSeedInstructionsFile(b, r, dir)
 }
 
-// botSeedInstructionsFile writes the runtime's instructions file when the
-// folder has none. A bot that switched runtimes keeps the other one's
-// instructions: a claude bot's CLAUDE.md imports AGENTS.md (Claude Code's
-// @path import, so the two never drift), and an omp bot's AGENTS.md starts as
-// a copy of CLAUDE.md. Only a folder with neither gets the stub.
+// botSeedInstructionsFile writes AGENTS.md when the folder has no
+// instructions. Claude Code reads AGENTS.md, so a claude bot's CLAUDE.md, if it
+// has one, is instructions enough. omp does not read a root CLAUDE.md, so an
+// omp bot with only that gets a copy of it as AGENTS.md (a CLAUDE.md that only
+// imports AGENTS.md has nothing to copy). Anything else gets the stub.
 func botSeedInstructionsFile(b Backend, r *botRecord, dir string) error {
-	name := botInstructionsFile(r)
-	md := filepath.Join(dir, name)
-	if _, err := b.Stat(md); err == nil {
+	if botHasFile(b, dir, "AGENTS.md") || (!r.isOmp() && botHasFile(b, dir, "CLAUDE.md")) {
 		return nil
 	}
-	body := "# " + r.Name + "\n\nDescribe what this bot does, who it works for, and what it must never do.\n"
-	if r.isOmp() {
-		// A CLAUDE.md that only imports AGENTS.md has nothing to copy.
-		if prev, err := b.ReadFile(filepath.Join(dir, "CLAUDE.md")); err == nil && !strings.Contains(string(prev), "@AGENTS.md") {
-			body = string(prev)
-		}
-	} else if _, err := b.Stat(filepath.Join(dir, "AGENTS.md")); err == nil {
-		body = "@AGENTS.md\n"
+	body := botInstructionsStub(r.Name)
+	if prev, err := b.ReadFile(filepath.Join(dir, "CLAUDE.md")); err == nil && !strings.Contains(string(prev), "@AGENTS.md") {
+		body = string(prev)
 	}
-	if err := b.WriteFile(md, []byte(body), 0o644); err != nil {
-		return fmt.Errorf("write %s: %w", name, err)
+	if err := b.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(body), 0o644); err != nil {
+		return fmt.Errorf("write AGENTS.md: %w", err)
 	}
 	return nil
 }

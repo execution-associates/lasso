@@ -36,8 +36,8 @@ func TestUpdateBotSwitchesRuntime(t *testing.T) {
 	if len(got.MCP) != 1 || got.MCP[0].Name != "mail" || !got.KeepRunning || got.LastSessionID != "" {
 		t.Errorf("runtime switch lost settings or kept the session: %+v", got)
 	}
-	if md, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md")); string(md) != "@AGENTS.md\n" {
-		t.Errorf("CLAUDE.md = %q, want an import of AGENTS.md", md)
+	if _, err := os.Stat(filepath.Join(dir, "CLAUDE.md")); err == nil {
+		t.Error("switching to claude wrote a CLAUDE.md beside AGENTS.md")
 	}
 	task, _ := os.ReadFile(botTaskPath(dir))
 	if !bytes.Contains(task, []byte("'--mcp-config'")) || !bytes.Contains(task, []byte("hasCompletedOnboarding")) {
@@ -88,6 +88,23 @@ func TestSeedInstructionsFromOtherRuntime(t *testing.T) {
 	}
 	if md, _ := os.ReadFile(filepath.Join(dir2, "AGENTS.md")); bytes.Contains(md, []byte("@AGENTS.md")) {
 		t.Errorf("AGENTS.md imports itself: %q", md)
+	}
+	// A claude bot with only a CLAUDE.md keeps it as its instructions file:
+	// no AGENTS.md is seeded beside it, and the Instructions tab edits it.
+	dir3 := t.TempDir()
+	os.WriteFile(filepath.Join(dir3, "CLAUDE.md"), []byte("# legacy\n"), 0o644)
+	rc := &botRecord{Name: "x", Runtime: botRuntimeClaude}
+	if err := botSeedInstructionsFile(b, rc, dir3); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir3, "AGENTS.md")); err == nil {
+		t.Error("an AGENTS.md was seeded beside a claude bot's CLAUDE.md")
+	}
+	if got := botInstructionsFile(b, rc, dir3); got != "CLAUDE.md" {
+		t.Errorf("instructions file = %q, want CLAUDE.md", got)
+	}
+	if got := botInstructionsFile(b, rc, t.TempDir()); got != "AGENTS.md" {
+		t.Errorf("new claude bot's instructions file = %q, want AGENTS.md", got)
 	}
 }
 
@@ -163,7 +180,7 @@ func TestCreateDeleteBotTools(t *testing.T) {
 	if err != nil || got.Runtime != botRuntimeClaude || !got.KeepRunning || !got.Notify || !got.Stopped {
 		t.Fatalf("created bot: %v %+v", err, got)
 	}
-	if md, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md")); string(md) != "# made\n" {
+	if md, _ := os.ReadFile(filepath.Join(dir, "AGENTS.md")); string(md) != "# made\n" {
 		t.Errorf("instructions: %q", md)
 	}
 	if _, _, err := createBotTool(context.Background(), nil, createBotIn{Name: "made", Dir: dir}); err == nil {
