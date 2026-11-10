@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS app_attachments (
 	created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS app_attachments_conv ON app_attachments(conv_id);
+CREATE INDEX IF NOT EXISTS app_attachments_user ON app_attachments(user_id);
 CREATE TABLE IF NOT EXISTS app_calls (
 	id          TEXT PRIMARY KEY,
 	conv_id     TEXT NOT NULL,
@@ -209,13 +210,19 @@ type appUser struct {
 	Disabled  bool   `json:"disabled"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
+	// FileRetentionDays is the person's own choice (0: keep until they delete),
+	// QuotaMB and QuotaFiles the owner's override of the default limits (0: none).
+	// They are shown through appUserView and /me, not as they are stored.
+	FileRetentionDays int `json:"-"`
+	QuotaMB           int `json:"-"`
+	QuotaFiles        int `json:"-"`
 }
 
-const appUserCols = `id, name, email, disabled, created_at, updated_at`
+const appUserCols = `id, name, email, disabled, created_at, updated_at, file_retention_days, quota_mb, quota_files`
 
 func scanAppUser(row interface{ Scan(...any) error }) (*appUser, error) {
 	var u appUser
-	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Disabled, &u.CreatedAt, &u.UpdatedAt)
+	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Disabled, &u.CreatedAt, &u.UpdatedAt, &u.FileRetentionDays, &u.QuotaMB, &u.QuotaFiles)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errClientNotFound
 	}
@@ -260,10 +267,52 @@ func listAppUsers() ([]*appUser, error) {
 	return out, rows.Err()
 }
 
+// optInt is an optional integer that tells absent (Set false) from null (Set
+// true, Val nil) from a number, for a PUT that clears a field with null.
+type optInt struct {
+	Set bool
+	Val *int
+}
+
+func (o *optInt) UnmarshalJSON(b []byte) error {
+	o.Set = true
+	if string(b) == "null" {
+		o.Val = nil
+		return nil
+	}
+	var n int
+	if err := json.Unmarshal(b, &n); err != nil {
+		return errors.New("must be a whole number or null")
+	}
+	o.Val = &n
+	return nil
+}
+
 type appUserPatch struct {
-	Name     *string `json:"name"`
-	Email    *string `json:"email"`
-	Disabled *bool   `json:"disabled"`
+	Name       *string `json:"name"`
+	Email      *string `json:"email"`
+	Disabled   *bool   `json:"disabled"`
+	QuotaMB    optInt  `json:"quota_mb"`
+	QuotaFiles optInt  `json:"quota_files"`
+}
+
+// Bounds of the owner's per-person quota override.
+const (
+	clientQuotaMBMax    = 1 << 20 // 1 TB
+	clientQuotaFilesMax = 10_000_000
+)
+
+func quotaOverride(o optInt, cur, max int, what string) (int, error) {
+	if !o.Set {
+		return cur, nil
+	}
+	if o.Val == nil {
+		return 0, nil
+	}
+	if *o.Val < 1 || *o.Val > max {
+		return 0, fmt.Errorf("%s must be 1-%d, or null to use the default", what, max)
+	}
+	return *o.Val, nil
 }
 
 func updateAppUser(id string, p appUserPatch, now time.Time) (*appUser, error) {
@@ -290,9 +339,15 @@ func updateAppUser(id string, p appUserPatch, now time.Time) (*appUser, error) {
 	if p.Disabled != nil {
 		u.Disabled = *p.Disabled
 	}
+	if u.QuotaMB, err = quotaOverride(p.QuotaMB, u.QuotaMB, clientQuotaMBMax, "quota_mb"); err != nil {
+		return nil, err
+	}
+	if u.QuotaFiles, err = quotaOverride(p.QuotaFiles, u.QuotaFiles, clientQuotaFilesMax, "quota_files"); err != nil {
+		return nil, err
+	}
 	u.UpdatedAt = nowStamp(now)
-	_, err = db.Exec(`UPDATE app_users SET name = ?, email = ?, disabled = ?, updated_at = ? WHERE id = ?`,
-		u.Name, u.Email, boolInt(u.Disabled), u.UpdatedAt, id)
+	_, err = db.Exec(`UPDATE app_users SET name = ?, email = ?, disabled = ?, quota_mb = ?, quota_files = ?, updated_at = ? WHERE id = ?`,
+		u.Name, u.Email, boolInt(u.Disabled), u.QuotaMB, u.QuotaFiles, u.UpdatedAt, id)
 	return u, err
 }
 
@@ -594,10 +649,10 @@ func authenticateDeviceToken(tok string, now time.Time) (*clientIdentity, bool) 
 	var disabled bool
 	u := &appUser{}
 	err := db.QueryRow(`SELECT d.id, d.user_id, d.token_hash, d.label, d.platform, d.paired_by, d.created_at, d.last_seen_at,
-			u.id, u.name, u.email, u.disabled, u.created_at, u.updated_at
+			u.id, u.name, u.email, u.disabled, u.created_at, u.updated_at, u.file_retention_days, u.quota_mb, u.quota_files
 		FROM app_devices d JOIN app_users u ON u.id = d.user_id WHERE d.token_hash = ? AND d.revoked_at = ''`, h).
 		Scan(&id.Device.ID, &id.Device.UserID, &stored, &id.Device.Label, &id.Device.Platform, &id.Device.PairedBy, &id.Device.CreatedAt, &id.Device.LastSeenAt,
-			&u.ID, &u.Name, &u.Email, &disabled, &u.CreatedAt, &u.UpdatedAt)
+			&u.ID, &u.Name, &u.Email, &disabled, &u.CreatedAt, &u.UpdatedAt, &u.FileRetentionDays, &u.QuotaMB, &u.QuotaFiles)
 	if err != nil || !hashEqual(stored, h) || disabled {
 		return nil, false
 	}
@@ -660,10 +715,12 @@ type clientAttachmentView struct {
 	// absent when the file is not an image or its size could not be read.
 	Width  int `json:"width,omitempty"`
 	Height int `json:"height,omitempty"`
-	// URL is absent once the file has expired (Expired is then true): the
-	// message keeps the name, type and size to show a "file expired" marker.
+	// URL is absent once the file is gone (Expired is then true, Removed says
+	// who removed it: "user" or "retention"): the message keeps the name, type
+	// and size to show a "file removed" marker.
 	URL     string `json:"url,omitempty"`
 	Expired bool   `json:"expired,omitempty"`
+	Removed string `json:"removed,omitempty"`
 }
 
 type clientMessageView struct {
@@ -860,27 +917,32 @@ type appAttachment struct {
 	Height    int
 	MessageID string
 	CreatedAt string
-	ExpiredAt string // set once the file was deleted by the retention window
+	ExpiredAt string // set once the file was deleted, by the person or by retention
+	Removed   string // who deleted it: "user" or "retention" (empty on a file deleted before this was recorded: retention)
 }
 
-const appAttachmentCols = `id, user_id, bot, conv_id, direction, name, mime, size, path, width, height, message_id, created_at, expired_at`
+const appAttachmentCols = `id, user_id, bot, conv_id, direction, name, mime, size, path, width, height, message_id, created_at, expired_at, removed`
 
 func scanAppAttachment(row interface{ Scan(...any) error }) (appAttachment, error) {
 	var a appAttachment
-	err := row.Scan(&a.ID, &a.UserID, &a.Bot, &a.ConvID, &a.Direction, &a.Name, &a.Mime, &a.Size, &a.Path, &a.Width, &a.Height, &a.MessageID, &a.CreatedAt, &a.ExpiredAt)
+	err := row.Scan(&a.ID, &a.UserID, &a.Bot, &a.ConvID, &a.Direction, &a.Name, &a.Mime, &a.Size, &a.Path, &a.Width, &a.Height, &a.MessageID, &a.CreatedAt, &a.ExpiredAt, &a.Removed)
 	return a, err
 }
 
 func (a appAttachment) view() clientAttachmentView {
 	if a.ExpiredAt != "" {
-		return clientAttachmentView{ID: a.ID, Name: a.Name, Type: a.Mime, Size: a.Size, Width: a.Width, Height: a.Height, Expired: true}
+		removed := a.Removed
+		if removed == "" {
+			removed = clientRemovedRetention
+		}
+		return clientAttachmentView{ID: a.ID, Name: a.Name, Type: a.Mime, Size: a.Size, Width: a.Width, Height: a.Height, Expired: true, Removed: removed}
 	}
 	return clientAttachmentView{ID: a.ID, Name: a.Name, Type: a.Mime, Size: a.Size, Width: a.Width, Height: a.Height, URL: "/client/v1/attachments/" + a.ID}
 }
 
 func insertAppAttachment(a appAttachment) error {
-	_, err := db.Exec(`INSERT INTO app_attachments (`+appAttachmentCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.ID, a.UserID, a.Bot, a.ConvID, a.Direction, a.Name, a.Mime, a.Size, a.Path, a.Width, a.Height, a.MessageID, a.CreatedAt, a.ExpiredAt)
+	_, err := db.Exec(`INSERT INTO app_attachments (`+appAttachmentCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.ID, a.UserID, a.Bot, a.ConvID, a.Direction, a.Name, a.Mime, a.Size, a.Path, a.Width, a.Height, a.MessageID, a.CreatedAt, a.ExpiredAt, a.Removed)
 	return err
 }
 
@@ -1043,21 +1105,29 @@ func reopenReplyToken(tok string) {
 // --- quotas and retention ------------------------------------------------------------
 
 // The defaults are the documented limits; the environment can change them
-// (LASSO_CLIENT_QUOTA_MB, LASSO_CLIENT_QUOTA_FILES, LASSO_CLIENT_RETENTION_DAYS).
+// (LASSO_CLIENT_QUOTA_MB, LASSO_CLIENT_QUOTA_FILES), and the owner can override
+// them for one person (app_users.quota_mb, quota_files).
+// LASSO_CLIENT_RETENTION_DAYS is the owner's optional MAXIMUM of how long a
+// person's files are kept; unset, there is none. Within it each person chooses
+// (app_users.file_retention_days; none chosen keeps the files until they
+// delete them).
 const (
-	clientQuotaMBDefault       = 500
-	clientQuotaFilesDefault    = 3000
-	clientRetentionDaysDefault = 30
-	clientOutFilesPerConv      = 200
-	clientOutBytesPerConv      = 200 << 20
-	clientOutBytesPerBot       = 2 << 30
-	clientCallsPerMin          = 6
-	clientCallsPerHour         = 60
-	clientQuotaMBEnv           = "LASSO_CLIENT_QUOTA_MB"
-	clientQuotaFilesEnv        = "LASSO_CLIENT_QUOTA_FILES"
-	clientRetentionDaysEnv     = "LASSO_CLIENT_RETENTION_DAYS"
-	clientQuotaMsg             = "Your storage for this app is full. Uploaded files are deleted after %d days; wait for older ones to expire, or ask the owner."
-	clientQuotaCode            = "quota_exceeded"
+	clientQuotaMBDefault    = 500
+	clientQuotaFilesDefault = 3000
+	clientRetentionDaysMax  = 3650
+	clientOutFilesPerConv   = 200
+	clientOutBytesPerConv   = 200 << 20
+	clientOutBytesPerBot    = 2 << 30
+	clientCallsPerMin       = 6
+	clientCallsPerHour      = 60
+	clientPurgesPerMin      = 6
+	clientQuotaMBEnv        = "LASSO_CLIENT_QUOTA_MB"
+	clientQuotaFilesEnv     = "LASSO_CLIENT_QUOTA_FILES"
+	clientRetentionDaysEnv  = "LASSO_CLIENT_RETENTION_DAYS"
+	clientQuotaMsg          = "Your storage for this app is full. Delete files you no longer need, or choose a shorter file retention in the app's settings."
+	clientQuotaCode         = "quota_exceeded"
+	clientRemovedUser       = "user"
+	clientRemovedRetention  = "retention"
 )
 
 func envPositive(name string, def int) int {
@@ -1069,51 +1139,134 @@ func envPositive(name string, def int) int {
 	return def
 }
 
-func clientQuotaBytes() int64 {
+// clientQuotaBytesFor and clientQuotaFilesFor are a person's limits: the
+// owner's override for them, else the default.
+func clientQuotaBytesFor(u *appUser) int64 {
+	if u != nil && u.QuotaMB > 0 {
+		return int64(u.QuotaMB) << 20
+	}
 	return int64(envPositive(clientQuotaMBEnv, clientQuotaMBDefault)) << 20
 }
-func clientQuotaFiles() int { return envPositive(clientQuotaFilesEnv, clientQuotaFilesDefault) }
-func clientRetention() time.Duration {
-	return time.Duration(envPositive(clientRetentionDaysEnv, clientRetentionDaysDefault)) * 24 * time.Hour
+
+func clientQuotaFilesFor(u *appUser) int {
+	if u != nil && u.QuotaFiles > 0 {
+		return u.QuotaFiles
+	}
+	return envPositive(clientQuotaFilesEnv, clientQuotaFilesDefault)
+}
+
+// clientRetentionMaxDays is the owner's maximum (LASSO_CLIENT_RETENTION_DAYS):
+// 0 when none is set.
+func clientRetentionMaxDays() int { return envPositive(clientRetentionDaysEnv, 0) }
+
+// clientRetentionDaysOf is how long a person's files are kept under the
+// setting in force now: their choice, clamped to the owner's maximum, and the
+// maximum itself when they chose to keep them. 0 means until they delete them.
+func clientRetentionDaysOf(u *appUser) int {
+	choice, max := 0, clientRetentionMaxDays()
+	if u != nil {
+		choice = u.FileRetentionDays
+	}
+	if max > 0 && (choice == 0 || choice > max) {
+		return max
+	}
+	return choice
+}
+
+// setFileRetention stores a person's choice (nil: keep until they delete them).
+func setFileRetention(userID string, days *int, now time.Time) error {
+	v := 0
+	if days != nil {
+		v = *days
+	}
+	_, err := db.Exec(`UPDATE app_users SET file_retention_days = ?, updated_at = ? WHERE id = ?`, v, nowStamp(now), userID)
+	return err
 }
 
 // clientQuotaMu serialises the check and the insert of a stored file, so two
 // uploads at once cannot both pass the last free byte.
 var clientQuotaMu sync.Mutex
 
-// userStoredUploads is what a person's uploads occupy now (expired ones no
+// userStoredUploads is what a person's uploads occupy now (removed ones no
 // longer count).
 func userStoredUploads(userID string) (bytes int64, files int) {
 	_ = db.QueryRow(`SELECT COALESCE(SUM(size), 0), COUNT(*) FROM app_attachments WHERE user_id = ? AND direction = 'in' AND expired_at = ''`, userID).Scan(&bytes, &files)
 	return
 }
 
-// expireAttachment deletes nothing itself: it marks the row expired and
-// rewrites the message that shows it, so the app can render a "file expired"
-// marker. The caller removes the file.
-func expireAttachment(a appAttachment, now time.Time) {
-	res, err := db.Exec(`UPDATE app_attachments SET expired_at = ?, path = '' WHERE id = ? AND expired_at = ''`, nowStamp(now), a.ID)
+// removeAttachment marks a file removed ("user" or "retention"), rewrites the
+// message that shows it as a marker and tells the conversation's streams
+// (attachment_removed). It deletes no bytes: the caller removes the files. It
+// reports whether this call was the one that removed it.
+func removeAttachment(a appAttachment, removed string, now time.Time) bool {
+	res, err := db.Exec(`UPDATE app_attachments SET expired_at = ?, removed = ?, path = '' WHERE id = ? AND expired_at = ''`, nowStamp(now), removed, a.ID)
 	if err != nil {
-		return
+		return false
 	}
-	if n, _ := res.RowsAffected(); n != 1 || a.MessageID == "" {
-		return
+	if n, _ := res.RowsAffected(); n != 1 {
+		return false
+	}
+	a.ExpiredAt, a.Removed, a.Path = nowStamp(now), removed, ""
+	if a.MessageID == "" { // an upload never sent: no message shows it
+		return true
 	}
 	var raw string
-	if db.QueryRow(`SELECT attachments FROM app_messages WHERE id = ?`, a.MessageID).Scan(&raw) != nil {
-		return
-	}
-	var views []clientAttachmentView
-	if json.Unmarshal([]byte(raw), &views) != nil {
-		return
-	}
-	for i := range views {
-		if views[i].ID == a.ID {
-			views[i] = a.view()
-			views[i].Expired = true
-			views[i].URL = ""
+	if db.QueryRow(`SELECT attachments FROM app_messages WHERE id = ?`, a.MessageID).Scan(&raw) == nil {
+		var views []clientAttachmentView
+		if json.Unmarshal([]byte(raw), &views) == nil {
+			for i := range views {
+				if views[i].ID == a.ID {
+					views[i] = a.view()
+				}
+			}
+			b, _ := json.Marshal(views)
+			_, _ = db.Exec(`UPDATE app_messages SET attachments = ? WHERE id = ?`, string(b), a.MessageID)
 		}
 	}
-	b, _ := json.Marshal(views)
-	_, _ = db.Exec(`UPDATE app_messages SET attachments = ? WHERE id = ?`, string(b), a.MessageID)
+	appendClientEvent(a.ConvID, "attachment_removed", map[string]any{
+		"conversation_id": a.ConvID, "message_id": a.MessageID, "attachment_id": a.ID, "removed": removed,
+	}, now)
+	return true
+}
+
+// removeAttachments removes each file that is still there and deletes its
+// bytes; it answers how many and how many bytes.
+func removeAttachments(atts []appAttachment, removed string, now time.Time) (files int, bytes int64) {
+	var gone []appAttachment
+	for _, a := range atts {
+		if removeAttachment(a, removed, now) {
+			gone = append(gone, a)
+			files++
+			bytes += a.Size
+		}
+	}
+	clientRemoveFiles(gone)
+	return
+}
+
+// userAttachmentsOlderThan are a person's stored files created before cut
+// (all of them for a zero cut). sentOnly leaves out uploads not yet sent in a
+// message, which the retention sweep does not judge (they have their own day).
+func userAttachmentsOlderThan(userID string, cut time.Time, sentOnly bool) []appAttachment {
+	q := `SELECT ` + appAttachmentCols + ` FROM app_attachments WHERE user_id = ? AND expired_at = ''`
+	args := []any{userID}
+	if !cut.IsZero() {
+		q += ` AND created_at < ?`
+		args = append(args, nowStamp(cut))
+	}
+	if sentOnly {
+		q += ` AND (direction = 'out' OR message_id != '')`
+	}
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []appAttachment
+	for rows.Next() {
+		if a, err := scanAppAttachment(rows); err == nil {
+			out = append(out, a)
+		}
+	}
+	return out
 }

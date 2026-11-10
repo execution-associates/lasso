@@ -241,7 +241,8 @@ The QR is drawn in the browser from the link and goes nowhere else: it is never 
 - **Name**, with **Rename**.
 - **Bots they can reach**: tick the bots and their **Owner** flags, then **Save access**.
 - **Phones**: each phone's platform, label, when it connected and who from, and when it last spoke to lasso. **Revoke** signs one phone out at once (after a confirmation); it needs a new code to come back, and the person's other phones are not affected.
-- **Disable** shuts every phone of theirs out until you **Enable** them; nothing is deleted. **Delete** removes the person, their phones, conversations, messages and files (after a confirmation).
+- **Storage**: what the person stores (uploads they sent) against their limits, and the file retention they chose in the app (read-only: it is their choice, within the optional maximum `LASSO_CLIENT_RETENTION_DAYS`). **Limit (MB)** and **Limit (files)** override the default limits for this person (500 MB and 3000 files); empty uses the default. **Save limits** applies them at once.
+- **Disable** shuts every phone of theirs out until you **Enable** them; nothing is deleted. **Delete** removes the person, their phones, conversations, messages and files (after a confirmation). A person can also delete their own files in the app, and bots are told that a file a person sent may disappear (they keep what they need in their own folder).
 
 Everything on the page is a `/api/app-users` call, and the same actions are tools on `/mcp` for a credentialed caller (`create_app_user`, `set_app_user_grant`, `create_app_pairing`, `revoke_app_device` and the rest).
 

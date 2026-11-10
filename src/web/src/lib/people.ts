@@ -188,3 +188,37 @@ export function botClientNote(
       return ""
   }
 }
+
+// Bytes as the owner reads them: 0 B, 12.3 KB, 4.5 MB, 1.2 GB.
+export function storageSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const units = ["KB", "MB", "GB", "TB"]
+  let v = bytes / 1024
+  let i = 0
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`
+}
+
+// How long the person keeps their files, as they chose it (and as the owner's
+// maximum allows).
+export function retentionLabel(days: number | null): string {
+  return days === null
+    ? "keeps files until they delete them"
+    : `files deleted after ${days} ${days === 1 ? "day" : "days"}`
+}
+
+// quotaProblem is the API's rule for a quota override: a whole number from 1
+// to max, or empty for the default. "" means the field is fine.
+export function quotaProblem(v: string, max: number): string {
+  const t = v.trim()
+  if (t === "") return ""
+  if (!/^\d+$/.test(t) || Number(t) < 1 || Number(t) > max)
+    return `Use a whole number from 1 to ${max.toLocaleString()}, or leave it empty for the default.`
+  return ""
+}
+
+export const QUOTA_MB_MAX = 1048576
+export const QUOTA_FILES_MAX = 10000000

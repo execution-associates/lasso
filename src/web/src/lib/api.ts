@@ -1244,6 +1244,19 @@ export interface AppUser {
   updated_at: string
   grants: AppGrant[]
   devices: AppDevice[]
+  // The owner's override of the stored-upload limits (null: the default
+  // applies), what the person stores now against what they may, and the file
+  // retention they chose within the owner's maximum (null: kept until they
+  // delete them).
+  quota_mb: number | null
+  quota_files: number | null
+  file_retention_days: number | null
+  storage: {
+    used_bytes: number
+    used_files: number
+    quota_bytes: number
+    quota_files: number
+  }
 }
 
 export interface AppPairing {
@@ -2573,7 +2586,13 @@ export const api = {
       postJSON<{ user: AppUser }>("/api/app-users", body),
     update: (
       id: string,
-      body: { name?: string; email?: string; disabled?: boolean }
+      body: {
+        name?: string
+        email?: string
+        disabled?: boolean
+        quota_mb?: number | null
+        quota_files?: number | null
+      }
     ) => sendJSON<{ user: AppUser }>("PUT", appUserURL(id), body),
     remove: (id: string) => sendJSON<{ ok: boolean }>("DELETE", appUserURL(id)),
     setGrant: (id: string, bot: string, owner: boolean) =>

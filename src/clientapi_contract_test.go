@@ -279,7 +279,7 @@ func TestClientAttachmentDimensions(t *testing.T) {
 		t.Fatalf("bot image: %v %+v", err, bm.Attachments)
 	}
 	stored, _ := appAttachmentByID(bm.Attachments[0].ID)
-	expireAttachment(stored, time.Now())
+	removeAttachment(stored, clientRemovedRetention, time.Now())
 	var got clientMessageView
 	for _, h := range c.rawMessagesView(ann, cid) {
 		if h.ID == bm.ID {

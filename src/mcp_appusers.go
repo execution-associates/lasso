@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -93,6 +94,33 @@ type updateAppUserIn struct {
 	Name     *string `json:"name,omitempty"`
 	Email    *string `json:"email,omitempty"`
 	Disabled *bool   `json:"disabled,omitempty" jsonschema:"true turns the person off: every request and open stream of theirs stops at once; false turns them back on"`
+	// QuotaMB and QuotaFiles override the stored-upload limits for this person;
+	// null clears the override. Their schema is written out in updateAppUserSchema
+	// (a Go pointer cannot tell absent from null).
+	QuotaMB    optInt `json:"quota_mb"`
+	QuotaFiles optInt `json:"quota_files"`
+}
+
+// updateAppUserSchema is update_app_user's input schema, spelled out so quota_mb
+// and quota_files can be null (clear the override) as well as absent.
+func updateAppUserSchema() *jsonschema.Schema {
+	quota := func(desc string, max int) *jsonschema.Schema {
+		one := float64(1)
+		m := float64(max)
+		return &jsonschema.Schema{Types: []string{"integer", "null"}, Minimum: &one, Maximum: &m, Description: desc}
+	}
+	return &jsonschema.Schema{
+		Type:     "object",
+		Required: []string{"id"},
+		Properties: map[string]*jsonschema.Schema{
+			"id":          {Type: "string", Description: "the app user's id"},
+			"name":        {Type: "string"},
+			"email":       {Type: "string"},
+			"disabled":    {Type: "boolean", Description: "true turns the person off: every request and open stream of theirs stops at once; false turns them back on"},
+			"quota_mb":    quota("this person's stored-upload limit in MB, replacing the default (500); null clears the override", clientQuotaMBMax),
+			"quota_files": quota("this person's stored-upload limit in files, replacing the default (3000); null clears the override", clientQuotaFilesMax),
+		},
+	}
 }
 
 type appGrantIn struct {
@@ -149,12 +177,13 @@ func registerAppUserTools(s *mcp.Server) {
 	})
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "update_app_user",
-		Description: "Rename an app user, change their email, or disable or enable them. Disabling takes effect on their next request and ends their open streams.",
+		Description: "Rename an app user, change their email, disable or enable them, or override their storage quota (quota_mb, quota_files; null clears the override). Disabling takes effect on their next request and ends their open streams. The result shows their storage use and the file retention they chose.",
+		InputSchema: updateAppUserSchema(),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in updateAppUserIn) (*mcp.CallToolResult, appUserOut, error) {
 		if _, err := appAdmin(req); err != nil {
 			return nil, appUserOut{}, err
 		}
-		if _, err := updateAppUser(in.ID, appUserPatch{Name: in.Name, Email: in.Email, Disabled: in.Disabled}, time.Now()); err != nil {
+		if _, err := updateAppUser(in.ID, appUserPatch{Name: in.Name, Email: in.Email, Disabled: in.Disabled, QuotaMB: in.QuotaMB, QuotaFiles: in.QuotaFiles}, time.Now()); err != nil {
 			return nil, appUserOut{}, err
 		}
 		return userOut(in.ID)

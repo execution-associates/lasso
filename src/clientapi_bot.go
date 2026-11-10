@@ -344,9 +344,10 @@ func clientBotFileRel(root string, local bool, p string) (string, error) {
 // past its limit. Called with clientQuotaMu held.
 func clientQuotaCheck(conv *appConv, direction string, size int64) error {
 	if direction == "in" {
+		u, _ := getAppUser(conv.UserID)
 		bytes, files := userStoredUploads(conv.UserID)
-		if files+1 > clientQuotaFiles() || bytes+size > clientQuotaBytes() {
-			return cerr(http.StatusForbidden, clientQuotaCode, fmt.Sprintf(clientQuotaMsg, int(clientRetention()/(24*time.Hour))))
+		if files+1 > clientQuotaFilesFor(u) || bytes+size > clientQuotaBytesFor(u) {
+			return cerr(http.StatusForbidden, clientQuotaCode, clientQuotaMsg)
 		}
 		return nil
 	}
@@ -354,7 +355,7 @@ func clientQuotaCheck(conv *appConv, direction string, size int64) error {
 	_ = db.QueryRow(`SELECT COALESCE(SUM(size), 0), COUNT(*) FROM app_attachments WHERE conv_id = ? AND direction = 'out' AND expired_at = ''`, conv.ID).Scan(&cb, &cn)
 	_ = db.QueryRow(`SELECT COALESCE(SUM(size), 0) FROM app_attachments WHERE bot = ? AND direction = 'out' AND expired_at = ''`, conv.Bot).Scan(&bb)
 	if cn+1 > clientOutFilesPerConv || cb+size > clientOutBytesPerConv || bb+size > clientOutBytesPerBot {
-		return cerr(http.StatusForbidden, clientQuotaCode, "Too many files have been sent in this conversation; older ones expire after the retention window.")
+		return cerr(http.StatusForbidden, clientQuotaCode, "Too many files have been sent in this conversation or by this bot; they are freed when the person deletes them or their retention removes them.")
 	}
 	return nil
 }
@@ -508,7 +509,7 @@ func clientSend(id *clientIdentity, conv *appConv, in clientSendIn, now time.Tim
 	seen := map[string]bool{}
 	for _, aid := range in.Attachments {
 		a, e := appAttachmentByID(aid)
-		if e != nil || seen[aid] || a.UserID != conv.UserID || a.ConvID != conv.ID || a.Direction != "in" || a.MessageID != "" {
+		if e != nil || seen[aid] || a.UserID != conv.UserID || a.ConvID != conv.ID || a.Direction != "in" || a.MessageID != "" || a.ExpiredAt != "" {
 			return m, false, cerr(http.StatusBadRequest, "invalid_request", "An attachment id is unknown or already used.")
 		}
 		seen[aid] = true
@@ -1165,22 +1166,16 @@ func clientMaintain(now time.Time) {
 		}
 		clientRemoveFiles(gone)
 	}
-	// Retention: a stored file, the person's or the bot's, is deleted after the
-	// retention window; the message keeps a marker for it.
-	old, err := db.Query(`SELECT `+appAttachmentCols+` FROM app_attachments WHERE expired_at = '' AND (direction = 'out' OR message_id != '') AND created_at < ?`,
-		nowStamp(now.Add(-clientRetention())))
-	if err == nil {
-		var expired []appAttachment
-		for old.Next() {
-			if a, err := scanAppAttachment(old); err == nil {
-				expired = append(expired, a)
+	// Retention: a file, the person's or the bot's sent to them, is deleted once
+	// it is older than the retention in force for the person now (their choice,
+	// within the owner's maximum; none keeps it until they delete it). The
+	// message keeps a marker for it.
+	if users, err := listAppUsers(); err == nil {
+		for _, u := range users {
+			if days := clientRetentionDaysOf(u); days > 0 {
+				removeAttachments(userAttachmentsOlderThan(u.ID, now.Add(-time.Duration(days)*24*time.Hour), true), clientRemovedRetention, now)
 			}
 		}
-		old.Close()
-		for _, a := range expired {
-			expireAttachment(a, now)
-		}
-		clientRemoveFiles(expired)
 	}
 	_, _ = db.Exec(`DELETE FROM app_reply_tokens WHERE expires_at < ?`, nowStamp(now.Add(-48*time.Hour)))
 	ompClientTurns.Range(func(k, v any) bool {

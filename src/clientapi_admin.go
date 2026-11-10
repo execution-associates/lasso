@@ -7,7 +7,7 @@ package main
 //	GET    /api/app-users[?bot=]                 every user with grants and devices (a bot's, with ?bot=)
 //	POST   /api/app-users                        {name, email?}
 //	GET    /api/app-users/<id>                   one user
-//	PUT    /api/app-users/<id>                   {name?, email?, disabled?}
+//	PUT    /api/app-users/<id>                   {name?, email?, disabled?, quota_mb?, quota_files?}
 //	DELETE /api/app-users/<id>                   the user and everything of theirs
 //	PUT    /api/app-users/<id>/grants/<bot>      {owner?}: let the user reach the bot
 //	DELETE /api/app-users/<id>/grants/<bot>      take the grant away
@@ -31,6 +31,14 @@ type appUserView struct {
 	*appUser
 	Grants  []appGrant  `json:"grants"`
 	Devices []appDevice `json:"devices"`
+	// QuotaMB and QuotaFiles are the owner's override for this person (null:
+	// the default applies); Storage is what they use against what they may.
+	// FileRetentionDays is their own choice, within the owner's maximum
+	// (null: they keep their files until they delete them).
+	QuotaMB           *int           `json:"quota_mb"`
+	QuotaFiles        *int           `json:"quota_files"`
+	FileRetentionDays *int           `json:"file_retention_days"`
+	Storage           map[string]any `json:"storage"`
 }
 
 func appUserViewOf(u *appUser) (appUserView, error) {
@@ -45,7 +53,17 @@ func appUserViewOf(u *appUser) (appUserView, error) {
 	for i := range ds {
 		ds[i].UserID = ""
 	}
-	return appUserView{appUser: u, Grants: gs, Devices: ds}, nil
+	v := appUserView{appUser: u, Grants: gs, Devices: ds, Storage: clientStorageView(u)}
+	if u.QuotaMB > 0 {
+		v.QuotaMB = &u.QuotaMB
+	}
+	if u.QuotaFiles > 0 {
+		v.QuotaFiles = &u.QuotaFiles
+	}
+	if d := clientRetentionDaysOf(u); d > 0 {
+		v.FileRetentionDays = &d
+	}
+	return v, nil
 }
 
 func appUserViews(bot string) ([]appUserView, error) {
