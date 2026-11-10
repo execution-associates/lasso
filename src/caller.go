@@ -170,6 +170,7 @@ var machinePaths = []string{
 	"/cdp",
 	"/hooks/bots",
 	"/bot-channel",
+	"/bot-events",
 	"/talk",
 	"/client",
 	"/oauth/token",
@@ -184,7 +185,7 @@ var machinePaths = []string{
 // app, say, behind an Access Bypass policy.
 // The network listeners pass them through unproven, untouched, and with no
 // caller; their handlers check the key.
-var selfCredentialed = []string{"/hooks/bots", "/bot-channel", "/talk", "/client"}
+var selfCredentialed = []string{"/hooks/bots", "/bot-channel", "/bot-events", "/talk", "/client"}
 
 // edgeConfig is what the network listeners verify against.
 type edgeConfig struct {

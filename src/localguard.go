@@ -182,6 +182,7 @@ var crossSiteExempt = []string{
 	"/oauth/token",
 	"/hooks/bots",
 	"/bot-channel",
+	"/bot-events",
 	"/talk",
 	"/client",
 }

@@ -358,8 +358,20 @@ func botMCPJSON(r *botRecord, dir string, signedIn map[string]bool) []byte {
 		if s.Type == "stdio" {
 			e["command"] = s.Command
 			e["args"] = append([]string{}, s.Args...)
-			if len(s.Env) > 0 {
-				e["env"] = s.Env
+			env := map[string]string{}
+			for k, v := range s.Env {
+				env[k] = v
+			}
+			// A channel server pushes through the harness-neutral door, so it
+			// gets the bot's channel credential whatever runtime the bot runs.
+			if s.Channel && r.channelToken != "" {
+				if base, ok := botLassoBase(); ok {
+					env["LASSO_URL"] = base
+					env["LASSO_CHANNEL_TOKEN"] = r.channelToken
+				}
+			}
+			if len(env) > 0 {
+				e["env"] = env
 			}
 		} else {
 			e["url"] = s.URL
