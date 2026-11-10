@@ -24,6 +24,7 @@ export function EditableCombobox({
   suggestions,
   placeholder,
   emptyOption,
+  preserveEnd = false,
   className,
 }: {
   id?: string
@@ -35,8 +36,12 @@ export function EditableCombobox({
   // suggestions. Without it the only way back to "unset" is to select the
   // field's text and delete it, which is not discoverable from a dropdown.
   emptyOption?: string
+  // Keep the distinguishing suffix visible when values are too long, without
+  // changing the input's normal LTR direction while it is being edited.
+  preserveEnd?: boolean
   className?: string
 }) {
+  const [focused, setFocused] = React.useState(false)
   const [open, setOpen] = React.useState(false)
   const [active, setActive] = React.useState(-1)
   // Suggestions narrow only while the user is *typing*. Opening via focus or the
@@ -119,12 +124,25 @@ export function EditableCombobox({
               setActive(-1)
               setOpen(true)
             }}
-            onFocus={openAll}
+            onFocus={() => {
+              setFocused(true)
+              openAll()
+            }}
+            onBlur={() => setFocused(false)}
             onKeyDown={onKeyDown}
             className={cn(
               "h-8 w-full rounded-lg border border-input bg-background py-1.5 pr-8 pl-2.5 text-sm shadow-well outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
               className
             )}
+            style={
+              preserveEnd && !focused
+                ? {
+                    direction: "rtl",
+                    textAlign: "left",
+                    textOverflow: "ellipsis",
+                  }
+                : undefined
+            }
           />
           <button
             type="button"
@@ -157,9 +175,9 @@ export function EditableCombobox({
       >
         <div ref={listRef} className="max-h-60 overflow-y-auto">
           {/* The popover is pinned to the field's width, so a provider-qualified
-              selector ("openai-codex/gpt-5.6-terra") renders truncated and two
-              models sharing a provider prefix look identical. Hovering a row
-              shows the whole string — same treatment as Combobox's rows. The
+              selector ("openai-codex/gpt-5.6-terra") needs its suffix kept in
+              view to distinguish models sharing a provider prefix. Hovering a
+              row shows the whole string — same treatment as Combobox's rows. The
               empty row is exempt: its label is short and never clipped. */}
           <TooltipProvider delayDuration={300}>
             {filtered.map((s, i) => {
@@ -179,10 +197,17 @@ export function EditableCombobox({
                   )}
                 >
                   <span
+                    dir="ltr"
+                    title={s}
                     className={cn(
                       "truncate",
                       s === "" && i !== active && "text-muted-foreground"
                     )}
+                    style={
+                      preserveEnd
+                        ? { direction: "rtl", textAlign: "left" }
+                        : undefined
+                    }
                   >
                     {s === "" ? emptyOption : s}
                   </span>

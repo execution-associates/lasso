@@ -1275,6 +1275,7 @@ export function NewDialog({
                       // Blank means "pass no --model flag", so the list needs a
                       // row that returns to it after a model has been picked.
                       emptyOption="default"
+                      preserveEnd
                     />
                   </Field>
                   {/* Only harnesses whose CLI takes an effort knob list levels

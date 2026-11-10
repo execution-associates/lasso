@@ -339,20 +339,21 @@ func TestBotEventPush(t *testing.T) {
 	}
 	post := func(path, body, token string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
 		}
 		w := httptest.NewRecorder()
-		serveBotEventPush(w, req)
+		serveBotHook(w, req)
 		return w
 	}
-	if w := post("/bot-events/jess", `{"content":"hi"}`, "wrong"); w.Code != http.StatusUnauthorized {
+	if w := post("/hooks/bots/jess", `{"content":"hi"}`, "wrong"); w.Code != http.StatusNotFound {
 		t.Fatalf("bad token = %d", w.Code)
 	}
-	if w := post("/bot-events/jess", `{"content":""}`, tok); w.Code != http.StatusBadRequest {
+	if w := post("/hooks/bots/jess", `{"content":""}`, tok); w.Code != http.StatusBadRequest {
 		t.Fatalf("empty content = %d", w.Code)
 	}
-	w := post("/bot-events/jess", `{"content":"hello","source":"gmail","meta":{"thread":"t1"}}`, tok)
+	w := post("/hooks/bots/jess", `{"content":"hello","source":"gmail","meta":{"thread":"t1"}}`, tok)
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("push = %d %s", w.Code, w.Body)
 	}
@@ -371,17 +372,17 @@ func TestBotEventPush(t *testing.T) {
 		t.Fatalf("event = %+v", ev[0])
 	}
 	// A second push is its own event, never merged.
-	if w := post("/bot-events/jess", `{"content":"again"}`, tok); w.Code != http.StatusAccepted {
+	if w := post("/hooks/bots/jess", `{"content":"again"}`, tok); w.Code != http.StatusAccepted {
 		t.Fatalf("second push = %d", w.Code)
 	}
 	again, _ := claimBotEvents(rec.Name, time.Now())
 	if len(again) != 1 || again[0].Content != "again" {
 		t.Fatalf("second claim = %+v", again)
 	}
-	// A producer's key: pushed again while undelivered it queues nothing; once
-	// delivered, the same key is a new message (a redelivery the bot must see).
+	// A producer's id: pushed again while undelivered it queues nothing; once
+	// delivered, the same id is a new message (a redelivery the bot must see).
 	keyed := func() (int64, string) {
-		w := post("/bot-events/jess", `{"content":"m","source":"gmail","key":"msg-1"}`, tok)
+		w := post("/hooks/bots/jess", `{"content":"m","source":"gmail","id":"msg-1"}`, tok)
 		_ = json.Unmarshal(w.Body.Bytes(), &out)
 		return out.EventID, out.Status
 	}
@@ -401,18 +402,88 @@ func TestBotEventPush(t *testing.T) {
 		t.Fatalf("keyed push after delivery = %d %s", id, st2)
 	}
 	_, _ = claimBotEvents(rec.Name, time.Now())
-	if w := post("/bot-events/jess", `{"content":"x","meta":{"Bad Key":"1"}}`, tok); w.Code != http.StatusBadRequest {
+	if w := post("/hooks/bots/jess", `{"content":"x","meta":{"Bad Key":"1"}}`, tok); w.Code != http.StatusBadRequest {
 		t.Fatalf("bad meta key = %d", w.Code)
 	}
 	// A stopped bot's push is accepted and logged as dropped.
 	_ = setBotStopped(rec.Name, true)
-	w = post("/bot-events/jess", `{"content":"late"}`, tok)
+	w = post("/hooks/bots/jess", `{"content":"late"}`, tok)
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("stopped push = %d", w.Code)
 	}
 	_ = json.Unmarshal(w.Body.Bytes(), &out)
 	if out.Status != "dropped" {
 		t.Fatalf("stopped push status = %s", w.Body)
+	}
+}
+
+// The webhook's own key: off until turned on, a plain-text body is the
+// message, the bot is told it came from outside, and a rotated or forgotten
+// key opens nothing.
+func TestBotChannelWebhookKey(t *testing.T) {
+	rec := testJobBot(t)
+	post := func(key, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/hooks/bots/jess?key="+key, strings.NewReader(body))
+		w := httptest.NewRecorder()
+		serveBotHook(w, req)
+		return w
+	}
+	if w := post("", "hi"); w.Code != http.StatusNotFound {
+		t.Fatalf("no key, webhook off = %d", w.Code)
+	}
+	if err := botPushRotate(rec); err == nil {
+		t.Fatal("rotated a webhook that is off")
+	}
+	if err := botPushEnable(rec); err != nil {
+		t.Fatal(err)
+	}
+	full, _ := botPushViewOf(rec)
+	v := full.Webhook
+	if !v.Enabled || !strings.HasPrefix(v.Key, "lc-") || v.Path != "/hooks/bots/jess" || full.Runtime != "claude" {
+		t.Fatalf("view = %+v", full)
+	}
+	_ = botPushEnable(rec)
+	if again, _ := botPushViewOf(rec); again.Webhook.Key != v.Key {
+		t.Fatal("enabling twice changed the key")
+	}
+	if w := post("lc-wrong", "hi"); w.Code != http.StatusNotFound {
+		t.Fatalf("wrong key = %d", w.Code)
+	}
+	if w := post(v.Key, "the build is red\n"); w.Code != http.StatusAccepted {
+		t.Fatalf("push = %d %s", w.Code, w.Body)
+	}
+	ev, err := claimBotEvents(rec.Name, time.Now())
+	if err != nil || len(ev) != 1 || ev[0].Kind != "push" || ev[0].Content != "the build is red" || ev[0].Source != "webhook" {
+		t.Fatalf("claim = %+v %v", ev, err)
+	}
+	if got := botOmpEventMessage(ev[0]); !strings.Contains(strings.SplitN(got, "\n", 2)[0], " via=webhook") {
+		t.Errorf("omp header = %q", got)
+	}
+	rig := newChannelRig(t, rec.Name)
+	if err := rig.ch.notify(ev[0]); err != nil {
+		t.Fatal(err)
+	}
+	if line := rig.lines()[0]; !strings.Contains(line, `"via":"webhook"`) || strings.Contains(line, botPushViaKey) {
+		t.Errorf("channel event = %s", line)
+	}
+	// A sender cannot mark its own push as lasso's, nor unmark it.
+	req := httptest.NewRequest(http.MethodPost, "/hooks/bots/jess?key="+v.Key, strings.NewReader(`{"content":"x","meta":{"via":"none"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	serveBotHook(w, req)
+	ev, _ = claimBotEvents(rec.Name, time.Now())
+	if w.Code != http.StatusAccepted || len(ev) != 1 || !strings.Contains(botOmpEventMessage(ev[0]), " via=webhook") || strings.Contains(botOmpEventMessage(ev[0]), "none") {
+		t.Fatalf("forged via: %d %+v", w.Code, ev)
+	}
+	if err := botPushRotate(rec); err != nil {
+		t.Fatal(err)
+	}
+	if w := post(v.Key, "hi"); w.Code != http.StatusNotFound {
+		t.Fatalf("old key after rotate = %d", w.Code)
+	}
+	_ = setBotPushKey(rec.Name, "")
+	if now, _ := botPushViewOf(rec); now.Webhook.Enabled || now.Webhook.Key != "" {
+		t.Fatalf("view after disable = %+v", now)
 	}
 }
 

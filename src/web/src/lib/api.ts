@@ -1209,8 +1209,6 @@ export interface BotDetail {
   claude_md: string
   // The MCP server lasso adds for the bot's own settings tools, or "".
   lasso_mcp: string
-  // Whether lasso adds its channel (jobs and webhooks) to the bot.
-  lasso_channel?: boolean
   // Whether the phone app can talk to the bot right now (client-api.md):
   // available, busy, starting, stopped, or unavailable with a reason.
   client?: { state: string; reason?: string }
@@ -1374,6 +1372,26 @@ export interface BotTalk {
   state: "ready" | "waiting" | "restart" | "unavailable"
   reason?: string
   last_at?: string
+}
+
+// A bot's Lasso channel: how messages reach it without being asked. It is on
+// whenever lasso can deliver to the bot (available; reason says why not).
+// sources is everything that messages the bot through it now; webhook is the
+// optional door for anything else, at `path` (after lasso's origin) with its
+// Bearer key when enabled.
+export interface BotChannelSource {
+  kind: "server" | "job" | "talk" | "phone"
+  name: string
+  detail?: string
+  on: boolean
+}
+export interface BotChannel {
+  runtime: "claude" | "omp"
+  available: boolean
+  reason?: string
+  stopped: boolean
+  sources: BotChannelSource[]
+  webhook: { enabled: boolean; path: string; key?: string }
 }
 
 export interface BotChannelState {
@@ -2795,6 +2813,14 @@ export const api = {
       postJSON<BotTalk>(botURL(name, "/talk/disable"), {}),
     talkSetActivity: (name: string, activity: BotTalkActivity) =>
       postJSON<BotTalk>(botURL(name, "/talk"), { activity }),
+    // The bot's Lasso channel, and the webhook that lets anything post to it.
+    channel: (name: string) => getJSON<BotChannel>(botURL(name, "/channel")),
+    webhookEnable: (name: string) =>
+      postJSON<BotChannel>(botURL(name, "/channel/webhook/enable"), {}),
+    webhookRotate: (name: string) =>
+      postJSON<BotChannel>(botURL(name, "/channel/webhook/rotate"), {}),
+    webhookDisable: (name: string) =>
+      postJSON<BotChannel>(botURL(name, "/channel/webhook/disable"), {}),
     jobEvents: (name: string, job: string) =>
       getJSON<{ events: BotJobEvent[] }>(
         botURL(name, `/jobs/${encodeURIComponent(job)}/events`)

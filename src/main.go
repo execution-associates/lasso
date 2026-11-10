@@ -388,7 +388,6 @@ func runServer() {
 	// credential (the job's key, the bot's channel token).
 	mux.HandleFunc("/hooks/bots/", serveBotHook)
 	mux.HandleFunc("/bot-channel/", serveBotChannel)
-	mux.HandleFunc("/bot-events/", serveBotEventPush)
 	mux.HandleFunc("/talk/", serveBotTalk)
 	// The phone apps' API (clientapi.go): its own credential, a device token.
 	mux.HandleFunc("/client/", serveClient)
@@ -543,7 +542,6 @@ func runServer() {
 		"/herdr-mcp",
 		"/hooks/bots",
 		"/bot-channel",
-		"/bot-events",
 		"/talk",
 		"/client",
 		"/.well-known/oauth-protected-resource",

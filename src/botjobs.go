@@ -16,10 +16,10 @@ package main
 //     instead, so a busy or disconnected bot gets one event, not a backlog.
 //   - POST /hooks/bots/<bot>/<job> (exempt from UI_AUTH, gated by the job's
 //     own key) queues a webhook event; the body follows the job's message.
-//   - POST /bot-events/<bot> (exempt from UI_AUTH, gated by the bot's channel
-//     token) is the harness-neutral push door: a channel server or any other
-//     producer queues a message without knowing whether the bot runs Claude
-//     Code or omp. The runtime's adapter delivers it.
+//   - POST /hooks/bots/<bot> (exempt from UI_AUTH, gated by the bot's channel
+//     key) is the lasso channel's webhook (botpush.go): anything that can POST
+//     queues a message without knowing whether the bot runs Claude Code or
+//     omp. The runtime's adapter delivers it.
 //   - The bot's channel is `lasso channel` (botchannel.go), a stdio MCP server
 //     claude spawns from the bot's mcp.json. It long-polls
 //     /bot-channel/<bot>/next on a per-bot token, pushes each event into the
@@ -520,84 +520,6 @@ func enqueueBotPush(bot, content, source, key string, meta map[string]string, no
 	return id, "pending", nil
 }
 
-// botPushMetaMax bounds how many attributes a push carries; botPushValueMax
-// is how much of each one a bot is shown.
-const (
-	botPushMetaMax  = 32
-	botPushValueMax = 2000
-)
-
-// serveBotEventPush is POST /bot-events/<bot>: the harness-neutral way to
-// push a message into a bot. It is gated by the bot's channel token, the same
-// credential the Claude channel uses, and queues the message for whichever
-// runtime the bot runs. The body is {content, source?, key?, meta?}: source
-// names the producer (a channel's name), key is its own id for the message
-// (see enqueueBotPush), and meta is optional attributes the bot is shown
-// (a channel's own identifiers, say), named like a channel tag's attributes.
-func serveBotEventPush(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		http.Error(w, "POST", http.StatusMethodNotAllowed)
-		return
-	}
-	name := strings.Trim(strings.TrimPrefix(r.URL.Path, "/bot-events"), "/")
-	if name == "" || strings.Contains(name, "/") {
-		http.NotFound(w, r)
-		return
-	}
-	tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	var stored string
-	if err := db.QueryRow(`SELECT channel_token FROM bots WHERE name = ?`, name).Scan(&stored); err != nil || !tokenEqual(tok, stored) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	var in struct {
-		Content string            `json:"content"`
-		Source  string            `json:"source,omitempty"`
-		Key     string            `json:"key,omitempty"`
-		Meta    map[string]string `json:"meta,omitempty"`
-	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, botHookBodyMax+4<<10)).Decode(&in); err != nil {
-		http.Error(w, "bad body", http.StatusBadRequest)
-		return
-	}
-	in.Content = strings.TrimSpace(in.Content)
-	if in.Content == "" {
-		http.Error(w, "content is required", http.StatusBadRequest)
-		return
-	}
-	if !utf8.ValidString(in.Content) {
-		http.Error(w, "content must be text (UTF-8)", http.StatusUnsupportedMediaType)
-		return
-	}
-	if len(in.Content) > botHookBodyMax {
-		http.Error(w, fmt.Sprintf("content is over %d KB", botHookBodyMax>>10), http.StatusRequestEntityTooLarge)
-		return
-	}
-	in.Source = clientMetaClean(strings.TrimSpace(in.Source), 64)
-	if in.Source == "" {
-		in.Source = "push"
-	}
-	if len(in.Key) > 200 || len(in.Meta) > botPushMetaMax {
-		http.Error(w, "key or meta is too long", http.StatusBadRequest)
-		return
-	}
-	for k := range in.Meta {
-		if !botChannelMetaKeyRE.MatchString(k) {
-			http.Error(w, fmt.Sprintf("meta %q: names are a-z, 0-9 and _, starting with a letter", k), http.StatusBadRequest)
-			return
-		}
-	}
-	id, status, err := enqueueBotPush(name, in.Content, in.Source, in.Key, in.Meta, time.Now())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(map[string]any{"ok": status != "dropped", "event_id": id, "status": status})
-}
-
 // botEventQueued trims the bot's queue to its cap (the oldest undelivered
 // events go) and wakes its channel.
 func botEventQueued(bot, stamp string) {
@@ -1052,6 +974,11 @@ func serveBotHook(w http.ResponseWriter, r *http.Request) {
 	key := r.URL.Query().Get("key")
 	if v, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
 		key = v
+	}
+	// /hooks/bots/<bot> alone is the bot's own channel webhook (botpush.go).
+	if name == "" {
+		serveBotPush(w, r, bot, key)
+		return
 	}
 	j, err := getBotJob(bot, name)
 	if err != nil || !j.Webhook || !tokenEqual(key, j.WebhookKey) {

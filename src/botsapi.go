@@ -113,6 +113,10 @@ func serveBots(w http.ResponseWriter, r *http.Request) {
 		serveBotTalkSettings(w, r, rec, strings.TrimPrefix(talk, "/"))
 		return
 	}
+	if ch, ok := strings.CutPrefix(action, "channel"); ok && (ch == "" || strings.HasPrefix(ch, "/")) {
+		serveBotPushSettings(w, r, rec, strings.TrimPrefix(ch, "/"))
+		return
+	}
 	switch action {
 	case "":
 		serveBotOne(w, r, b, rec)
@@ -272,8 +276,6 @@ func serveBotOne(w http.ResponseWriter, r *http.Request, b Backend, rec *botReco
 			// The instructions file: AGENTS.md, or an older claude bot's CLAUDE.md.
 			"claude_md": filepath.Join(dir, botInstructionsFile(b, rec, dir)),
 			"lasso_mcp": lassoMCP,
-			// lasso's channel, shown as a read-only connection when the bot gets it.
-			"lasso_channel": rec.channelToken != "" && slices.Contains(rec.channelGrants(), botChannelName),
 		})
 	case http.MethodPut:
 		in, err := decodeBotInput(r, *rec)
