@@ -8,7 +8,12 @@ import {
 import { subscribeChatText } from "@/lib/chat-text"
 import { clientID } from "@/lib/client-id"
 import { setTabHost, tabHost, withTabHost } from "@/lib/host"
-import { applyMode, subscribeAppearance, watchSystemMode } from "@/lib/mode"
+import {
+  applyMode,
+  pushPaletteOnLoad,
+  subscribeAppearance,
+  watchSystemMode,
+} from "@/lib/mode"
 import { handleLiveNotification } from "@/lib/notify"
 import { handleOpenFileEvent } from "@/lib/open-file"
 import { invalidateHostScoped, qk, queryClient } from "@/lib/query"
@@ -317,6 +322,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     applyMode()
     watchSystemMode(refreshTheme)
   }, [])
+
+  // A load is this device acting too: push the palette it resolves once the
+  // stored appearance arrives, so an OS flip that happened while lasso was
+  // closed doesn't leave the agents on the other scheme (lib/mode.ts).
+  React.useEffect(() => pushPaletteOnLoad(), [])
 
   // Repaint whenever the STORED appearance changes: the first fetch landing (so
   // the pre-paint default converges on what the last human chose), a pick made
