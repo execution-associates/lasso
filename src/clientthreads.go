@@ -569,8 +569,10 @@ func createThread(s threadCreateSpec, now time.Time) (*appThread, error) {
 		tid, s.UserID, s.Title, s.AnchorTID, aMsg, aRole, aBot, aText, aAt, s.Summary, sumBy, sumAt, stamp, s.CreatedBy, s.ClientID, stamp, stamp); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			if aMsg != "" {
+				// Through the transaction: it holds the only connection, so a
+				// db call here would wait for it forever.
 				var other string
-				if db.QueryRow(`SELECT id FROM app_threads WHERE anchor_message_id = ?`, aMsg).Scan(&other) == nil {
+				if tx.QueryRow(`SELECT id FROM app_threads WHERE anchor_message_id = ?`, aMsg).Scan(&other) == nil {
 					return nil, &errThreadExists{ThreadID: other}
 				}
 			}
