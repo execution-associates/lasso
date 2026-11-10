@@ -46,10 +46,14 @@ type harnessDef struct {
 	// ModelSuggestions seed the creator's free-text model field. They are
 	// suggestions only — anything the user types is passed through, since
 	// model names churn far faster than lasso releases. For omp the served list
-	// is not this one: hostHarnesses replaces it with the models that host's omp
-	// assigns to a role (ompmodels.go), and this entry is the fallback for a host
-	// where omp isn't set up.
+	// is not this one: hostHarnesses replaces it with the @role aliases first,
+	// then the models that host's omp assigns to a role (ompmodels.go), and
+	// this entry is the fallback for a host where omp isn't set up.
 	ModelSuggestions []string `json:"model_suggestions"`
+	// ModelAliases maps an omp @role alias to the model selector it resolves
+	// to, for the creator's hover hint. Host-specific like ModelSuggestions;
+	// empty for every other harness.
+	ModelAliases map[string]string `json:"model_aliases,omitempty"`
 	// ModelPresets are the omp model presets (omppresets.go) the host's omp
 	// config defines, in config order — the creator's "Model preset" select.
 	// Host-specific like omp's ModelSuggestions: hostHarnesses fills it, and it

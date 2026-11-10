@@ -37,7 +37,7 @@ The first choice is the kind of agent:
 | **Repository** | Git | the repository you used last on that host, if it still exists | The repository to branch from. The list comes from scanning the host's **Git repos directories** (see below). |
 | **Base branch** | Git | the base branch you used last with that repository, else the repository's default branch (from `origin/HEAD`), else `main` or `master`, else the first branch | The branch the new worktree starts from. |
 | **AI agent** | both | the host's **Default agent**, else the agent you used last on that host, else Claude Code | The harness to launch: **Claude Code**, **Codex**, **OpenCode**, **Oh My Pi** or **Pi**. |
-| **Model** | both | `default` (no flag) | Free text with suggestions for the selected harness. Blank passes no model flag, so the CLI uses its own default. Changing the harness clears it. |
+| **Model** | both | `default` (no flag) | Free text with suggestions for the selected harness. Blank passes no model flag, so the CLI uses its own default. For **Oh My Pi**, the selected host's configured role aliases, such as `@slow` or `@small`, are listed first, followed by their assigned models; hovering an alias shows the model it resolves to. Changing the harness clears it. |
 | **Thinking effort** | Claude Code, Codex, Oh My Pi, Pi | `default` (no flag) | The harness's reasoning level. Hidden for harnesses without one. Changing the harness clears it. |
 
 The levels offered for **Thinking effort**:

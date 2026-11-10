@@ -22,6 +22,7 @@ export function EditableCombobox({
   value,
   onValueChange,
   suggestions,
+  hints,
   placeholder,
   emptyOption,
   preserveEnd = false,
@@ -31,6 +32,9 @@ export function EditableCombobox({
   value: string
   onValueChange: (value: string) => void
   suggestions: string[]
+  // Optional per-suggestion detail for the hover tooltip, used instead of the
+  // value itself (e.g. an omp @role alias's assigned model).
+  hints?: Record<string, string>
   placeholder?: string
   // Label for a row that commits the empty string, listed above the
   // suggestions. Without it the only way back to "unset" is to select the
@@ -198,7 +202,7 @@ export function EditableCombobox({
                 >
                   <span
                     dir="ltr"
-                    title={s}
+                    title={hints?.[s] ?? s}
                     className={cn(
                       "truncate",
                       s === "" && i !== active && "text-muted-foreground"
@@ -220,7 +224,7 @@ export function EditableCombobox({
                 <Tooltip key={s}>
                   <TooltipTrigger asChild>{option}</TooltipTrigger>
                   <TooltipContent side="right" sideOffset={6}>
-                    {s}
+                    {hints?.[s] ?? s}
                   </TooltipContent>
                 </Tooltip>
               )

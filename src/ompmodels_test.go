@@ -7,11 +7,13 @@ import (
 	"testing"
 )
 
-// The creator's OMP model list is the host's own role assignments, in config
-// order, deduplicated — a role's ":<thinking level>" suffix dropped (lasso has
-// its own effort field), a colon that ISN'T a level kept (it's part of the id),
-// the per-task-agent overrides folded in after the named roles, and each
-// role's fallback models appended last.
+// The creator's OMP model list puts every named role's @alias first, in config
+// order, then the concrete role assignments. Models are deduplicated, a role's
+// ":<thinking level>" suffix dropped (lasso has its own effort field), a colon
+// that ISN'T a level kept (it's part of the id), the per-task-agent overrides
+// folded in after the named roles, and each role's fallback models appended
+// last. Task override keys are agent names, not @role aliases. The alias map
+// carries each alias's assigned model for the picker's hover hint.
 func TestOmpRoleModels(t *testing.T) {
 	cfg := []byte(`theme:
   dark: herdr
@@ -37,15 +39,24 @@ task:
     security-reviewer: kimi-code/k3
 `)
 	want := []string{
-		// Named roles first, in the order the user wrote them; the duplicate
-		// "designer" assignment and smol's already-seen terra collapse away.
+		// Every @alias first, in the order the user wrote the roles. The
+		// duplicate "designer" assignment does not drop its alias.
+		"@default",
+		"@vision",
+		"@CYBERSECURITY",
+		"@designer",
+		"@smol",
+		"@cheap",
+		// Then the concrete assignments, deduplicated: the duplicate designer
+		// and smol's already-seen terra collapse away.
 		"anthropic/claude-opus-5",
 		"openai-codex/gpt-5.6-sol",
 		"zai/glm-5.3",
 		"openai-codex/gpt-5.6-terra",
 		// ":free" is part of the openrouter id, not a thinking level.
 		"openrouter/qwen3:free",
-		// Then the task-agent overrides — only the one that's new.
+		// Then the task-agent overrides — only the one that's new, and no
+		// @scout/@security-reviewer aliases.
 		"kimi-code/k3",
 		// Then each role's fallback models: luna's ":high" stripped, the
 		// already-seen opus and k3 collapse away, the "google/*" wildcard is
@@ -54,9 +65,25 @@ task:
 		"openai-codex/gpt-5.6-luna",
 		"zai/glm-5.4",
 	}
-	got := ompRoleModels(cfg)
+	got, aliases := ompRoleModels(cfg)
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("omp role models = %q, want %q", got, want)
+	}
+	wantAliases := map[string]string{
+		"@default":       "anthropic/claude-opus-5",
+		"@vision":        "openai-codex/gpt-5.6-sol",
+		"@CYBERSECURITY": "zai/glm-5.3",
+		"@designer":      "anthropic/claude-opus-5",
+		"@smol":          "openai-codex/gpt-5.6-terra",
+		"@cheap":         "openrouter/qwen3:free",
+	}
+	if len(aliases) != len(wantAliases) {
+		t.Fatalf("alias hints = %q, want %q", aliases, wantAliases)
+	}
+	for alias, model := range wantAliases {
+		if aliases[alias] != model {
+			t.Errorf("alias %s = %q, want %q", alias, aliases[alias], model)
+		}
 	}
 }
 
@@ -69,7 +96,7 @@ func TestOmpRoleModelsRejectsUnusableConfig(t *testing.T) {
 		"roles not a map": "modelRoles: opus\n",
 		"empty":           "",
 	} {
-		if got := ompRoleModels([]byte(in)); len(got) != 0 {
+		if got, aliases := ompRoleModels([]byte(in)); len(got) != 0 || len(aliases) != 0 {
 			t.Errorf("%s: got %q, want nothing", name, got)
 		}
 	}
@@ -88,16 +115,19 @@ retry:
       - {model: not-a-selector}
       - kimi-code/k3
 `)
-	want := []string{"anthropic/claude-opus-5", "anthropic/claude-sonnet-4-5", "kimi-code/k3"}
-	got := ompRoleModels(cfg)
+	want := []string{"@default", "anthropic/claude-opus-5", "anthropic/claude-sonnet-4-5", "kimi-code/k3"}
+	got, aliases := ompRoleModels(cfg)
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("omp role models = %q, want %q", got, want)
+	}
+	if aliases["@default"] != "anthropic/claude-opus-5" {
+		t.Errorf("@default hint = %q, want its assigned model", aliases["@default"])
 	}
 }
 
 // hostHarnesses serves the registry with ONLY omp's suggestions swapped for the
-// host's role models — and leaves the compiled-in table untouched, since it's
-// shared global state every other host's response is built from.
+// host's role aliases and models — and leaves the compiled-in table untouched,
+// since it's shared global state every other host's response is built from.
 func TestHostHarnessesUsesOmpRoleModels(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -130,8 +160,11 @@ func TestHostHarnessesUsesOmpRoleModels(t *testing.T) {
 	if omp == nil {
 		t.Fatal("omp missing from the served registry")
 	}
-	if strings.Join(omp.ModelSuggestions, ",") != "zai/glm-5.3,kimi-code/k3" {
-		t.Errorf("omp suggestions = %q, want the host's role models", omp.ModelSuggestions)
+	if strings.Join(omp.ModelSuggestions, ",") != "@default,@smol,zai/glm-5.3,kimi-code/k3" {
+		t.Errorf("omp suggestions = %q, want the host's role aliases first, then models", omp.ModelSuggestions)
+	}
+	if omp.ModelAliases["@default"] != "zai/glm-5.3" || omp.ModelAliases["@smol"] != "kimi-code/k3" {
+		t.Errorf("omp alias hints = %q, want each alias's assigned model", omp.ModelAliases)
 	}
 	// Every other harness — and the shared registry itself — is untouched.
 	for i := range out {

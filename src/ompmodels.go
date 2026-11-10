@@ -7,14 +7,16 @@ import (
 )
 
 // The creator's OMP model list is not a compiled-in guess about what a user
-// runs: it is read from the models that host's omp is actually configured to
-// use. omp assigns a model to each ROLE in ~/.omp/agent/config.yml — the named
-// roles under `modelRoles` (default, smol, slow, task, vision, designer, plus
-// any custom role) and the per-task-agent assignments under
-// `task.agentModelOverrides` — plus each role's fallback models under
-// `retry.fallbackChains`. Those selectors are exactly the models the user
-// has authenticated, picked deliberately, and already runs work on, so they are
-// the right candidate set for `omp --model`.
+// runs: it is read from the roles and models that host's omp is actually
+// configured to use. omp assigns a model to each ROLE in
+// ~/.omp/agent/config.yml — the named roles under `modelRoles` (default, smol,
+// slow, task, vision, designer, plus any custom role) — and each of those role
+// names is also a model alias ("@slow"). The per-task-agent assignments under
+// `task.agentModelOverrides` and each role's fallback models under
+// `retry.fallbackChains` contribute their concrete selectors too. Those
+// selectors are exactly the models the user has authenticated, picked
+// deliberately, and already runs work on, so they are the right candidate set
+// for `omp --model`.
 //
 // Deliberately NOT read:
 //
@@ -39,43 +41,68 @@ type ompConfigRoles struct {
 	} `yaml:"task"`
 }
 
-// ompRoleModels extracts the deduplicated model selectors an omp config.yml
-// assigns to roles, in config order: the named roles first, then the
-// per-task-agent overrides, then each role's fallback models. A file it can't
-// parse yields nothing rather than a partial list — the caller then falls back
-// to the compiled-in suggestions.
-func ompRoleModels(data []byte) []string {
+// ompRoleModels extracts model selections from an omp config.yml: every named
+// role's @alias first, in config order, then the concrete selectors (each
+// role's assignment, the per-task-agent overrides, and each role's fallback
+// models). Selectors are deduplicated; role aliases are deduplicated by their
+// names. The returned map is each alias's assigned selector, for the picker's
+// hover hint. A file it can't parse yields nothing rather than a partial list —
+// the caller then falls back to the compiled-in suggestions.
+func ompRoleModels(data []byte) ([]string, map[string]string) {
 	var cfg ompConfigRoles
 	if yaml.Unmarshal(data, &cfg) != nil {
-		return nil
+		return nil, nil
 	}
-	var out []string
+	var models []string
+	var aliases []string
+	aliasModels := map[string]string{}
 	seen := map[string]bool{}
-	add := func(raw string) {
+	add := func(raw string) string {
 		sel := ompModelSelector(raw)
-		if sel == "" || seen[sel] {
-			return
+		if sel == "" {
+			return ""
 		}
 		// A fallback entry may be a wildcard ("google/*") that matches models
 		// without naming one — not a `--model` selector, so not a suggestion.
 		if strings.Contains(sel, "*") {
-			return
+			return ""
 		}
-		seen[sel] = true
-		out = append(out, sel)
+		if !seen[sel] {
+			seen[sel] = true
+			models = append(models, sel)
+		}
+		return sel
 	}
 	for _, n := range []*yaml.Node{&cfg.ModelRoles, &cfg.Task.AgentModelOverrides} {
 		if n.Kind != yaml.MappingNode {
 			continue
 		}
-		// A mapping node's Content is a flat [key, value, key, value, …]; the
-		// role names are the keys and don't interest us, only the selectors.
+		// A mapping node's Content is a flat [key, value, key, value, …]. Only
+		// named modelRoles are @aliases on the main session: a task-agent
+		// override names an agent, not a role, and must stay a model suggestion
+		// only. An alias is listed only when its assignment is a usable
+		// selector, since the hover hint has to name the model it resolves to.
 		for i := 1; i < len(n.Content); i += 2 {
 			v := n.Content[i]
-			if v.Kind != yaml.ScalarNode {
+			if n == &cfg.ModelRoles {
+				if v.Kind != yaml.ScalarNode {
+					continue
+				}
+				role := strings.TrimSpace(n.Content[i-1].Value)
+				sel := add(v.Value)
+				if role == "" || sel == "" {
+					continue
+				}
+				alias := "@" + role
+				if _, ok := aliasModels[alias]; !ok {
+					aliases = append(aliases, alias)
+				}
+				aliasModels[alias] = sel
 				continue
 			}
-			add(v.Value)
+			if v.Kind == yaml.ScalarNode {
+				add(v.Value)
+			}
 		}
 	}
 	// Fallback chains map a role (or a model selector) to the ordered models
@@ -98,7 +125,10 @@ func ompRoleModels(data []byte) []string {
 			}
 		}
 	}
-	return out
+	out := make([]string, 0, len(aliases)+len(models))
+	out = append(out, aliases...)
+	out = append(out, models...)
+	return out, aliasModels
 }
 
 // ompModelSelector normalizes one role assignment into a `--model` value. omp's
@@ -134,8 +164,9 @@ func ompEffortLevel(s string) bool {
 
 // hostHarnesses is the harness registry as served for one host: the compiled-in
 // table (harness.go) with omp's host-specific halves filled from that host's
-// omp config: its model suggestions replaced by the models it assigns to a role,
-// and its model presets (omppresets.go) listed for the creator's preset select.
+// omp config: its model suggestions replaced by @role aliases (first) and the
+// models they assign, its alias→model hints, and its model presets
+// (omppresets.go) listed for the creator's preset select.
 // Everything else in the registry — labels, effort ladders, plan-mode support —
 // is compiled-in and host-independent.
 //
@@ -148,7 +179,8 @@ func hostHarnesses(b Backend) []harnessDef {
 		return harnesses
 	}
 	data := ompGlobalConfig(b, home)
-	models, presets := ompRoleModels(data), ompPresetNames(data)
+	models, aliases := ompRoleModels(data)
+	presets := ompPresetNames(data)
 	if len(models) == 0 && len(presets) == 0 {
 		return harnesses
 	}
@@ -161,6 +193,7 @@ func hostHarnesses(b Backend) []harnessDef {
 		if len(models) > 0 {
 			out[i].ModelSuggestions = models
 		}
+		out[i].ModelAliases = aliases
 		out[i].ModelPresets = presets
 	}
 	return out
