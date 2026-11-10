@@ -291,6 +291,34 @@ export function pushPaletteToFleet() {
   )
 }
 
+// pushPaletteOnLoad makes opening (or reloading) lasso count as this device
+// acting: once per page load, as soon as the server's ui_state has arrived, it
+// pushes the palette this browser resolves. Without it an OS flip that
+// happened while no lasso tab was open (watchSystemMode only hears flips while
+// the page is alive) left the chrome on the new scheme's palette and every
+// terminal agent on the old one until someone pressed Settings' "Sync now".
+// It waits for a SUCCESSFUL fetch: before that, and after a failed one,
+// getMode() and the palette prefs are defaults, not what the human chose.
+// Same path as every other push, so it is quiet, debounced and retried once.
+let loadPushDone = false
+export function pushPaletteOnLoad(): () => void {
+  const tryPush = () => {
+    if (loadPushDone) return
+    const state = queryClient.getQueryState(qk.uiState)
+    if (state?.status !== "success") return
+    loadPushDone = true
+    pushPaletteToFleet()
+  }
+  tryPush()
+  if (loadPushDone) return () => {}
+  const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+    if (event.query.queryKey[0] !== qk.uiState[0]) return
+    tryPush()
+    if (loadPushDone) unsubscribe()
+  })
+  return unsubscribe
+}
+
 // sendPush is fire-and-forget except for one retry, because a dropped push is
 // not self-healing: convergence catches a host up against the theme lasso last
 // WROTE, and a push that never landed never became that. A 409 (the server
