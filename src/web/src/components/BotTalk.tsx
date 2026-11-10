@@ -198,7 +198,7 @@ function TalkOn({
       </div>
       <p className="text-[11.5px] text-amber-500">
         Whoever holds the key can ask {bot.name} for anything its instructions
-        allow. Say in its CLAUDE.md what it may do for them.
+        allow. Say in its AGENTS.md what it may do for them.
       </p>
       <div className="flex flex-wrap items-center gap-3">
         {talk.last_at && (

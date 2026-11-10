@@ -59,6 +59,9 @@ public enum NotifyKinds {
     public static let agentFinished = "agent_finished"
     public static let agentMessage = "agent_message"
     public static let botMessage = "bot_message"
+    /// A bot's liveness alert (src/bothealth.go): down, then recovered.
+    public static let botDown = "bot_down"
+    public static let botRecovered = "bot_recovered"
     public static let lassoNotice = "lasso_notice"
 }
 

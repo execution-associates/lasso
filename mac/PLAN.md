@@ -249,7 +249,7 @@ All routes are behind the UI_AUTH tier: open when `UI_AUTH` is unset, basic auth
 **Provider choice** (settings key `transcribe`):
 - Shape: `{provider: off|groq|openai|openai-compatible, model, base_url?, key_name?}`.
 - `openai-compatible` with a loopback or tailnet `base_url` is the **provider that never leaves the server**, for example a whisper.cpp or Parakeet server run by isb on titan.
-- The key comes from the env var `key_name`, else `secret <key_name>` with a 10 s timeout. That reuses `pluginSecretLookup` (`src/pluginmcp.go:110`), factored out as a shared `lookupSecret`.
+- The key comes from `key_name`: an env var in lasso's environment, or an `op://` reference read with `op read` (10 s timeout), through the shared `lookupSecret` (`src/pluginmcp.go`).
 - The key is cached in memory for 10 min and never stored in `lasso.db`.
 - The default is `off`, which reads as `available:false` with a reason.
 - Exposed as a `transcribe` section through the settings handlers (`src/mcp_settings.go`), key *names* only.
@@ -830,7 +830,8 @@ A Mac uses one lasso. Settings has four tabs, each laid out as macOS's grouped s
 - **Start at login** (`Platform/LoginItem.swift`) is `SMAppService.mainApp`: the switch calls `register()`/`unregister()`, and its state is macOS's `status`, read each time Settings shows, since System Settings › General › Login Items changes it too. Nothing caches it.
   - **On by default, once.** Onboarding's Done (or Open Settings) registers the app, since the rail is meant to be always there; macOS shows its "added a login item" notice then. UserDefaults `loginItemAutoRegistered` records that the one automatic registration happened, and any use of the switch sets it too, so turning it off sticks.
   - `.requiresApproval` keeps the switch on with **Open Login Items** (`SMAppService.openSystemSettingsLoginItems()`), and the group's footnote says to allow Lasso there. A refused change is a footnote naming macOS's reason.
-  - **A dev build** (Info.plist names no update feed) never touches SMAppService. Its row reads "Started by the dev launch agent", because `Scripts/agent.sh`'s LaunchAgent starts it at login and restarts it after a crash. So minime never runs two.
+  - **A dev build** (Info.plist names no update feed) never touches SMAppService. Its row reads "Started by the dev launch agent", because `Scripts/agent.sh`'s LaunchAgent starts it at login and restarts it after a crash.
+  - **One live app per user** (`Platform/SingleInstance.swift`). A release build installed over a dev one keeps the dev LaunchAgent and adds its own login item, so two launchers fire at login. The first copy holds an `flock` on Application Support/com.orangecountyai.Lasso/app.lock and the second exits 0, which the agent's KeepAlive (restart on unsuccessful exit only) leaves alone. The kernel drops the lock when the holder dies. `--parity` and `--fixture` runs never take it, so the harness runs beside the live app.
 - **Rail position** has **Center vertically**. The rail can be dragged along its edge, and its place is kept as a fraction of the travel (UserDefaults `railPosition`). The button forgets it, as a fresh install has none, and moves the rail to the vertical middle of its screen's visible frame on the same edge (`RailController.centre`). Whatever is open beside the rail follows. The button is greyed while the rail is within a point of the middle (`RailController.isCentred`), and the row then says so.
 - **Quit Lasso** says what happens next: "It starts again at your next login" while Start at login is on (or in a dev build), else "Open Lasso again to bring the rail back."
 - **Switching is in place.** Every live action shares one `LassoClient`. `FleetSync.retarget` repoints it, empties the fleet, restarts the event stream and refills from the new lasso, and the choice is remembered. Open panels close, since they belonged to the old lasso.
@@ -1033,7 +1034,7 @@ Both are step 2 of the auth plan: `~/.lasso/worktrees/lasso/lasso-auth-notes/ste
 
 ## 21. Releases and updates (Sparkle)
 
-Lasso, the Mac app, ships with every lasso release, at lasso's version, as assets on lasso's GitHub release. The app's feed is `https://github.com/execution-associates/lasso/releases/latest/download/appcast.xml`, so it always names the newest release.
+Lasso, the Mac app, ships with every lasso release, at lasso's version, as assets on lasso's GitHub release. The app's feed is `https://github.com/execution-associates/lasso/releases/latest/download/appcast.xml`, so it always names the newest release. The release workflow attaches the newest earlier release's `appcast.xml` and `Lasso.dmg` to every new release (unless it already has an appcast), so until `publish.sh` replaces them, or if it never runs, Macs keep seeing the last published app instead of a 404.
 
 **Build** (`Scripts/build-app.sh`):
 - Bundles `Sparkle.framework` from SwiftPM's artifacts. The rpath is set in `Package.swift`.

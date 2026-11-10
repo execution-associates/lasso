@@ -19,18 +19,20 @@ import (
 type listBotsIn struct{}
 
 type botSummary struct {
-	Name        string   `json:"name"`
-	Host        string   `json:"host"`
-	Dir         string   `json:"dir"`
-	Runtime     string   `json:"runtime" jsonschema:"omp (omp itself in a herdr pane, driven through lasso's bridge) or claude (Claude Code in a herdr pane)"`
-	Model       string   `json:"model,omitempty"`
-	State       string   `json:"state" jsonschema:"stopped, starting, idle, working or blocked"`
-	WaitingFor  string   `json:"waiting_for,omitempty" jsonschema:"why a blocked bot is waiting, in its own words"`
-	PaneID      string   `json:"pane_id,omitempty" jsonschema:"a claude bot's herdr pane; message any bot with send_agent (to = the bot's name)"`
-	KeepRunning bool     `json:"keep_running"`
-	Channels    []string `json:"channels,omitempty"`
-	LastText    string   `json:"last_text,omitempty"`
-	LastAt      string   `json:"last_at,omitempty"`
+	Name        string       `json:"name"`
+	Host        string       `json:"host"`
+	Dir         string       `json:"dir"`
+	Runtime     string       `json:"runtime" jsonschema:"omp (omp itself in a herdr pane, driven through lasso's bridge) or claude (Claude Code in a herdr pane)"`
+	Model       string       `json:"model,omitempty"`
+	State       string       `json:"state" jsonschema:"stopped, starting, idle, working or blocked"`
+	WaitingFor  string       `json:"waiting_for,omitempty" jsonschema:"why a blocked bot is waiting, in its own words"`
+	PaneID      string       `json:"pane_id,omitempty" jsonschema:"a claude bot's herdr pane; message any bot with send_agent (to = the bot's name)"`
+	KeepRunning bool         `json:"keep_running"`
+	Channels    []string     `json:"channels,omitempty"`
+	LastText    string       `json:"last_text,omitempty"`
+	LastAt      string       `json:"last_at,omitempty"`
+	Health      *botHealth   `json:"health,omitempty" jsonschema:"liveness as lasso's bot runner last saw it: ok, starting, stopped, gone (not running), shell (a plain shell where the bot should be), deaf (up but not hearing its channel), unknown (its host did not answer), with the reason"`
+	Hold        *botHoldInfo `json:"hold,omitempty" jsonschema:"a deliberate down (hold_bot): no relaunch and no alert for being gone, until it is released or the time passes"`
 }
 
 type listBotsOut struct {
@@ -51,6 +53,7 @@ func summarizeBot(v botView) botSummary {
 		Name: v.Name, Host: mcpHostName(v.Host), Dir: v.Dir, Runtime: v.Runtime, Model: v.Model,
 		State: v.State, WaitingFor: v.WaitingFor, PaneID: v.PaneID, KeepRunning: v.KeepRunning,
 		Channels: v.channels(), LastText: v.LastText, LastAt: v.LastAt,
+		Health: v.Health, Hold: v.Hold,
 	}
 }
 
@@ -58,6 +61,7 @@ func registerBotTools(s *mcp.Server) {
 	registerBotJobTools(s)
 	registerBotJobExtraTools(s)
 	registerBotTalkTools(s)
+	registerAlertTools(s)
 	registerBotManageTools(s)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_bots",
@@ -72,8 +76,8 @@ func registerBotTools(s *mcp.Server) {
 		Description: "Change a bot's settings: runtime, folder, model, effort, permission mode, MCP servers (the complete list, replacing the current one), strict MCP, extra args, keep-running, notifications. Only the fields you pass change. Lasso rewrites the bot's launch script and MCP config; a running bot picks the change up when it restarts (restart_needed). " +
 			"runtime and dir change only while the bot is stopped: the call is refused while it runs, so stop_bot first, update_bot, then start_bot. A runtime switch rewrites the bot task and MCP config for the new runtime and keeps the MCP servers (signed-in OAuth ones included), the environment and secrets, the jobs and .claude/skills; " +
 			"model and permission mode reset to the new runtime's default unless passed in the same call, and effort is kept only when the new runtime has that level. The bot starts a new conversation on its next start (the two keep different session files). " +
-			"Switching to claude with only an AGENTS.md writes a CLAUDE.md that imports it (@AGENTS.md), and switching to omp with only a CLAUDE.md copies it to AGENTS.md. A claude bot signs in to Claude with the host's own Claude Code login, or with a CLAUDE_CODE_OAUTH_TOKEN secret (from `claude setup-token`) set with set_bot_env. " +
-			"Its instructions (AGENTS.md for an omp bot, CLAUDE.md for a claude bot) and skills are files in its folder, edited directly or with add_bot_skill / remove_bot_skill.",
+			"Switching to omp with only a CLAUDE.md copies it to AGENTS.md (omp does not read CLAUDE.md). A claude bot signs in to Claude with the host's own Claude Code login, or with a CLAUDE_CODE_OAUTH_TOKEN secret (from `claude setup-token`) set with set_bot_env. " +
+			"Its instructions (AGENTS.md; an older claude bot may have only a CLAUDE.md) and skills are files in its folder, edited directly or with add_bot_skill / remove_bot_skill.",
 	}, updateBotTool)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "set_bot_env",
@@ -110,7 +114,7 @@ func registerBotTools(s *mcp.Server) {
 type getBotOut struct {
 	Bot    botSummary     `json:"bot"`
 	Config *botRecord     `json:"config"`
-	Folder string         `json:"folder" jsonschema:"the bot's folder on its host: its instructions (AGENTS.md for omp, CLAUDE.md for claude) and .claude/skills/ are files there to edit directly"`
+	Folder string         `json:"folder" jsonschema:"the bot's folder on its host: its instructions (AGENTS.md, or an older claude bot's CLAUDE.md) and .claude/skills/ are files there to edit directly"`
 	Env    []botEnvVar    `json:"env" jsonschema:"the bot's environment variables; a secret's value is never shown"`
 	Skills []botSkill     `json:"skills" jsonschema:"the bot's own project skills"`
 	OAuth  map[string]any `json:"oauth,omitempty" jsonschema:"OAuth sign-ins by MCP server; begin_bot_oauth starts one, which the human approves in their browser"`
@@ -129,6 +133,7 @@ type updateBotIn struct {
 	KeepRunning    *bool           `json:"keep_running,omitempty" jsonschema:"relaunch the bot if it stops unexpectedly"`
 	Notify         *bool           `json:"notify,omitempty" jsonschema:"push a notification to the human's devices each time the bot finishes a reply"`
 	AutoApprove    *bool           `json:"auto_approve,omitempty" jsonschema:"claude bots: answer every permission prompt Yes (Claude Code's safety checks still ask in bypass mode), so the bot never waits on one; questions and plan approval still reach the human"`
+	Alerts         *botAlerts      `json:"alerts,omitempty" jsonschema:"the bot's COMPLETE liveness alert settings (they replace the current ones, so read them with get_bot first): mode inherit (the default channels), off (no alerts; a heartbeat bound to the bot still pings honestly) or custom (channels: ids from list_alert_channels); optional down_after, up_after, remind_every, handle_within in seconds; health_checks: [{name, url, json_field?}] HTTP endpoints the bot depends on, down on a non-2xx or json_field not true. {} goes back to inheriting everything"`
 }
 
 type botEnvIn struct {
@@ -236,8 +241,17 @@ func updateBotTool(ctx context.Context, req *mcp.CallToolRequest, in updateBotIn
 	if in.AutoApprove != nil {
 		next.AutoApprove = *in.AutoApprove
 	}
+	if in.Alerts != nil {
+		a := *in.Alerts
+		next.Alerts = &a
+	}
 	if err := next.normalize(); err != nil {
 		return nil, botChangeOut{}, err
+	}
+	if next.Alerts != nil {
+		if err := checkAlertChannelIDs(next.Alerts.Channels, false); err != nil {
+			return nil, botChangeOut{}, err
+		}
 	}
 	if err := updateBot(&next); err != nil {
 		return nil, botChangeOut{}, err
@@ -254,7 +268,10 @@ func updateBotTool(ctx context.Context, req *mcp.CallToolRequest, in updateBotIn
 	if err := botMaterialize(b, &next); err != nil {
 		return nil, botChangeOut{}, err
 	}
-	return nil, botChangeOut{OK: true, RestartNeeded: botRunning(b, &next), Note: note}, nil
+	// Alerts, notify and keep-running are lasso's own and apply at once.
+	launch := in.Runtime != nil || in.Dir != nil || in.Model != nil || in.Effort != nil || in.PermissionMode != nil ||
+		in.MCP != nil || in.StrictMCP != nil || in.ExtraArgs != nil || in.AutoApprove != nil
+	return nil, botChangeOut{OK: true, RestartNeeded: launch && botRunning(b, &next), Note: note}, nil
 }
 
 func setBotEnvTool(ctx context.Context, req *mcp.CallToolRequest, in botEnvIn) (*mcp.CallToolResult, botChangeOut, error) {

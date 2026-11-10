@@ -282,6 +282,19 @@ function ago(ms: number, now: number) {
   return ms > 0 ? relativeTime(new Date(ms).toISOString(), now) : ""
 }
 
+function noticeLabel(kind: string | undefined): string {
+  switch (kind) {
+    case "agent_message":
+      return "Message"
+    case "bot_down":
+      return "Bot down"
+    case "bot_recovered":
+      return "Recovered"
+    default:
+      return "Notice"
+  }
+}
+
 function KindLabel({ item }: { item: InboxItem }) {
   const text = {
     ask: "Asks you",
@@ -289,18 +302,17 @@ function KindLabel({ item }: { item: InboxItem }) {
     done: "Finished",
     "bot-ask": "Asks you",
     "bot-reply": "Replied",
-    notice:
-      item.kind === "notice" && item.notice.kind === "agent_message"
-        ? "Message"
-        : "Notice",
+    notice: item.kind === "notice" ? noticeLabel(item.notice.kind) : "Notice",
   }[item.kind]
+  const down = item.kind === "notice" && item.notice.kind === "bot_down"
   return (
     <span
       className={cn(
         "font-label text-[11px] uppercase tracking-wide",
         item.kind === "ask" ||
           item.kind === "bot-ask" ||
-          item.kind === "blocked"
+          item.kind === "blocked" ||
+          down
           ? "text-destructive"
           : "text-muted-foreground"
       )}

@@ -18,6 +18,7 @@ import { toast } from "sonner"
 import { BotModelBar, ContextMeter } from "@/components/BotModelBar"
 import {
   BotAvatar,
+  BotHealthMark,
   BotStateMark,
   DeleteBotDialog,
   startBot,
@@ -148,6 +149,7 @@ function BotRow({
               {bot.name}
             </span>
             <BotStateMark bot={bot} className="min-w-0" />
+            <BotHealthMark bot={bot} />
             <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
               {relativeTime(bot.last_at, now)}
             </span>
@@ -261,6 +263,7 @@ function StoppedBot({
           {bot.name}
         </span>
         <span className="ml-auto" />
+        <BotHealthMark bot={bot} />
         <BotStateMark bot={bot} words />
         <SettingsButton onClick={onSettings} />
         <ViewsButton onOpen={onOpenViews} />
@@ -378,6 +381,7 @@ function BotSwitcher({
           >
             <BotAvatar bot={b} size={20} />
             <span className="min-w-0 flex-1 truncate">{b.name}</span>
+            <BotHealthMark bot={b} />
             <BotStateMark bot={b} />
           </DropdownMenuItem>
         ))}
@@ -755,6 +759,7 @@ export function BotsView({
                   between it and the model chips; in the compact layout it is
                   in the model chip's line instead. */}
               {!compact && <ContextMeter bot={current} />}
+              <BotHealthMark bot={current} />
               <BotStateMark bot={current} words />
               <BotSessionsMenu bot={current} />
               <SettingsButton

@@ -414,11 +414,11 @@ To talk to a running bot, use [`send_agent`](#send_agent) with its name as `to`.
 
 ### `list_bots`
 
-Lists the bots on hosts within your reach. No parameters. Each entry has `name`, `host`, `dir`, `runtime`, `model`, `state` (`stopped`, `starting`, `idle`, `working` or `blocked`), `waiting_for` (why a blocked bot waits), `pane_id` (claude bots), `keep_running`, `channels`, and its conversation's newest line as `last_text` and `last_at`.
+Lists the bots on hosts within your reach. No parameters. Each entry has `name`, `host`, `dir`, `runtime`, `model`, `state` (`stopped`, `starting`, `idle`, `working` or `blocked`), `waiting_for` (why a blocked bot waits), `pane_id` (claude bots), `keep_running`, `channels`, its conversation's newest line as `last_text` and `last_at`, `health` (liveness as lasso last saw it: `state` `ok`, `starting`, `stopped`, `gone`, `shell`, `deaf` or `unknown`, with a `reason`; see [Bot alerts](#bot-alerts)) and `hold` when it is held down on purpose.
 
 ### `get_bot`
 
-One bot's whole configuration: `bot` (the `list_bots` entry), `config` (its stored record: model, effort, permission mode, MCP servers and which are channels, strict MCP, extra args, avatar, picture, keep running, notify), `folder`, `env` (a secret's value is never shown), `skills` (its project skills) and `oauth` (each OAuth server's sign-in status). Takes `name`.
+One bot's whole configuration: `bot` (the `list_bots` entry), `config` (its stored record: model, effort, permission mode, MCP servers and which are channels, strict MCP, extra args, avatar, picture, keep running, notify, `alerts`, `hold_until`, `hold_reason`), `folder`, `env` (a secret's value is never shown), `skills` (its project skills) and `oauth` (each OAuth server's sign-in status). Takes `name`.
 
 ### `update_bot`
 
@@ -427,7 +427,7 @@ Changes a bot's settings. Only the fields you pass change.
 | parameter | type | | description |
 | --- | --- | --- | --- |
 | `name` | string | | The bot. |
-| `runtime` | string | optional | `omp` or `claude`. Only while the bot is stopped (refused otherwise: `stop_bot`, `update_bot`, `start_bot`). Model and permission mode reset to the new runtime's default unless passed in the same call; effort is kept when the new runtime has that level. MCP servers (signed-in ones too), env, jobs and `.claude/skills` carry over, and the next start is a new conversation. A switch to claude with only an `AGENTS.md` writes a `CLAUDE.md` of `@AGENTS.md`; a switch to omp with only a `CLAUDE.md` copies it to `AGENTS.md`. |
+| `runtime` | string | optional | `omp` or `claude`. Only while the bot is stopped (refused otherwise: `stop_bot`, `update_bot`, `start_bot`). Model and permission mode reset to the new runtime's default unless passed in the same call; effort is kept when the new runtime has that level. MCP servers (signed-in ones too), env, jobs and `.claude/skills` carry over, and the next start is a new conversation. A switch to omp with only a `CLAUDE.md` copies it to `AGENTS.md`. |
 | `dir` | string | optional | The bot's folder on its host. Only while the bot is stopped. |
 | `model` | string | optional | A claude bot's Claude model (alias or full name), or an omp bot's provider/model selector such as `anthropic/claude-opus-5`. `""` for the default. |
 | `effort` | string | optional | claude: `low`, `medium`, `high`, `xhigh` or `max`. omp: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` or `auto`. `""` for the default. |
@@ -438,8 +438,9 @@ Changes a bot's settings. Only the fields you pass change.
 | `keep_running` | boolean | optional | Relaunch the bot when it stops unexpectedly. |
 | `notify` | boolean | optional | Push a notification to the human's devices each time the bot finishes a reply. |
 | `auto_approve` | boolean | optional | claude bots: answer every permission prompt Yes, its subagents' included, so the bot never waits on one. Bypass mode alone still asks for some commands (Claude Code's safety checks, such as an `rm` on a variable path). `AskUserQuestion` and plan approval still reach the human. Read at launch. |
+| `alerts` | object | optional | The bot's **complete** liveness alert settings (they replace the current ones; `{}` inherits everything): `mode` (absent or `inherit`: the default channels; `off`: none; `custom`: `channels`, ids from `list_alert_channels`), optional `down_after`, `up_after`, `remind_every`, `handle_within` in seconds, and `health_checks`, `[{name, url, json_field?}]`: HTTP endpoints the bot depends on, failing on a non-2xx or when `json_field` is not true. Applies at once. |
 
-lasso rewrites the bot's launch script and MCP config. Returns `ok` and `restart_needed`, true when the bot is running and reads the change only at launch. A bot restarting itself runs `mise run restart` in its folder. Its instructions (`AGENTS.md` for an omp bot, `CLAUDE.md` for a claude bot) and skills are files in its folder, edited directly rather than through this tool.
+lasso rewrites the bot's launch script and MCP config. Returns `ok` and `restart_needed`, true when the bot is running and a field read only at launch changed (`alerts`, `notify` and `keep_running` apply at once). A bot restarting itself runs `mise run restart` in its folder. Its instructions (`AGENTS.md`, or an older claude bot's `CLAUDE.md`) and skills are files in its folder, edited directly rather than through this tool.
 
 A claude bot signs in to Claude with its host's Claude Code login. On a host with none, give it a `CLAUDE_CODE_OAUTH_TOKEN` secret with `set_bot_env` (the value `claude setup-token` prints, run once by the human wherever they are logged in); its launch marks Claude Code's first-run setup done on that host, so nothing waits on a screen.
 
@@ -491,11 +492,11 @@ A claude bot's Talk: an OpenAI-compatible door (Chat Completions at lasso's orig
 - `update_bot_talk` takes `activity`. It sets what the app shows while the bot works: `plain` (only the kind of each step, the default) or `detailed` (each step's subject too: file names, commands).
 - `rotate_bot_talk_key` replaces the key; the old one stops working at once. `disable_bot_talk` turns Talk off and forgets the key.
 
-Whoever holds the key can ask the bot for anything its instructions allow, so a bot's CLAUDE.md should say what it does for them.
+Whoever holds the key can ask the bot for anything its instructions allow, so a bot's AGENTS.md should say what it does for them.
 
 ### `create_bot`, `delete_bot`, `reorder_bots`
 
-- `create_bot` makes a bot as the Bots view does: `name`, and optionally `host`, `runtime` (`omp` by default), `dir` (default `~/bots/<name>`; an existing folder keeps its instructions and skills), `workspace`, `model`, `effort`, `permission_mode`, `mcp`, `strict_mcp`, `extra_args`, `keep_running` and `notify` (both default true), `instructions` (its first `AGENTS.md` or `CLAUDE.md`) and `start`. Returns `bot`, plus `error` when the row was made but its folder or first start failed, and `note`.
+- `create_bot` makes a bot as the Bots view does: `name`, and optionally `host`, `runtime` (`omp` by default), `dir` (default `~/bots/<name>`; an existing folder keeps its instructions and skills), `workspace`, `model`, `effort`, `permission_mode`, `mcp`, `strict_mcp`, `extra_args`, `keep_running` and `notify` (both default true), `instructions` (its first `AGENTS.md`) and `start`. Returns `bot`, plus `error` when the row was made but its folder or first start failed, and `note`.
 - `delete_bot` stops the bot if it runs and forgets it, with its jobs. `delete_folder: true` also deletes its folder, refused for a folder that holds the host's home or lasso's own directory.
 - `reorder_bots` takes `names`, the Bots view's order.
 
@@ -523,6 +524,39 @@ Signing one of a bot's MCP servers (`oauth: true`) in. `begin_bot_oauth` takes `
 
 Each takes `name`. `start_bot` and `restart_bot` resume the bot's last conversation unless `fresh` is true. `stop_bot` ends its process (a claude bot's pane closes) and keeps it stopped (keep-running leaves it alone) until it is started again; the conversation stays on disk. Each returns `bot`, the bot's `list_bots` entry after the change.
 
+## Bot alerts
+
+lasso watches every bot on its runner's tick and alerts when one stops working: **gone** (not running), **shell** (herdr restored a plain shell where the bot was), or **deaf** (up, but launched without its channel grant, its channel not polling, an event acked but never reaching the conversation, an event stuck undelivered, an omp bot not answering, or a health check failing). It alerts on transitions only: down after `down_after` (default 2 minutes), recovered after `up_after` (default 1 minute) of health, with optional reminders. Alerts go to the bot's channels and to lasso's own notifications (`bot_down`, `bot_recovered`). Design: [bot-alerts.md](../design/bot-alerts.md).
+
+A bot's own settings are `update_bot`'s `alerts`; the defaults are `update_settings`' `alerts`.
+
+Claude Code updates itself, but a running claude bot keeps the version it started with. `update_settings`' `bot_updates` turns on a daily restart onto the newer one, at a time of day and in a timezone you choose.
+
+### `hold_bot`, `release_bot`
+
+`hold_bot` holds a bot down on purpose: lasso does not relaunch it (keep-running) and its being gone or a plain shell alerts nobody, but a bot that is up and deaf still alerts. Takes `name` and optionally `minutes` or `until` (RFC 3339; with neither, the hold lasts until `release_bot`) and a `reason` shown in the Bots view. Returns `hold`. `release_bot` takes `name` and ends it.
+
+### `list_bot_alerts`
+
+Each bot's `health`, its alert state (`alert.down`, `down_since`, `down_reason`, `reminders`), its `hold` and `mode`, the alert `settings`, and the 50 newest `deliveries` (`event`, `channel_name`, `status` `sent` or `failed`, `error`). Takes an optional `bot`.
+
+### `list_alert_channels`, `create_alert_channel`, `update_alert_channel`, `delete_alert_channel`, `test_alert_channel`
+
+Where alerts go. `list_alert_channels` returns `channels` and `kinds`, each kind's fields. A channel's secrets are **never returned**: `secrets_set` names the ones that are set, and `target` is a hint that is never a secret.
+
+| kind | `config` | `secrets` |
+| --- | --- | --- |
+| `webhook` | | `url`, `signing_secret`, `authorization` |
+| `slack` | | `webhook_url` |
+| `discord` | | `webhook_url` |
+| `telegram` | `chat_id`, `thread_id` | `bot_token` |
+| `email` | `host`, `port` (587), `security` (`starttls`, `tls` or `none`), `username`, `from`, `to` (comma-separated) | `password` |
+| `heartbeat` | `bot`, `every` (seconds, 30-86400, default 60), `on_hold` (`pause` or `silent`) | `url`, `ping_secret` (required with `on_hold` `pause`) |
+
+A webhook POSTs the event as JSON; with a `signing_secret` it carries `X-Lasso-Signature: sha256=<hex HMAC-SHA256(secret, X-Lasso-Timestamp + "." + body)>`. A heartbeat is pinged while its one bot is up (a Monicron or healthchecks.io ping URL), so its monitor goes down with the bot, or with lasso; on an outage it also posts the reason to `<url>/report`. While the bot is stopped, or held and not alerted down, it pauses a Monicron monitor (`<url>/pause`, resumed when the bot is back) instead of letting it go down or keeping it green; `on_hold: silent` just stops pinging. Every request sends `ping_secret` as `Authorization: Bearer`. A heartbeat is never in a list of routed channels.
+
+`create_alert_channel` takes `kind`, `name`, `enabled`, `config` and `secrets`. `update_alert_channel` takes `id` and any of `name`, `enabled`, `config` (the complete plain fields) and `secrets` (only those that change; a key left out is kept, `""` clears it); the kind cannot change. `delete_alert_channel` takes `id` and also drops the channel from the defaults and every bot's list. `test_alert_channel` takes `id`, sends a test now and returns `ok` and `error` (never containing a secret).
+
 ## Settings
 
 These tools read and change what lasso's Settings tab shows. Each write runs through the same handler the Settings tab calls, so the validation is the same and every open lasso tab updates live. Both require a caller whose reach includes lasso's own host, because the settings live in lasso's own database; `agents` and `repos` also need the `host` they name.
@@ -533,7 +567,7 @@ These tools read and change what lasso's Settings tab shows. Each write runs thr
 
 | parameter | type | | description |
 | --- | --- | --- | --- |
-| `section` | string | optional | One of `ui`, `agents`, `repos`, `theme`, `notifications`, `browser`, `transcribe`, `plugins`. Omit for all of them. |
+| `section` | string | optional | One of `ui`, `agents`, `repos`, `theme`, `notifications`, `alerts`, `bot_updates`, `browser`, `transcribe`, `telemetry`, `plugins`. Omit for all of them. |
 | `host` | string | optional | Whose creator settings `agents` and `repos` show. Defaults to lasso's own host. |
 | `plugin_log` | string | optional | A plugin's name: also return its server's recent log lines under `plugin_log`. |
 | `lines` | integer | optional | How many `plugin_log` lines, default 200, at most 500. |
@@ -547,6 +581,8 @@ Returns one key per section:
 | `repos` | Each repo under `host`'s repo roots with its `copy_files` and `setup`. |
 | `theme` | herdr's current theme, the selectable `themes`, `sync_agent_themes`, `theme_sync_off` and the installable `catalog`. |
 | `notifications` | Registered push `devices`, by id and label, each with its notify `device` id and `kinds`. Endpoints are never returned. |
+| `alerts` | Bot alerts: `settings` (`enabled`, the default `channels`, `down_after`, `up_after`, `remind_every`, `remind_max`, `handle_within` in seconds, `link_base`) and `channels` (secrets never included). |
+| `bot_updates` | Daily Claude Code update restarts for claude bots: `enabled`, `time` (HH:MM), `timezone` (IANA), `next_run`, `in_window`, `window_minutes`, and `bots`, each running claude bot's `running` and `installed` Claude Code version and whether it is `outdated`. |
 | `browser` | The browsers' status. `list_browsers` and the other browser tools manage them. |
 | `transcribe` | The speech-to-text provider `/api/transcribe` uses: `provider` (`off`, `groq`, `openai`, `openai-compatible`), `model`, `base_url` and `key_name`, the NAME of the key's variable. Never a key. |
 | `plugins` | Each plugin's state. |
@@ -573,6 +609,8 @@ Pass only what changes; an omitted field is left alone. Returns the affected sec
 | `install_theme_url` | string | optional | Install an Omarchy theme from a URL. |
 | `remove_push_device` | string | optional | Forget the notification device with this id. |
 | `transcribe` | object | optional | Any of `provider`, `model`, `base_url`, `key_name`; only the fields given change, `""` resets one to the provider's default, and changing `provider` resets the fields not given. `key_name` names a variable or secret; it never holds a key. |
+| `alerts` | object | optional | Bot alert defaults; only the fields given change. `channels` is the complete list of default channel ids (no heartbeats). Durations are seconds; `remind_every` 0 is off, otherwise at least 300. `link_base` (e.g. `https://lasso.example.com`) makes an alert's link to the bot absolute. |
+| `bot_updates` | object | optional | Any of `enabled`, `time` (HH:MM, 24-hour) and `timezone` (an IANA name such as `America/Los_Angeles`); only the fields given change. While enabled, lasso restarts each idle claude bot whose host has a newer Claude Code installed than it runs, once a day at that time, waiting up to 3 hours for a busy one. |
 | `telemetry` | boolean | optional | Anonymous usage analytics on or off. |
 | `notify_device` | object | optional | `{id, label?, kinds?}`: one device's label and which notification kinds interrupt it (`kind: true\|false\|null`, null back to the default). `id` is a device's `device` in `notifications`. |
 | `test_push` | boolean | optional | Send a test notification to every subscribed device; returns each one's result. |

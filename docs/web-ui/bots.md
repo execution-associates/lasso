@@ -9,8 +9,8 @@ A **bot** is an agent session that lasso launches and keeps running. Each bot ha
 
 A bot's **runtime** is one of two:
 
-- **omp** (the default for a new bot): omp itself in a herdr pane, on any host lasso drives, kept running by lasso. It survives lasso restarts and updates mid-turn. It also gets a herdr pane, where you can watch it, type to it (Esc stops a turn, a number answers a question) and reach it with herdr's own agent commands. Its instructions are `AGENTS.md`, and the questions and approvals it asks wait in its chat for you to answer.
-- **Claude Code**: Claude Code in a herdr pane, on any host lasso drives, with channels. Its instructions are `CLAUDE.md`.
+- **omp** (the default for a new bot): omp itself in a herdr pane, on any host lasso drives, kept running by lasso. It survives lasso restarts and updates mid-turn. It also gets a herdr pane, where you can watch it, type to it (Esc stops a turn, a number answers a question) and reach it with herdr's own agent commands. Its instructions are `AGENTS.md` (as a Claude Code bot's are), and the questions and approvals it asks wait in its chat for you to answer.
+- **Claude Code**: Claude Code in a herdr pane, on any host lasso drives, with channels. Its instructions are `AGENTS.md`, which Claude Code reads; a bot made before keeps its `CLAUDE.md`.
 
 The rest of this page describes both, and says where they differ. An assistant that answers your mail is a bot, and so is a watcher that runs on a schedule. The **Bots** view lists them like a messaging app: the bots down the left, and the selected one's conversation on the right.
 
@@ -133,7 +133,7 @@ Talk gives someone a chat with the bot in an app on their phone that speaks the 
 - Whether the bot is taking messages. A bot started before Talk existed takes them after a restart, and the tab offers the button.
 - **Rotate** replaces the key; the old one stops working at once. **Turn off Talk** retires the key.
 
-Whoever holds the key can ask the bot for anything its instructions allow, so say in its CLAUDE.md what it may do for them. The bot answers through its channel's reply tool. A long job gets an "On it" first, and an answer that misses its request (the app was closed) arrives at the start of the next one. From outside the tailnet, the hostname's edge (Cloudflare Access) must let `/talk/` through.
+Whoever holds the key can ask the bot for anything its instructions allow, so say in its AGENTS.md what it may do for them. The bot answers through its channel's reply tool. A long job gets an "On it" first, and an answer that misses its request (the app was closed) arrives at the start of the next one. From outside the tailnet, the hostname's edge (Cloudflare Access) must let `/talk/` through.
 
 ### Skills
 
@@ -143,7 +143,7 @@ Whoever holds the key can ask the bot for anything its instructions allow, so sa
 
 ### Instructions
 
-The bot's `CLAUDE.md` (an omp bot's `AGENTS.md`): who it is and how it works. Edit it here and save it (or `⌘S`). A running bot reads it again on its next restart.
+The bot's `AGENTS.md` (or an older Claude Code bot's `CLAUDE.md`): who it is and how it works. A new bot's starts as a stub that tells it to keep `NOTES.md` in its folder as its working memory. Edit it here and save it (or `⌘S`). A running bot reads it again on its next restart.
 
 ### Environment
 
@@ -175,7 +175,7 @@ A bot can change its own settings when you ask it to in its conversation: "switc
 - its environment variables, plain or secret
 - its picture, from an image file it downloaded or generated
 
-It edits its `CLAUDE.md` and `.claude/skills` directly, as files in its folder. Most changes take effect after a restart, and the bot restarts itself to apply them. Some things stay with you:
+It edits its `AGENTS.md` and `.claude/skills` directly, as files in its folder. Most changes take effect after a restart, and the bot restarts itself to apply them. Some things stay with you:
 
 - **Approving a sign-in** to an OAuth server. The bot can start it (`begin_bot_oauth`), but you open the address it gives you and approve it, or sign in from **Connections**.
 - **Bots on other hosts and gated servers.** A bot on another host doesn't get the `lasso` server, and neither does any bot while lasso's `/mcp` requires OAuth (`MCP_OAUTH`). Add the server by hand under **Connections** in that case. A server you named `lasso` yourself is kept as is.
@@ -191,6 +191,20 @@ lasso can notify you each time a bot finishes a reply. The notification is title
 - **No duplicates for what you're reading.** No notification appears while that bot's conversation is focused and on screen, except on iPhone and iPad, which always show one.
 
 Every device with notifications on gets every notification, including [blocked agents](../concepts/notifications.md) from the rest of lasso.
+
+## Alerts when a bot stops working
+
+lasso checks every bot about every 10 seconds and alerts when one stops working:
+
+- **Gone:** it is not running.
+- **Shell:** its pane came back as a plain shell, without the bot in it.
+- **Deaf:** it runs but cannot hear its channel. It was launched without its channel grant, lasso's channel stopped polling, a job was delivered but never reached its conversation, a job is stuck waiting, an omp bot stopped answering, or one of the bot's health checks failed.
+
+A bot is reported down only after it has been unhealthy for 2 minutes, so a quick relaunch never alerts, and recovered after a minute of health. The list shows a red or amber chip on a bot that is down, with the reason on hover.
+
+- **Where alerts go.** **Settings → General → Bot alerts** holds the channels: a signed webhook, Slack, Discord, Telegram, email, or a heartbeat (a Monicron or healthchecks.io ping URL and its ping secret, pinged while the bot is up, so the monitor also goes down when lasso does; while the bot is stopped or held, its Monicron monitor is paused instead). Pick the default channels, and use **Test** on each. Saved secrets are never shown again; type a new one to replace it. Alerts also arrive as lasso notifications (**A bot is down**, **A bot recovered**).
+- **Per bot.** A bot's **General** settings choose its alerts: the defaults, none, or its own channels, with its own timing and optional health checks (a URL that must answer, optionally with a JSON field that must be true).
+- **Holding a bot down on purpose.** **Hold** in a bot's **General** settings (for an hour, or until you release it) stops lasso relaunching it and stops alerts about it being gone, and pauses its Monicron monitor. A held bot that is running but deaf still alerts.
 
 ## Creating a bot
 

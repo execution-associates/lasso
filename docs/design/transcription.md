@@ -43,8 +43,8 @@ The setting stores only explicit choices; an empty field means the provider's de
 
 ## Keys
 
-- **Named, never stored.** The setting holds the NAME of a variable (`key_name`). The value comes from lasso's environment, else `secret <key_name>` with a 10 s timeout: `lookupSecret`, the same resolver plugin secrets use (`pluginSecretLookup` is a var over it so its tests can stand in for the CLI). Nothing writes a key to `lasso.db`, and the settings section shows names only.
-- **Cached in memory for 10 minutes**, so a burst of dictation runs the `secret` CLI once. A failed lookup is not cached, so a key set a moment ago works on the next request. Any write to the setting drops the cache, which is also how a rotated secret takes effect at once.
+- **Named, never stored.** The setting holds a reference (`key_name`): the name of a variable in lasso's environment, or a 1Password `op://vault/item/field` reference read with `op read` (10 s timeout). `lookupSecret` resolves both; plugin secrets use it too (`pluginSecretLookup` is a var over it so its tests can stand in for it). Nothing writes a key to `lasso.db`, and the settings section shows names only.
+- **Cached in memory for 10 minutes**, so a burst of dictation runs `op read` once. A failed lookup is not cached, so a key set a moment ago works on the next request. Any write to the setting drops the cache, which is also how a rotated secret takes effect at once.
 - **GET resolves the key too.** A provider with no key is not available, and onboarding should say so before the first recording, not after.
 
 ## Privacy

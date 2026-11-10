@@ -3,7 +3,8 @@ package main
 // Bots: long-lived Claude Code sessions lasso defines, launches and keeps
 // running (docs/design/bots.md). A bot is a row here plus a folder on its host:
 //
-//	<dir>/CLAUDE.md            the bot's instructions (a real file, edited in place)
+//	<dir>/AGENTS.md            the bot's instructions (a real file, edited in place;
+//	                           an older bot may have a CLAUDE.md instead)
 //	<dir>/.claude/skills/      its project skills
 //	<dir>/mise.toml            its env — plain and age-encrypted — written ONLY by
 //	                           the mise CLI (botenv.go), never parsed here
@@ -112,10 +113,19 @@ type botRecord struct {
 	AutoApprove bool `json:"auto_approve"`
 	// Stopped is the human's Stop: keep-running leaves a stopped bot alone
 	// until Start clears it.
-	Stopped       bool   `json:"stopped"`
-	LastSessionID string `json:"last_session_id"`
-	CreatedAt     string `json:"created_at"`
-	UpdatedAt     string `json:"updated_at"`
+	Stopped bool `json:"stopped"`
+	// HoldUntil is a deliberate down (bothealth.go): while held, keep-running
+	// leaves the bot alone and its being gone pages nobody, but a bot that is
+	// up and deaf still alerts. 0 = not held, -1 = until released, else unix
+	// seconds. Written only by setBotHold, never by a settings save.
+	HoldUntil  int64  `json:"hold_until"`
+	HoldReason string `json:"hold_reason"`
+	// Alerts is the bot's liveness alerting (bothealth.go); nil inherits the
+	// global settings.
+	Alerts        *botAlerts `json:"alerts"`
+	LastSessionID string     `json:"last_session_id"`
+	CreatedAt     string     `json:"created_at"`
+	UpdatedAt     string     `json:"updated_at"`
 	// channelToken is the credential lasso's channel presents for this bot
 	// (botjobs.go). Never in JSON; botMaterialize loads it before rendering.
 	channelToken string
@@ -282,6 +292,14 @@ func (r *botRecord) normalize() error {
 	}
 	if r.MCP == nil {
 		r.MCP = []botMCPServer{}
+	}
+	if r.Alerts != nil {
+		if err := r.Alerts.normalize(); err != nil {
+			return err
+		}
+		if r.Alerts.empty() {
+			r.Alerts = nil
+		}
 	}
 	return nil
 }
@@ -472,10 +490,10 @@ const botAutoApproveSettings = `{"hooks":{"PermissionRequest":[{"hooks":[{"type"
 func botSystemPrompt(r *botRecord, dir string) string {
 	return fmt.Sprintf(`You are the bot %q: a long-lived Claude Code session that lasso manages. You run in a herdr pane (HERDR_PANE_ID) in %s, launched there with `+"`mise run bot`"+`. When herdr restarts it brings you back with `+"`mise run bot -- --resume <this session>`"+`, and lasso relaunches you if you stop unexpectedly, so this conversation outlives any one process. A bare `+"`mise run bot`"+` resumes this conversation too; `+"`mise run bot -- --fresh`"+` starts a new one.
 
-- CLAUDE.md in that folder is your standing instructions. Project skills go in .claude/skills/ there.
+- AGENTS.md in that folder is your standing instructions (an older bot may have only a CLAUDE.md). Project skills go in .claude/skills/ there.
 - lasso generates .lasso/mcp.json, .mise/config.toml, .mise/tasks/bot and .mise/tasks/restart from its Bots settings and overwrites them on every save: change those through lasso, not by editing the files. lasso always launches you with that bot task.
 - Your environment and secrets come from fnox.toml through mise, and only reach you at launch.
-- You can configure yourself when your human asks. Lasso's MCP tools (server "lasso") take your name, %q: get_bot reads your settings, update_bot changes your model, effort, permission mode, MCP servers (including which are channels), extra args, keep-running and avatar, set_bot_avatar sets your picture from an image file, and set_bot_env / unset_bot_env manage your variables (secret ones encrypted). Edit CLAUDE.md and the files in .claude/skills/ directly (add_bot_skill copies one in from a skill library). To sign in a server that needs OAuth, call begin_bot_oauth and give your human the address it returns to open and approve. Settings, MCP servers and variables take effect after you restart.
+- You can configure yourself when your human asks. Lasso's MCP tools (server "lasso") take your name, %q: get_bot reads your settings, update_bot changes your model, effort, permission mode, MCP servers (including which are channels), extra args, keep-running and avatar, set_bot_avatar sets your picture from an image file, and set_bot_env / unset_bot_env manage your variables (secret ones encrypted). Edit that instructions file and the files in .claude/skills/ directly (add_bot_skill copies one in from a skill library). To sign in a server that needs OAuth, call begin_bot_oauth and give your human the address it returns to open and approve. Settings, MCP servers and variables take effect after you restart.
 - You CAN restart yourself, and it is safe: run `+"`mise run restart`"+` in %s with your shell tool. That is the supported way, made for exactly this; it is not killing a process or closing a pane by hand. It ends this session a few seconds after your turn finishes and starts it again in the same pane, on this same conversation. Do it whenever your human asks you to restart, and when you need a new skill, MCP server, setting or variable to take effect; say you are restarting before you run it.`,
 		r.Name, dir, r.Name, dir)
 }
@@ -687,8 +705,8 @@ func validateResumeArgv(argv []string) error {
 }
 
 // botMaterialize writes the bot's folder on its host: lasso's mise config, a
-// fnox.toml if there is none, the generated task and mcp.json, and a CLAUDE.md
-// if there is none. It never overwrites CLAUDE.md, skills, fnox.toml or the
+// fnox.toml if there is none, the generated task and mcp.json, and an
+// AGENTS.md if it has no instructions. It never overwrites instructions, skills, fnox.toml or the
 // bot's own mise.toml.
 func botMaterialize(b Backend, r *botRecord) error {
 	if r.isOmp() {
@@ -777,16 +795,22 @@ func botWriteTask(b Backend, r *botRecord, dir string) error {
 
 // The workspace and launch_task columns are unused: every bot runs `mise run
 // bot` in botWorkspace.
-const botCols = `id, host, name, dir, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, created_at, updated_at, avatar_image, notify, runtime, auto_approve`
+const botCols = `id, host, name, dir, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, created_at, updated_at, avatar_image, notify, runtime, auto_approve, hold_until, hold_reason, alerts`
 
 func scanBot(row interface{ Scan(...any) error }) (*botRecord, error) {
 	var r botRecord
-	var mcp, extra string
+	var mcp, extra, alerts string
 	var strict, keep, stopped, notify, autoApprove int
 	if err := row.Scan(&r.ID, &r.Host, &r.Name, &r.Dir, &r.Model, &r.Effort, &r.PermissionMode,
 		&mcp, &strict, &extra, &r.Avatar, &keep, &stopped, &r.LastSessionID, &r.CreatedAt, &r.UpdatedAt,
-		&r.AvatarImage, &notify, &r.Runtime, &autoApprove); err != nil {
+		&r.AvatarImage, &notify, &r.Runtime, &autoApprove, &r.HoldUntil, &r.HoldReason, &alerts); err != nil {
 		return nil, err
+	}
+	if alerts != "" && alerts != "null" {
+		var a botAlerts
+		if json.Unmarshal([]byte(alerts), &a) == nil {
+			r.Alerts = &a
+		}
 	}
 	r.Notify, r.AutoApprove = notify != 0, autoApprove != 0
 	r.StrictMCP, r.KeepRunning, r.Stopped = strict != 0, keep != 0, stopped != 0
@@ -840,10 +864,10 @@ func insertBot(r *botRecord) error {
 	mcp, _ := json.Marshal(r.MCP)
 	extra, _ := json.Marshal(r.ExtraArgs)
 	// A new bot goes to the end of the list.
-	res, err := db.Exec(`INSERT INTO bots (host, name, dir, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, position, created_at, updated_at, notify, runtime, auto_approve)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM bots), ?, ?, ?, ?, ?)`,
+	res, err := db.Exec(`INSERT INTO bots (host, name, dir, model, effort, permission_mode, mcp, strict_mcp, extra_args, avatar, keep_running, stopped, last_session_id, position, created_at, updated_at, notify, runtime, auto_approve, alerts)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM bots), ?, ?, ?, ?, ?, ?)`,
 		r.Host, r.Name, r.Dir, r.Model, r.Effort, r.PermissionMode, string(mcp), boolInt(r.StrictMCP),
-		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Stopped), r.LastSessionID, r.CreatedAt, r.UpdatedAt, boolInt(r.Notify), r.Runtime, boolInt(r.AutoApprove))
+		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Stopped), r.LastSessionID, r.CreatedAt, r.UpdatedAt, boolInt(r.Notify), r.Runtime, boolInt(r.AutoApprove), botAlertsJSON(r.Alerts))
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return fmt.Errorf("a bot named %q already exists", r.Name)
@@ -861,9 +885,9 @@ func updateBot(r *botRecord) error {
 	mcp, _ := json.Marshal(r.MCP)
 	extra, _ := json.Marshal(r.ExtraArgs)
 	_, err := db.Exec(`UPDATE bots SET dir = ?, model = ?, effort = ?, permission_mode = ?, mcp = ?, strict_mcp = ?,
-		extra_args = ?, avatar = ?, keep_running = ?, notify = ?, runtime = ?, auto_approve = ?, updated_at = ? WHERE name = ?`,
+		extra_args = ?, avatar = ?, keep_running = ?, notify = ?, runtime = ?, auto_approve = ?, alerts = ?, updated_at = ? WHERE name = ?`,
 		r.Dir, r.Model, r.Effort, r.PermissionMode, string(mcp), boolInt(r.StrictMCP),
-		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Notify), r.Runtime, boolInt(r.AutoApprove), r.UpdatedAt, r.Name)
+		string(extra), r.Avatar, boolInt(r.KeepRunning), boolInt(r.Notify), r.Runtime, boolInt(r.AutoApprove), botAlertsJSON(r.Alerts), r.UpdatedAt, r.Name)
 	return err
 }
 
@@ -921,6 +945,7 @@ func deleteBot(name string) error {
 	deleteBotJobsOf(name)
 	deleteBotTalksOf(name)
 	_, _ = db.Exec(`DELETE FROM bot_message_meta WHERE bot = ?`, name)
+	deleteBotAlertState(name)
 	_, err := db.Exec(`DELETE FROM bots WHERE name = ?`, name)
 	return err
 }

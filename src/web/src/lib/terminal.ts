@@ -40,8 +40,8 @@ interface XTerm {
   options?: Record<string, unknown>
   attachCustomKeyEventHandler?: (h: (e: KeyboardEvent) => boolean) => void
   resize?: (cols: number, rows: number) => void
-  // xterm.js public IParser. ttyd 1.7.4 never registers an OSC 52 handler, so
-  // we add our own (wireOsc52) to honour herdr's clipboard copies.
+  // xterm.js public IParser. We add our own OSC 52 handler (wireOsc52) so
+  // herdr's clipboard copies land on plain-http origins too.
   parser?: {
     registerOscHandler?: (
       ident: number,
@@ -181,10 +181,10 @@ function wireShiftEnter(id: string, tries: number) {
 
 // herdr copies (copy-mode, double-click token, mouse selection in a pane) by
 // emitting OSC 52 — `ESC ] 52 ; c ; <base64> BEL` — and immediately shows
-// "copied to clipboard". But ttyd 1.7.4's bundled xterm.js registers no OSC 52
-// handler, so the sequence is silently dropped and the browser clipboard is
-// never written: herdr says it copied, but nothing actually did. We register
-// the missing handler on the same-origin xterm to close that gap.
+// "copied to clipboard". The terminal page's ClipboardAddon writes it only
+// through the async Clipboard API, which plain-http tailnet origins lack, so
+// herdr said it copied and nothing did. Our handler is registered after the
+// addon's, so xterm runs it first, and it falls back to a legacy copy.
 //
 // `data` is the OSC payload after "52;" — "<Pc>;<base64>", where Pc is the
 // target selection ("c" for clipboard, may be empty or multi-char). A read

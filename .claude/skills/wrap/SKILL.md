@@ -222,6 +222,22 @@ host-side copy, which executes nothing — and only when the lockfiles match:
 If they differ the deps genuinely changed and the container needs its network
 back — stop and report rather than typechecking against the wrong tree.
 
+**The Mac app's tests have no CI** (no runner on minime: the repo is public), so
+this step is the only place they run. When the branch touches `mac/`, run them on
+minime too:
+
+```bash
+if ! git diff --quiet origin/main...HEAD -- mac/; then
+  out=$(mac/Scripts/dev.sh test); echo "$out" | grep '✘'
+  echo "$out" | grep -q 'Test run with .* passed' && mac/Scripts/dev.sh parity
+fi
+```
+
+`dev.sh test` prints every result; only a `Test run with … passed` line is green.
+A failure is the branch's to fix even when the failing test is not one it touched:
+nothing else will ever run it. minime unreachable means the Mac half is
+unverified: say so in the report rather than merging it as checked.
+
 If anything fails, **stop and report** — do not merge. Fix or hand back to the user.
 
 ## 3. Merge the feature into main
@@ -325,9 +341,10 @@ Don't proceed to update against a missing/failed release.
 
 Lasso, the Mac app, ships with every lasso release: its DMG and Sparkle
 `appcast.xml` are assets of the release, and every installed app checks
-`releases/latest/download/appcast.xml` for updates. **A release without them
-silently stops every Mac from updating**, because it becomes the newest release
-and its appcast is missing. GitHub cannot build it (no runner on minime: the
+`releases/latest/download/appcast.xml` for updates. The release workflow starts
+each release with the previous release's appcast and `Lasso.dmg`, so **a release
+this step skips leaves every Mac on the previous app version** rather than broken.
+GitHub cannot build it (no runner on minime: the
 repo is public), so this step does, from titan, once the release from step 6
 exists:
 

@@ -87,4 +87,4 @@ The app icon's source is `brand/icon/icon.png`, a raster used at every size down
 
 ## License
 
-lasso is licensed under the [Apache License 2.0](https://github.com/execution-associates/lasso/blob/main/LICENSE), the same license as herdr. See [NOTICE](https://github.com/execution-associates/lasso/blob/main/NOTICE).
+lasso is licensed under the [Execution Associates Source License 1.0](https://github.com/execution-associates/lasso/blob/main/LICENSE) (EXA-SL-1.0), which becomes Apache 2.0 for each version two years after its release. See [NOTICE](https://github.com/execution-associates/lasso/blob/main/NOTICE). Third-party code keeps its own license, named in its file.

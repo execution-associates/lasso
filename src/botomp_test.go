@@ -39,6 +39,8 @@ type fakeBridge struct {
 	thinking  string
 	answers   chan string
 	done      chan struct{}
+	// silent: answer nothing, like an omp that hung (bot liveness tests).
+	silent bool
 	// onExit runs when omp would exit: restart is true when the restart
 	// marker made it, which the launch task answers by relaunching.
 	onExit func(restart bool)
@@ -145,6 +147,12 @@ func (f *fakeBridge) respond(id, typ string, data any) {
 
 func (f *fakeBridge) handle(line string) {
 	f.log("in " + line)
+	f.mu.Lock()
+	silent := f.silent
+	f.mu.Unlock()
+	if silent {
+		return
+	}
 	var c struct {
 		ID          string `json:"id"`
 		Type        string `json:"type"`
@@ -800,8 +808,8 @@ func TestBotCreateSeedsInstructions(t *testing.T) {
 	if w := do(`{"name":"c","runtime":"claude","dir":"` + claudeDir + `","instructions":"Answer mail."}`); w.Code != 200 {
 		t.Fatalf("create claude: %d %s", w.Code, w.Body)
 	}
-	if b, _ := os.ReadFile(filepath.Join(claudeDir, "CLAUDE.md")); string(b) != "Answer mail.\n" {
-		t.Errorf("CLAUDE.md = %q", b)
+	if b, _ := os.ReadFile(filepath.Join(claudeDir, "AGENTS.md")); string(b) != "Answer mail.\n" {
+		t.Errorf("AGENTS.md = %q", b)
 	}
 	// An existing file is kept, and the answer says so.
 	keepDir := filepath.Join(root, "k")

@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -505,10 +507,47 @@ func TestTranscribeConfig(t *testing.T) {
 	}
 }
 
-// lookupSecret is the shared resolver: the environment wins over the CLI.
-func TestLookupSecretPrefersEnv(t *testing.T) {
+// lookupSecret is the shared resolver: a plain name is lasso's environment and
+// nothing else; an op:// reference goes to `op read`.
+func TestLookupSecretEnvAndOpRef(t *testing.T) {
 	t.Setenv("LASSO_TEST_TRANSCRIBE_KEY", "from-env")
 	if v, err := lookupSecret(context.Background(), "LASSO_TEST_TRANSCRIBE_KEY"); err != nil || v != "from-env" {
 		t.Fatalf("lookupSecret = %q %v", v, err)
+	}
+	if _, err := lookupSecret(context.Background(), "LASSO_TEST_UNSET_KEY_XYZ"); err == nil {
+		t.Fatal("an unset name resolved")
+	}
+
+	// A fake op on PATH: prints the argv it got, so the test sees exactly what
+	// was asked, and fails for the "missing" item the way op does.
+	dir := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"case \"$3\" in *missing*) echo '[ERROR] could not read secret: item not found' >&2; exit 1;; esac\n" +
+		"printf '%s|' \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "op"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	ref := "op://titan/My Item/credential"
+	v, err := lookupSecret(context.Background(), ref)
+	if err != nil || v != "read|--no-newline|"+ref+"|" {
+		t.Fatalf("op ref = %q %v", v, err)
+	}
+	_, err = lookupSecret(context.Background(), "op://titan/missing/credential")
+	if err == nil || !strings.Contains(err.Error(), "item not found") {
+		t.Fatalf("op failure = %v", err)
+	}
+}
+
+func TestValidKeyRef(t *testing.T) {
+	for _, ok := range []string{"OPENAI_API_KEY", "_X", "op://titan/item/field", "op://Private/My Item/section/field"} {
+		if !validKeyRef(ok) {
+			t.Errorf("validKeyRef(%q) = false", ok)
+		}
+	}
+	for _, bad := range []string{"", "1KEY", "has-dash", "op://", "op://vault", "op://vault/item", "op://v/i/f\nx", "op://v//f", "op://a/b/c/d/e", "sk-live-abc"} {
+		if validKeyRef(bad) {
+			t.Errorf("validKeyRef(%q) = true", bad)
+		}
 	}
 }
