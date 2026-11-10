@@ -13,6 +13,14 @@ func clientEventAppended(threadID, userID, typ string, data any, now time.Time) 
 func clientBadgeMaybeDown(userID string, before int, now time.Time) {}
 
 func serveClientExtraRoutes(w http.ResponseWriter, r *http.Request, id *clientIdentity, segs []string) bool {
+	if len(segs) == 1 && segs[0] == "search" {
+		if r.Method != http.MethodGet {
+			clientMethod(w, "GET")
+			return true
+		}
+		serveClientSearch(w, r, id)
+		return true
+	}
 	return false
 }
 
@@ -20,8 +28,4 @@ func clientPushView(id *clientIdentity) map[string]any {
 	return map[string]any{"available": false, "provider": "none", "registered": false, "reason": "not_configured"}
 }
 
-func botThreadSearch(a *botActor, query, threadID string, limit int, now time.Time) (map[string]any, error) {
-	return map[string]any{"results": []any{}}, nil
-}
 
-const clientBotSearchPerMin = 20

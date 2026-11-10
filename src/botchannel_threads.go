@@ -168,10 +168,6 @@ func serveBotChannelThreadTool(w http.ResponseWriter, r *http.Request, bot, acti
 		return
 	}
 	in.Kind = strings.ReplaceAll(action, "-", "_")
-	if in.Kind == "thread_search" && !clientLimits.allow("botsearch:"+bot, clientBotSearchPerMin, time.Minute, time.Now()) {
-		http.Error(w, "too many searches: at most 20 a minute", http.StatusTooManyRequests)
-		return
-	}
 	out, err := botThreadToolCall(bot, in, time.Now())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
