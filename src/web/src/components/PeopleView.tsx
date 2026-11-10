@@ -36,7 +36,13 @@ import {
 import { labelClass } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Orb } from "@/components/ui/orb"
-import { type AppUser, api, type BotDetail, type BotView } from "@/lib/api"
+import {
+  type AppDevicePush,
+  type AppUser,
+  api,
+  type BotDetail,
+  type BotView,
+} from "@/lib/api"
 import { botKey, relativeTime, useBots, useMinuteClock } from "@/lib/bots"
 import {
   activeDevices,
@@ -599,7 +605,30 @@ function ManagePerson({
                       ? `last seen ${when(d.last_seen_at, now)}`
                       : "not seen yet"}
                   </p>
+                  <p className="text-[11.5px] text-muted-foreground">
+                    {pushLabel(d.push, now)}
+                  </p>
                 </div>
+                {!d.revoked_at && d.push && (
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={() =>
+                      api
+                        .testClientPush(user.id, d.id)
+                        .then((r) =>
+                          r.ok
+                            ? toast.success("Push sent")
+                            : toast.error(
+                                `Push refused: ${r.reason ?? r.status ?? "no answer"}${r.token_deleted ? " (token removed)" : ""}`
+                              )
+                        )
+                        .catch((e: Error) => toast.error(e.message))
+                    }
+                  >
+                    Test push
+                  </Button>
+                )}
                 {!d.revoked_at && (
                   <Button
                     size="xs"
@@ -710,6 +739,17 @@ function ManagePerson({
       </AlertDialog>
     </div>
   )
+}
+
+// pushLabel says how a device gets the phone app's notifications.
+function pushLabel(p: AppDevicePush | null | undefined, now: number): string {
+  if (!p) return "No push"
+  const name = p.provider === "apns" ? "Push (Apple" : "Push (Google"
+  const env = p.environment ? `, ${p.environment}` : ""
+  let out = `${name}${env})`
+  if (p.last_error) out += ` · last refused: ${p.last_error}`
+  else if (p.last_ok_at) out += ` · last sent ${when(p.last_ok_at, now)}`
+  return out
 }
 
 function when(iso: string, now: number): string {

@@ -1231,6 +1231,48 @@ export interface AppDevice {
   // "" until the device has made a request.
   last_seen_at: string
   revoked_at?: string
+  // The device's push registration (never the token), null without one.
+  push?: AppDevicePush | null
+}
+
+export interface AppDevicePush {
+  provider: "apns" | "fcm"
+  environment?: string
+  app_id?: string
+  last_ok_at?: string
+  // The provider's reason code from the last refused push.
+  last_error?: string
+}
+
+// Push to the phone apps (clientpush.go): the stored choices — references to
+// the secrets, never their values — and each provider's state.
+export type ClientPushState =
+  | "unconfigured"
+  | "unreadable"
+  | "ready"
+  | "failing"
+
+export interface ClientPushConfig {
+  apns: {
+    team_id: string
+    key_id: string
+    topic: string
+    key_ref: string
+    default_topic: string
+    state: ClientPushState
+    reason?: string
+  }
+  fcm: {
+    credentials_ref: string
+    state: ClientPushState
+    reason?: string
+    project_id?: string
+  }
+}
+
+export interface ClientPushPatch {
+  apns?: Partial<Record<"team_id" | "key_id" | "topic" | "key_ref", string>>
+  fcm?: Partial<Record<"credentials_ref", string>>
 }
 
 export interface AppUser {
@@ -2343,6 +2385,18 @@ export const api = {
   // The Internal AI endpoint behind the titler (llm.go). Server-level: the
   // endpoint is reached from lasso's own machine.
   llmConfig: () => getJSON<LLMConfig>("/api/llm/config"),
+  // Push to the phone apps (clientpush.go): references only, never a key.
+  clientPush: () => getJSON<ClientPushConfig>("/api/client-push"),
+  setClientPush: (patch: ClientPushPatch) =>
+    postJSON<ClientPushConfig>("/api/client-push", patch),
+  testClientPush: (userID: string, deviceID: string) =>
+    postJSON<{
+      ok: boolean
+      status?: number
+      reason?: string
+      provider: string
+      token_deleted?: boolean
+    }>("/api/client-push/test", { user_id: userID, device_id: deviceID }),
   setLLMConfig: (patch: LLMConfigPatch) =>
     postJSON<LLMConfig>("/api/llm/config", patch),
   // The endpoint's /models for the picker. `refresh` bypasses the short cache.

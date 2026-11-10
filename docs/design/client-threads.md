@@ -1,6 +1,6 @@
 <!-- Design rationale and contract: read before changing the code it names. Three implementers (server, iPhone, Android) build from this document without talking to each other, so every shape here is binding. -->
 
-# Client threads and push (`src/clientapi*.go`, `src/clientthreads*.go`, `src/clientpush*.go`, `src/clientsearch.go`, `src/botchannel.go`, `src/botomp*.go`, `src/ompbridge/lasso-bridge.ts`, `src/mcp_appusers.go`)
+# Client threads and push (`src/clientapi*.go`, `src/clientthreads*.go`, `src/clientpush*.go`, `src/clientsearch.go`, `src/botchannel.go`, `src/botchannel_threads.go`, `src/botomp*.go`, `src/ompbridge/lasso-bridge.ts`, `src/mcp_appusers.go`, `src/mcp_clientthreads.go`, `ClientPushSettings.tsx`, `PeopleView.tsx`)
 
 This extends the client API ([client-api.md](client-api.md)). Everything there still holds unless this document says otherwise: device tokens, pairing, the error body, the JSON convention (an optional field with no value is omitted), attachments, quotas, retention, reply tokens, access re-checked at delivery, the outbox rule.
 
@@ -8,7 +8,7 @@ What it adds:
 
 1. **Everything is a thread.** A person's conversation with a bot is that pair's **main thread**. Other threads have a title, belong to the same one person, and can have several of that person's bots in them.
 2. **Threads are found and managed**: listed, searched (full text, scoped to the person), renamed, pinned, muted, archived, deleted, with unread counts and read markers.
-3. **Bots work with threads**: every message a bot receives names its thread, a bot is handed the thread's context when it needs it (and only then), and it has tools to list, read, search, create, rename, archive and summarise threads, reply into a specific one, and propose adding another bot.
+3. **Bots work with threads**: every message a bot receives names its thread, a bot is handed the thread's context when it needs it (and only then), and it has tools to list, read, search, create, rename, archive and summarise threads, reply into a specific one, and propose adding another bot. Bots in one thread see each other's messages as they are written.
 4. **Push notifications** to the person's phones (APNs, FCM) when a bot writes and the app is not in the foreground.
 
 ## Contents
@@ -22,6 +22,7 @@ What it adds:
 - [Threads](#threads)
 - [Messages in threads](#messages-in-threads)
 - [Participants and routing](#participants-and-routing)
+- [Bots talking in a thread](#bots-talking-in-a-thread)
 - [Proposals](#proposals)
 - [Read markers and unread](#read-markers-and-unread)
 - [Search](#search)
@@ -53,7 +54,7 @@ Choices the product brief left open, and why:
 | where a thread can hang | only off a message in a **main** thread; at most one thread per message | "one level only"; a thread is found from its anchor without ambiguity |
 | routing | the send body's `mentions` array, never parsed text; no mention → the lead | text parsing is ambiguous (an email address, "@home"); the app's @ picker knows exactly which bot was picked |
 | lead removed | the next participant by join order becomes lead; removing the last one is refused (`last_participant`) | a thread always has someone to answer it, except after a grant is revoked (below) |
-| bot-to-bot | a bot's message is **never** routed to another bot | no loops, no cost explosion; the others see it in their next [context hand-off](#context-hand-off) |
+| bot-to-bot | a bot's finished message in a thread is **delivered to the thread's other bots** as it happens: addressed to the ones it `mentions`, informational to the rest; at most `clientBotRunMax` (8) in a row since the person last wrote, then the bots pause until the person writes ([Bots talking in a thread](#bots-talking-in-a-thread)) | bots in one thread work together; the run cap and a per-thread rate limit keep a loop cheap and bounded, and the context hand-off keeps each delivery small |
 | bots and non-participant threads | **invisible**: a bot lists, reads and searches only threads it is an active participant of, of the person it is answering | the default in the brief; nothing a bot can call names another thread |
 | what authorises a bot tool | the same thing that authorises a reply today: a claude bot presents the `reply_token` of a message that person sent it (open); an omp bot must be inside that person's open turn | no new credential, the security-reviewed property "a bot can act only for a person who wrote to it, and only for that person" carries over unchanged |
 | context hand-off | lasso inlines summary + recent messages in the delivered message **only** when the bot's context is stale for that thread (session reset, compaction, long gap, or never seen); otherwise only what the bot missed, usually nothing | cheap in the common case, correct after a reset, works on both runtimes and on remote bots where tools cannot answer |
@@ -71,7 +72,7 @@ Choices the product brief left open, and why:
   - **Thread**: has a `title`, one or more participant bots, optionally an **anchor** (a message in one of the person's main threads it hangs off), a state (`open` or `archived`), pinned and muted flags, and a bot-maintained **summary**. It stays visible to the person whatever happens to grants.
 - A **participant** is a bot in a thread, with a join position. The **lead** is the active participant with the lowest position.
 - A **message** is in exactly one thread. Roles: `user` (the person), `bot` (a participant, named in `bot`) and `system` (lasso noting a change: a bot added or removed, a rename; only in non-main threads).
-- A **delivery** is one bot's copy of a person's message: a person's message routed to two bots has two deliveries, each its own `bot_events` row and its own reply token.
+- A **delivery** is one bot's copy of a person's message: a person's message routed to two bots has two deliveries, each its own `bot_events` row and its own reply token. A bot's message handed to the thread's other bots is a `bot_events` row per recipient too (event `bot_message`), with no delivery row: deliveries are the person's messages'.
 - A **proposal** (`bp_…`) is a bot asking the person to add another bot to a thread. Nothing changes until the person accepts it.
 - A **push token** (`pt_…`) is one device's APNs or FCM token.
 - A **read marker** is per thread (a thread has one person), shared by all of the person's devices.
@@ -201,6 +202,7 @@ ALTER TABLE app_devices ADD COLUMN stream_seen_at TEXT NOT NULL DEFAULT '';-- th
 ALTER TABLE bots ADD COLUMN client_epoch INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE bots ADD COLUMN client_session TEXT NOT NULL DEFAULT '';       -- the session id lasso last saw
 ALTER TABLE bots ADD COLUMN client_deliveries INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE bots ADD COLUMN channel_threads INTEGER NOT NULL DEFAULT 0;     -- the channel announced threads1
 CREATE INDEX IF NOT EXISTS app_events_user ON app_events(user_id, seq);
 ```
 
@@ -342,7 +344,7 @@ Unchanged: `POST /pair`, `GET /bots`, `GET /bots/{bot}`, `GET /bots/{bot}/avatar
   ],
   "lead": "jess",
   "anchor": {
-    "thread_id": "c_1a2b3c4d5e6f7a8b9c0d1e2f", "message_id": "m_5e6f7a8b9c0d1e2f3a4b5c6d",
+    "thread_id": "c_1a2b3c4d5e6f7a8b9c0d1e2f", "message_id": "m_5e6f7a8b9c0d1e2f3a4b5c6d", "cursor": "4410",
     "role": "bot", "bot": "jess", "text": "I can look into contractors for the kitchen…",
     "created_at": "2026-11-09T17:55:12Z", "available": true
   },
@@ -353,7 +355,7 @@ Unchanged: `POST /pair`, `GET /bots`, `GET /bots/{bot}`, `GET /bots/{bot}/avatar
   "reply_count": 14,
   "unread": 2,
   "read_cursor": "5120",
-  "last_message": {"id": "m_…", "role": "bot", "bot": "mark", "preview": "Permits in Irvine need…", "created_at": "2026-11-09T18:40:02Z"},
+  "last_message": {"id": "m_…", "cursor": "5133", "role": "bot", "bot": "mark", "preview": "Permits in Irvine need…", "created_at": "2026-11-09T18:40:02Z"},
   "last_activity_at": "2026-11-09T18:40:02Z",
   "proposals": [],
   "call": null,
@@ -365,10 +367,10 @@ Unchanged: `POST /pair`, `GET /bots`, `GET /bots/{bot}`, `GET /bots/{bot}/avatar
 
 - `kind: "main"` threads have `bot` (the bot's name) and no `title`, `anchor`, `state` other than `open`, or `added_by`; `bots` is that one bot as lead.
 - `bots` lists **active** participants in join order. `added_by` is present when it was not the person directly: `proposal` (the person accepted a bot's proposal) or `bot` (the bot made the thread).
-- `anchor` is absent on a standalone thread. Its fields are the snapshot taken when the thread was made; `available` is false once the anchor message is gone (its bot was deleted), so the app shows the quote but cannot jump to it.
+- `anchor` is absent on a standalone thread. Its fields are the snapshot taken when the thread was made; `cursor` is the anchor message's cursor in its main thread (for `messages?around=`), present while the message exists; `available` is false once the anchor message is gone (its bot was deleted), so the app shows the quote but cannot jump to it.
 - `summary` is absent until a bot writes one. `text` is up to 4000 characters and may have line breaks; it is plain text.
 - `reply_count` counts `user` and `bot` messages in the thread. `unread` counts bot messages with `done: true` after `read_cursor` ([Read markers](#read-markers-and-unread)). `read_cursor` is `"0"` when nothing was read.
-- `last_message` is absent in an empty thread. `preview` is the first 140 characters of its text with line breaks turned into spaces, or `"Photo"` / `"File"` / `"2 files"` when it has only attachments. `role` may be `system`.
+- `last_message` is absent in an empty thread. `cursor` is its cursor, which `POST /threads/{id}/read` takes to mark the thread read from a list. `preview` is the first 140 characters of its text with line breaks turned into spaces, or `"Photo"` / `"File"` / `"2 files"` when it has only attachments. `role` may be `system`.
 - `proposals` are the **pending** proposals for this thread ([Proposals](#proposals)). `call` is the open call object or `null`.
 - `created_by` is `user`, `bot` or `main`.
 
@@ -386,10 +388,11 @@ Unchanged: `POST /pair`, `GET /bots`, `GET /bots/{bot}`, `GET /bots/{bot}/avatar
 
 - `thread_id` is on every message; `conversation_id` stays, with the same value.
 - `bot` is on every `bot` message: the author. Absent on `user` and `system` messages.
-- `mentions` is on a person's message that named bots; absent otherwise.
+- `mentions` is on a person's message that named bots, and on a bot's message that named other bots of the thread (the bots it is addressed to); absent otherwise.
+- `in_reply_to` on a bot message is the message it answers: the person's, or (in a thread with several bots) another bot's.
 - `deliveries` is on every person's message: one entry per bot it was routed to, `state` `queued` | `delivered` | `failed` with `failed_reason` when failed, and `routed` `lead` | `mention` | `call` | `main`. `state` (the old field) is the aggregate: `queued` while any delivery is queued, else `delivered` if any was delivered, else `failed` (with the first `failed_reason`).
-- A `system` message has `role: "system"`, `done: true`, `mode: "text"`, a human-readable `text` ("mark joined the thread") and `system: {"type": "bot_added" | "bot_removed" | "lead_changed" | "renamed" | "proposal_declined", "bot"?: "mark", "by": "user" | "proposal" | "bot:jess" | "access" | "bot_deleted", "title"?: "…"}`. Apps may render it from `system` or from `text`. It is never in a main thread and never delivered to a bot as a message (bots see it in context).
-- An **anchor message** in a main thread's history (and in `message` events after a thread hangs off it) carries `thread`: `{"id", "title", "bots": ["jess", "mark"], "reply_count", "unread", "last_activity_at"}`. That is the stub. A deleted thread's stub disappears.
+- A `system` message has `role: "system"`, `done: true`, `mode: "text"`, a human-readable `text` ("mark joined the thread") and `system: {"type": "bot_added" | "bot_removed" | "lead_changed" | "renamed" | "proposal_declined" | "bots_paused", "bot"?: "mark", "by": "user" | "proposal" | "bot:jess" | "access" | "bot_deleted" | "lasso", "title"?: "…", "limit"?: 8}`. `bots_paused` (by `lasso`, with `limit`) says the bots stopped passing messages to each other after that many in a row; it appears once per run and the bots pick up again when the person writes. An app that does not know a type renders `text`. Apps may render it from `system` or from `text`. It is never in a main thread and never delivered to a bot as a message (bots see it in context).
+- An **anchor message** in a main thread's history carries `thread`: `{"id", "title", "bots": ["jess", "mark"], "reply_count", "unread", "last_activity_at"}`. That is the stub. The anchor message is not re-sent when the stub changes: a `thread_stub` event on the main thread carries the new stub ([The event streams](#the-event-streams)). A deleted thread's stub disappears (`thread_deleted`).
 
 ### Proposal
 
@@ -419,7 +422,7 @@ Order: pinned first (most recently pinned first), then `last_activity_at` newest
 {"threads": [{…thread…}], "next_cursor": "eyJ…", "events_cursor": "91230", "unread_total": 7, "badge": 6}
 ```
 
-`next_cursor` is `null` on the last page. `events_cursor` is the person stream's position read **before** the list, to open `GET /events` with ([The event streams](#the-event-streams)). `unread_total` is the sum of `unread` over all listed-able threads (archived included, muted included); `badge` is what the app icon shows ([Read markers](#read-markers-and-unread)).
+`next_cursor` is `null` on the last page. `events_cursor` is the person stream's position, to open `GET /events` with ([The event streams](#the-event-streams)). It and every `unread`, `unread_total` and `badge` in the answer are one snapshot: the counts include exactly the messages whose `message` event is at or before `events_cursor`, so a stream opened from it never replays a message the counts already hold. `hello` on a fresh person stream (no `Last-Event-ID`) is the same kind of snapshot. `unread_total` is the sum of `unread` over all listed-able threads (archived included, muted included); `badge` is what the app icon shows ([Read markers](#read-markers-and-unread)).
 
 ### `POST /threads`
 
@@ -488,7 +491,7 @@ Answers as today: `202 {"message": {…}, "replayed": false}` with `deliveries` 
 - **Adding**: `POST /threads/{id}/bots {"bot": "mark"}` → `{"thread": {…}}`. Idempotent for an active participant. A bot removed earlier comes back at the end of the join order. Adds `system` `bot_added` (`by: "user"`). Main thread: `409 main_thread`. Ungranted: `404 not_found`.
 - **Removing**: `DELETE /threads/{id}/bots/{bot}` → `{"thread": {…}}`. Main thread: `409 main_thread`. The last active participant: `409 last_participant`. Not a participant: `404 not_found`. Messages already queued for that bot in this thread are dropped (failed: "The bot left the thread before it took the message."), its pending proposals are withdrawn, and `system` `bot_removed` is added. If it was the lead, the next by join order leads (`system` `lead_changed` is not added for this; the `bots` list says it).
 - **Routing a person's message**: the bots in `mentions`, each once; with no mentions, the lead; a voice message, the call's bot. Each recipient gets its own delivery (its own `bot_events` row, nonce and reply token). Bots not routed to learn of the message in their next [context hand-off](#context-hand-off).
-- **A bot's messages are never routed** to another bot, whatever they say.
+- **A bot's finished message** in a thread with other bots is delivered to each of them as it is written ([Bots talking in a thread](#bots-talking-in-a-thread)). It never goes back to its author.
 - **Grant revoked** (`deleteAppGrant`): the bot is removed from every non-main thread of that person (`removed_reason: "access"`, `system` `bot_removed` with `by: "access"`), its pending deliveries are dropped (as today), and proposals naming it are withdrawn. The main thread disappears from the person's view (`404`), as before, and returns with its history if the grant is given back. A non-main thread left with no participant stays visible and readable, with `bots: []`, and a send answers `409 no_participants` until the person adds a granted bot.
 - **Bot deleted**: its main threads go as today (messages, events, calls, files). In non-main threads it is removed (`removed_reason: "bot_deleted"`), its messages stay (with `bot` naming it), and its files are removed with `removed: "bot"` unless another bot holds a copy, which becomes the primary. Threads anchored to messages that went with its main threads keep their anchor snapshot with `available: false`.
 
@@ -560,7 +563,7 @@ One SSE connection carries every event of every thread the person can see, so an
 
 | event | `id:` | `data` |
 | --- | --- | --- |
-| `hello` | no | `{user_id, events_cursor, unread_total, badge, bots: [{bot, state, reason?}], calls: [call…]}`: always first. `bots` covers every granted bot; `calls` the open calls, each with `thread_id` |
+| `hello` | no | `{user_id, events_cursor, unread_total, badge, bots: [{bot, name, state, reason?}], calls: [call…]}`: always first. `bots` covers every granted bot; `name` repeats `bot`, the key `/me`'s bot objects use; `calls` the open calls, each with `thread_id` |
 | `resync` | no | `{reason: "events_pruned"}` |
 | `message` | yes | the message object (with `thread_id`, `bot`, `deliveries`, `thread` on an anchor) |
 | `message_state` | yes | `{thread_id, message_id, bot, state, reason?, aggregate_state}`: one delivery changed; `state` is that delivery's, `aggregate_state` the message's `state` |
@@ -572,10 +575,11 @@ One SSE connection carries every event of every thread the person can see, so an
 | `thread_updated` | yes | `{thread, changes: [...]}`: `changes` from `title`, `pinned`, `muted`, `state`, `bots`, `lead`, `summary`, `proposals`, `anchor`. Not sent for a new message (the `message` event says it) |
 | `thread_deleted` | yes | `{thread_id}` |
 | `thread_read` | yes | `{thread_id, read_cursor, unread, unread_total, badge}` |
+| `thread_stub` | yes | `{thread_id, message_id, thread: {id, title, bots, reply_count, unread, last_activity_at}}`: the stub under an anchor message changed (a message in the thread, a read, a rename, its bots); `thread_id` is the **main** thread the anchor is in and `message_id` the anchor. Never counted as unread, never pushed |
 | `proposal_created` | yes | `{proposal}` |
 | `proposal_resolved` | yes | `{proposal}` |
 | `activity` | no | `{thread_id, bot, message_id, text}`: as today, plain step kinds only, claude bots only |
-| `bot_state` | no | `{bot, state, reason?}`: a granted bot's coarse state changed (polled every 3 s) |
+| `bot_state` | no | `{bot, name, state, reason?}`: a granted bot's coarse state changed (polled every 3 s) |
 | `closed` | no | `{reason: "access_revoked" \| "reconnect"}`: `access_revoked` here means the device or the user, not a grant |
 
 An app keeps unread counts current between exact readings (`GET /threads`, `hello`, `thread_read`) by adding one for each `message` event with `role: "bot"` and `done: true` in a thread other than the one on screen (and above that thread's `read_cursor`).
@@ -593,6 +597,16 @@ What `/conversations/{id}/events` always was, for any thread: the events stored 
 - **Bot files** are stored as today, in the sending bot's folder (`…/out/`), capped per thread (the per-conversation caps apply per thread) and per bot. Other participants see their names and types in context, not their bytes.
 - **Quotas and retention** stay per person, across all threads, unchanged.
 
+## Bots talking in a thread
+
+In a thread with more than one active participant, each finished (`done: true`) bot message is handed to every other active participant the person is still granted and that can take messages now (a stopped or unavailable bot is skipped, never queued). Interim notes are not handed on. The author never receives its own message.
+
+- **Addressed or informational.** The message's `mentions` (from the reply tools' `mentions` argument, participants only) are the bots it is addressed to: their delivery says `addressed=true` and they are expected to act and answer. The others get it with `addressed=false`, for information: they answer only if they have something the person needs. A claude bot stays silent by not calling `client_reply`; an omp bot answers exactly `NO_REPLY`, and lasso posts nothing and sends no `turn_end`.
+- **The delivery** is a client event with `event=bot_message`, `from_bot` (the author), `addressed`, `message_id` (the bot's message), the thread attributes, the person's identity attributes (the thread's person, from lasso's records) and a reply token of its own; `routed` is `bot_mention` or `bot`. Its content is the bot's text (cleaned like a person's words) and `[jess sent a file: name, type]` lines for its files, never their paths. The context hand-off applies exactly as for a person's message, so a bot that has followed the thread gets nothing extra.
+- **Cap.** At most `clientBotRunMax` (8) consecutive finished bot messages since the person's last message are handed on; and at most `clientBotFanPerWindow` (40) bot-to-bot handings per thread in `clientBotFanWindow` (10 minutes). Past either, bot messages still reach the person but no other bot, and the thread gets one `bots_paused` system message for the run. The person's next message starts a new run.
+- **Scope.** A token handed with another bot's message acts only in that thread: `client_reply` into that thread (no cross-thread posts), `thread_update`, `thread_summary` and `thread_propose_bot` there; `thread_create` is refused. Read tools work as for any token of that person. Everything else (the person's identity, the grant, participation, expiry) is checked exactly as for a person's message.
+- **Push** is unchanged: each finished bot message to the person notifies as before; bot-to-bot deliveries notify nobody.
+
 ## Delivery to the bot
 
 A person's message to a bot is still a `bot_events` row of kind `client`. Its meta adds (lasso's records only; names and titles cleaned with `clientMetaClean`):
@@ -604,10 +618,11 @@ A person's message to a bot is still a `bot_events` row of kind `client`. Its me
 | `thread_title` | the title (80 characters, cleaned); absent for main |
 | `participants` | active participants in join order, comma-separated (`jess,mark`) |
 | `lead` | the lead |
-| `routed` | `main`, `lead`, `mention` or `call`: why this bot got it |
+| `routed` | `main`, `lead`, `mention` or `call`: why this bot got it; `bot_mention` or `bot` on another bot's message |
 | `context` | `none`, `delta` or `full` ([Context hand-off](#context-hand-off)), decided when the bot takes the message |
 | `context_marker` | 16 hex characters: the marker around the context block; absent when `context=none` |
 | `summary_stale` | `true` when the thread's summary is missing or behind ([Context hand-off](#context-hand-off)); absent otherwise |
+| `from_bot`, `addressed` | on `event=bot_message`: the author, and `true` when the message mentions this bot ([Bots talking in a thread](#bots-talking-in-a-thread)) |
 
 Access is re-read when the bot takes the message, as today, and additionally: the bot must still be an active participant of the thread (else the delivery is dropped, failed "The bot left the thread before it took the message."), and the thread must still exist.
 
@@ -640,16 +655,17 @@ The header line gains the fields, and the context block sits between the header 
 ----- the person's words end 0123456789abcdef -----
 ```
 
-`title` is quoted, cleaned and has `[` `]` replaced, like `name`. The nonce routing of replies is unchanged; the turn records the person's user id as well, which the omp tools need.
+`title` is quoted, cleaned and has `[` `]` replaced, like `name`. The nonce routing of replies is unchanged; the turn records the person's user id as well, which the omp tools need. Another bot's message starts `[lasso bot message … from_bot=jess addressed=<yes|no> …]` and its words sit between `----- the bot's words begin/end <nonce> -----`; it opens a turn the same way, and an answer of exactly `NO_REPLY` posts nothing.
 
 ### Cleaning
 
-`clientNeutralize` also changes `----- lasso thread context` (begin and end) in any text lasso frames, so neither the person's words nor anything inside the block can pose as the block's markers. Everything inside the block (messages, the summary, titles, file names) is cleaned the same way as the person's words.
+`clientNeutralize` also changes `----- lasso thread context` (begin and end), `----- the bot's words` and `[lasso bot message` in any text lasso frames, so neither the person's words, a bot's, nor anything inside the block can pose as the block's markers. Everything inside the block (messages, the summary, titles, file names) is cleaned the same way as the person's words.
 
 ### Other client events
 
 - `event=proposal_resolved` to the proposing bot: `thread_id`, `proposal_id`, `bot` (the proposed one), `state`. Content: "The person accepted adding mark to this thread." / "…declined…" / "…the proposal expired." + " No reply is needed." It carries no reply token.
 - `call_ended` carries `thread_id`.
+- `event=bot_message`: another bot's message in the thread ([Bots talking in a thread](#bots-talking-in-a-thread)).
 
 ## Context hand-off
 
@@ -659,7 +675,7 @@ The aim: a bot answering in a thread knows what the thread is about, including a
 
 - **The bot's context epoch** (`bots.client_epoch`), a counter lasso increments whenever the bot's model context no longer holds what lasso showed it:
   - **claude**: the bot launches with a `SessionStart` hook (merged into the `--settings` lasso already passes; plain sh):
-    `cat > "$CLAUDE_PROJECT_DIR/.lasso/channel/session.json"`. The channel process (`lasso channel`) watches that file and reports `session=<session_id>:<source>` in its poll header (`X-Lasso-Channel-Session`) and spool heartbeat. lasso bumps the epoch when `source` is `startup`, `clear` or `compact`, and when the session id differs from `bots.client_session` with any other source; `resume` with the same id leaves it. A channel that never reports a session (an older one) is `unavailable` anyway (`threads1`).
+    `mkdir -p "$CLAUDE_PROJECT_DIR/.lasso/channel" && cat > "$CLAUDE_PROJECT_DIR/.lasso/channel/session.json"`. The channel process (`lasso channel`, given the file with `--session` on lasso's machine; `session.json` in the spool on another host) reads that file and reports `<session_id>:<source>:<the file's modification time in ns>` in its poll header (`X-Lasso-Channel-Session`) and as `session=…` in its spool heartbeat; the time tells two compactions of one session apart. lasso bumps the epoch when `source` is `startup`, `clear` or `compact`, and when the session id differs from `bots.client_session` with any other source; `resume` with the same id leaves it. A channel that never reports a session (an older one) is `unavailable` anyway (`threads1`).
   - **omp**: lasso bumps on `session_changed` when the session id `get_state` reads differs from `bots.client_session`, on a bridge `host_hello` whose session id differs, on `auto_compaction_end` (omp emits it; the bridge already forwards every session event but `message_update`), and on a new bridge frame `session_compacted`, which the bridge sends from `pi.on("session_compact")` for a compaction typed in the terminal. That frame bumps `botBridgeProtocol` and the bridge's `PROTOCOL`.
 - **Per (thread, bot)** in `app_thread_bots`: `ctx_epoch`, `ctx_seq` (the newest message of the thread the bot has been shown: in a hand-off, as its own message, or by `thread_read`), `ctx_at`, and `ctx_deliveries`.
 - **Per bot** `bots.client_deliveries`: incremented by every client message a bot takes, in any thread of anyone.
@@ -740,7 +756,7 @@ On lasso's machine the channel's calls are `POST /bot-channel/<bot>/<action>` on
 
 Shown for the channel; the `/mcp` tools add `"name": {"type": "string", "description": "your bot name"}` (required) and omit `reply_token`.
 
-**`client_reply`** (changed): `thread_id` added, `conversation_id` kept as an alias (one of them required).
+**`client_reply`** (changed): `thread_id` added, `conversation_id` kept as an alias (one of them required), and `mentions`: the bots of the thread the message is addressed to.
 
 ```json
 {"type": "object", "properties": {
@@ -749,7 +765,8 @@ Shown for the channel; the `/mcp` tools add `"name": {"type": "string", "descrip
   "reply_token": {"type": "string", "description": "the reply_token of the message you are answering"},
   "text": {"type": "string"},
   "done": {"type": "boolean", "description": "false for an interim note; true (default) for your answer. Ignored when writing into another thread"},
-  "attachments": {"type": "array", "items": {"type": "string"}, "description": "paths in your outbox"}
+  "attachments": {"type": "array", "items": {"type": "string"}, "description": "paths in your outbox"},
+  "mentions": {"type": "array", "items": {"type": "string"}, "description": "bots of the thread this message is addressed to"}
 }, "required": ["reply_token"]}
 ```
 
@@ -881,7 +898,7 @@ For each of the person's devices that has a push token, is not revoked, and is *
 | `proposal_created` | the thread is not muted |
 | the badge went **down** (a read on another device, a deletion) | badge-only, at most one per device per 60 s |
 
-Never pushed: interim notes, system messages, the person's own messages from another device, call events (calls are out of scope), and anything in a muted thread (muted threads also leave the badge).
+Never pushed: interim notes, system messages, the person's own messages from another device, call events (calls are out of scope), bot-to-bot deliveries, and anything in a muted thread (muted threads also leave the badge).
 
 A second push for the same thread within 30 s of the last one to that device is **quiet** (no sound, no vibration); it still replaces the shown notification and sets the badge.
 
@@ -935,7 +952,7 @@ Answers `200 {"push": {…as in /me…}}`. `DELETE /device/push` → `200 {"push
 - `features` lists what this server supports; an app hides what is missing (an app talking to an older lasso sees no `features` and shows no threads).
 - `push.provider` follows the device's platform (`none` for `other`). `available` is true when the server has working credentials for it (state `ready`, [Credentials](#credentials)); false with `reason`: `not_configured`, `unreadable` (the key reference cannot be read) or `unsupported_platform`. `registered` says whether this device has a token; `environment` is present for a registered APNs token.
 - `capabilities.threads`: the bot can take thread messages (a claude bot on a `threads1` channel, any omp bot). `thread_tools`: `full` (local claude; omp with lasso's MCP server), `write` (claude on another host), `none` (omp without lasso's MCP server: tools absent, context still inline).
-- `PUT /me/settings` takes `{"push_previews": false}` and/or `{"file_retention_days": …}` (each optional, at least one; `400 invalid_request` for an empty body or a non-boolean) and answers `{"settings": {…both…}}`.
+- `PUT /me/settings` takes `{"push_previews": false}` and/or `{"file_retention_days": …}` (each optional, at least one; `400 invalid_request` for an empty body or a non-boolean) and answers `{"settings": {"file_retention_days": …, "push_previews": …}}`, whichever key was sent, exactly as the retention setting always answered.
 
 ### Payload
 
@@ -1026,7 +1043,8 @@ One `settings` row, `client_push`, holding only non-secret choices and **referen
 | 429, 500, 503, network error | retry as above, record; keep the token |
 
   `last_error` holds the provider's reason code only, never a token or a payload. lasso logs nothing of a push but the provider, the reason code and the device id.
-- A sandbox token sent to production answers `BadDeviceToken`, which deletes it: the app re-registers on its next launch with the right environment, so a wrong `environment` heals.
+- A `BadDeviceToken` from the token's environment is tried once on the other environment before anything else: when the other host takes it, the token's `environment` moves there and nothing is deleted; when it answers `BadDeviceToken` too (or 410), the token is deleted; any other answer keeps the token. So a build that registered the wrong environment still gets its pushes.
+- `key_ref` may hold the `.p8` text with real line breaks or with literal `\n` (a one-line secret field).
 
 ## Errors
 
