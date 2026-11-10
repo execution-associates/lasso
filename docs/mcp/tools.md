@@ -427,7 +427,7 @@ Changes a bot's settings. Only the fields you pass change.
 | parameter | type | | description |
 | --- | --- | --- | --- |
 | `name` | string | | The bot. |
-| `runtime` | string | optional | `omp` or `claude`. Only while the bot is stopped (refused otherwise: `stop_bot`, `update_bot`, `start_bot`). Model and permission mode reset to the new runtime's default unless passed in the same call; effort is kept when the new runtime has that level. MCP servers (signed-in ones too), env, jobs and `.claude/skills` carry over, and the next start is a new conversation. A switch to claude with only an `AGENTS.md` writes a `CLAUDE.md` of `@AGENTS.md`; a switch to omp with only a `CLAUDE.md` copies it to `AGENTS.md`. |
+| `runtime` | string | optional | `omp` or `claude`. Only while the bot is stopped (refused otherwise: `stop_bot`, `update_bot`, `start_bot`). Model and permission mode reset to the new runtime's default unless passed in the same call; effort is kept when the new runtime has that level. MCP servers (signed-in ones too), env, jobs and `.claude/skills` carry over, and the next start is a new conversation. A switch to omp with only a `CLAUDE.md` copies it to `AGENTS.md`. |
 | `dir` | string | optional | The bot's folder on its host. Only while the bot is stopped. |
 | `model` | string | optional | A claude bot's Claude model (alias or full name), or an omp bot's provider/model selector such as `anthropic/claude-opus-5`. `""` for the default. |
 | `effort` | string | optional | claude: `low`, `medium`, `high`, `xhigh` or `max`. omp: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` or `auto`. `""` for the default. |
@@ -440,7 +440,7 @@ Changes a bot's settings. Only the fields you pass change.
 | `auto_approve` | boolean | optional | claude bots: answer every permission prompt Yes, its subagents' included, so the bot never waits on one. Bypass mode alone still asks for some commands (Claude Code's safety checks, such as an `rm` on a variable path). `AskUserQuestion` and plan approval still reach the human. Read at launch. |
 | `alerts` | object | optional | The bot's **complete** liveness alert settings (they replace the current ones; `{}` inherits everything): `mode` (absent or `inherit`: the default channels; `off`: none; `custom`: `channels`, ids from `list_alert_channels`), optional `down_after`, `up_after`, `remind_every`, `handle_within` in seconds, and `health_checks`, `[{name, url, json_field?}]`: HTTP endpoints the bot depends on, failing on a non-2xx or when `json_field` is not true. Applies at once. |
 
-lasso rewrites the bot's launch script and MCP config. Returns `ok` and `restart_needed`, true when the bot is running and a field read only at launch changed (`alerts`, `notify` and `keep_running` apply at once). A bot restarting itself runs `mise run restart` in its folder. Its instructions (`AGENTS.md` for an omp bot, `CLAUDE.md` for a claude bot) and skills are files in its folder, edited directly rather than through this tool.
+lasso rewrites the bot's launch script and MCP config. Returns `ok` and `restart_needed`, true when the bot is running and a field read only at launch changed (`alerts`, `notify` and `keep_running` apply at once). A bot restarting itself runs `mise run restart` in its folder. Its instructions (`AGENTS.md`, or an older claude bot's `CLAUDE.md`) and skills are files in its folder, edited directly rather than through this tool.
 
 A claude bot signs in to Claude with its host's Claude Code login. On a host with none, give it a `CLAUDE_CODE_OAUTH_TOKEN` secret with `set_bot_env` (the value `claude setup-token` prints, run once by the human wherever they are logged in); its launch marks Claude Code's first-run setup done on that host, so nothing waits on a screen.
 
@@ -492,11 +492,11 @@ A claude bot's Talk: an OpenAI-compatible door (Chat Completions at lasso's orig
 - `update_bot_talk` takes `activity`. It sets what the app shows while the bot works: `plain` (only the kind of each step, the default) or `detailed` (each step's subject too: file names, commands).
 - `rotate_bot_talk_key` replaces the key; the old one stops working at once. `disable_bot_talk` turns Talk off and forgets the key.
 
-Whoever holds the key can ask the bot for anything its instructions allow, so a bot's CLAUDE.md should say what it does for them.
+Whoever holds the key can ask the bot for anything its instructions allow, so a bot's AGENTS.md should say what it does for them.
 
 ### `create_bot`, `delete_bot`, `reorder_bots`
 
-- `create_bot` makes a bot as the Bots view does: `name`, and optionally `host`, `runtime` (`omp` by default), `dir` (default `~/bots/<name>`; an existing folder keeps its instructions and skills), `workspace`, `model`, `effort`, `permission_mode`, `mcp`, `strict_mcp`, `extra_args`, `keep_running` and `notify` (both default true), `instructions` (its first `AGENTS.md` or `CLAUDE.md`) and `start`. Returns `bot`, plus `error` when the row was made but its folder or first start failed, and `note`.
+- `create_bot` makes a bot as the Bots view does: `name`, and optionally `host`, `runtime` (`omp` by default), `dir` (default `~/bots/<name>`; an existing folder keeps its instructions and skills), `workspace`, `model`, `effort`, `permission_mode`, `mcp`, `strict_mcp`, `extra_args`, `keep_running` and `notify` (both default true), `instructions` (its first `AGENTS.md`) and `start`. Returns `bot`, plus `error` when the row was made but its folder or first start failed, and `note`.
 - `delete_bot` stops the bot if it runs and forgets it, with its jobs. `delete_folder: true` also deletes its folder, refused for a folder that holds the host's home or lasso's own directory.
 - `reorder_bots` takes `names`, the Bots view's order.
 
