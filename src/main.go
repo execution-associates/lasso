@@ -414,6 +414,8 @@ func runServer() {
 	mux.HandleFunc("/api/transcribe/config", serveTranscribeConfig)
 	// Internal AI (llm.go): lasso's own OpenAI-compatible endpoint, used by the
 	// titler. Also behind UI_AUTH.
+	mux.HandleFunc("/api/client-push", serveClientPushConfig)
+	mux.HandleFunc("/api/client-push/test", serveClientPushConfig)
 	mux.HandleFunc("/api/llm/config", serveLLMConfig)
 	mux.HandleFunc("/api/llm/models", serveLLMModels)
 	mux.HandleFunc("/api/llm/test", serveLLMTest)

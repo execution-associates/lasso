@@ -275,6 +275,7 @@ func clientSendThread(id *clientIdentity, t *appThread, in clientSendIn, now tim
 	if reopened {
 		threadUpdated(t.ID, []string{"state"}, now)
 	}
+	clientStubChanged(t.ID, now)
 	clientReconcile(t.ID, now)
 	return m, false, nil
 }

@@ -29,8 +29,8 @@ import (
 
 type appUserView struct {
 	*appUser
-	Grants  []appGrant  `json:"grants"`
-	Devices []appDevice `json:"devices"`
+	Grants  []appGrant      `json:"grants"`
+	Devices []appDeviceView `json:"devices"`
 	// QuotaMB and QuotaFiles are the owner's override for this person (null:
 	// the default applies); Storage is what they use against what they may.
 	// FileRetentionDays is their own choice, within the owner's maximum
@@ -50,10 +50,12 @@ func appUserViewOf(u *appUser) (appUserView, error) {
 	if err != nil {
 		return appUserView{}, err
 	}
+	dvs := make([]appDeviceView, 0, len(ds))
 	for i := range ds {
 		ds[i].UserID = ""
+		dvs = append(dvs, appDeviceView{appDevice: ds[i], Push: clientPushDeviceView(ds[i].ID)})
 	}
-	v := appUserView{appUser: u, Grants: gs, Devices: ds, Storage: clientStorageView(u)}
+	v := appUserView{appUser: u, Grants: gs, Devices: dvs, Storage: clientStorageView(u)}
 	if u.QuotaMB > 0 {
 		v.QuotaMB = &u.QuotaMB
 	}
@@ -64,6 +66,13 @@ func appUserViewOf(u *appUser) (appUserView, error) {
 		v.FileRetentionDays = &d
 	}
 	return v, nil
+}
+
+// appDeviceView is a device as the owner sees it, with its push registration
+// (never the token itself; null without one).
+type appDeviceView struct {
+	appDevice
+	Push map[string]any `json:"push"`
 }
 
 func appUserViews(bot string) ([]appUserView, error) {

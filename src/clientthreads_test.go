@@ -1107,7 +1107,10 @@ func (c *clientTest) openPersonStream(token, query, lastID string) (<-chan clien
 			}
 		}
 	}()
-	return out, func() { resp.Body.Close() }
+	stop := func() { resp.Body.Close() }
+	// Closed before the test server: an open stream would hold its Close.
+	c.t.Cleanup(stop)
+	return out, stop
 }
 
 func TestClientPersonStream(t *testing.T) {
@@ -1464,4 +1467,62 @@ func TestClientOmpCompactionBumpsEpoch(t *testing.T) {
 	wait(e0 + 1)
 	ob.observe([]byte(`{"type":"session_compacted"}` + "\n"))
 	wait(e0 + 2)
+}
+
+// The anchor and last_message carry cursors; the stub under an anchor is
+// announced as thread_stub (never as a message); hello's bots carry name.
+func TestClientThreadStubAndCursors(t *testing.T) {
+	c := newClientTest(t)
+	_, ann := c.person("Ann", false, "jess")
+	cid := c.conv(ann, "jess")
+	_, anchor := c.send(ann, cid, `{"text":"anchor me"}`)
+	tid := c.newThread(ann, `{"anchor_message_id":"`+anchor.ID+`"}`)
+	v := c.thread(ann, tid)
+	if v.Anchor == nil || v.Anchor.Cursor != anchor.Cursor {
+		t.Fatalf("anchor = %+v", v.Anchor)
+	}
+	ch, stop := c.openPersonStream(ann, "", "")
+	defer stop()
+	hello := nextEvent(t, ch, "hello")
+	if !strings.Contains(hello.Data, `"name":"jess"`) || !strings.Contains(hello.Data, `"bot":"jess"`) {
+		t.Fatalf("hello = %s", hello.Data)
+	}
+	_, m, _ := c.sendIn(ann, tid, `{"text":"in the thread"}`)
+	st := nextEvent(t, ch, "thread_stub")
+	var data struct {
+		ThreadID  string           `json:"thread_id"`
+		MessageID string           `json:"message_id"`
+		Thread    clientThreadStub `json:"thread"`
+	}
+	_ = json.Unmarshal([]byte(st.Data), &data)
+	if data.ThreadID != cid || data.MessageID != anchor.ID || data.Thread.ID != tid || data.Thread.ReplyCount != 1 {
+		t.Fatalf("stub event = %s", st.Data)
+	}
+	if v := c.thread(ann, tid); v.LastMessage == nil || v.LastMessage.Cursor != m.Cursor {
+		t.Fatalf("last_message = %+v", v.LastMessage)
+	}
+}
+
+// A bot message whose event lands after the list's events_cursor is not in
+// the list's unread counts: replay adds it once.
+func TestClientThreadListSnapshot(t *testing.T) {
+	c := newClientTest(t)
+	annID, ann := c.person("Ann", false, "jess")
+	tid := c.newThread(ann, `{"bots":["jess"],"title":"T"}`)
+	c.sendIn(ann, tid, `{"text":"q"}`)
+	tok := clientEventsOf(claim(t, "jess"), "message")[0].Meta["reply_token"]
+	botClientReply("jess", tid, tok, "one", false, nil, false, time.Now())
+	snap := takeClientSnapshot(annID)
+	// A finished message after the snapshot.
+	botClientReply("jess", tid, tok, "two", true, nil, false, time.Now())
+	tt, _ := threadByID(tid)
+	if n := threadUnreadSnap(tt, snap); n != 0 {
+		t.Fatalf("unread at the snapshot = %d", n)
+	}
+	if u, _ := clientUnreadBadgeSnap(annID, snap); u != 0 {
+		t.Fatalf("total at the snapshot = %d", u)
+	}
+	if n := threadUnread(tt); n != 1 {
+		t.Fatalf("unread now = %d", n)
+	}
 }

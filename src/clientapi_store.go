@@ -531,8 +531,9 @@ func revokeAppDevice(userID, deviceID string, now time.Time) error {
 		return errClientNotFound
 	}
 	// Messages the revoked device sent that no bot has taken yet are not
-	// delivered.
+	// delivered, and it gets no more pushes.
 	dropClientEvents(`json_extract(meta, '$.device_id') = ?`, deviceID)
+	deletePushTokenOfDevice(deviceID)
 	return nil
 }
 
@@ -1036,6 +1037,7 @@ func addBotReplyMentions(c *appConv, text string, done bool, callID, inReplyTo s
 		threadUpdated(c.ID, []string{"state"}, now)
 	}
 	if t, err := threadByID(c.ID); err == nil && !t.isMain() {
+		clientStubChanged(t.ID, now)
 		clientFanOut(t, m, now)
 	}
 	if callID != "" {

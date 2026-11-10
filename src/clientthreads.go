@@ -49,6 +49,9 @@ type clientThreadBotView struct {
 type clientAnchorView struct {
 	ThreadID  string `json:"thread_id"`
 	MessageID string `json:"message_id"`
+	// Cursor is the anchor message's cursor in its main thread, for
+	// messages?around=; absent once the message is gone.
+	Cursor    string `json:"cursor,omitempty"`
 	Role      string `json:"role"`
 	Bot       string `json:"bot,omitempty"`
 	Text      string `json:"text"`
@@ -64,6 +67,7 @@ type clientSummaryView struct {
 
 type clientLastMessageView struct {
 	ID        string `json:"id"`
+	Cursor    string `json:"cursor"`
 	Role      string `json:"role"`
 	Bot       string `json:"bot,omitempty"`
 	Preview   string `json:"preview"`
@@ -124,7 +128,11 @@ func attachmentsPreview(raw []clientAttachmentView) string {
 	return ""
 }
 
-func threadViewOf(t *appThread) clientThreadView {
+func threadViewOf(t *appThread) clientThreadView { return threadViewSnap(t, nil) }
+
+// threadViewSnap is threadViewOf with its unread count taken at a stream
+// position (clientSnapshot), so it agrees with the events after it.
+func threadViewSnap(t *appThread, snap *clientSnapshot) clientThreadView {
 	v := clientThreadView{ID: t.ID, Kind: t.Kind, State: t.State, Pinned: t.PinnedAt != "", Muted: t.Muted,
 		ReadCursor: strconv.FormatInt(t.LastReadSeq, 10), LastActivityAt: t.LastActivityAt,
 		CreatedBy: createdByView(t.CreatedBy), CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
@@ -145,19 +153,22 @@ func threadViewOf(t *appThread) clientThreadView {
 	} else {
 		v.Title = t.Title
 		if t.AnchorMessageID != "" {
-			var n int
-			_ = db.QueryRow(`SELECT COUNT(*) FROM app_messages WHERE id = ? AND conv_id = ?`, t.AnchorMessageID, t.AnchorThreadID).Scan(&n)
+			var seq int64
+			_ = db.QueryRow(`SELECT seq FROM app_messages WHERE id = ? AND conv_id = ?`, t.AnchorMessageID, t.AnchorThreadID).Scan(&seq)
 			v.Anchor = &clientAnchorView{ThreadID: t.AnchorThreadID, MessageID: t.AnchorMessageID, Role: t.AnchorRole, Bot: t.AnchorBot,
-				Text: t.AnchorText, CreatedAt: t.AnchorAt, Available: n == 1}
+				Text: t.AnchorText, CreatedAt: t.AnchorAt, Available: seq > 0}
+			if seq > 0 {
+				v.Anchor.Cursor = cursorString(seq)
+			}
 		}
 	}
 	if t.Summary != "" {
 		v.Summary = &clientSummaryView{Text: t.Summary, By: t.SummaryBy, UpdatedAt: t.SummaryAt}
 	}
 	v.ReplyCount = threadReplyCount(t.ID)
-	v.Unread = threadUnread(t)
+	v.Unread = threadUnreadSnap(t, snap)
 	if m, err := scanAppMessage(db.QueryRow(`SELECT `+appMessageCols+` FROM app_messages WHERE conv_id = ? ORDER BY seq DESC LIMIT 1`, t.ID)); err == nil {
-		lm := &clientLastMessageView{ID: m.ID, Role: m.Role, Bot: m.Bot, CreatedAt: m.CreatedAt, Preview: clientPreview(m.Text, clientPreviewMax)}
+		lm := &clientLastMessageView{ID: m.ID, Cursor: m.Cursor, Role: m.Role, Bot: m.Bot, CreatedAt: m.CreatedAt, Preview: clientPreview(m.Text, clientPreviewMax)}
 		if lm.Preview == "" {
 			lm.Preview = attachmentsPreview(m.Attachments)
 		}
@@ -179,12 +190,62 @@ const visibleThreadSQL = `t.user_id = ? AND (t.kind = 'thread' OR EXISTS (SELECT
 // clientUnreadBadge is the person's unread total over every visible thread
 // and the badge: unread in threads that are not muted, plus pending proposals
 // in those.
-func clientUnreadBadge(userID string) (unread, badge int) {
+func clientUnreadBadge(userID string) (unread, badge int) { return clientUnreadBadgeSnap(userID, nil) }
+
+// clientSnapshot is a stream position and what it covers: messages up to
+// MaxSeq (the newest when the position was read) whose message event is at
+// or before Events. Counts taken against it leave out exactly what the stream
+// replays from Events, so an app adding one per replayed message never counts
+// one twice.
+type clientSnapshot struct {
+	UserID string
+	Events int64
+	MaxSeq int64
+}
+
+// takeClientSnapshot reads the person stream's position and the newest
+// message together.
+func takeClientSnapshot(userID string) *clientSnapshot {
+	s := &clientSnapshot{UserID: userID}
+	tx, err := db.Begin()
+	if err != nil {
+		return s
+	}
+	defer tx.Rollback()
+	var m, e sql.NullInt64
+	_ = tx.QueryRow(`SELECT MAX(seq) FROM app_messages`).Scan(&m)
+	_ = tx.QueryRow(`SELECT MAX(seq) FROM app_events WHERE user_id = ?`, userID).Scan(&e)
+	s.MaxSeq, s.Events = m.Int64, e.Int64
+	return s
+}
+
+// snapSQL bounds a count over app_messages m to a snapshot.
+func (s *clientSnapshot) sql() (string, []any) {
+	if s == nil {
+		return "", nil
+	}
+	return ` AND m.seq <= ? AND NOT EXISTS (SELECT 1 FROM app_events e WHERE e.user_id = ? AND e.seq > ? AND e.type = 'message' AND json_extract(e.data, '$.id') = m.id)`,
+		[]any{s.MaxSeq, s.UserID, s.Events}
+}
+
+func threadUnreadSnap(t *appThread, snap *clientSnapshot) int {
+	if snap == nil {
+		return threadUnread(t)
+	}
+	extra, args := snap.sql()
+	var n int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM app_messages m WHERE m.conv_id = ? AND m.role = 'bot' AND m.done = 1 AND m.seq > ?`+extra,
+		append([]any{t.ID, t.LastReadSeq}, args...)...).Scan(&n)
+	return n
+}
+
+func clientUnreadBadgeSnap(userID string, snap *clientSnapshot) (unread, badge int) {
+	extra, args := snap.sql()
 	_ = db.QueryRow(`SELECT COUNT(*) FROM app_messages m JOIN app_threads t ON t.id = m.conv_id
-		WHERE `+visibleThreadSQL+` AND m.role = 'bot' AND m.done = 1 AND m.seq > t.last_read_seq`, userID).Scan(&unread)
+		WHERE `+visibleThreadSQL+` AND m.role = 'bot' AND m.done = 1 AND m.seq > t.last_read_seq`+extra, append([]any{userID}, args...)...).Scan(&unread)
 	var quiet, props int
 	_ = db.QueryRow(`SELECT COUNT(*) FROM app_messages m JOIN app_threads t ON t.id = m.conv_id
-		WHERE `+visibleThreadSQL+` AND t.muted = 1 AND m.role = 'bot' AND m.done = 1 AND m.seq > t.last_read_seq`, userID).Scan(&quiet)
+		WHERE `+visibleThreadSQL+` AND t.muted = 1 AND m.role = 'bot' AND m.done = 1 AND m.seq > t.last_read_seq`+extra, append([]any{userID}, args...)...).Scan(&quiet)
 	_ = db.QueryRow(`SELECT COUNT(*) FROM app_proposals p JOIN app_threads t ON t.id = p.thread_id
 		WHERE `+visibleThreadSQL+` AND t.muted = 0 AND p.state = 'pending'`, userID).Scan(&props)
 	return unread, unread - quiet + props
@@ -389,10 +450,12 @@ func serveClientThreadList(w http.ResponseWriter, r *http.Request, id *clientIde
 		clientError(w, http.StatusBadRequest, "invalid_request", "pinned must be true or false.")
 		return
 	}
-	// The stream's position is read before the list, so nothing that lands
-	// while it is read is missed.
-	cursor := newestUserEventSeq(id.User.ID)
+	// The stream's position and the counts are one snapshot: nothing that
+	// lands while the list is read is missed, and nothing the stream replays
+	// from the position is already counted.
 	ensureMainThreads(id.User.ID, now)
+	snap := takeClientSnapshot(id.User.ID)
+	cursor := snap.Events
 	rows, err := db.Query(`SELECT `+prefixCols("t.", appThreadCols)+` FROM app_threads t WHERE `+where+`
 		ORDER BY (t.pinned_at != '') DESC, t.pinned_at DESC, t.last_activity_at DESC, t.id LIMIT ? OFFSET ?`, append(args, limit+1, offset)...)
 	if err != nil {
@@ -413,9 +476,9 @@ func serveClientThreadList(w http.ResponseWriter, r *http.Request, id *clientIde
 	}
 	views := make([]clientThreadView, 0, len(ts))
 	for _, t := range ts {
-		views = append(views, threadViewOf(t))
+		views = append(views, threadViewSnap(t, snap))
 	}
-	unread, badge := clientUnreadBadge(id.User.ID)
+	unread, badge := clientUnreadBadgeSnap(id.User.ID, snap)
 	clientJSON(w, http.StatusOK, map[string]any{"threads": views, "next_cursor": next,
 		"events_cursor": strconv.FormatInt(cursor, 10), "unread_total": unread, "badge": badge})
 }
@@ -799,6 +862,7 @@ func threadUpdated(threadID string, changes []string, now time.Time) {
 		return
 	}
 	appendClientEvent(t.ID, "thread_updated", map[string]any{"thread": threadViewOf(t), "changes": changes}, now)
+	clientStubChanged(t.ID, now)
 }
 
 // --- DELETE /threads/{id} -------------------------------------------------------------
@@ -1048,6 +1112,7 @@ func serveClientThreadRead(w http.ResponseWriter, r *http.Request, id *clientIde
 	unread, badge := clientUnreadBadge(t.UserID)
 	out := map[string]any{"thread_id": t.ID, "read_cursor": strconv.FormatInt(t.LastReadSeq, 10), "unread": threadUnread(t), "unread_total": unread, "badge": badge}
 	appendClientEvent(t.ID, "thread_read", out, now)
+	clientStubChanged(t.ID, now)
 	clientBadgeMaybeDown(t.UserID, before, now)
 	clientJSON(w, http.StatusOK, out)
 }
@@ -1354,8 +1419,13 @@ func serveClientPersonEvents(w http.ResponseWriter, r *http.Request, id *clientI
 	}()
 
 	resync := false
+	ensureMainThreads(id.User.ID, now)
+	var snap *clientSnapshot
 	if !haveLast {
-		last = newestUserEventSeq(id.User.ID)
+		// A fresh start: the position and the counts in hello are one
+		// snapshot, as in GET /threads.
+		snap = takeClientSnapshot(id.User.ID)
+		last = snap.Events
 	} else {
 		var oldest sql.NullInt64
 		_ = db.QueryRow(`SELECT MIN(seq) FROM app_events WHERE user_id = ?`, id.User.ID).Scan(&oldest)
@@ -1363,8 +1433,7 @@ func serveClientPersonEvents(w http.ResponseWriter, r *http.Request, id *clientI
 			resync = true
 		}
 	}
-	ensureMainThreads(id.User.ID, now)
-	unread, badge := clientUnreadBadge(id.User.ID)
+	unread, badge := clientUnreadBadgeSnap(id.User.ID, snap)
 	bots := clientPersonBotStates(id, now)
 	calls := []*appCall{}
 	if rows, err := db.Query(`SELECT `+prefixCols("c.", appCallCols)+` FROM app_calls c JOIN app_threads t ON t.id = c.conv_id
@@ -1498,7 +1567,8 @@ func clientPersonBotStates(id *clientIdentity, now time.Time) []map[string]any {
 			continue
 		}
 		st, _, why := botClientState(rec, now)
-		m := map[string]any{"bot": g.Bot, "state": st}
+		// "bot" and "name" both: name is what /me's bot objects use.
+		m := map[string]any{"bot": g.Bot, "name": g.Bot, "state": st}
 		if why != "" && st == "unavailable" {
 			m["reason"] = why
 		}

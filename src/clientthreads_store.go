@@ -528,6 +528,23 @@ func threadUnread(t *appThread) int {
 	return n
 }
 
+// clientStubChanged tells the person's streams that the stub under a
+// thread's anchor changed (a new message, a read, a rename, its bots): a
+// thread_stub event on the main thread the anchor is in. It is not a message
+// event, so it is never pushed or counted as unread.
+func clientStubChanged(threadID string, now time.Time) {
+	t, err := threadByID(threadID)
+	if err != nil || t.isMain() || t.AnchorMessageID == "" || t.AnchorThreadID == "" {
+		return
+	}
+	stub := threadStubsOf(t.AnchorThreadID)[t.AnchorMessageID]
+	if stub == nil {
+		return
+	}
+	appendClientEventFor(t.AnchorThreadID, t.UserID, "thread_stub",
+		map[string]any{"thread_id": t.AnchorThreadID, "message_id": t.AnchorMessageID, "thread": stub}, now)
+}
+
 // --- system messages ----------------------------------------------------------
 
 type clientSystemView struct {
@@ -559,6 +576,7 @@ func addSystemMessage(t *appThread, sys clientSystemView, text string, now time.
 		return m, err
 	}
 	appendClientEvent(t.ID, "message", m, now)
+	clientStubChanged(t.ID, now)
 	return m, nil
 }
 
