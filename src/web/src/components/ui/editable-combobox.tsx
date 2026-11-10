@@ -136,7 +136,11 @@ export function EditableCombobox({
             )}
             style={
               preserveEnd && !focused
-                ? { direction: "rtl", textAlign: "left", textOverflow: "ellipsis" }
+                ? {
+                    direction: "rtl",
+                    textAlign: "left",
+                    textOverflow: "ellipsis",
+                  }
                 : undefined
             }
           />

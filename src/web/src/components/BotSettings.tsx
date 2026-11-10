@@ -1088,9 +1088,9 @@ function ConnectionsTab({
   return (
     <div className="flex flex-col gap-4">
       <p className="text-[12.5px] text-muted-foreground leading-relaxed">
-        The MCP servers this bot gets. A <b>channel</b> also delivers messages
-        (mail, chat, a schedule) that the bot answers without being asked. Keep
-        secrets out of this page: write{" "}
+        The MCP servers this bot gets. One marked <b>channel</b> also sends the
+        bot messages (mail, chat) that it answers without being asked, through
+        its Lasso channel. Keep secrets out of this page: write{" "}
         <code className="rounded bg-muted px-1 font-mono text-[11.5px]">
           ${"{VAR}"}
         </code>{" "}

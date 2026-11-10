@@ -137,18 +137,39 @@ func serveBotPush(w http.ResponseWriter, r *http.Request, bot, key string) {
 
 // --- /api/bots/<name>/channel ---------------------------------------------------
 
-// botPushView is the lasso channel as the Connections view and the MCP tools
-// show it.
+// botPushView is the bot's lasso channel as the Connections view and the MCP
+// tools show it. The channel itself is always on when lasso can deliver to
+// the bot: Sources is everything that sends it messages through the channel
+// now, and Webhook is the one optional door into it, off until turned on.
 type botPushView struct {
-	Enabled bool   `json:"enabled"`
-	Path    string `json:"path"`
-	Key     string `json:"key,omitempty"`
 	// Runtime says how lasso delivers: claude (a Claude Code channel event)
 	// or omp (lasso's omp plugin).
 	Runtime string `json:"runtime"`
 	// Available is false when lasso cannot deliver to this bot at all.
 	Available bool   `json:"available"`
 	Reason    string `json:"reason,omitempty"`
+	// Stopped: the bot is stopped, so what arrives is dropped, not queued.
+	Stopped bool            `json:"stopped"`
+	Sources []botPushSource `json:"sources"`
+	Webhook botWebhookView  `json:"webhook"`
+}
+
+// botPushSource is one thing that messages the bot without being asked.
+type botPushSource struct {
+	// Kind: server (one of the bot's channel MCP servers), job, talk or phone.
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+	// Detail says what it is in a few words: "schedule 0 8 * * *", "webhook".
+	Detail string `json:"detail,omitempty"`
+	On     bool   `json:"on"`
+}
+
+// botWebhookView is the channel's own webhook: the URL path and key an
+// outside sender POSTs to.
+type botWebhookView struct {
+	Enabled bool   `json:"enabled"`
+	Path    string `json:"path"`
+	Key     string `json:"key,omitempty"`
 }
 
 func botPushViewOf(rec *botRecord) (botPushView, error) {
@@ -156,11 +177,45 @@ func botPushViewOf(rec *botRecord) (botPushView, error) {
 	if err != nil {
 		return botPushView{}, err
 	}
-	v := botPushView{Enabled: key != "", Path: "/hooks/bots/" + rec.Name, Key: key, Runtime: botRuntimeClaude}
+	v := botPushView{
+		Runtime: botRuntimeClaude,
+		Stopped: rec.Stopped,
+		Sources: []botPushSource{},
+		Webhook: botWebhookView{Enabled: key != "", Path: "/hooks/bots/" + rec.Name, Key: key},
+	}
 	if rec.isOmp() {
 		v.Runtime = botRuntimeOmp
 	}
 	v.Available, v.Reason = botChannelOffered(rec)
+	for _, name := range rec.channels() {
+		v.Sources = append(v.Sources, botPushSource{Kind: "server", Name: name, Detail: "MCP server", On: true})
+	}
+	jobs, _ := listBotJobs(rec.Name)
+	for _, j := range jobs {
+		var what []string
+		switch {
+		case j.Cron != "":
+			what = append(what, "schedule "+j.Cron)
+		case j.OnceAt != "":
+			what = append(what, "once at "+j.OnceAt)
+		}
+		if j.Webhook {
+			what = append(what, "the job's own webhook")
+		}
+		if j.Command != "" {
+			what = append(what, "watch")
+		}
+		v.Sources = append(v.Sources, botPushSource{Kind: "job", Name: j.Name, Detail: strings.Join(what, ", "), On: j.Enabled})
+	}
+	if talk, _, err := botTalkSettings(rec.Name); err == nil && talk != "" {
+		v.Sources = append(v.Sources, botPushSource{Kind: "talk", Name: "Talk", Detail: "a chat app with the Talk key", On: true})
+	}
+	var people int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM app_grants WHERE bot = ?`, rec.Name).Scan(&people)
+	if people > 0 {
+		state, _, _ := botClientState(rec, time.Now())
+		v.Sources = append(v.Sources, botPushSource{Kind: "phone", Name: "Phone app", Detail: fmt.Sprintf("%d with access, under People", people), On: state != "unavailable"})
+	}
 	return v, nil
 }
 
@@ -185,20 +240,20 @@ func botPushRotate(rec *botRecord) error {
 		return err
 	}
 	if key == "" {
-		return errors.New("the channel's webhook is off for this bot")
+		return errors.New("the webhook is off for this bot")
 	}
 	return setBotPushKey(rec.Name, newBotPushKey())
 }
 
 // serveBotPushSettings is the Connections view's Lasso channel panel:
 //
-//	GET  channel            the view
-//	POST channel/enable     on, with a new key
-//	POST channel/rotate     a new key
-//	POST channel/disable    off; the key is forgotten
+//	GET  channel                    the view
+//	POST channel/webhook/enable     the webhook on, with a new key
+//	POST channel/webhook/rotate     a new key
+//	POST channel/webhook/disable    off; the key is forgotten
 func serveBotPushSettings(w http.ResponseWriter, r *http.Request, rec *botRecord, rest string) {
 	if (r.Method == http.MethodGet) != (rest == "") {
-		http.Error(w, "GET channel, or POST channel/enable, channel/rotate or channel/disable", http.StatusMethodNotAllowed)
+		http.Error(w, "GET channel, or POST channel/webhook/enable, rotate or disable", http.StatusMethodNotAllowed)
 		return
 	}
 	var err error
@@ -207,11 +262,11 @@ func serveBotPushSettings(w http.ResponseWriter, r *http.Request, rec *botRecord
 	case r.Method != http.MethodPost:
 		http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
 		return
-	case rest == "enable":
+	case rest == "webhook/enable":
 		err = botPushEnable(rec)
-	case rest == "rotate":
+	case rest == "webhook/rotate":
 		err = botPushRotate(rec)
-	case rest == "disable":
+	case rest == "webhook/disable":
 		err = setBotPushKey(rec.Name, "")
 	default:
 		http.NotFound(w, r)

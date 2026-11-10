@@ -437,12 +437,13 @@ func TestBotChannelWebhookKey(t *testing.T) {
 	if err := botPushEnable(rec); err != nil {
 		t.Fatal(err)
 	}
-	v, _ := botPushViewOf(rec)
-	if !v.Enabled || !strings.HasPrefix(v.Key, "lc-") || v.Path != "/hooks/bots/jess" || v.Runtime != "claude" {
-		t.Fatalf("view = %+v", v)
+	full, _ := botPushViewOf(rec)
+	v := full.Webhook
+	if !v.Enabled || !strings.HasPrefix(v.Key, "lc-") || v.Path != "/hooks/bots/jess" || full.Runtime != "claude" {
+		t.Fatalf("view = %+v", full)
 	}
 	_ = botPushEnable(rec)
-	if again, _ := botPushViewOf(rec); again.Key != v.Key {
+	if again, _ := botPushViewOf(rec); again.Webhook.Key != v.Key {
 		t.Fatal("enabling twice changed the key")
 	}
 	if w := post("lc-wrong", "hi"); w.Code != http.StatusNotFound {
@@ -481,7 +482,7 @@ func TestBotChannelWebhookKey(t *testing.T) {
 		t.Fatalf("old key after rotate = %d", w.Code)
 	}
 	_ = setBotPushKey(rec.Name, "")
-	if now, _ := botPushViewOf(rec); now.Enabled || now.Key != "" {
+	if now, _ := botPushViewOf(rec); now.Webhook.Enabled || now.Webhook.Key != "" {
 		t.Fatalf("view after disable = %+v", now)
 	}
 }

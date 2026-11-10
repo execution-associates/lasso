@@ -496,15 +496,16 @@ A claude bot's Talk: an OpenAI-compatible door (Chat Completions at lasso's orig
 
 Whoever holds the key can ask the bot for anything its instructions allow, so a bot's AGENTS.md should say what it does for them.
 
-### `get_bot_channel`, `enable_bot_channel`, `rotate_bot_channel_key`, `disable_bot_channel`
+### `get_bot_channel`, `enable_bot_webhook`, `rotate_bot_webhook_key`, `disable_bot_webhook`
 
-A bot's lasso channel: the one way to push a message into a bot whatever it runs. Its webhook is lasso's origin + `/hooks/bots/<bot>`; POST the message with the channel key as a Bearer token (or `?key=`). A plain-text body is the message, or JSON `{content, source?, id?, meta?}`. Lasso delivers it as a Claude Code channel event to a claude bot and through its omp plugin to an omp bot. Each takes the bot's `name` and returns `channel`:
-- `enabled`, `path` and `key` (the key only when the webhook is on)
+Every bot has a lasso channel: it is how messages reach the bot without being asked, delivered as a Claude Code channel event to a claude bot and through lasso's omp plugin to an omp bot. The channel is always on; there is nothing to enable. Its webhook is the optional door for anything else: lasso's origin + `/hooks/bots/<bot>`, POSTed to with the webhook key as a Bearer token (or `?key=`). A plain-text body is the message, or JSON `{content, source?, id?, meta?}`. Each tool takes the bot's `name` and returns `channel`:
 - `runtime`: `claude` or `omp`, how lasso delivers
-- `available`, and `reason` when lasso cannot deliver to the bot at all
+- `available`, and `reason` when lasso cannot deliver to the bot at all; `stopped` when the bot is stopped and messages are dropped
+- `sources`: everything that messages the bot through the channel now, each `{kind, name, detail, on}` with kind `server` (one of its channel MCP servers), `job`, `talk` or `phone`
+- `webhook`: `enabled`, `path` and `key` (the key only when it is on)
 
-- `enable_bot_channel` turns the webhook on with a new key; already on, it changes nothing. It takes effect at once, with no restart.
-- `rotate_bot_channel_key` replaces the key; the old one stops working at once. `disable_bot_channel` turns the webhook off and forgets the key. Jobs, Talk and the bot's own channel servers are not affected.
+- `enable_bot_webhook` turns the webhook on with a new key; already on, it changes nothing. It takes effect at once, with no restart.
+- `rotate_bot_webhook_key` replaces the key; the old one stops working at once. `disable_bot_webhook` turns the webhook off and forgets the key. The channel stays on: jobs, Talk, the phone app and the bot's own channel servers are not affected.
 
 Whoever holds the key can send the bot messages. The bot is shown `via="webhook"` on them and told they come from outside, not from its human, so a bot's AGENTS.md should say what it does with such messages.
 

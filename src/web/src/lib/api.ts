@@ -1361,16 +1361,24 @@ export interface BotTalk {
   last_at?: string
 }
 
-// A bot's Lasso channel: its own webhook at `path` (after lasso's origin),
-// with its Bearer key when enabled. Lasso delivers it to the bot's runtime;
-// unavailable (reason says why) when lasso cannot deliver to the bot at all.
+// A bot's Lasso channel: how messages reach it without being asked. It is on
+// whenever lasso can deliver to the bot (available; reason says why not).
+// sources is everything that messages the bot through it now; webhook is the
+// optional door for anything else, at `path` (after lasso's origin) with its
+// Bearer key when enabled.
+export interface BotChannelSource {
+  kind: "server" | "job" | "talk" | "phone"
+  name: string
+  detail?: string
+  on: boolean
+}
 export interface BotChannel {
-  enabled: boolean
-  path: string
-  key?: string
   runtime: "claude" | "omp"
   available: boolean
   reason?: string
+  stopped: boolean
+  sources: BotChannelSource[]
+  webhook: { enabled: boolean; path: string; key?: string }
 }
 
 export interface BotChannelState {
@@ -2786,14 +2794,14 @@ export const api = {
       postJSON<BotTalk>(botURL(name, "/talk/disable"), {}),
     talkSetActivity: (name: string, activity: BotTalkActivity) =>
       postJSON<BotTalk>(botURL(name, "/talk"), { activity }),
-    // The bot's Lasso channel: its own webhook for messages from outside.
+    // The bot's Lasso channel, and the webhook that lets anything post to it.
     channel: (name: string) => getJSON<BotChannel>(botURL(name, "/channel")),
-    channelEnable: (name: string) =>
-      postJSON<BotChannel>(botURL(name, "/channel/enable"), {}),
-    channelRotate: (name: string) =>
-      postJSON<BotChannel>(botURL(name, "/channel/rotate"), {}),
-    channelDisable: (name: string) =>
-      postJSON<BotChannel>(botURL(name, "/channel/disable"), {}),
+    webhookEnable: (name: string) =>
+      postJSON<BotChannel>(botURL(name, "/channel/webhook/enable"), {}),
+    webhookRotate: (name: string) =>
+      postJSON<BotChannel>(botURL(name, "/channel/webhook/rotate"), {}),
+    webhookDisable: (name: string) =>
+      postJSON<BotChannel>(botURL(name, "/channel/webhook/disable"), {}),
     jobEvents: (name: string, job: string) =>
       getJSON<{ events: BotJobEvent[] }>(
         botURL(name, `/jobs/${encodeURIComponent(job)}/events`)
