@@ -16,7 +16,9 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -70,6 +72,13 @@ func (w *clientWindow) hit(key string, per time.Duration, now time.Time) {
 	defer w.mu.Unlock()
 	w.prune(key, per, now)
 	w.hits[key] = append(w.hits[key], now)
+	// Keys are pruned only when asked for; a flood of distinct sources must not
+	// grow the map for ever.
+	if len(w.hits) > 4096 {
+		for k := range w.hits {
+			w.prune(k, per, now)
+		}
+	}
 }
 
 func (w *clientWindow) allow(key string, limit int, per time.Duration, now time.Time) bool {
@@ -92,7 +101,6 @@ var (
 const (
 	clientPairPer        = 10 * time.Minute
 	clientPairPerSource  = 10
-	clientPairGlobal     = 60
 	clientMessagesPerMin = 30
 	clientUploadsPerMin  = 20
 )
@@ -265,18 +273,50 @@ func clientOwnConv(id *clientIdentity, cid string) (*appConv, bool) {
 
 // --- pairing -------------------------------------------------------------------------------
 
+// clientSource names who a request came from, for the limits: the address the
+// edge reports (Cf-Connecting-Ip) only on the Access listener, whose every
+// request comes through the cloudflared that sets it, and the socket peer
+// everywhere else. Any other listener can be reached directly, where a forwarded
+// header is whatever the caller wrote, so trusting it would let anyone pick
+// their own source and never meet a limit. An IPv6 address counts as its /64,
+// the smallest block one subscriber normally holds.
+func clientSource(r *http.Request) string {
+	addr := ""
+	if roleOf(r) == roleAccess {
+		addr = strings.TrimSpace(r.Header.Get("Cf-Connecting-Ip"))
+	}
+	if _, err := netip.ParseAddr(addr); err != nil {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			host = r.RemoteAddr
+		}
+		addr = host
+	}
+	ip, err := netip.ParseAddr(addr)
+	if err != nil {
+		return addr
+	}
+	ip = ip.Unmap()
+	if ip.Is6() {
+		if p, err := ip.Prefix(64); err == nil {
+			return p.String()
+		}
+	}
+	return ip.String()
+}
+
 func serveClientPair(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		clientMethod(w, "POST")
 		return
 	}
 	now := time.Now()
-	src := hookSource(r)
-	// Failures are counted per source and overall; past either limit nothing
-	// is even tried. A real code is 128 random bits, so this is hygiene, not
-	// the defence.
-	if clientPairFails.count("src:"+src, clientPairPer, now) >= clientPairPerSource ||
-		clientPairFails.count("all", clientPairPer, now) >= clientPairGlobal {
+	src := clientSource(r)
+	// Failures are counted per source; past the limit nothing is even tried.
+	// There is no overall cap: a code is 128 random bits, single-use and good
+	// for ten minutes, so guessing is hopeless whatever the rate, and a cap shared
+	// by everyone would let one caller lock every person out of pairing.
+	if clientPairFails.count("src:"+src, clientPairPer, now) >= clientPairPerSource {
 		w.Header().Set("Retry-After", "600")
 		clientError(w, http.StatusTooManyRequests, "rate_limited", "Too many pairing attempts. Try again in a few minutes.")
 		return
@@ -562,10 +602,16 @@ func serveClientUpload(w http.ResponseWriter, r *http.Request, id *clientIdentit
 		clientError(w, http.StatusTooManyRequests, "rate_limited", "Too many uploads waiting to be sent in a message.")
 		return
 	}
+	if used, files := userStoredUploads(id.User.ID); files >= clientQuotaFiles() || used >= clientQuotaBytes() {
+		clientError(w, http.StatusForbidden, clientQuotaCode, fmt.Sprintf(clientQuotaMsg, int(clientRetention()/(24*time.Hour))))
+		return
+	}
 	if r.ContentLength > clientAttachMax {
 		clientError(w, http.StatusRequestEntityTooLarge, "too_large", fmt.Sprintf("A file may be at most %d MB.", clientAttachMax>>20))
 		return
 	}
+	// A slow sender cannot hold the connection open for ever.
+	_ = http.NewResponseController(w).SetReadDeadline(now.Add(5 * time.Minute))
 	data, err := io.ReadAll(io.LimitReader(r.Body, clientAttachMax+1))
 	if err != nil {
 		clientError(w, http.StatusBadRequest, "invalid_request", "The upload could not be read.")
@@ -605,6 +651,10 @@ func serveClientAttachment(w http.ResponseWriter, r *http.Request, id *clientIde
 	}
 	if _, ok := clientOwnConv(id, a.ConvID); !ok {
 		clientNotFound(w)
+		return
+	}
+	if a.ExpiredAt != "" {
+		clientError(w, http.StatusGone, "file_expired", "This file was deleted after the retention period.")
 		return
 	}
 	rec, err := getBot(a.Bot)
@@ -650,6 +700,12 @@ func serveClientCallStart(w http.ResponseWriter, id *clientIdentity, conv *appCo
 		return
 	}
 	now := time.Now()
+	if !clientLimits.allow("call:"+id.User.ID, clientCallsPerMin, time.Minute, now) ||
+		!clientLimits.allow("callh:"+id.User.ID, clientCallsPerHour, time.Hour, now) {
+		w.Header().Set("Retry-After", "60")
+		clientError(w, http.StatusTooManyRequests, "rate_limited", "Too many calls started. Try again in a minute.")
+		return
+	}
 	if state, _, reason := botClientState(rec, now); state == "stopped" || state == "unavailable" {
 		clientError(w, http.StatusConflict, "bot_unavailable", reason)
 		return

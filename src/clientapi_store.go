@@ -16,8 +16,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -119,6 +123,17 @@ CREATE TABLE IF NOT EXISTS app_calls (
 	touched_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS app_calls_conv ON app_calls(conv_id, state);
+CREATE TABLE IF NOT EXISTS app_reply_tokens (
+	token_hash TEXT PRIMARY KEY,
+	conv_id    TEXT NOT NULL,
+	bot        TEXT NOT NULL,
+	message_id TEXT NOT NULL,
+	call_id    TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL,
+	expires_at TEXT NOT NULL,
+	closed_at  TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS app_reply_tokens_conv ON app_reply_tokens(conv_id);
 `
 
 const (
@@ -155,17 +170,34 @@ func hashEqual(a, b string) bool {
 	return len(a) == len(b) && subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
+// cleanLine validates a one-line label (a display name, a device label, an
+// email): UTF-8, 1..max characters, and none of the characters that could
+// reshape the markup or the header a bot reads it in (< > " \\), a control
+// character, or an invisible formatting character (a bidi override, a line or
+// paragraph separator).
 func cleanLine(s string, max int) (string, bool) {
 	s = strings.TrimSpace(s)
 	if s == "" || !utf8.ValidString(s) || utf8.RuneCountInString(s) > max {
 		return "", false
 	}
 	for _, r := range s {
-		if r < 0x20 || r == 0x7f {
+		if clientHostileRune(r) {
 			return "", false
 		}
 	}
 	return s, true
+}
+
+// clientHostileRune is a character that has no place in a name or a label:
+// controls, invisible formatting and separators, and the characters of markup
+// and quoting.
+func clientHostileRune(r rune) bool {
+	switch r {
+	case '<', '>', '"', '\\', '`', 0x7f:
+		return true
+	}
+	return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) ||
+		unicode.Is(unicode.Co, r) || unicode.Is(unicode.Cs, r)
 }
 
 // --- users ----------------------------------------------------------------------
@@ -276,6 +308,9 @@ func deleteAppUser(id string) ([]appAttachment, error) {
 	}
 	defer tx.Rollback()
 	for _, q := range []string{
+		// Messages of theirs still waiting for a bot go with them.
+		`DELETE FROM bot_events WHERE kind = 'client' AND json_extract(meta, '$.user_id') = ?`,
+		`DELETE FROM app_reply_tokens WHERE conv_id IN (SELECT id FROM app_convs WHERE user_id = ?)`,
 		`DELETE FROM app_events WHERE conv_id IN (SELECT id FROM app_convs WHERE user_id = ?)`,
 		`DELETE FROM app_messages WHERE conv_id IN (SELECT id FROM app_convs WHERE user_id = ?)`,
 		`DELETE FROM app_calls WHERE user_id = ?`,
@@ -296,6 +331,7 @@ func deleteAppUser(id string) ([]appAttachment, error) {
 // deleteClientDataOfBot forgets a deleted bot's grants and conversations.
 func deleteClientDataOfBot(bot string) {
 	for _, q := range []string{
+		`DELETE FROM app_reply_tokens WHERE bot = ?`,
 		`DELETE FROM app_events WHERE conv_id IN (SELECT id FROM app_convs WHERE bot = ?)`,
 		`DELETE FROM app_messages WHERE conv_id IN (SELECT id FROM app_convs WHERE bot = ?)`,
 		`DELETE FROM app_calls WHERE bot = ?`,
@@ -349,7 +385,20 @@ func deleteAppGrant(userID, bot string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return errClientNotFound
 	}
+	// What the person sent this bot and the bot has not taken yet is not
+	// delivered: the grant it was sent under is gone.
+	dropClientEvents(`bot = ? AND json_extract(meta, '$.user_id') = ?`, bot, userID)
 	return nil
+}
+
+// dropClientEvents withdraws the client messages a bot has not taken yet (or
+// has taken but not acknowledged) that match where: the row is kept as dropped,
+// so the person's message reads as failed, but its text and attributes are
+// blanked. A spool file already written to another host is withdrawn by the
+// spool loop when it finds its event no longer claimed.
+func dropClientEvents(where string, args ...any) {
+	_, _ = db.Exec(`UPDATE bot_events SET status = 'dropped', reason = 'access revoked', content = '', meta = '', done_at = ?
+		WHERE kind = 'client' AND status IN ('pending', 'claimed') AND `+where, append([]any{nowStamp(time.Now())}, args...)...)
 }
 
 func listAppGrants(userID string) ([]appGrant, error) {
@@ -407,6 +456,9 @@ func revokeAppDevice(userID, deviceID string, now time.Time) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return errClientNotFound
 	}
+	// Messages the revoked device sent that no bot has taken yet are not
+	// delivered.
+	dropClientEvents(`json_extract(meta, '$.device_id') = ?`, deviceID)
 	return nil
 }
 
@@ -604,7 +656,10 @@ type clientAttachmentView struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
 	Size int64  `json:"size"`
-	URL  string `json:"url"`
+	// URL is absent once the file has expired (Expired is then true): the
+	// message keeps the name, type and size to show a "file expired" marker.
+	URL     string `json:"url,omitempty"`
+	Expired bool   `json:"expired,omitempty"`
 }
 
 type clientMessageView struct {
@@ -784,23 +839,27 @@ type appAttachment struct {
 	Path      string // relative to the bot's folder
 	MessageID string
 	CreatedAt string
+	ExpiredAt string // set once the file was deleted by the retention window
 }
 
-const appAttachmentCols = `id, user_id, bot, conv_id, direction, name, mime, size, path, message_id, created_at`
+const appAttachmentCols = `id, user_id, bot, conv_id, direction, name, mime, size, path, message_id, created_at, expired_at`
 
 func scanAppAttachment(row interface{ Scan(...any) error }) (appAttachment, error) {
 	var a appAttachment
-	err := row.Scan(&a.ID, &a.UserID, &a.Bot, &a.ConvID, &a.Direction, &a.Name, &a.Mime, &a.Size, &a.Path, &a.MessageID, &a.CreatedAt)
+	err := row.Scan(&a.ID, &a.UserID, &a.Bot, &a.ConvID, &a.Direction, &a.Name, &a.Mime, &a.Size, &a.Path, &a.MessageID, &a.CreatedAt, &a.ExpiredAt)
 	return a, err
 }
 
 func (a appAttachment) view() clientAttachmentView {
+	if a.ExpiredAt != "" {
+		return clientAttachmentView{ID: a.ID, Name: a.Name, Type: a.Mime, Size: a.Size, Expired: true}
+	}
 	return clientAttachmentView{ID: a.ID, Name: a.Name, Type: a.Mime, Size: a.Size, URL: "/client/v1/attachments/" + a.ID}
 }
 
 func insertAppAttachment(a appAttachment) error {
-	_, err := db.Exec(`INSERT INTO app_attachments (`+appAttachmentCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.ID, a.UserID, a.Bot, a.ConvID, a.Direction, a.Name, a.Mime, a.Size, a.Path, a.MessageID, a.CreatedAt)
+	_, err := db.Exec(`INSERT INTO app_attachments (`+appAttachmentCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.ID, a.UserID, a.Bot, a.ConvID, a.Direction, a.Name, a.Mime, a.Size, a.Path, a.MessageID, a.CreatedAt, a.ExpiredAt)
 	return err
 }
 
@@ -859,4 +918,170 @@ func appCallByID(id string) (*appCall, error) {
 
 func openCallOf(convID string) (*appCall, error) {
 	return scanAppCall(db.QueryRow(`SELECT `+appCallCols+` FROM app_calls WHERE conv_id = ? AND state = 'open' ORDER BY started_at DESC LIMIT 1`, convID))
+}
+
+// --- reply tokens -------------------------------------------------------------------
+//
+// Every message lasso hands a claude bot carries a reply_token: random, made
+// for that message, delivered only in that message's attributes. client_reply
+// must present the token of a message of the conversation it writes to that is
+// still open, and end_call one of the call's conversation. A bot that is
+// steered by one person, and so has never been shown another person's tokens,
+// cannot write into that other person's conversation.
+
+const (
+	replyTokenPrefix = "lrt_"
+	// clientReplyWindow is how long after delivery a message stays open to
+	// answers. A message may wait in the queue for up to a day before the bot
+	// takes it; the window starts when the bot does.
+	clientReplyWindow = 6 * time.Hour
+	// clientReplyQueued bounds a token whose message was never delivered.
+	clientReplyQueued = 26 * time.Hour
+)
+
+var errReplyToken = errors.New("client_reply needs the reply_token of a message from this conversation that you have not finished answering: the one in the attributes of the message you are handling, used while it is open (a reply with done=true closes it, and it expires six hours after it reached you)")
+
+type replyToken struct {
+	ConvID, Bot, MessageID, CallID string
+	Expires                        time.Time
+	Closed                         bool
+}
+
+// issueReplyToken makes the token for one person's message.
+func issueReplyToken(conv *appConv, msgID, callID string, now time.Time) string {
+	tok := clientRandomToken(replyTokenPrefix, 18)
+	_, _ = db.Exec(`INSERT INTO app_reply_tokens (token_hash, conv_id, bot, message_id, call_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		tokenHash(tok), conv.ID, conv.Bot, msgID, callID, nowStamp(now), nowStamp(now.Add(clientReplyQueued)))
+	return tok
+}
+
+// startReplyWindow opens the answering window when the bot takes a message.
+func startReplyWindow(tok string, now time.Time) {
+	if tok == "" {
+		return
+	}
+	_, _ = db.Exec(`UPDATE app_reply_tokens SET expires_at = ? WHERE token_hash = ? AND closed_at = ''`, nowStamp(now.Add(clientReplyWindow)), tokenHash(tok))
+}
+
+func lookupReplyToken(tok string) (replyToken, bool) {
+	var t replyToken
+	var exp, closed string
+	if !strings.HasPrefix(tok, replyTokenPrefix) || len(tok) > 64 {
+		return t, false
+	}
+	h := tokenHash(tok)
+	var stored string
+	err := db.QueryRow(`SELECT token_hash, conv_id, bot, message_id, call_id, expires_at, closed_at FROM app_reply_tokens WHERE token_hash = ?`, h).
+		Scan(&stored, &t.ConvID, &t.Bot, &t.MessageID, &t.CallID, &exp, &closed)
+	if err != nil || !hashEqual(stored, h) {
+		return t, false
+	}
+	t.Expires, _ = parseStamp(exp)
+	t.Closed = closed != ""
+	return t, true
+}
+
+// checkReplyToken says whether tok lets bot write into conv now: it belongs to
+// that conversation and bot, has not expired, and (unless allowClosed, which
+// hanging up uses after the answer is out) has not been closed by a final
+// reply.
+func checkReplyToken(tok, bot, convID string, allowClosed bool, now time.Time) error {
+	t, ok := lookupReplyToken(strings.TrimSpace(tok))
+	if !ok || t.Bot != bot || t.ConvID != convID || !now.Before(t.Expires) || (t.Closed && !allowClosed) {
+		return errReplyToken
+	}
+	return nil
+}
+
+// closeReplyToken consumes the token on a final reply; false when it was
+// already closed (a racing second final reply).
+func closeReplyToken(tok string, now time.Time) bool {
+	res, err := db.Exec(`UPDATE app_reply_tokens SET closed_at = ? WHERE token_hash = ? AND closed_at = ''`, nowStamp(now), tokenHash(strings.TrimSpace(tok)))
+	if err != nil {
+		return false
+	}
+	n, _ := res.RowsAffected()
+	return n == 1
+}
+
+func reopenReplyToken(tok string) {
+	_, _ = db.Exec(`UPDATE app_reply_tokens SET closed_at = '' WHERE token_hash = ?`, tokenHash(strings.TrimSpace(tok)))
+}
+
+// --- quotas and retention ------------------------------------------------------------
+
+// The defaults are the documented limits; the environment can change them
+// (LASSO_CLIENT_QUOTA_MB, LASSO_CLIENT_QUOTA_FILES, LASSO_CLIENT_RETENTION_DAYS).
+const (
+	clientQuotaMBDefault       = 500
+	clientQuotaFilesDefault    = 3000
+	clientRetentionDaysDefault = 30
+	clientOutFilesPerConv      = 200
+	clientOutBytesPerConv      = 200 << 20
+	clientOutBytesPerBot       = 2 << 30
+	clientCallsPerMin          = 6
+	clientCallsPerHour         = 60
+	clientQuotaMBEnv           = "LASSO_CLIENT_QUOTA_MB"
+	clientQuotaFilesEnv        = "LASSO_CLIENT_QUOTA_FILES"
+	clientRetentionDaysEnv     = "LASSO_CLIENT_RETENTION_DAYS"
+	clientQuotaMsg             = "Your storage for this app is full. Uploaded files are deleted after %d days; wait for older ones to expire, or ask the owner."
+	clientQuotaCode            = "quota_exceeded"
+)
+
+func envPositive(name string, def int) int {
+	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
+}
+
+func clientQuotaBytes() int64 {
+	return int64(envPositive(clientQuotaMBEnv, clientQuotaMBDefault)) << 20
+}
+func clientQuotaFiles() int { return envPositive(clientQuotaFilesEnv, clientQuotaFilesDefault) }
+func clientRetention() time.Duration {
+	return time.Duration(envPositive(clientRetentionDaysEnv, clientRetentionDaysDefault)) * 24 * time.Hour
+}
+
+// clientQuotaMu serialises the check and the insert of a stored file, so two
+// uploads at once cannot both pass the last free byte.
+var clientQuotaMu sync.Mutex
+
+// userStoredUploads is what a person's uploads occupy now (expired ones no
+// longer count).
+func userStoredUploads(userID string) (bytes int64, files int) {
+	_ = db.QueryRow(`SELECT COALESCE(SUM(size), 0), COUNT(*) FROM app_attachments WHERE user_id = ? AND direction = 'in' AND expired_at = ''`, userID).Scan(&bytes, &files)
+	return
+}
+
+// expireAttachment deletes nothing itself: it marks the row expired and
+// rewrites the message that shows it, so the app can render a "file expired"
+// marker. The caller removes the file.
+func expireAttachment(a appAttachment, now time.Time) {
+	res, err := db.Exec(`UPDATE app_attachments SET expired_at = ?, path = '' WHERE id = ? AND expired_at = ''`, nowStamp(now), a.ID)
+	if err != nil {
+		return
+	}
+	if n, _ := res.RowsAffected(); n != 1 || a.MessageID == "" {
+		return
+	}
+	var raw string
+	if db.QueryRow(`SELECT attachments FROM app_messages WHERE id = ?`, a.MessageID).Scan(&raw) != nil {
+		return
+	}
+	var views []clientAttachmentView
+	if json.Unmarshal([]byte(raw), &views) != nil {
+		return
+	}
+	for i := range views {
+		if views[i].ID == a.ID {
+			views[i] = a.view()
+			views[i].Expired = true
+			views[i].URL = ""
+		}
+	}
+	b, _ := json.Marshal(views)
+	_, _ = db.Exec(`UPDATE app_messages SET attachments = ? WHERE id = ?`, string(b), a.MessageID)
 }

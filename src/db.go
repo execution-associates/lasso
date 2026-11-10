@@ -200,6 +200,7 @@ func openDB() error {
 		`ALTER TABLE bots ADD COLUMN alerts TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE bots ADD COLUMN channel_client INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE bot_events ADD COLUMN meta TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE app_attachments ADD COLUMN expired_at TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := h.Exec(alter); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 			h.Close()

@@ -9,7 +9,7 @@ What it adds over Talk, and why it is a surface of its own:
 1. **Every person has their own credential**, and it reaches their bots and only their bots. Talk has one shared key per bot.
 2. **The bot knows who is speaking, proven by lasso.** Identity comes from the device token and lasso's own records, never from the client, the caller or the message text.
 3. **A conversation is stable**: one per person and bot, with a history lasso keeps, and a call has a stable id.
-4. **The bot can hang up a voice call.**
+4. **The bot can hang up a voice call.** It can speak only to people who have written to it: a reply needs the token of a message that person sent ([Delivery to the bot](#delivery-to-the-bot)).
 5. **Attachments go both ways**: pictures and files from the person; images and files from the bot that the app shows inline.
 6. **Both runtimes**: claude through its `lasso-channel`, omp through the bridge's prompt (below, with the gaps).
 
@@ -40,7 +40,7 @@ OpenAI compatibility is not a goal. The protocol is shaped for these clients.
 - A **conversation** (`c_…`) is one user's with one bot. It is lasso-owned: only this person's messages and the bot's replies to them. It is **not** the bot's terminal transcript, which can hold other people's business and is never read for the history. The id is unguessable and every call that names one checks it against the token's user.
 - A **message** (`m_…`) is from the user or from the bot. A **call** (`call_…`) is one voice call in a conversation. An **attachment** (`a_…`) is a file either side sent.
 
-Storage is `lasso.db`: `app_users`, `app_grants`, `app_devices`, `app_pairings`, `app_convs`, `app_messages`, `app_events`, `app_attachments`, `app_calls`, plus `bot_events.meta` and `bots.channel_client`. Two lassos sharing a db both serve the API; a stream wakes at once on its own lasso's events and looks at the db every second for the other's.
+Storage is `lasso.db`: `app_users`, `app_grants`, `app_devices`, `app_pairings`, `app_convs`, `app_messages`, `app_events`, `app_attachments`, `app_calls`, `app_reply_tokens`, plus `bot_events.meta` and `bots.channel_client`. Two lassos sharing a db both serve the API; a stream wakes at once on its own lasso's events and looks at the db every second for the other's.
 
 ## Pairing
 
@@ -73,7 +73,7 @@ The owner (through `/api/app-users` or the matching `/mcp` tools, [below](#manag
 
 The app keeps `token` in the Keychain or Keystore. The code's use and the device's creation are one transaction, so a code works once even raced.
 
-**Failure is one answer.** An unknown code, an expired one, one already used, one for a disabled or deleted user, and a malformed code all answer `401 pairing_failed`, byte for byte the same, with the same work done. Attempts are rate-limited: ten failures from one source address (as the edge reports it, `Cf-Connecting-Ip` first) or sixty overall in ten minutes, and further attempts get `429 rate_limited` with `Retry-After: 600` without trying the code. A code is 128 random bits, so the limit is hygiene, not the defence. A request whose body is not JSON gets `400 invalid_request`: that says nothing about any code.
+**Failure is one answer.** An unknown code, an expired one, one already used, one for a disabled or deleted user, and a malformed code all answer `401 pairing_failed`, byte for byte the same, with the same work done. Attempts are rate-limited per source: ten failures from one source address in ten minutes, and further attempts from it get `429 rate_limited` with `Retry-After: 600` without trying the code. There is no overall cap, so one caller cannot lock everyone else out of pairing; a code is 128 random bits, single-use and good for ten minutes, so the limit is hygiene, not the defence. The **source** is the socket peer, except on the Access listener (`-listen-access`), whose only caller is cloudflared and where it is `Cf-Connecting-Ip`, which the edge sets. `X-Forwarded-For` and `Cf-Connecting-Ip` are never read on any other listener, where a caller could write them and pick its own source. An IPv6 address counts as its /64. A deployment that points its tunnel at the plain `-listen` address instead of the Access listener sees every phone as one source (127.0.0.1), so point it at the Access listener. A request whose body is not JSON gets `400 invalid_request`: that says nothing about any code.
 
 ## Authentication and errors
 
@@ -90,10 +90,12 @@ Errors are JSON with a status and a stable `code`:
 | 400 | `invalid_request` | a malformed body, field, cursor or id |
 | 401 | `unauthorized` | the token does not identify an enabled user's device |
 | 401 | `pairing_failed` | the pairing did not work, for any reason |
+| 403 | `quota_exceeded` | a stored-file quota is full ([Attachments](#attachments)); `message` says which |
 | 404 | `not_found` | the id is unknown, or belongs to someone else, or to a bot the user is not granted: the same answer |
 | 405 | `method_not_allowed` | `Allow` names the methods |
 | 409 | `bot_unavailable` | the bot is stopped, or cannot take app messages now; `message` says why |
 | 413 | `too_large` | a body or file over its limit |
+| 410 | `file_expired` | the file was deleted after the retention window; the message still shows its marker |
 | 415 | `unsupported_type` | an attachment of a type not allowed |
 | 429 | `rate_limited` | `Retry-After` in seconds |
 | 502 | `bot_unavailable` | lasso cannot reach the bot's host |
@@ -164,7 +166,8 @@ Query: `limit` (1-100, default 50), and at most one of `before` and `after`, eac
 ```
 
 - `role` is `user` or `bot`. `done` is true except for a bot's interim note (`done: false`). `mode` is `text` or `voice`; `call_id` is set for voice, and for a bot message sent during a call.
-- `state` is on the user's own messages: `queued` (lasso has it, the bot has not taken it), `delivered` (the bot's channel took it), `failed` (with `failed_reason`: the bot was stopped, or never picked it up within a day).
+- An attachment whose file has been deleted by the retention window reads `{"id", "name", "type", "size", "expired": true}` with **no `url`**: render a "file expired" marker from the name, type and size. A message already on screen learns of it on the next history read; downloading it answers `410 file_expired`.
+- `state` is on the user's own messages: `queued` (lasso has it, the bot has not taken it), `delivered` (the bot's channel took it), `failed` (with `failed_reason`: the bot was stopped, never picked it up within a day, or the person's access to the bot changed before it did).
 - `older_cursor` is the `before` for the next older page, or `null` at the start of history. After a page fetched with `after` it is `null`.
 - `events_cursor` is the stream's position as of just before the page was read. Open the stream with it as `Last-Event-ID` and nothing that landed while paging is missed; a message seen twice (in the page and the stream) is deduplicated by `id`.
 
@@ -208,7 +211,7 @@ The identity sent to the bot comes from the token. Any other field in the body (
 
 The app does speech recognition and synthesis; lasso carries text. A call exists so the server knows one is open.
 
-- `POST /conversations/{id}/calls` → `201 {"call": {"id": "call_…", "conversation_id": "c_…", "state": "open", "started_at": "…"}}`. Starting a call ends one still open in the conversation (`call_ended` `replaced`). `409 bot_unavailable` when the bot is stopped or unavailable.
+- `POST /conversations/{id}/calls` → `201 {"call": {"id": "call_…", "conversation_id": "c_…", "state": "open", "started_at": "…"}}`. Starting a call ends one still open in the conversation (`call_ended` `replaced`). `409 bot_unavailable` when the bot is stopped or unavailable. At most 6 calls a minute and 60 an hour per user, else `429 rate_limited` with `Retry-After`.
 - Voice messages carry `mode: "voice"` and the `call_id`. The bot's replies during the call carry `call_id` too.
 - `POST /calls/{id}/end` hangs up: `{"call": {…, "state": "ended", "end_reason": "user", "ended_at": "…"}}`. It is idempotent. The bot is told once ("The person hung up") so it does not answer into silence.
 - **The bot can hang up** (`end_call`, [below](#delivery-to-the-bot)): the stream gets `message` (the last words, if any) then `call_ended` `reason: "bot"` with `last_words`. The app speaks them and ends the call. Further voice messages on the call are refused (`400`).
@@ -216,19 +219,22 @@ The app does speech recognition and synthesis; lasso carries text. A call exists
 
 ## Attachments
 
-**Upload:** `POST /conversations/{id}/attachments?name=photo.jpg` with the file as the raw request body (any `Content-Type`, it is ignored). The name is display only: lasso keeps a base name without separators or control characters (up to 80 characters), and never uses it as a path. Answers `201 {"attachment": {id, name, type, size, url}}`. The file is saved in the bot's folder at `.lasso/client/<user id>/<attachment id>.<ext>` (0600 in a 0700 directory), so the bot can read it; the extension comes from the sniffed type.
+**Upload:** `POST /conversations/{id}/attachments?name=photo.jpg` with the file as the raw request body (any `Content-Type`, it is ignored). The name is display only: lasso keeps a base name without separators or control characters (up to 80 characters), and never uses it as a path. Answers `201 {"attachment": {id, name, type, size, url}}`. The file is saved in the bot's folder at `.lasso/client/<user id>/<attachment id>.<ext>` (0600 in a 0700 directory), so the bot can read it; the extension comes from the sniffed type. The name must be usable as a label: lasso drops control and invisible formatting characters, `<`, `>`, `"`, backslash and backtick from it.
 
 **Types are sniffed from the bytes** (`http.DetectContentType`), never taken from the name or the client's header. Allowed: PNG, JPEG, WebP, GIF, PDF, plain text (valid UTF-8 with no NUL; this includes SVG, which is therefore only ever text and is downloaded, never rendered), MP3, WAV, AIFF, Ogg, MP4, WebM and ZIP. Anything else is `415`. **HEIC is not detected**: the app converts photos to JPEG before it uploads. An upload not sent in a message within 24 hours is deleted, file and row.
+
+**Quotas and retention.** Uploads count against the person, not the conversation: at most **500 MB** and **3000 files** of stored uploads per user (`LASSO_CLIENT_QUOTA_MB`, `LASSO_CLIENT_QUOTA_FILES` change them). Past either, an upload answers `403 quota_exceeded`; sending the files in a message does not free the space, only their expiry or the user's deletion does. Every stored file, the person's and the bot's, is **deleted 30 days after it was stored** (`LASSO_CLIENT_RETENTION_DAYS`); the message stays, with the attachment as `expired: true` and no `url` (above), and the space is free again. The files the bot sends are capped separately, at 200 files and 200 MB per conversation and 2 GB per bot; past that a bot's `client_reply` with files is refused.
 
 **Download:** `GET /attachments/{id}` serves the bytes as what they are (the sniffed type must still equal the recorded one), with `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, a `Content-Disposition` of `inline` for images, audio, video and PDF and `attachment` for the rest, and Range support for audio and video. Only attachments of the token's user and a conversation they still hold are served; anything else is `404`.
 
 **What the bot sends** are files the bot attaches to a message, by path, in `client_reply`:
 
 - Registered **at send time**. Lasso reads each file from the bot's folder once, confined to it, and stores **a copy** (`.lasso/client/<user id>/out/<attachment id>.<ext>`) addressed by id. Later changes to the original change nothing; there is no route from an id to any other path, and no directory, glob or link is ever served.
-- The path is absolute or relative to the bot's folder. It is refused if it leaves the folder lexically, if **any component below the folder is a symbolic link**, if it is not a regular file, over 20 MB, of a type not allowed, or among lasso's and the runtimes' own files and the usual credential places: anything under `.lasso`, `.mise`, `.omp`, `.claude`, `.git`, `.ssh`, `.gnupg`, `.aws`, and `fnox.toml`, `age.txt`, `.env*`, `id_rsa`, `id_ed25519`. On lasso's machine the read is also an `os.Root` open, which refuses to leave the folder at the system call. On another host the folder is read over SFTP with the same component walk.
+- **Only from the outbox.** A bot may attach only files under **`.lasso/client/outbox/`** in its folder (absolute or relative path). It copies or writes what it wants to send there first; lasso reads from nowhere else, so a steered bot cannot send its configuration, credentials or the rest of its folder by naming them. Lasso creates the directory (0700) when it starts or restarts the bot and when a message arrives, tells the bot about it in the channel instructions, the omp header instructions and the tool descriptions, and **removes a file from the outbox once it has been sent**. A refused send leaves it there.
+- It is also refused if it leaves the folder lexically, if **any component below the folder is a symbolic link**, if it is not a regular file, over 20 MB, or of a type not allowed. On lasso's machine the file is opened once under `os.Root` with `O_NOFOLLOW` and `O_NONBLOCK`, and what follows is asked of the open descriptor, not the path: it must `Fstat` as a regular file within the limit, and (where the system reports a descriptor's path) it must be the path that was asked for, so a link swapped in after the walk is caught. **On another host** the folder is read over SFTP, which has no no-follow open: the walk and the open are two operations, and a path swapped for a link between them is a race lasso cannot close from here (the handle is still checked as a regular file within the limit before it is read, and the outbox rule bounds what the swap can reach).
 - A refusal fails the whole `client_reply`: nothing is sent, and the bot is told which file and why (over the spool, where nobody can be told, the text still goes and says an attachment could not be sent).
 
-By design a bot can send any non-denied file in its folder to the person it is talking to; the folder is the bot's, and an owner who does not want a file sent keeps it outside.
+The outbox is the bot's own choice of what to give the person it is talking to; anything it puts there can be sent to whoever is on the other end of a conversation it is answering, so a bot that serves outside people should put only what it means to share there.
 
 ## Limits
 
@@ -236,13 +242,17 @@ By design a bot can send any non-denied file in its folder to the person it is t
 | --- | --- |
 | message text | 16000 characters; request body 256 KB |
 | attachments | 20 MB each, 4 per message, 20 uploads waiting to be sent, 20 uploads a minute |
+| stored uploads | 500 MB and 3000 files per user (`quota_exceeded`); every stored file deleted after 30 days (`expired`) |
+| bot-sent copies | 200 files and 200 MB per conversation, 2 GB per bot; 4 per reply, from the outbox only |
+| calls | 6 a minute and 60 an hour per user to start; idle 30 minutes or open four hours ends one |
 | messages | 30 a minute per user |
 | history page | 100 messages |
 | bot message text | 64 KB (the bot sends longer answers in parts with `done=false`) |
 | streams | 3 open per device, 20 opens a minute, 55 minutes each |
-| pairing | 10 failures per source and 60 overall per 10 minutes; a code lives 10 minutes |
+| pairing | 10 failures per source per 10 minutes (no overall cap); a code lives 10 minutes |
+| reply token | open until a `done=true` reply closes it, and for six hours after the bot took the message |
 | events kept | 48 hours; calls idle 30 minutes end; messages and conversations are kept until the user is deleted |
-| name, label | 64 characters, one line |
+| name, label | 64 characters, one line, none of `<` `>` `"` backslash backtick, controls or invisible formatting characters |
 
 ## Delivery to the bot
 
@@ -251,34 +261,41 @@ One bot has one session, and it serves everyone: the app's users, its jobs, Talk
 | attribute | value |
 | --- | --- |
 | `event` | `message`, or `call_ended` |
-| `user_id`, `user_name` | the token's user and their display name (one line, 64 characters) |
+| `user_id`, `user_name` | the token's user and their display name (one line, 64 characters), read again from lasso's records when the bot takes the message |
 | `verified` | always `true` here: the token proved it |
 | `verified_via` | always `paired`: lasso paired this person's device itself |
 | `paired_by` | who minted the pairing (the verified caller's name, `local`, or `mcp:<id>`) |
-| `is_owner` | `true` when the person holds an owner grant on this bot, else `false` |
+| `is_owner` | `true` when the person holds an owner grant on this bot **at the moment the bot takes the message**, else `false` |
+| `reply_token` | claude bots: the key to answer this one message (below). Not in an omp header |
 | `conversation_id` | this person's conversation with this bot |
 | `message_id` | the message |
 | `mode` | `text` or `voice` |
 | `call_id` | the call, for voice |
-| `attachments` | a JSON list `[{path, name, type, size}]` of the files the person sent, absolute paths in the bot's folder |
+| `attachments` | the files the person sent, as entries `path|type|size|name` joined by `; ` (absolute paths in the bot's folder; the name is cleaned and holds no `|` or `;`). It has no quote or angle bracket, so it cannot reshape the tag |
 | `end_reason` | on `call_ended`: `user` or `timeout` |
 
 The message text is the event's content, followed by `Attached image: <path>` / `Attached file: <path>` lines. Those lines are the person's side of the page; the `attachments` attribute is lasso's.
 
 Because the identity is in attributes lasso sets and in nothing else, no header, body field or sentence in a message can claim to be the owner or another user. The bot is told to trust only the attributes.
 
+**Access is checked when the bot takes the message, not when it was sent.** A message waits in `bot_events` until the bot's channel (or omp's delivery loop, or the spool pass that writes it to another host) claims it. At that moment lasso re-reads the user, the grant and the sending device: if the user is disabled or deleted, the grant is gone or the device is revoked, the event is dropped (its text and attributes are blanked, the person's message reads `failed`) and the bot never sees it; otherwise `is_owner` and `user_name` are the current ones, whatever was stamped at send time. A claude bot's event that is written to a spool file on another host and not yet taken is withdrawn the same way. Deleting a user deletes their waiting messages; removing a grant drops that person's waiting messages for the bot; revoking a device drops that device's.
+
+**Text lasso frames is cleaned.** Every attribute value lasso hands a claude bot has `<`, `>`, `"`, backslash, backtick, newlines, controls and invisible formatting characters removed or replaced, so a name, a paired-by or a file name cannot close the tag or add an attribute (names and labels are also refused at the API when they hold such characters, [Limits](#limits)). In the message **body**, a string that reads as a `<channel …>` or `</channel>` tag (any case, spacing, or `lasso-channel`), as an omp header line (`[lasso client message`, `[lasso client event`, `[lasso job`) or as an omp quote marker (`----- the person's words`) is changed to a visibly different character (`‹` for `<`, `(` for `[`, a Unicode hyphen for the dashes) and nothing else is removed. The same cleaning runs where the channel pushes an event, so an event queued earlier is cleaned too. Claude Code, not lasso, draws the `<channel>` tag around a notification's `meta` and `content`; what lasso guarantees is that nothing it passes in either can contain the characters that end or start one.
+
 ### claude bots
 
 The event reaches the bot through `lasso-channel`, as `<channel source="lasso-channel" trigger="client" user_id="…" user_name="…" verified="true" verified_via="paired" paired_by="…" is_owner="false" conversation_id="…" message_id="…" mode="text" …>`. `event_id` and `fired_at` are added as for jobs. The tools beside Talk's `reply` (Talk's only):
 
-- **`client_reply {conversation_id, text?, done?, attachments?}`**: the bot's message to the person, in that conversation only. `done=false` is an interim note ("On it, checking the invoices"); `done=true` (default) closes the turn. `attachments` is a list of paths. Text or attachments are required.
-- **`end_call {call_id, last_words?}`**: hang up. The app speaks `last_words` and ends the call.
+- **`client_reply {conversation_id, reply_token, text?, done?, attachments?}`**: the bot's message to the person, in that conversation only. `done=false` is an interim note ("On it, checking the invoices"); `done=true` (default) closes the turn. `attachments` is a list of paths in the bot's outbox ([Attachments](#attachments)). Text or attachments are required.
+- **`end_call {call_id, reply_token, last_words?}`**: hang up. The app speaks `last_words` and ends the call.
 
-On lasso's machine these are HTTP calls to `/bot-channel/<bot>/client-reply` and `…/end-call` on the bot's own channel token, and errors come back to the bot. A bot on another host leaves them in the spool's `outbox/` (`{"kind":"client_reply",…}`, `{"kind":"end_call",…}`), which the spool loop collects over ssh within seconds; the tool answers "handed to lasso" and cannot report an error afterward (a refused attachment still delivers the text, with a line saying so). The launch line allows all three tools (`--allowedTools`), so a bot outside bypass mode is not stopped by a permission dialog.
+**The reply token.** Every person's message that reaches a claude bot carries its own `reply_token` (`lrt_` and 144 random bits), made for that message and shown to the bot only in that message's attributes. `client_reply` must present the token of a message **of the conversation it writes to** that is still open: not closed by a final reply, and not more than **six hours** since the bot took the message (the window starts at delivery, not at send time, so a message that waited in the queue is not already stale). Interim replies (`done=false`) leave the token usable; the first `done=true` reply consumes it, once even if two race. `end_call` needs a token of the call's conversation too, which may already be closed by the final reply (a bot says its answer, then hangs up), but not expired. The consequence is the point: a bot steered by one person has only that person's tokens, so it cannot post into another person's conversation, **and it cannot message a person who has not written to it**. Bot-initiated messages to a person (a reminder, a proactive note) are deliberately not possible in this version; allowing them would need a grant of its own, which does not exist yet. A reply with a missing, wrong, closed or expired token is refused with a message that says so. What a token proves is that the bot was handed that message, not that it answers it faithfully: one bot session serves everyone, so a bot that is steered by one person and still holds another person's open message in its context can write into that person's conversation until that message is answered or six hours pass. The token narrows that to messages the other person actually sent and has not had answered.
 
-`botChannelInstructions` tells the bot: only a verified owner is its human, everyone else is an outside person it helps only as its instructions allow, who gets nothing of its human's or of other people's; replies go through `client_reply` with the tag's `conversation_id`; interim notes for long work; voice replies are short plain spoken sentences with no markdown, lists, code or links; when and how to `end_call` (on goodbye or when finished, never mid-answer); and `event="call_ended"` needs no reply. The channel never declares `claude/channel/permission`, so a person can never approve the session's tool use.
+On lasso's machine these are HTTP calls to `/bot-channel/<bot>/client-reply` and `…/end-call` on the bot's own channel token, and errors come back to the bot. The token is checked there; the channel token proves the bot, the reply token proves the message. A bot on another host leaves them in the spool's `outbox/` (`{"kind":"client_reply",…}`, `{"kind":"end_call",…}`), which the spool loop collects over ssh within seconds; the tool answers "handed to lasso" and cannot report an error afterward (a refused attachment still delivers the text, with a line saying so). The launch line allows all three tools (`--allowedTools`), so a bot outside bypass mode is not stopped by a permission dialog.
 
-A channel announces what it can do: its poll header is `X-Lasso-Channel: talk client` (a spool channel's heartbeat ends `talk client`), stored as `bots.channel_client`. A connected channel without `client` is an older one without the client tools: the bot reads `unavailable` and sends are refused until it restarts (on another host, until lasso there is updated). A channel not yet connected reads `starting` and the message waits.
+`botChannelInstructions` tells the bot (outbox and reply token included): only a verified owner is its human, everyone else is an outside person it helps only as its instructions allow, who gets nothing of its human's or of other people's; replies go through `client_reply` with the tag's `conversation_id`; interim notes for long work; voice replies are short plain spoken sentences with no markdown, lists, code or links; when and how to `end_call` (on goodbye or when finished, never mid-answer); and `event="call_ended"` needs no reply. The channel never declares `claude/channel/permission`, so a person can never approve the session's tool use.
+
+A channel announces what it can do: its poll header is `X-Lasso-Channel: talk client2` (a spool channel's heartbeat ends `talk client2`), stored as `bots.channel_client`. `client2` means the client tools that present reply tokens. A connected channel without `client2` is an older one: the bot reads `unavailable` and sends are refused until it restarts (on another host, until lasso there is updated). A channel not yet connected reads `starting` and the message waits.
 
 ### omp bots
 
@@ -293,9 +310,9 @@ There is no channel process. The message is a bridge prompt, written by `botOmpC
 
 The first line is lasso's: a plain line, never an XML tag (omp reads tags in its context as system-authored). The person's words sit between two markers that carry a random nonce nobody could know when they wrote them, so nothing inside can pose as the header or close the quote. The system prompt (`botOmpClientInstructions`) says what the line means, the same rules as the channel's, and that the answer text is delivered automatically.
 
-**Replies are routed by what lasso delivered, never by text.** lasso keeps each nonce it issued. The bridge already forwards omp's `message_end` events (token deltas are the only thing it drops); lasso reads them. A *user* message whose first line carries a nonce lasso issued for this bot opens that person's turn; any other user message (the human typing in the terminal, a job, a forged header with no valid nonce) closes it. During a person's turn, each assistant message's text goes to that conversation: a message that calls tools is an interim note (`done: false`), one that does not is the closing message (`done: true`). When the run ends without a closing message, `turn_end`. Outside a person's turn assistant text goes nowhere. Two people's messages are separate turns (omp queues the second as a follow-up while it works), and a message lands only in the conversation whose nonce opened the turn. A late reply is never carried into another person's conversation: there is no carrying at all.
+**Replies are routed by what lasso delivered, never by text.** lasso keeps each nonce it issued. The bridge already forwards omp's `message_end` events (token deltas are the only thing it drops); lasso reads them. A *user* message whose first line carries a nonce lasso issued for this bot opens that person's turn; any other user message (the human typing in the terminal, a job, a forged header with no valid nonce) closes it. During a person's turn, each assistant message's text goes to that conversation: a message that calls tools is an interim note (`done: false`), one that does not is the closing message (`done: true`). When the run ends without a closing message, `turn_end`. Outside a person's turn assistant text goes nowhere. Two people's messages are separate turns (omp queues the second as a follow-up while it works), and a message lands only in the conversation whose nonce opened the turn. A late reply is never carried into another person's conversation: there is no carrying at all. **This meets the same bar as the reply token**: the nonce is random, known only to lasso and the bot's prompt, single-use (`LoadAndDelete`), bound to the bot, conversation and message lasso issued it for, and the only way a turn opens; omp has no tool that names a conversation, and what the bot says outside an open turn goes nowhere.
 
-**Attachments and hanging up** use lasso's MCP server, which every local omp bot already has (`.omp/mcp.json`, `server "lasso"`): `client_reply {name, conversation_id, text?, done?, attachments?}` and `client_end_call {name, call_id, last_words?}`. `/mcp` does not know which bot is calling, so these two are limited to the conversation (or its call) the bot is **answering at that moment** (the open turn above); from outside a turn, or for another conversation, they are refused. Tool names appear to omp as its MCP prefix gives them (`lasso` server).
+**Attachments and hanging up** use lasso's MCP server, which every local omp bot already has (`.omp/mcp.json`, `server "lasso"`): `client_reply {name, conversation_id, text?, done?, attachments?}` and `client_end_call {name, call_id, last_words?}`. `/mcp` does not know which bot is calling, so these two are limited to the conversation (or its call) the bot is **answering at that moment** (the open turn above); from outside a turn, or for another conversation, they are refused. They take no reply token: an omp bot is handed none, and the open turn plays its part. Their attachments come from the same outbox. Tool names appear to omp as its MCP prefix gives them (`lasso` server).
 
 **Gaps for omp** (precisely):
 
@@ -307,7 +324,7 @@ The first line is lasso's: a plain line, never an XML tag (omp reads tags in its
 
 ## Managing people
 
-The owner's side is `/api/app-users` (behind `UI_AUTH` like the rest of `/api`, and kept off machine callers) with a matching tool for each on `/mcp` (fleet-wide credentials only). A web UI is a later step and needs nothing more than these.
+The owner's side is `/api/app-users` (behind `UI_AUTH` like the rest of `/api`, and kept off machine callers) with a matching tool for each on `/mcp`. The tools need **a real MCP credential with fleet reach** (a lasso token, from `MCP_OAUTH`): an anonymous `/mcp` caller is refused with a tool error that says so and points to `/api/app-users`, and they are not listed to one. Open `/mcp` (no `MCP_OAUTH`) is what a bot on lasso's machine gets, so without `MCP_OAUTH` the tools are unusable and the owner manages people through `/api`. A web UI is a later step and needs nothing more than these.
 
 | `/api` route | `/mcp` tool | |
 | --- | --- | --- |
@@ -337,11 +354,15 @@ The tools that mint pairings return the code to the calling agent: it is single-
 - **No client-supplied identity.** The bot's attributes come from lasso's records (the token's user, the grant, the pairing). The body's other fields are ignored. Display names and `paired_by` are scrubbed to one line before they become attributes.
 - **Constant-time comparisons.** Tokens and codes are compared by their hashes with `subtle.ConstantTimeCompare`; the lookup is by hash.
 - **Revocation is immediate**: it is evaluated per request and per second on streams, not cached.
-- **Replies cannot cross.** A claude reply names its conversation, which must belong to the calling bot (its channel token) and to a user still enabled and granted; an omp reply is routed by nonce. Nothing is carried from one request to another, unlike Talk's late replies.
-- **Files**: described above. The sniffed type decides what a file is, with `nosniff` and a sandbox CSP; no SVG is ever an image; names are generated; the per-user directory is `.lasso/client/<id>`.
+- **Replies cannot cross.** A claude reply names its conversation, which must belong to the calling bot (its channel token) and to a user still enabled and granted, and must present the reply token of an open message of that conversation, which only that person's own message carried; an omp reply is routed by nonce. Nothing is carried from one request to another, unlike Talk's late replies. A bot cannot start a conversation with a person who has not written to it.
+- **Access is re-read at delivery.** A message queued before a user was disabled or deleted, a grant removed or a device revoked never reaches the bot, and the owner flag it carries is the grant's at that moment.
+- **A bot sends from its outbox only**, and what it reads is opened once with no-follow and checked on the descriptor.
+- **Storage is bounded**: per-user upload quota, per-conversation and per-bot caps on what a bot sends, a 30-day retention window, call-start and upload rate limits.
+- **Files**: described above. The sniffed type decides what a file is, with `nosniff` and a sandbox CSP; no SVG is ever an image; names are generated; the per-user directory is `.lasso/client/<id>`. A bot reads every person's uploads in its folder (one folder, one session), which is part of why a bot serving outside people must be written for it.
 - **Untrusted text everywhere**: the person's words, the bot's words and file names are data. The page for the pairing link reflects nothing.
 - **Logging**: the API logs nothing of requests. Pairing failures are counted in memory, by source address, only.
-- **Residual trust:** `/mcp` is open on loopback (unless `MCP_OAUTH`), so a local process or a bot that can call `/mcp` could use `list_app_users` or `create_app_pairing` and pair a device, as it can already `create_agent`; the user tools require a fleet-wide credential, and an omp bot's `client_reply` is limited to its open turn.
+- **Pairing is not reachable through anonymous `/mcp`.** The user-management tools refuse a caller with no credential and are hidden from its tool list, because that is what a bot on lasso's machine is on an open `/mcp`. A steered bot therefore cannot make an outside person an owner or pair a device for the owner's user through them.
+- **Residual trust, plainly.** A bot that runs on the same machine as lasso and has shell access can reach lasso's loopback listener, which trusts every local process as the owner: it can call the owner's `/api` (including `/api/app-users`), edit its own folder's configuration and read every person's uploads in it. So the owner/outsider distinction **protects the owner only as long as the bot itself refuses an outside person's instructions**. Lasso proves who is speaking and keeps people's conversations apart; it cannot stop a bot that has been talked into misusing its own local access. A bot you grant to outside people should be one whose instructions and tool permissions are written for that (no shell, no broad file access, no secrets in its folder or environment), or one that runs where it cannot reach lasso's loopback (another host, with no route to lasso's port). Do not read the owner flag as a guarantee about what a bot will do.
 
 ## Deployment
 
@@ -350,11 +371,12 @@ The API is the same binary and the same listeners; nothing needs a new port.
 - **Cloudflare Access**: the phone cannot sign in to Access, so bypass the whole prefix. Add a self-hosted Access application for `lasso.example.com/client/` with a single **Bypass** policy that includes everyone (the more specific path wins). That covers the pairing page, `/client/v1/pair` and the API, all of which carry their own credential. A bypassed request has no Access assertion, and the access listener passes `/client/` unproven, like `/talk/`. See [Cloudflare](../deployment/cloudflare.md#7-webhooks-and-talk-from-outside-only-if-you-need-them). Without the bypass, the alternative is an Access service token as custom headers where the app can send them.
 - **Hostname**: on `-listen-access` the Host check is skipped. On any other listener the public name must be in `LASSO_HOSTNAMES`.
 - **Streams** need an edge that does not buffer or cut long responses: Cloudflare Tunnel passes SSE; the 15 second keepalive keeps the 100 second idle limit quiet.
-- A bot must run a channel with the client tools: after lasso is updated, claude bots restart onto it (`unavailable` with the reason until then; lasso rewrites each bot's task on the runner's start so the new `--allowedTools` applies), and a remote host's lasso must be updated.
+- A bot must run a channel with the client tools: after lasso is updated, claude bots restart onto it, the reply-token generation (`client2`) (`unavailable` with the reason until then; lasso rewrites each bot's task on the runner's start so the new `--allowedTools` applies), and a remote host's lasso must be updated.
 
 ## Gaps and seams
 
 - Push notifications (APNs, FCM), server-side speech synthesis or recognition, and a web UI for people and devices are not built. The seams: `appendClientEvent` is the single place a message or call event is born (a push transport would subscribe there, as `publishNotification` does for bots), the app does speech, and the management routes are complete for a UI.
-- Retention of messages and uploads is until the user or bot is deleted; there is no per-conversation delete, and the bot's folder keeps uploads (the owner's to prune; unused uploads are removed after a day).
+- Messages are kept until the user or bot is deleted; there is no per-conversation delete. Files (uploads and the bot's copies) are deleted after the retention window, unused uploads after a day.
+- Bots cannot start a conversation: every reply answers a message the person sent. A push or a scheduled note from a bot would need a deliberate grant that does not exist yet.
 - A stream's `activity` and the state are polled (two to four seconds; the terminal is read, over SFTP for a remote bot).
 - The two limits that are per process (rate windows, stream counts) reset on a restart and are not shared between two lassos on one db.

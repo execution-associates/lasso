@@ -61,9 +61,10 @@ func botSpoolID(name string) (int64, bool) {
 func botSpoolFile(id int64) string { return strconv.FormatInt(id, 10) + ".json" }
 
 // botSpoolBeatClient reads the heartbeat's client capability: client_reply and
-// end_call are among the channel's tools.
+// end_call, the second generation that presents reply tokens, are among the
+// channel's tools. An older channel's "client" does not count.
 func botSpoolBeatClient(beat string) bool {
-	return slices.Contains(strings.Fields(beat), "client")
+	return slices.Contains(strings.Fields(beat), "client2")
 }
 
 // botSpoolBeatTalk reads the heartbeat's capability: a channel with Talk's

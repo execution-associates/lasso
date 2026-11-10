@@ -14,15 +14,18 @@ package main
 //     confined to it, and kept as a copy lasso addresses by id.
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode/utf8"
 )
@@ -180,7 +183,7 @@ func clientDisplayName(name, fallbackExt string) string {
 	name = name[strings.LastIndex(name, "/")+1:]
 	var sb strings.Builder
 	for _, r := range name {
-		if r < 0x20 || r == 0x7f || r == '<' || r == '>' || r == '"' {
+		if clientHostileRune(r) {
 			continue
 		}
 		sb.WriteRune(r)
@@ -223,8 +226,20 @@ func clientNoSymlinks(b Backend, root, rel string) error {
 }
 
 // clientConfinedRead reads the file at rel (relative to the bot's folder root)
-// without leaving it: no symlink in the path, and on lasso's own machine the
-// open itself is confined with os.Root.
+// without leaving it.
+//
+// On lasso's own machine the file is opened once, under os.Root, with
+// O_NOFOLLOW (a final component that is a symbolic link is refused by the
+// kernel) and O_NONBLOCK (a FIFO cannot hold lasso), and everything after that
+// is asked of the descriptor: Fstat must say a regular file within the limit,
+// and the descriptor's own path (where the system reports it) must be the path
+// that was asked for, so a directory swapped for a link between the walk and
+// the open is caught. There is no check-then-open gap on the file itself.
+//
+// On another host the folder is read over SFTP. The walk (clientNoSymlinks)
+// and the open are two operations there and sftp offers no no-follow open, so
+// a path swapped for a link in between is a race lasso cannot close from here;
+// the handle is still checked (regular file, size) before anything is read.
 func clientConfinedRead(b Backend, local bool, root, rel string, max int64) ([]byte, error) {
 	if !filepath.IsLocal(rel) {
 		return nil, errors.New("outside the bot's folder")
@@ -232,47 +247,28 @@ func clientConfinedRead(b Backend, local bool, root, rel string, max int64) ([]b
 	if err := clientNoSymlinks(b, root, rel); err != nil {
 		return nil, err
 	}
-	var data []byte
 	if local {
-		r, err := os.OpenRoot(root)
-		if err != nil {
-			return nil, err
-		}
-		defer r.Close()
-		f, err := r.Open(rel)
-		if err != nil {
-			return nil, errors.New("outside the bot's folder")
-		}
-		defer f.Close()
-		st, err := f.Stat()
-		if err != nil || !st.Mode().IsRegular() {
-			return nil, errors.New("not a regular file")
-		}
-		if st.Size() > max {
-			return nil, fmt.Errorf("the file is over %d MB", max>>20)
-		}
-		data = make([]byte, 0, st.Size())
-		buf := make([]byte, 64<<10)
-		for {
-			n, err := f.Read(buf)
-			data = append(data, buf[:n]...)
-			if int64(len(data)) > max {
-				return nil, fmt.Errorf("the file is over %d MB", max>>20)
-			}
-			if err != nil {
-				break
-			}
-		}
-		return data, nil
+		return clientReadLocal(root, rel, max)
 	}
-	fi, err := b.Stat(filepath.Join(root, rel))
+	f, err := b.Open(filepath.Join(root, rel))
 	if err != nil {
 		return nil, errors.New("the file is not there")
 	}
-	if fi.Size() > max {
-		return nil, fmt.Errorf("the file is over %d MB", max>>20)
+	defer f.Close()
+	if st, ok := f.(interface{ Stat() (os.FileInfo, error) }); ok {
+		fi, err := st.Stat()
+		if err != nil || !fi.Mode().IsRegular() {
+			return nil, errors.New("not a regular file")
+		}
+		if fi.Size() > max {
+			return nil, fmt.Errorf("the file is over %d MB", max>>20)
+		}
 	}
-	data, err = b.ReadFile(filepath.Join(root, rel))
+	return readAtMost(f, max)
+}
+
+func readAtMost(r io.Reader, max int64) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, max+1))
 	if err != nil {
 		return nil, err
 	}
@@ -282,24 +278,42 @@ func clientConfinedRead(b Backend, local bool, root, rel string, max int64) ([]b
 	return data, nil
 }
 
-// clientDeniedRel is what a bot may not send to a person even from its own
-// folder: lasso's and the runtimes' own files (they hold the channel token and
-// secrets) and the usual places credentials live.
-func clientDeniedRel(rel string) bool {
-	for _, p := range strings.Split(rel, string(filepath.Separator)) {
-		switch strings.ToLower(p) {
-		case ".lasso", ".mise", ".omp", ".claude", ".git", ".ssh", ".gnupg", ".aws", "fnox.toml", "age.txt", "id_rsa", "id_ed25519":
-			return true
-		}
-		if strings.HasPrefix(strings.ToLower(p), ".env") {
-			return true
+func clientReadLocal(root, rel string, max int64) ([]byte, error) {
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	f, err := r.OpenFile(rel, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, errors.New("outside the bot's folder, or not a plain file")
+	}
+	defer f.Close()
+	st, err := f.Stat() // the descriptor's, not the path's
+	if err != nil || !st.Mode().IsRegular() {
+		return nil, errors.New("not a regular file")
+	}
+	if st.Size() > max {
+		return nil, fmt.Errorf("the file is over %d MB", max>>20)
+	}
+	// Where the system can name what the descriptor is open on (Linux), it
+	// must be the file that was asked for, with no link on the way.
+	if got, err := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", f.Fd())); err == nil {
+		if realRoot, e := filepath.EvalSymlinks(root); e == nil && got != filepath.Join(realRoot, rel) {
+			return nil, errors.New("the path changed while it was being read")
 		}
 	}
-	return false
+	return readAtMost(f, max)
 }
 
-// clientBotFileRel turns the path a bot named into one relative to its folder,
-// or says why it is not one a bot may send.
+// clientOutboxRel is the one place in a bot's folder it may send files from.
+// A bot copies or writes what it wants a person to have there first; lasso
+// reads from nowhere else, so a steered bot cannot send its configuration, its
+// secrets or the rest of its folder just by naming them.
+var clientOutboxRel = filepath.Join(".lasso", "client", "outbox")
+
+// clientBotFileRel turns the path a bot named into one relative to its folder
+// that lies in the outbox, or says why it is not one a bot may send.
 func clientBotFileRel(root string, local bool, p string) (string, error) {
 	p = strings.TrimSpace(p)
 	if p == "" || strings.ContainsRune(p, 0) {
@@ -319,10 +333,30 @@ func clientBotFileRel(root string, local bool, p string) (string, error) {
 	if err != nil || !filepath.IsLocal(rel) {
 		return "", errors.New("the file is outside the bot's folder")
 	}
-	if clientDeniedRel(rel) {
-		return "", errors.New("that file is not one a bot may send (lasso's own files and credentials)")
+	if !strings.HasPrefix(rel, clientOutboxRel+string(filepath.Separator)) {
+		return "", fmt.Errorf("a bot sends only files from its outbox, %s/ in its folder: copy the file there first", filepath.ToSlash(clientOutboxRel))
 	}
 	return rel, nil
+}
+
+// clientQuotaCheck refuses a stored file that would take a person (for their
+// uploads) or a conversation and a bot (for the copies of what a bot sends)
+// past its limit. Called with clientQuotaMu held.
+func clientQuotaCheck(conv *appConv, direction string, size int64) error {
+	if direction == "in" {
+		bytes, files := userStoredUploads(conv.UserID)
+		if files+1 > clientQuotaFiles() || bytes+size > clientQuotaBytes() {
+			return cerr(http.StatusForbidden, clientQuotaCode, fmt.Sprintf(clientQuotaMsg, int(clientRetention()/(24*time.Hour))))
+		}
+		return nil
+	}
+	var cb, cn, bb int64
+	_ = db.QueryRow(`SELECT COALESCE(SUM(size), 0), COUNT(*) FROM app_attachments WHERE conv_id = ? AND direction = 'out' AND expired_at = ''`, conv.ID).Scan(&cb, &cn)
+	_ = db.QueryRow(`SELECT COALESCE(SUM(size), 0) FROM app_attachments WHERE bot = ? AND direction = 'out' AND expired_at = ''`, conv.Bot).Scan(&bb)
+	if cn+1 > clientOutFilesPerConv || cb+size > clientOutBytesPerConv || bb+size > clientOutBytesPerBot {
+		return cerr(http.StatusForbidden, clientQuotaCode, "Too many files have been sent in this conversation; older ones expire after the retention window.")
+	}
+	return nil
 }
 
 // clientStoreFile writes a copy under the user's directory in the bot's folder
@@ -332,6 +366,11 @@ func clientStoreFile(b Backend, rec *botRecord, root string, conv *appConv, dire
 	mime, ext, ok := clientSniff(data)
 	if !ok {
 		return appAttachment{}, cerr(http.StatusUnsupportedMediaType, "unsupported_type", "That file type is not allowed. Images, PDF, text, audio, video and zip files are.")
+	}
+	clientQuotaMu.Lock()
+	defer clientQuotaMu.Unlock()
+	if err := clientQuotaCheck(conv, direction, int64(len(data))); err != nil {
+		return appAttachment{}, err
 	}
 	id := clientID("a_", 12)
 	sub := clientUserDir(conv.UserID)
@@ -354,12 +393,14 @@ func clientStoreFile(b Backend, rec *botRecord, root string, conv *appConv, dire
 	return a, nil
 }
 
-// clientRegisterBotFiles reads the files a bot named, each confined to its
-// folder, and registers a copy of each for the person. An error names the
-// first file that could not be sent; nothing is registered then.
-func clientRegisterBotFiles(b Backend, rec *botRecord, conv *appConv, paths []string) ([]appAttachment, error) {
+// clientRegisterBotFiles reads the files a bot named, each from its outbox and
+// confined to its folder, and registers a copy of each for the person. An error
+// names the first file that could not be sent; nothing is registered then. It
+// answers the sent copies and the outbox paths they came from, which the caller
+// clears once the message is out.
+func clientRegisterBotFiles(b Backend, rec *botRecord, conv *appConv, paths []string) ([]appAttachment, []string, error) {
 	if len(paths) > clientAttachPerMsg {
-		return nil, fmt.Errorf("at most %d attachments per message", clientAttachPerMsg)
+		return nil, nil, fmt.Errorf("at most %d attachments per message", clientAttachPerMsg)
 	}
 	root := expandTildeOn(b, rec.Dir)
 	local := rec.Host == "local"
@@ -368,29 +409,35 @@ func clientRegisterBotFiles(b Backend, rec *botRecord, conv *appConv, paths []st
 		data []byte
 	}
 	var files []loaded
+	var rels []string
 	for _, p := range paths {
 		rel, err := clientBotFileRel(root, local, expandTildeOn(b, p))
 		if err != nil {
-			return nil, fmt.Errorf("%s: %v", p, err)
+			return nil, nil, fmt.Errorf("%s: %v", p, err)
 		}
 		data, err := clientConfinedRead(b, local, root, rel, clientAttachMax)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %v", p, err)
+			return nil, nil, fmt.Errorf("%s: %v", p, err)
 		}
 		if _, _, ok := clientSniff(data); !ok {
-			return nil, fmt.Errorf("%s: that file type cannot be sent (images, PDF, text, audio, video and zip can)", p)
+			return nil, nil, fmt.Errorf("%s: that file type cannot be sent (images, PDF, text, audio, video and zip can)", p)
 		}
 		files = append(files, loaded{filepath.Base(rel), data})
+		rels = append(rels, rel)
 	}
 	var out []appAttachment
 	for _, f := range files {
 		a, err := clientStoreFile(b, rec, root, conv, "out", f.name, f.data)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %v", f.name, err)
+			for _, done := range out {
+				_, _ = db.Exec(`DELETE FROM app_attachments WHERE id = ?`, done.ID)
+			}
+			clientRemoveFiles(out)
+			return nil, nil, fmt.Errorf("%s: %v", f.name, err)
 		}
 		out = append(out, a)
 	}
-	return out, nil
+	return out, rels, nil
 }
 
 // --- the person's message -------------------------------------------------------------
@@ -505,7 +552,9 @@ func clientSend(id *clientIdentity, conv *appConv, in clientSendIn, now time.Tim
 		_, _ = db.Exec(`UPDATE app_attachments SET message_id = ? WHERE id = ?`, msgID, a.ID)
 	}
 	meta := clientEventMeta(id.User, id.Device, grant, conv, msgID, mode, callID, files)
-	content := text
+	meta["reply_token"] = issueReplyToken(conv, msgID, callID, now)
+	clientMakeOutbox(b, root)
+	content := clientNeutralize(text)
 	if len(footer) > 0 {
 		if content != "" {
 			content += "\n\n"
@@ -530,21 +579,70 @@ func clientSend(id *clientIdentity, conv *appConv, in clientSendIn, now time.Tim
 	return m, false, nil
 }
 
-// clientMetaClean makes a value safe as a channel attribute: one line, no
-// control characters, bounded.
+// clientMetaClean makes a value safe as a channel attribute or a header field:
+// one line, bounded, with none of the characters that could close or reopen a
+// tag or an attribute (< > " and backslash), no control or invisible formatting
+// character.
 func clientMetaClean(s string, max int) string {
 	var sb strings.Builder
 	for _, r := range s {
-		if r < 0x20 || r == 0x7f {
+		switch {
+		case r == '<' || r == '>' || r == '"' || r == '\\' || r == '`':
+			continue
+		case clientHostileRune(r):
 			r = ' '
 		}
 		sb.WriteRune(r)
 	}
 	out := strings.TrimSpace(sb.String())
 	if r := []rune(out); len(r) > max {
-		out = string(r[:max])
+		out = strings.TrimSpace(string(r[:max]))
 	}
 	return out
+}
+
+var clientTagRE = regexp.MustCompile(`(?i)<(\s*/?\s*)(lasso-)?channel`)
+
+// clientNeutralize makes a person's words unable to pass for lasso's own
+// framing, without removing any of their text: a string that reads as a
+// <channel> tag (opening or closing), as the omp header or event lines, or as
+// the omp quote markers is changed to a visibly different one. The text the bot
+// sees still reads the way it was written.
+func clientNeutralize(s string) string {
+	s = clientTagRE.ReplaceAllString(s, "\u2039${1}${2}channel")
+	s = strings.ReplaceAll(s, ompClientMessagePrefix, "(lasso client message ")
+	s = strings.ReplaceAll(s, "[lasso client event", "(lasso client event")
+	s = strings.ReplaceAll(s, "[lasso job", "(lasso job")
+	s = strings.ReplaceAll(s, "----- the person's words", "\u2010\u2010\u2010\u2010\u2010 the person's words")
+	return s
+}
+
+// clientAttachmentsAttr writes the files a person sent as the one attribute
+// they appear in: entries "path|type|size|name" joined by "; ". It holds no
+// quote, angle bracket or control character (paths are lasso's, names are
+// cleaned, and the separators are removed from names), so it cannot reshape a
+// tag.
+func clientAttachmentsAttr(files []map[string]any) string {
+	var parts []string
+	for _, f := range files {
+		name := strings.NewReplacer("|", "_", ";", "_").Replace(clientMetaClean(fmt.Sprint(f["name"]), clientNameShown))
+		parts = append(parts, fmt.Sprintf("%s|%s|%v|%s", clientMetaClean(fmt.Sprint(f["path"]), 1024), f["type"], f["size"], name))
+	}
+	return strings.Join(parts, "; ")
+}
+
+var clientOutboxMade sync.Map // host + folder -> struct{}: made already this run
+
+// clientMakeOutbox makes the folder a bot sends files from (best effort, once
+// per folder per run: a bot on another host costs a round trip each time).
+func clientMakeOutbox(b Backend, root string) {
+	key := b.Name() + "\x00" + root
+	if _, done := clientOutboxMade.Load(key); done {
+		return
+	}
+	if b.MkdirAll(filepath.Join(root, clientOutboxRel), 0o700) == nil {
+		clientOutboxMade.Store(key, struct{}{})
+	}
 }
 
 // clientEventMeta is the facts a bot gets with a person's message. Lasso sets
@@ -552,6 +650,9 @@ func clientMetaClean(s string, max int) string {
 // pairing that made the device. Nothing the client sends reaches this map but
 // the message text itself (the event's content), the conversation's own ids
 // and a client-chosen mode that was checked against an open call.
+//
+// device_id is lasso's own bookkeeping (the delivery step drops the message if
+// the device was revoked meanwhile) and never reaches a bot.
 func clientEventMeta(u *appUser, d appDevice, g *appGrant, conv *appConv, msgID, mode, callID string, files []map[string]any) map[string]string {
 	meta := map[string]string{
 		"event":           "message",
@@ -565,15 +666,45 @@ func clientEventMeta(u *appUser, d appDevice, g *appGrant, conv *appConv, msgID,
 		"message_id":      msgID,
 		"mode":            mode,
 		"nonce":           randHex(8),
+		"device_id":       d.ID,
 	}
 	if callID != "" {
 		meta["call_id"] = callID
 	}
 	if len(files) > 0 {
-		b, _ := json.Marshal(files)
-		meta["attachments"] = string(b)
+		meta["attachments"] = clientAttachmentsAttr(files)
 	}
 	return meta
+}
+
+// clientInternalMeta are the attributes a delivery strips before a bot sees
+// them.
+var clientInternalMeta = []string{"nonce", "device_id"}
+
+// clientAccessNow re-reads, at the moment a queued event is claimed, whether
+// the person may still reach the bot: the user exists and is enabled, the grant
+// stands and (for a message) the sending device is not revoked. It answers the
+// current owner flag and name, which replace what was stamped at send time. q
+// is the transaction the claim runs in.
+func clientAccessNow(q interface {
+	QueryRow(string, ...any) *sql.Row
+}, bot string, meta map[string]string) (owner bool, name string, ok bool) {
+	uid := meta["user_id"]
+	if uid == "" {
+		return false, "", false
+	}
+	var ownerInt int
+	if q.QueryRow(`SELECT u.name, g.owner FROM app_users u JOIN app_grants g ON g.user_id = u.id AND g.bot = ?
+		WHERE u.id = ? AND u.disabled = 0`, bot, uid).Scan(&name, &ownerInt) != nil {
+		return false, "", false
+	}
+	if dev := meta["device_id"]; dev != "" {
+		var n int
+		if q.QueryRow(`SELECT COUNT(*) FROM app_devices WHERE id = ? AND user_id = ? AND revoked_at = ''`, dev, uid).Scan(&n) != nil || n != 1 {
+			return false, "", false
+		}
+	}
+	return ownerInt != 0, name, true
 }
 
 // enqueueBotClientEvent queues an event of kind "client" for the bot's channel
@@ -642,6 +773,8 @@ func clientFailReason(reason string) string {
 		return "The bot was stopped."
 	case strings.Contains(reason, "within a day"):
 		return "The bot did not pick the message up."
+	case strings.Contains(reason, "access revoked"):
+		return "Your access to this bot changed before it took the message."
 	}
 	return "The message could not be delivered."
 }
@@ -712,15 +845,28 @@ func clientTellBotHangup(c *appCall, reason string, now time.Time) {
 // --- the bot's tools ------------------------------------------------------------------
 
 // botClientReply is client_reply: the bot's message to the person in one
-// conversation, with files from its folder. lenient (the spool, where nobody
-// can be told of an error) delivers the text even when an attachment cannot be
-// sent, and says so in the message.
-func botClientReply(bot, convID, text string, done bool, paths []string, lenient bool, now time.Time) (clientMessageView, error) {
+// conversation, with files from its outbox. token is the reply_token of the
+// message being answered: it must belong to that conversation, be open (not
+// closed by a final reply, not expired), and a final reply (done=true) closes
+// it. Interim notes (done=false) leave it usable. lenient (the spool, where
+// nobody can be told of an error) delivers the text even when an attachment
+// cannot be sent, and says so in the message.
+func botClientReply(bot, convID, token, text string, done bool, paths []string, lenient bool, now time.Time) (clientMessageView, error) {
 	var zero clientMessageView
 	conv, err := convByID(strings.TrimSpace(convID))
 	if err != nil || conv.Bot != bot {
 		return zero, errors.New("no conversation with that id for this bot")
 	}
+	if err := checkReplyToken(token, bot, conv.ID, false, now); err != nil {
+		return zero, err
+	}
+	return botClientSend(conv, bot, token, text, done, paths, lenient, now)
+}
+
+// botClientSend is the part of client_reply after the bot has shown it may
+// write here.
+func botClientSend(conv *appConv, bot, token, text string, done bool, paths []string, lenient bool, now time.Time) (clientMessageView, error) {
+	var zero clientMessageView
 	if u, err := getAppUser(conv.UserID); err != nil || u.Disabled {
 		return zero, errors.New("that conversation is closed")
 	}
@@ -738,16 +884,20 @@ func botClientReply(bot, convID, text string, done bool, paths []string, lenient
 		return zero, errors.New("text or attachments are required")
 	}
 	var views []clientAttachmentView
+	var sentRels []string
+	var b Backend
+	var root string
 	if len(paths) > 0 {
 		rec, err := getBot(bot)
 		if err != nil {
 			return zero, err
 		}
-		b, err := botBackend(rec.Host)
+		b, err = botBackend(rec.Host)
 		if err != nil {
 			return zero, err
 		}
-		atts, err := clientRegisterBotFiles(b, rec, conv, paths)
+		root = expandTildeOn(b, rec.Dir)
+		atts, rels, err := clientRegisterBotFiles(b, rec, conv, paths)
 		if err != nil {
 			if !lenient {
 				return zero, fmt.Errorf("an attachment cannot be sent: %v", err)
@@ -760,12 +910,29 @@ func botClientReply(bot, convID, text string, done bool, paths []string, lenient
 		for _, a := range atts {
 			views = append(views, a.view())
 		}
+		sentRels = rels
+	}
+	// A final reply consumes the message's token, once: a second final reply
+	// racing this one finds it closed.
+	if done && token != "" && !closeReplyToken(token, now) {
+		return zero, errReplyToken
 	}
 	callID := ""
 	if c, err := openCallOf(conv.ID); err == nil {
 		callID = c.ID
 	}
-	return addBotMessage(conv, text, done, callID, views, now)
+	m, err := addBotMessage(conv, text, done, callID, views, now)
+	if err != nil {
+		if done && token != "" {
+			reopenReplyToken(token)
+		}
+		return zero, err
+	}
+	// What was sent leaves the outbox: it is a hand-off, not a store.
+	for _, rel := range sentRels {
+		_ = b.RemoveAll(filepath.Join(root, rel))
+	}
+	return m, nil
 }
 
 func clientFailReasonFile(err error) string {
@@ -777,12 +944,22 @@ func clientFailReasonFile(err error) string {
 }
 
 // botClientEndCall is end_call: the bot hangs up, optionally after last words
-// the app speaks first.
-func botClientEndCall(bot, callID, lastWords string, now time.Time) error {
+// the app speaks first. token is a reply_token of the call's conversation (the
+// message being answered); it may already be closed by the final reply, since a
+// bot says its answer and then hangs up, but it must not have expired.
+func botClientEndCall(bot, callID, token, lastWords string, now time.Time) error {
 	call, err := appCallByID(strings.TrimSpace(callID))
 	if err != nil || call.Bot != bot {
 		return errors.New("no call with that id for this bot")
 	}
+	if err := checkReplyToken(token, bot, call.ConvID, true, now); err != nil {
+		return errors.New("end_call needs the reply_token of a message from this call's conversation, as it arrived (it stays valid for six hours after it reached you)")
+	}
+	return endCallAs(call, lastWords, now)
+}
+
+// endCallAs is the hang-up after the caller has shown it may.
+func endCallAs(call *appCall, lastWords string, now time.Time) error {
 	if call.State != "open" {
 		return errors.New("that call is already over")
 	}
@@ -987,6 +1164,24 @@ func clientMaintain(now time.Time) {
 		}
 		clientRemoveFiles(gone)
 	}
+	// Retention: a stored file, the person's or the bot's, is deleted after the
+	// retention window; the message keeps a marker for it.
+	old, err := db.Query(`SELECT `+appAttachmentCols+` FROM app_attachments WHERE expired_at = '' AND (direction = 'out' OR message_id != '') AND created_at < ?`,
+		nowStamp(now.Add(-clientRetention())))
+	if err == nil {
+		var expired []appAttachment
+		for old.Next() {
+			if a, err := scanAppAttachment(old); err == nil {
+				expired = append(expired, a)
+			}
+		}
+		old.Close()
+		for _, a := range expired {
+			expireAttachment(a, now)
+		}
+		clientRemoveFiles(expired)
+	}
+	_, _ = db.Exec(`DELETE FROM app_reply_tokens WHERE expires_at < ?`, nowStamp(now.Add(-48*time.Hour)))
 	ompClientTurns.Range(func(k, v any) bool {
 		if now.Sub(v.(clientTurn).At) > time.Hour {
 			ompClientTurns.Delete(k)
@@ -1037,13 +1232,17 @@ func ompAnswering(bot, convID string) bool {
 	return ob.clientCur != nil && ob.clientCur.ConvID == convID
 }
 
-// mcpClientReply is client_reply on /mcp: botClientReply, for the conversation
-// the omp bot is answering.
+// mcpClientReply is client_reply on /mcp: for the conversation the omp bot is
+// answering. /mcp does not know which bot is calling, so what bounds it is the
+// open client turn lasso opened itself from a nonce it issued (observeMessageEnd):
+// there is no reply_token to present, because an omp bot is handed none, and a
+// turn that is not open cannot be written into.
 func mcpClientReply(bot, convID, text string, done bool, paths []string) error {
-	if !ompAnswering(bot, strings.TrimSpace(convID)) {
+	conv, err := convByID(strings.TrimSpace(convID))
+	if err != nil || conv.Bot != bot || !ompAnswering(bot, conv.ID) {
 		return errors.New("you can send into the conversation you are answering right now, the one in the header of the message you are handling")
 	}
-	_, err := botClientReply(bot, convID, text, done, paths, false, time.Now())
+	_, err = botClientSend(conv, bot, "", text, done, paths, false, time.Now())
 	return err
 }
 
@@ -1054,5 +1253,5 @@ func mcpClientEndCall(bot, callID, lastWords string) error {
 	if err != nil || call.Bot != bot || !ompAnswering(bot, call.ConvID) {
 		return errors.New("you can end the call of the conversation you are answering right now")
 	}
-	return botClientEndCall(bot, callID, lastWords, time.Now())
+	return endCallAs(call, lastWords, time.Now())
 }

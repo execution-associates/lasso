@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -144,6 +145,19 @@ func (c *clientTest) upload(token, cid, name string, data []byte) (*http.Respons
 	var out struct{ Attachment clientAttachmentView }
 	_ = json.Unmarshal(b, &out)
 	return resp, out.Attachment
+}
+
+// token makes a fresh reply token for the conversation, as if a message had
+// just been delivered to the bot.
+func (c *clientTest) token(cid string) string {
+	c.t.Helper()
+	conv, err := convByID(cid)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	tok := issueReplyToken(conv, "m_test", "", time.Now())
+	startReplyWindow(tok, time.Now())
+	return tok
 }
 
 func errCode(b []byte) string {
@@ -676,12 +690,13 @@ func TestClientStreamAndResume(t *testing.T) {
 		t.Fatalf("own message event = %+v", m1)
 	}
 	evs, _ := claimBotEvents("jess", time.Now())
+	tok := evs[0].Meta["reply_token"]
 	_ = ackBotEvents("jess", []int64{evs[0].ID}, time.Now())
 	st := nextEvent(t, ch, "message_state")
 	if !strings.Contains(st.Data, `"delivered"`) {
 		t.Fatalf("state event = %s", st.Data)
 	}
-	if _, err := botClientReply("jess", cid, "On it", false, nil, false, time.Now()); err != nil {
+	if _, err := botClientReply("jess", cid, tok, "On it", false, nil, false, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	interim := nextEvent(t, ch, "message")
@@ -692,7 +707,7 @@ func TestClientStreamAndResume(t *testing.T) {
 
 	// While the client is away more happens; resuming from the last id it saw
 	// replays exactly that, once.
-	if _, err := botClientReply("jess", cid, "Here is the answer", true, nil, false, time.Now()); err != nil {
+	if _, err := botClientReply("jess", cid, tok, "Here is the answer", true, nil, false, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	_ = conv
@@ -835,6 +850,7 @@ func TestClientBotFilesCannotEscape(t *testing.T) {
 	conv, _ := convByID(cid)
 	_ = annID
 	outside := t.TempDir()
+	box := filepath.ToSlash(clientOutboxRel)
 	write := func(p string, data []byte) string {
 		t.Helper()
 		full := filepath.Join(c.root, p)
@@ -844,27 +860,37 @@ func TestClientBotFilesCannotEscape(t *testing.T) {
 		}
 		return full
 	}
-	good := write("out/chart.png", pngBytes())
+	good := write(box+"/chart.png", pngBytes())
 	write(".lasso/mcp.json", []byte(`{"token":"secret"}`))
 	write("fnox.toml", []byte("secret = 1"))
 	write(".env", []byte("A=1"))
+	write("mise.toml", []byte("[tasks]"))
+	write(".mcp.json", []byte("{}"))
+	write("CLAUDE.md", []byte("rules"))
+	write("server.pem", []byte("-----BEGIN-----"))
+	write(".netrc", []byte("machine x password y"))
 	write("notes/readme.txt", []byte("hello"))
+	write("out/chart.png", pngBytes())
 	secret := filepath.Join(outside, "id.txt")
 	_ = os.WriteFile(secret, []byte("outside secret"), 0o600)
-	_ = os.Symlink(secret, filepath.Join(c.root, "link-out.txt"))
-	_ = os.Symlink(filepath.Join(c.root, ".lasso", "mcp.json"), filepath.Join(c.root, "link-in.txt"))
-	_ = os.Symlink(outside, filepath.Join(c.root, "linkdir"))
-	_ = os.MkdirAll(filepath.Join(c.root, "adir"), 0o755)
-	write("big.bin", append([]byte("%PDF-1.4\n"), make([]byte, clientAttachMax+10)...))
-	write("tool.sh", []byte("#!/bin/sh\nrm -rf /\n"))
+	_ = os.Symlink(secret, filepath.Join(c.root, box, "link-out.txt"))
+	_ = os.Symlink(filepath.Join(c.root, ".lasso", "mcp.json"), filepath.Join(c.root, box, "link-in.txt"))
+	_ = os.Symlink(outside, filepath.Join(c.root, box, "linkdir"))
+	_ = os.MkdirAll(filepath.Join(c.root, box, "adir"), 0o755)
+	write(box+"/big.bin", append([]byte("%PDF-1.4\n"), make([]byte, clientAttachMax+10)...))
+	write(box+"/tool.sh", []byte("#!/bin/sh\nrm -rf /\n"))
 
+	// Only the outbox is a place to send from: the rest of the folder, credentials
+	// and configuration included, is not, whatever its name.
 	refused := []string{
-		"../../etc/passwd", "/etc/passwd", "../" + filepath.Base(outside) + "/id.txt", secret, "link-out.txt", "link-in.txt",
-		"linkdir/id.txt", ".lasso/mcp.json", filepath.Join(c.root, ".lasso", "mcp.json"), "fnox.toml", ".env", "adir", "",
-		"big.bin", "out/../.lasso/mcp.json", "nothere.png", "~/.ssh/id_rsa", filepath.Join(c.root, "..") + "/x",
+		"../../etc/passwd", "/etc/passwd", "../" + filepath.Base(outside) + "/id.txt", secret, box + "/link-out.txt", box + "/link-in.txt",
+		box + "/linkdir/id.txt", ".lasso/mcp.json", filepath.Join(c.root, ".lasso", "mcp.json"), "fnox.toml", ".env", "mise.toml", ".mcp.json",
+		"CLAUDE.md", "server.pem", ".netrc", "notes/readme.txt", "out/chart.png", box + "/adir", box, "", box + "/big.bin",
+		box + "/../mcp.json", box + "/../../../mise.toml", box + "/nothere.png", "~/.ssh/id_rsa", filepath.Join(c.root, "..") + "/x",
+		".LASSO/client/outbox/chart.png",
 	}
 	for _, p := range refused {
-		if _, err := botClientReply("jess", cid, "here", true, []string{p}, false, time.Now()); err == nil {
+		if _, err := botClientReply("jess", cid, c.token(cid), "here", true, []string{p}, false, time.Now()); err == nil {
 			t.Errorf("a bot sent %q", p)
 		}
 	}
@@ -875,10 +901,11 @@ func TestClientBotFilesCannotEscape(t *testing.T) {
 	if n != 0 || msgs != 0 {
 		t.Fatalf("refused sends left %d attachments, %d messages", n, msgs)
 	}
-	// A real file in the folder goes, by absolute or relative path, and the
-	// person gets a copy addressed by id.
-	for _, p := range []string{good, "out/chart.png", "notes/readme.txt"} {
-		m, err := botClientReply("jess", cid, "here", true, []string{p}, false, time.Now())
+	// A file in the outbox goes, by absolute or relative path, and the person
+	// gets a copy addressed by id; the outbox is emptied of what was sent.
+	for _, p := range []string{good, box + "/chart.png"} {
+		write(box+"/chart.png", pngBytes())
+		m, err := botClientReply("jess", cid, c.token(cid), "here", true, []string{p}, false, time.Now())
 		if err != nil || len(m.Attachments) != 1 {
 			t.Fatalf("send %s: %v %+v", p, err, m)
 		}
@@ -890,21 +917,72 @@ func TestClientBotFilesCannotEscape(t *testing.T) {
 		if a.Direction != "out" || a.UserID != conv.UserID || strings.Contains(a.Path, "chart") {
 			t.Fatalf("attachment = %+v", a)
 		}
+		if _, err := os.Stat(good); err == nil {
+			t.Fatalf("%s stayed in the outbox after it was sent", p)
+		}
 	}
 	// The copy is frozen: replacing the original afterwards changes nothing.
-	m, _ := botClientReply("jess", cid, "again", true, []string{"out/chart.png"}, false, time.Now())
+	write(box+"/chart.png", pngBytes())
+	m, _ := botClientReply("jess", cid, c.token(cid), "again", true, []string{box + "/chart.png"}, false, time.Now())
 	_ = os.WriteFile(good, []byte("changed"), 0o644)
 	if _, body := c.do("GET", m.Attachments[0].URL, ann, ""); !bytes.Equal(body, pngBytes()) {
 		t.Fatal("the delivered copy followed the original")
 	}
 	// More than four.
-	if _, err := botClientReply("jess", cid, "x", true, []string{good, good, good, good, good}, false, time.Now()); err == nil {
+	write(box+"/chart.png", pngBytes())
+	if _, err := botClientReply("jess", cid, c.token(cid), "x", true, []string{good, good, good, good, good}, false, time.Now()); err == nil {
 		t.Fatal("five attachments sent")
 	}
 	// The spool cannot tell the bot: the text still goes, and says so.
-	m, err := botClientReply("jess", cid, "see attached", true, []string{".lasso/mcp.json"}, true, time.Now())
+	m, err := botClientReply("jess", cid, c.token(cid), "see attached", true, []string{".lasso/mcp.json"}, true, time.Now())
 	if err != nil || !strings.Contains(m.Text, "could not be sent") || len(m.Attachments) != 0 {
 		t.Fatalf("lenient: %v %+v", err, m)
+	}
+}
+
+// What the file reader does when the path under it changes, and when it is not
+// a plain file.
+func TestClientReadIsConfined(t *testing.T) {
+	root := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(root, "box"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "box", "a.txt"), []byte("hi"), 0o644)
+	secret := filepath.Join(t.TempDir(), "s.txt")
+	_ = os.WriteFile(secret, []byte("secret"), 0o600)
+	_ = os.Symlink(secret, filepath.Join(root, "box", "l.txt"))
+	if err := syscall.Mkfifo(filepath.Join(root, "box", "fifo"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := clientReadLocal(root, "box/a.txt", 1<<20); err != nil || string(got) != "hi" {
+		t.Fatalf("plain file: %q %v", got, err)
+	}
+	// A link as the final component is refused by the open itself, with no
+	// earlier check to have raced.
+	if _, err := clientReadLocal(root, "box/l.txt", 1<<20); err == nil {
+		t.Fatal("followed a final symlink")
+	}
+	// A FIFO neither blocks nor reads.
+	done := make(chan error, 1)
+	go func() { _, err := clientReadLocal(root, "box/fifo", 1<<20); done <- err }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("read a FIFO")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a FIFO held the reader")
+	}
+	// The size limit is the opened file's.
+	if _, err := clientReadLocal(root, "box/a.txt", 1); err == nil {
+		t.Fatal("read past the limit")
+	}
+	// A directory swapped for a link to somewhere else in the folder between
+	// the walk and the open is noticed: the descriptor is not where the path says.
+	_ = os.MkdirAll(filepath.Join(root, "other"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "other", "a.txt"), []byte("other"), 0o644)
+	_ = os.Rename(filepath.Join(root, "box"), filepath.Join(root, "box.real"))
+	_ = os.Symlink(filepath.Join(root, "other"), filepath.Join(root, "box"))
+	if got, err := clientReadLocal(root, "box/a.txt", 1<<20); err == nil {
+		t.Fatalf("read through a swapped directory: %q", got)
 	}
 }
 
@@ -932,6 +1010,7 @@ func TestClientCalls(t *testing.T) {
 	}
 	evs, _ := claimBotEvents("jess", time.Now())
 	meta := evs[len(evs)-1].Meta
+	tok := meta["reply_token"]
 	if meta["mode"] != "voice" || meta["call_id"] != call.ID || meta["is_owner"] != "true" {
 		t.Fatalf("voice meta = %+v", meta)
 	}
@@ -940,7 +1019,7 @@ func TestClientCalls(t *testing.T) {
 	ch, stop, _ := c.openStream(ann, cid, "")
 	defer stop()
 	nextEvent(t, ch, "hello")
-	if err := botClientEndCall("jess", call.ID, "Goodbye, talk soon.", time.Now()); err != nil {
+	if err := botClientEndCall("jess", call.ID, tok, "Goodbye, talk soon.", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	msg := nextEvent(t, ch, "message")
@@ -948,7 +1027,7 @@ func TestClientCalls(t *testing.T) {
 	if !strings.Contains(msg.Data, "Goodbye") || !strings.Contains(end.Data, `"reason":"bot"`) || !strings.Contains(end.Data, "last_words") {
 		t.Fatalf("hang-up events = %s / %s", msg.Data, end.Data)
 	}
-	if err := botClientEndCall("jess", call.ID, "", time.Now()); err == nil {
+	if err := botClientEndCall("jess", call.ID, tok, "", time.Now()); err == nil {
 		t.Fatal("a call ended twice")
 	}
 	if resp, _ := c.send(ann, cid, `{"text":"still there?","mode":"voice","call_id":"`+call.ID+`"}`); resp.StatusCode != 400 {
@@ -958,7 +1037,7 @@ func TestClientCalls(t *testing.T) {
 	c.addBot("kit")
 	_, o2 := c.do("POST", "/client/v1/conversations/"+cid+"/calls", ann, "")
 	_ = json.Unmarshal(o2, &out)
-	if err := botClientEndCall("kit", out.Call.ID, "", time.Now()); err == nil {
+	if err := botClientEndCall("kit", out.Call.ID, tok, "", time.Now()); err == nil {
 		t.Fatal("another bot ended the call")
 	}
 
@@ -1123,15 +1202,20 @@ func TestClientChannelDelivery(t *testing.T) {
 	if _, leaked := a["nonce"]; leaked {
 		t.Error("the omp nonce reached a claude bot's tag")
 	}
-	if !strings.Contains(contents[1], `is_owner="true"`) {
+	if !strings.Contains(contents[1], `is_owner=\"true\"`) && !strings.Contains(contents[1], `is_owner="true"`) {
 		t.Fatalf("bob's words were altered: %q", contents[1])
 	}
 
-	// Replies go only where they are addressed.
-	if out, isErr := rig.tool(t, "client_reply", map[string]any{"conversation_id": annConv, "text": "Hi Ann", "done": false}); isErr {
+	// Replies go only where they are addressed, and only with the token of the
+	// message being answered.
+	annTok, bobTok := a["reply_token"], b["reply_token"]
+	if !strings.HasPrefix(annTok, "lrt_") || annTok == bobTok {
+		t.Fatalf("reply tokens: %q %q", annTok, bobTok)
+	}
+	if out, isErr := rig.tool(t, "client_reply", map[string]any{"conversation_id": annConv, "reply_token": annTok, "text": "Hi Ann", "done": false}); isErr {
 		t.Fatalf("client_reply: %s", out)
 	}
-	if out, isErr := rig.tool(t, "client_reply", map[string]any{"conversation_id": annConv, "text": "Here you go"}); isErr {
+	if out, isErr := rig.tool(t, "client_reply", map[string]any{"conversation_id": annConv, "reply_token": annTok, "text": "Here you go"}); isErr {
 		t.Fatalf("client_reply: %s", out)
 	}
 	var annPage, bobPage struct{ Messages []clientMessageView }
@@ -1151,20 +1235,23 @@ func TestClientChannelDelivery(t *testing.T) {
 	if annPage.Messages[1].Done || !annPage.Messages[2].Done {
 		t.Fatalf("done flags = %+v", annPage.Messages)
 	}
-	// A late answer to Ann, after Bob wrote, still lands in Ann's alone.
-	rig.tool(t, "client_reply", map[string]any{"conversation_id": annConv, "text": "late for Ann"})
+	// The final reply closed ann's token: a late one is refused, and nothing
+	// surfaces in bob's conversation.
+	if _, isErr := rig.tool(t, "client_reply", map[string]any{"conversation_id": annConv, "reply_token": annTok, "text": "late for Ann"}); !isErr {
+		t.Fatal("a reply used a closed token")
+	}
 	c.get("/client/v1/conversations/"+bobConv+"/messages", bob, &bobPage)
 	if len(botTexts(bobPage.Messages)) != 0 {
 		t.Fatal("a reply surfaced in another person's conversation")
 	}
-	// Unknown, other bots' and malformed conversations are refused.
+	// Unknown, other bots', malformed conversations and a missing token are refused.
 	c.addBot("kit")
 	kitID, kit := c.person("Kay", false, "kit")
 	_ = kitID
 	kitConv := c.conv(kit, "kit")
 	for _, args := range []map[string]any{
-		{"conversation_id": kitConv, "text": "wrong bot"}, {"conversation_id": "c_nope", "text": "x"},
-		{"conversation_id": annConv}, {"text": "no conversation"},
+		{"conversation_id": kitConv, "reply_token": bobTok, "text": "wrong bot"}, {"conversation_id": "c_nope", "reply_token": bobTok, "text": "x"},
+		{"conversation_id": bobConv}, {"text": "no conversation"}, {"conversation_id": bobConv, "text": "no token"},
 	} {
 		if _, isErr := rig.tool(t, "client_reply", args); !isErr {
 			t.Errorf("client_reply %v succeeded", args)
@@ -1172,7 +1259,7 @@ func TestClientChannelDelivery(t *testing.T) {
 	}
 	// A disabled person's conversation is closed.
 	_, _ = updateAppUser(annID, appUserPatch{Disabled: ptr(true)}, time.Now())
-	if _, isErr := rig.tool(t, "client_reply", map[string]any{"conversation_id": annConv, "text": "x"}); !isErr {
+	if _, isErr := rig.tool(t, "client_reply", map[string]any{"conversation_id": annConv, "reply_token": c.token(annConv), "text": "x"}); !isErr {
 		t.Error("replied to a disabled person")
 	}
 	_, _ = updateAppUser(annID, appUserPatch{Disabled: ptr(false)}, time.Now())
@@ -1181,13 +1268,13 @@ func TestClientChannelDelivery(t *testing.T) {
 	_, cb := c.do("POST", "/client/v1/conversations/"+annConv+"/calls", ann, "")
 	var o struct{ Call appCall }
 	_ = json.Unmarshal(cb, &o)
-	if _, isErr := rig.tool(t, "end_call", map[string]any{"call_id": o.Call.ID, "last_words": "Bye"}); isErr {
+	if _, isErr := rig.tool(t, "end_call", map[string]any{"call_id": o.Call.ID, "reply_token": annTok, "last_words": "Bye"}); isErr {
 		t.Fatal("end_call failed")
 	}
 	if cl, _ := appCallByID(o.Call.ID); cl.State != "ended" || cl.EndReason != "bot" {
 		t.Fatalf("call = %+v", cl)
 	}
-	if _, isErr := rig.tool(t, "end_call", map[string]any{"call_id": "call_nope"}); !isErr {
+	if _, isErr := rig.tool(t, "end_call", map[string]any{"call_id": "call_nope", "reply_token": annTok}); !isErr {
 		t.Error("ended a call that does not exist")
 	}
 	// Delivery acks the messages: the app sees them delivered.
@@ -1212,9 +1299,13 @@ func TestClientSpoolDelivery(t *testing.T) {
 		time.Sleep(2 * time.Millisecond)
 	}
 	_ = os.WriteFile(filepath.Join(c.root, "pic.png"), pngBytes(), 0o644)
-	write(botClientOutboxEntry{Kind: "client_reply", ConversationID: cid, Text: "from afar", Attachments: []string{"pic.png"}})
-	write(botClientOutboxEntry{Kind: "client_reply", ConversationID: cid, Text: "bad file", Attachments: []string{".lasso/mcp.json"}})
-	write(botClientOutboxEntry{Kind: "client_reply", ConversationID: "c_other", Text: "nowhere"})
+	box := filepath.Join(c.root, clientOutboxRel)
+	_ = os.MkdirAll(box, 0o700)
+	_ = os.WriteFile(filepath.Join(box, "pic.png"), pngBytes(), 0o644)
+	write(botClientOutboxEntry{Kind: "client_reply", ConversationID: cid, ReplyToken: c.token(cid), Text: "from afar", Attachments: []string{filepath.Join(clientOutboxRel, "pic.png")}})
+	write(botClientOutboxEntry{Kind: "client_reply", ConversationID: cid, ReplyToken: c.token(cid), Text: "bad file", Attachments: []string{".lasso/mcp.json"}})
+	write(botClientOutboxEntry{Kind: "client_reply", ConversationID: "c_other", ReplyToken: c.token(cid), Text: "nowhere"})
+	write(botClientOutboxEntry{Kind: "client_reply", ConversationID: cid, Text: "no token"})
 	write(botTalkOutboxEntry{ChatID: "nochat", Text: "a talk reply for nothing", Done: true})
 	b, _ := botBackend("local")
 	if err := botSpoolCollectReplies(b, "jess", spool, time.Now()); err != nil {
@@ -1230,7 +1321,7 @@ func TestClientSpoolDelivery(t *testing.T) {
 		t.Fatalf("the outbox kept %d files", len(ents))
 	}
 	// The beat says the channel has the client tools.
-	if !botSpoolBeatClient("2026-01-01T00:00:00Z 12 talk client") || botSpoolBeatClient("2026-01-01T00:00:00Z 12 talk") {
+	if !botSpoolBeatClient("2026-01-01T00:00:00Z 12 talk client2") || botSpoolBeatClient("2026-01-01T00:00:00Z 12 talk client") || botSpoolBeatClient("2026-01-01T00:00:00Z 12 talk") {
 		t.Fatal("botSpoolBeatClient")
 	}
 }
@@ -1278,7 +1369,7 @@ func TestClientOmpDelivery(t *testing.T) {
 	defer srv.Close()
 	c := &clientTest{t: t, srv: srv, bot: r, root: expandTildeOn(b, r.Dir)}
 	annID, ann := c.person("Ann", true, "ompy")
-	_, bob := c.person("Bob", false, "ompy")
+	bobID, bob := c.person("Bob", false, "ompy")
 	annConv, bobConv := c.conv(ann, "ompy"), c.conv(bob, "ompy")
 
 	var me struct{ Bots []clientBotView }
@@ -1360,11 +1451,22 @@ func TestClientOmpDelivery(t *testing.T) {
 	if len(botTexts(ann, annConv)) != 1 {
 		t.Fatal("a hang-up notice was answered into the conversation")
 	}
+	// A message waiting for a person whose grant goes before the delivery loop
+	// takes it never reaches omp.
+	c.send(bob, bobConv, `{"text":"a message nobody will read"}`)
+	_ = deleteAppGrant(bobID, "ompy")
+	deliver()
+	time.Sleep(200 * time.Millisecond)
+	if strings.Contains(readLog(logPath), "a message nobody will read") {
+		t.Fatal("omp was prompted with a revoked person's message")
+	}
 	// Its tools on /mcp reach only the conversation it is answering: from
 	// outside a turn, or into another person's conversation, they are refused.
 	_ = os.MkdirAll(c.root, 0o755)
-	_ = os.WriteFile(filepath.Join(c.root, "report.png"), pngBytes(), 0o644)
-	if err := mcpClientReply("ompy", annConv, "a file", true, []string{"report.png"}); err == nil {
+	rep := filepath.Join(clientOutboxRel, "report.png")
+	_ = os.MkdirAll(filepath.Join(c.root, clientOutboxRel), 0o755)
+	_ = os.WriteFile(filepath.Join(c.root, rep), pngBytes(), 0o644)
+	if err := mcpClientReply("ompy", annConv, "a file", true, []string{rep}); err == nil {
 		t.Fatal("an omp bot sent into a conversation outside a turn")
 	}
 	c.send(ann, annConv, `{"text":"send the report"}`)
@@ -1374,10 +1476,10 @@ func TestClientOmpDelivery(t *testing.T) {
 	ob.mu.Lock()
 	ob.clientCur = &clientTurn{Bot: "ompy", ConvID: annConv}
 	ob.mu.Unlock()
-	if err := mcpClientReply("ompy", annConv, "a file", true, []string{"report.png"}); err != nil {
+	if err := mcpClientReply("ompy", annConv, "a file", true, []string{rep}); err != nil {
 		t.Fatalf("answering ann: %v", err)
 	}
-	if err := mcpClientReply("ompy", bobConv, "a file", true, []string{"report.png"}); err == nil {
+	if err := mcpClientReply("ompy", bobConv, "a file", true, []string{rep}); err == nil {
 		t.Fatal("an omp bot answering ann posted into bob's conversation")
 	}
 	if err := mcpClientEndCall("ompy", "call_nope", ""); err == nil {

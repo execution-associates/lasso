@@ -511,12 +511,40 @@ func claimBotEventsWhere(bot string, now time.Time, cond string, args ...any) ([
 		out = append(out, e)
 	}
 	rows.Close()
+	// A person's message is checked against lasso's records now, not as they
+	// were when it was sent: a user disabled or deleted, a grant removed or a
+	// device revoked since means the message is dropped, and the owner flag the
+	// bot sees is the grant's today.
+	kept := out[:0]
+	for _, e := range out {
+		if e.Kind == "client" {
+			owner, name, ok := clientAccessNow(tx, bot, e.Meta)
+			if !ok {
+				if _, err := tx.Exec(`UPDATE bot_events SET status = 'dropped', reason = 'access revoked', content = '', meta = '', done_at = ? WHERE id = ?`, nowStamp(now), e.ID); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			e.Meta["is_owner"] = fmt.Sprint(owner)
+			e.Meta["user_name"] = clientMetaClean(name, clientNameMax)
+		}
+		kept = append(kept, e)
+	}
+	out = kept
 	for _, e := range out {
 		if _, err := tx.Exec(`UPDATE bot_events SET status = 'claimed', claimed_at = ? WHERE id = ?`, nowStamp(now), e.ID); err != nil {
 			return nil, err
 		}
 	}
-	return out, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	for _, e := range out {
+		if e.Kind == "client" {
+			startReplyWindow(e.Meta["reply_token"], now)
+		}
+	}
+	return out, nil
 }
 
 func ackBotEvents(bot string, ids []int64, now time.Time) error {
@@ -707,13 +735,13 @@ func botChannelSeenCaps(bot string, now time.Time, talk, client bool) {
 }
 
 // botChannelCaps reads the capabilities a channel announced in its poll header
-// (a space-separated list: talk, client).
+// (a space-separated list: talk, client2).
 func botChannelCaps(h string) (talk, client bool) {
 	for _, w := range strings.Fields(h) {
 		switch w {
 		case "talk":
 			talk = true
-		case "client":
+		case "client2":
 			client = true
 		}
 	}
@@ -824,7 +852,7 @@ func serveBotChannel(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		done := in.Done == nil || *in.Done
-		if _, err := botClientReply(name, in.ConversationID, in.Text, done, in.Attachments, false, time.Now()); err != nil {
+		if _, err := botClientReply(name, in.ConversationID, in.ReplyToken, in.Text, done, in.Attachments, false, time.Now()); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -839,7 +867,7 @@ func serveBotChannel(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad body", http.StatusBadRequest)
 			return
 		}
-		if err := botClientEndCall(name, in.CallID, in.LastWords, time.Now()); err != nil {
+		if err := botClientEndCall(name, in.CallID, in.ReplyToken, in.LastWords, time.Now()); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

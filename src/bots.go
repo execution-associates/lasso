@@ -709,6 +709,15 @@ func validateResumeArgv(argv []string) error {
 // AGENTS.md if it has no instructions. It never overwrites instructions, skills, fnox.toml or the
 // bot's own mise.toml.
 func botMaterialize(b Backend, r *botRecord) error {
+	err := botMaterializeFiles(b, r)
+	if err == nil {
+		// The folder a bot sends files to people from (client-api.md).
+		_ = b.MkdirAll(filepath.Join(expandTildeOn(b, r.Dir), clientOutboxRel), 0o700)
+	}
+	return err
+}
+
+func botMaterializeFiles(b Backend, r *botRecord) error {
 	if r.isOmp() {
 		return botOmpMaterialize(b, r)
 	}

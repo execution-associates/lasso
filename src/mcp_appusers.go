@@ -16,15 +16,55 @@ import (
 
 const appUsersHelp = "App users are the people who use lasso's phone app to talk to bots: each has their own paired devices and reaches only the bots granted to them. A grant's owner flag says the person is that bot's owner, its human; everyone else the bot treats as an outside person."
 
+// appUserAdminTools are the tools that manage app users and their devices.
+// Granting ownership, pairing a device and reading the user list are the
+// owner's, so an anonymous /mcp caller never has them (see appAdmin).
+var appUserAdminTools = map[string]bool{
+	"list_app_users": true, "create_app_user": true, "update_app_user": true, "delete_app_user": true,
+	"set_app_user_grant": true, "revoke_app_user_grant": true, "create_app_pairing": true, "revoke_app_device": true,
+}
+
+// errAppAdminCredential is why an anonymous caller is refused.
+var errAppAdminCredential = errors.New("the app-user tools need a real MCP credential (a lasso token with fleet reach, from MCP_OAUTH); an anonymous /mcp caller, which is what a local bot is, cannot use them. Manage app users through the owner's /api/app-users instead")
+
+// appAdmin says who is managing app users, or refuses. /mcp is open to any
+// local process when MCP_OAUTH is unset, and a bot on lasso's machine reaches
+// it that way, so a caller with no credential (no ClientID) is refused: a bot
+// steered by an outside person must not be able to make that person an owner or
+// pair a device for the owner's own user.
 func appAdmin(req *mcp.CallToolRequest) (string, error) {
 	c := callerFrom(req)
+	if c.ClientID == "" {
+		return "", errAppAdminCredential
+	}
 	if !c.Fleet {
 		return "", errors.New("app users are managed by a credential with fleet reach")
 	}
-	if c.ClientID != "" {
-		return "mcp:" + c.ClientID, nil
+	return "mcp:" + c.ClientID, nil
+}
+
+// hideAppUserTools drops the app-user tools from the tool list an anonymous
+// caller sees, so a bot's own MCP view does not advertise what it cannot use.
+func hideAppUserTools(next mcp.MethodHandler) mcp.MethodHandler {
+	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		res, err := next(ctx, method, req)
+		if err != nil || method != "tools/list" {
+			return res, err
+		}
+		if ex := req.GetExtra(); ex != nil && ex.TokenInfo != nil && ex.TokenInfo.UserID != "" {
+			return res, err
+		}
+		if lr, ok := res.(*mcp.ListToolsResult); ok {
+			kept := make([]*mcp.Tool, 0, len(lr.Tools))
+			for _, t := range lr.Tools {
+				if !appUserAdminTools[t.Name] {
+					kept = append(kept, t)
+				}
+			}
+			lr.Tools = kept
+		}
+		return res, err
 	}
-	return "local", nil
 }
 
 type appUserIDIn struct {
@@ -197,11 +237,11 @@ func registerAppUserTools(s *mcp.Server) {
 		ConversationID string   `json:"conversation_id" jsonschema:"the conversation id from the header of the person's message"`
 		Text           string   `json:"text,omitempty" jsonschema:"a caption; your answer text is delivered on its own, do not repeat it"`
 		Done           *bool    `json:"done,omitempty" jsonschema:"false for an interim note; true (the default) closes your turn"`
-		Attachments    []string `json:"attachments,omitempty" jsonschema:"paths of files inside your folder to send (images, PDF, text, audio, video, zip; at most 4, 20 MB each)"`
+		Attachments    []string `json:"attachments,omitempty" jsonschema:"paths of files in your outbox, .lasso/client/outbox/ in your folder, to send (images, PDF, text, audio, video, zip; at most 4, 20 MB each)"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "client_reply",
-		Description: "Send a message with files to a person using lasso's phone app, in the conversation named in their message's header. The app shows images inline. Lasso reads the files from the bot's folder once, refuses anything outside it and its credentials, and sends a copy. Your normal answer text already reaches the person; use this for attachments. It works only for the conversation you are answering at that moment.",
+		Description: "Send a message with files to a person using lasso's phone app, in the conversation named in their message's header. The app shows images inline. Attach only files in your outbox, .lasso/client/outbox/ in your folder (copy or write the file there first): lasso reads from nowhere else, sends a copy and removes the file from the outbox once it is sent. Your normal answer text already reaches the person; use this for attachments. It works only for the conversation you are answering at that moment: you cannot start one with a person who has not written to you.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in clientReplyIn) (*mcp.CallToolResult, okOut, error) {
 		rec, _, err := botForCaller(req, in.Name)
 		if err != nil {

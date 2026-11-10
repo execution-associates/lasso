@@ -496,7 +496,7 @@ Whoever holds the key can ask the bot for anything its instructions allow, so a 
 
 ### `list_app_users`, `create_app_user`, `update_app_user`, `delete_app_user`, `set_app_user_grant`, `revoke_app_user_grant`, `create_app_pairing`, `revoke_app_device`
 
-The people who use lasso's phone app ([the client API](../design/client-api.md)): each has their own paired devices and reaches only the bots granted to them. These need a fleet-wide credential (an app user belongs to no one host).
+The people who use lasso's phone app ([the client API](../design/client-api.md)): each has their own paired devices and reaches only the bots granted to them. These need **a real MCP credential with fleet reach**: a lasso token (from `MCP_OAUTH`) that is not host-scoped. An app user belongs to no one host, and an anonymous `/mcp` caller, which is what a bot on lasso's machine is on an open `/mcp`, is refused with a tool error ("the app-user tools need a real MCP credential") and is not shown these tools in `tools/list`: they could make an outside person an owner or pair a device. Without `MCP_OAUTH` they are unusable; manage app users through the owner's `/api/app-users`.
 
 - `list_app_users` takes an optional `bot` and returns `users`, each with `id`, `name`, `email`, `disabled`, `grants` (`bot`, `owner`) and `devices` (`id`, `label`, `platform`, `paired_by`, `last_seen_at`, `revoked_at`). Never a token.
 - `create_app_user` takes `name` (and optionally `email`); `update_app_user` takes `id` and any of `name`, `email`, `disabled` (disabling ends the person's requests and open streams at once); `delete_app_user` removes the user, devices, conversations, messages and uploaded files.
@@ -504,7 +504,7 @@ The people who use lasso's phone app ([the client API](../design/client-api.md))
 - `create_app_pairing` takes `id` and optionally `base_url` (the public origin the phone reaches lasso at) and returns `code` (single-use, valid ten minutes), `link` (an HTTPS page that opens the app; the code is in the fragment) and `deep_link`. The code is shown only in this answer; give it to the person yourself.
 - `revoke_app_device` takes `id` and `device_id`.
 
-An omp bot also has `client_reply` (`name`, `conversation_id`, `text`, `done`, `attachments`: paths inside its folder) and `client_end_call` (`name`, `call_id`, `last_words`) here, to send a person files and hang up a voice call; each works only for the conversation the bot is answering at that moment. A claude bot has the same two on its channel.
+An omp bot also has `client_reply` (`name`, `conversation_id`, `text`, `done`, `attachments`: paths of files in its outbox, `.lasso/client/outbox/`) and `client_end_call` (`name`, `call_id`, `last_words`) here, to send a person files and hang up a voice call; each works only for the conversation the bot is answering at that moment, and a bot cannot start a conversation with a person who has not written to it. A claude bot has the same two on its channel, where they also take the `reply_token` of the message being answered.
 
 ### `create_bot`, `delete_bot`, `reorder_bots`
 

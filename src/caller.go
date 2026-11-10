@@ -200,6 +200,9 @@ type edgeConfig struct {
 // listener cannot vouch for.
 func withCaller(next http.Handler, cfg *edgeConfig) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if refuseUncleanExempt(w, r, selfCredentialed, machinePaths) {
+			return
+		}
 		role := roleOf(r)
 		if role != roleLocal && pathUnder(r.URL.Path, selfCredentialed) {
 			next.ServeHTTP(w, r)

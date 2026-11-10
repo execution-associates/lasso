@@ -622,7 +622,7 @@ func runServer() {
 	// start may still be answered.
 	go resumeReplyInbox(ctx)
 
-	srv := &http.Server{Handler: handler, ConnContext: withConnRole}
+	srv := newLassoServer(handler)
 	// The network listeners, each stamped with its role (caller.go).
 	var extra []net.Listener
 	if *listenAccess != "" {
@@ -3725,6 +3725,9 @@ func withAuthExcept(next http.Handler, user, pass string, enabled bool, exempt .
 	}
 	gated := withAuth(next, user, pass, enabled)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if refuseUncleanExempt(w, r, exempt) {
+			return
+		}
 		for _, e := range exempt {
 			if r.URL.Path == e || strings.HasPrefix(r.URL.Path, e+"/") {
 				next.ServeHTTP(w, r)
@@ -3733,6 +3736,22 @@ func withAuthExcept(next http.Handler, user, pass string, enabled bool, exempt .
 		}
 		gated.ServeHTTP(w, r)
 	})
+}
+
+// newLassoServer is the one http.Server every listener serves. It sets
+// ReadHeaderTimeout only: that ends a connection which dribbles its headers
+// and is spent once they are read, so SSE, websockets, the terminal and CDP
+// proxies, long tool calls and large uploads are untouched. A ReadTimeout or
+// WriteTimeout is a deadline on the whole exchange, which would cut exactly
+// those long-lived streams. IdleTimeout frees keep-alive connections nobody is
+// using. The client API bounds an upload's body read itself (serveClientUpload).
+func newLassoServer(handler http.Handler) *http.Server {
+	return &http.Server{
+		Handler:           handler,
+		ConnContext:       withConnRole,
+		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       3 * time.Minute,
+	}
 }
 
 func isLoopback(addr string) bool {

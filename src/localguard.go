@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -194,6 +195,47 @@ func pathUnder(p string, prefixes []string) bool {
 	return false
 }
 
+// cleanRequestPath reports whether the request names its path in canonical
+// form: no "." or ".." segment, no empty segment (a doubled slash), no
+// backslash, and no encoded slash, dot or backslash in the raw path (which
+// would decode to one of them). One trailing slash is fine. The exemption
+// predicates (a prefix that skips a credential) match on the decoded path, and
+// the mux serves the cleaned one, so a request that is not clean could be taken
+// for one thing by the gate and routed as another.
+func cleanRequestPath(r *http.Request) bool {
+	p := r.URL.Path
+	if len(p) > 1 {
+		p = strings.TrimSuffix(p, "/")
+	}
+	if p != "" && path.Clean(p) != p {
+		return false
+	}
+	if strings.Contains(r.URL.Path, "\\") {
+		return false
+	}
+	if raw := strings.ToLower(r.URL.RawPath); raw != "" &&
+		(strings.Contains(raw, "%2f") || strings.Contains(raw, "%2e") || strings.Contains(raw, "%5c")) {
+		return false
+	}
+	return true
+}
+
+// refuseUncleanExempt answers 404 to a request that names a path under any of
+// the exempt prefixes in a form that is not clean, and says so. Such a request
+// is never treated as exempt.
+func refuseUncleanExempt(w http.ResponseWriter, r *http.Request, prefixes ...[]string) bool {
+	if cleanRequestPath(r) {
+		return false
+	}
+	for _, list := range prefixes {
+		if pathUnder(r.URL.Path, list) {
+			http.NotFound(w, r)
+			return true
+		}
+	}
+	return false
+}
+
 // unsafeRequest is a request that can change something: any method but the
 // safe ones, or a websocket upgrade (a GET that becomes a shell).
 func unsafeRequest(r *http.Request) bool {
@@ -238,6 +280,9 @@ func sameOriginRequest(r *http.Request) bool {
 // state-changing browser requests from another origin.
 func withLocalGuard(next http.Handler, g hostGuard) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if refuseUncleanExempt(w, r, crossSiteExempt) {
+			return
+		}
 		// On the access listener the verified Access assertion already proves
 		// the request came through Cloudflare for this application, which a
 		// rebinding page cannot fake; the public hostname needs no listing.

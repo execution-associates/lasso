@@ -77,6 +77,7 @@ func newMCPHandler() http.Handler {
 		Version: lassoSemver,
 	}, &mcp.ServerOptions{Instructions: mcpInstructions + "\n\n" + mcpHostsInstruction(), Capabilities: caps})
 	registerMCPTools(srv)
+	srv.AddReceivingMiddleware(hideAppUserTools)
 	if len(skills) > 0 {
 		registerMCPSkills(srv, skills)
 	}
