@@ -386,6 +386,7 @@ func clientStoreFile(b Backend, rec *botRecord, root string, conv *appConv, dire
 	}
 	a := appAttachment{ID: id, UserID: conv.UserID, Bot: conv.Bot, ConvID: conv.ID, Direction: direction,
 		Name: clientDisplayName(name, ext), Mime: mime, Size: int64(len(data)), Path: rel, CreatedAt: nowStamp(time.Now())}
+	a.Width, a.Height = clientImageSize(mime, data)
 	if err := insertAppAttachment(a); err != nil {
 		_ = b.RemoveAll(filepath.Join(root, rel))
 		return appAttachment{}, err
@@ -860,12 +861,20 @@ func botClientReply(bot, convID, token, text string, done bool, paths []string, 
 	if err := checkReplyToken(token, bot, conv.ID, false, now); err != nil {
 		return zero, err
 	}
-	return botClientSend(conv, bot, token, text, done, paths, lenient, now)
+	// The reply answers the message the token was made for, and belongs to the
+	// call that message was sent in, if any.
+	var replyTo, callID string
+	if t, ok := lookupReplyToken(strings.TrimSpace(token)); ok {
+		replyTo, callID = t.MessageID, t.CallID
+	}
+	return botClientSend(conv, bot, token, text, done, paths, lenient, replyTo, callID, now)
 }
 
 // botClientSend is the part of client_reply after the bot has shown it may
 // write here.
-func botClientSend(conv *appConv, bot, token, text string, done bool, paths []string, lenient bool, now time.Time) (clientMessageView, error) {
+// replyTo is the id of the person's message being answered and callID the call
+// that message was sent in; both may be empty.
+func botClientSend(conv *appConv, bot, token, text string, done bool, paths []string, lenient bool, replyTo, callID string, now time.Time) (clientMessageView, error) {
 	var zero clientMessageView
 	if u, err := getAppUser(conv.UserID); err != nil || u.Disabled {
 		return zero, errors.New("that conversation is closed")
@@ -917,11 +926,7 @@ func botClientSend(conv *appConv, bot, token, text string, done bool, paths []st
 	if done && token != "" && !closeReplyToken(token, now) {
 		return zero, errReplyToken
 	}
-	callID := ""
-	if c, err := openCallOf(conv.ID); err == nil {
-		callID = c.ID
-	}
-	m, err := addBotMessage(conv, text, done, callID, views, now)
+	m, err := addBotReply(conv, text, done, callID, replyTo, views, now)
 	if err != nil {
 		if done && token != "" {
 			reopenReplyToken(token)
@@ -1113,11 +1118,7 @@ func clientBotTurnMessage(t clientTurn, text string, done bool) {
 			text = text[:len(text)-1]
 		}
 	}
-	callID := ""
-	if c, err := openCallOf(conv.ID); err == nil {
-		callID = c.ID
-	}
-	_, _ = addBotMessage(conv, text, done, callID, nil, time.Now())
+	_, _ = addBotReply(conv, text, done, callOfMessage(conv.ID, t.MsgID), t.MsgID, nil, time.Now())
 }
 
 // clientTurnEnd says a turn is over without a closing message.
@@ -1226,10 +1227,19 @@ func clientRemoveFiles(atts []appAttachment) {
 // bot, or anything else that can reach /mcp, cannot post into a conversation
 // the bot is not in the middle of answering.
 func ompAnswering(bot, convID string) bool {
+	_, ok := ompAnsweringTurn(bot, convID)
+	return ok
+}
+
+// ompAnsweringTurn is the open client turn when it is in this conversation.
+func ompAnsweringTurn(bot, convID string) (clientTurn, bool) {
 	ob := ompBotFor(bot)
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
-	return ob.clientCur != nil && ob.clientCur.ConvID == convID
+	if ob.clientCur == nil || ob.clientCur.ConvID != convID {
+		return clientTurn{}, false
+	}
+	return *ob.clientCur, true
 }
 
 // mcpClientReply is client_reply on /mcp: for the conversation the omp bot is
@@ -1239,10 +1249,14 @@ func ompAnswering(bot, convID string) bool {
 // turn that is not open cannot be written into.
 func mcpClientReply(bot, convID, text string, done bool, paths []string) error {
 	conv, err := convByID(strings.TrimSpace(convID))
-	if err != nil || conv.Bot != bot || !ompAnswering(bot, conv.ID) {
+	if err != nil {
 		return errors.New("you can send into the conversation you are answering right now, the one in the header of the message you are handling")
 	}
-	_, err = botClientSend(conv, bot, "", text, done, paths, false, time.Now())
+	turn, ok := ompAnsweringTurn(bot, conv.ID)
+	if conv.Bot != bot || !ok {
+		return errors.New("you can send into the conversation you are answering right now, the one in the header of the message you are handling")
+	}
+	_, err = botClientSend(conv, bot, "", text, done, paths, false, turn.MsgID, callOfMessage(conv.ID, turn.MsgID), time.Now())
 	return err
 }
 

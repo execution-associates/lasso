@@ -1469,15 +1469,18 @@ func TestClientOmpDelivery(t *testing.T) {
 	if err := mcpClientReply("ompy", annConv, "a file", true, []string{rep}); err == nil {
 		t.Fatal("an omp bot sent into a conversation outside a turn")
 	}
-	c.send(ann, annConv, `{"text":"send the report"}`)
+	_, reportMsg := c.send(ann, annConv, `{"text":"send the report"}`)
 	deliver()
 	ompWaitFor(t, "the turn to open", func() bool { return len(botTexts(ann, annConv)) == 2 })
 	ob := ompBotFor("ompy")
 	ob.mu.Lock()
-	ob.clientCur = &clientTurn{Bot: "ompy", ConvID: annConv}
+	ob.clientCur = &clientTurn{Bot: "ompy", ConvID: annConv, MsgID: reportMsg.ID}
 	ob.mu.Unlock()
 	if err := mcpClientReply("ompy", annConv, "a file", true, []string{rep}); err != nil {
 		t.Fatalf("answering ann: %v", err)
+	}
+	if hist := c.rawMessagesView(ann, annConv); hist[len(hist)-1].InReplyTo != reportMsg.ID || len(hist[len(hist)-1].Attachments) != 1 {
+		t.Fatalf("omp tool reply = %+v", hist[len(hist)-1])
 	}
 	if err := mcpClientReply("ompy", bobConv, "a file", true, []string{rep}); err == nil {
 		t.Fatal("an omp bot answering ann posted into bob's conversation")

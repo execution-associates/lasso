@@ -57,7 +57,7 @@ The owner (through `/api/app-users` or the matching `/mcp` tools, [below](#manag
 
 `minted_by` is the verified caller's name when the owner came through a network listener (the Access email, the tailnet login), `"local"` on the loopback listener, and `mcp:<client id>` for an `/mcp` credential that has one. It is never anything the request says about itself, and it is copied to the device as `paired_by`, which is what the bot is told.
 
-**The link.** `link` is an HTTPS page, not the app link, so it works from a message or an email and falls back gracefully when the app is not installed. `GET /client/pair` is static: it reads the code from the URL **fragment** (which a browser never sends to a server, so no access log, proxy or Cloudflare log ever holds it), builds `lasso://pair?code=…&server=<its own origin>` and opens it, and shows the code to copy if the app does not open. It reflects nothing from the request, has a per-request CSP nonce, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` and cannot be framed, and it rewrites its own address to drop the fragment. The base of `link` is `base_url` when the owner passes one (an origin: scheme and host only), else the address the owner reached lasso at (`X-Forwarded-Host` and `X-Forwarded-Proto`, else `Host`). Behind a tunnel or on loopback that may not be the public address the phone needs, so the owner's UI should pass `base_url`.
+**The link.** `link` is an HTTPS page, not the app link, so it can be sent in a message or an email. Opening it opens a page in the phone's **browser**; that page hands off to the app by navigating to the custom scheme `lasso://pair?…` (below). It is not a platform app link: lasso serves no Apple universal-link association (`apple-app-site-association`) and no Android `assetlinks.json`, so tapping the HTTPS link never opens the app directly, and the app cannot rely on the OS to intercept it. If the app is not installed, or the browser refuses the custom scheme, nothing happens and the page shows the code to copy into the app's pairing screen. A custom scheme is not exclusive to one app, which is part of why the code is single-use and short-lived. `GET /client/pair` is static: it reads the code from the URL **fragment** (which a browser never sends to a server, so no access log, proxy or Cloudflare log ever holds it), builds `lasso://pair?code=…&server=<its own origin>` and opens it, and shows the code to copy if the app does not open. It reflects nothing from the request, has a per-request CSP nonce, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` and cannot be framed, and it rewrites its own address to drop the fragment. The base of `link` is `base_url` when the owner passes one (an origin: scheme and host only), else the address the owner reached lasso at (`X-Forwarded-Host` and `X-Forwarded-Proto`, else `Host`). Behind a tunnel or on loopback that may not be the public address the phone needs, so the owner's UI should pass `base_url`.
 
 **The exchange.** The app calls `POST /client/v1/pair`:
 
@@ -78,6 +78,10 @@ The app keeps `token` in the Keychain or Keystore. The code's use and the device
 ## Authentication and errors
 
 Everything except `GET /client/pair` and `POST /client/v1/pair` takes `Authorization: Bearer lcd_…`. Only that header: a token in a query string is not accepted (query strings get logged). An unknown, malformed, revoked or disabled-user token, and no token at all, all answer the same `401 unauthorized`. Authentication runs before routing, so an unauthenticated caller learns nothing about which routes exist. Revoking a device, disabling a user and removing a grant take effect on the next request, and end open streams.
+
+A `401` from lasso always has the JSON error body below (`unauthorized`, or `pairing_failed` on the pairing exchange), so a client treats a `401` **without** it, such as an HTML page from a proxy, gateway or captive portal, as a transport error: keep the token and retry later. Only the JSON `unauthorized` means the device is signed out and must pair again.
+
+**JSON convention.** An optional field with no value is omitted, never sent as `""`: `call_id`, `client_id`, `in_reply_to`, `state`, `failed_reason`, `state_reason`, `bot_state_reason`, `last_words`, `width`, `height`, `url`, `expired`, `avatar_url`, `end_reason`, `ended_at` and the like are present only when they mean something, and a client reads a missing key as "none". Fields shown in an example are always present unless the text says otherwise. The exceptions are the explicit nulls documented where they occur (`older_cursor`, `hello.call`) and `attachments`, which is `[]` rather than absent.
 
 Errors are JSON with a status and a stable `code`:
 
@@ -135,7 +139,6 @@ All under `/client/v1`, JSON unless stated. `{bot}` is the bot's name, ids are t
     "name": "jess",
     "avatar_url": "/client/v1/bots/jess/avatar?v=1731200000",
     "state": "available",
-    "state_reason": "",
     "capabilities": {"chat": true, "voice": true, "attachments_in": true, "attachments_out": true, "end_call": true, "streaming_text": false},
     "is_owner": true,
     "conversation_id": "c_…"
@@ -145,7 +148,7 @@ All under `/client/v1`, JSON unless stated. `{bot}` is the bot's name, ids are t
 
 Only granted bots appear, and only this: a name, a picture, a coarse state, what the bot can do for the app, whether the user owns it, and their conversation id. No folder, host, model, runtime, instructions or other user.
 
-`state` is one of `available`, `busy` (working a turn or waiting on its human), `starting` (running but not yet listening: a message waits for it), `stopped` (a message is refused) and `unavailable` (cannot take app messages now: for a claude bot, a channel without the client tools that needs the bot restarted, or no channel; `state_reason` says). The state is cached for five seconds per bot. `capabilities.chat` and `voice` are false when `unavailable`. `attachments_out` and `end_call` are the bot's ability to send files and hang up: always true for a claude bot, and for an omp bot only when it has lasso's MCP server ([omp](#omp-bots)). `streaming_text` is always false: replies arrive whole ([omp](#omp-bots)). `avatar_url` is absent without a picture; its query is the revision, so the URL can be cached forever.
+`state_reason` is present only for `unavailable`. `state` is one of `available`, `busy` (working a turn or waiting on its human), `starting` (running but not yet listening: a message waits for it), `stopped` (a message is refused) and `unavailable` (cannot take app messages now: for a claude bot, a channel without the client tools that needs the bot restarted, or no channel; `state_reason` says). The state is cached for five seconds per bot. `capabilities.chat` and `voice` are false when `unavailable`. `attachments_out` and `end_call` are the bot's ability to send files and hang up: always true for a claude bot, and for an omp bot only when it has lasso's MCP server ([omp](#omp-bots)). `streaming_text` is always false: replies arrive whole ([omp](#omp-bots)). `avatar_url` is absent without a picture; its query is the revision, so the URL can be cached forever.
 
 ### `GET /conversations/{id}/messages`
 
@@ -156,30 +159,39 @@ Query: `limit` (1-100, default 50), and at most one of `before` and `after`, eac
   "conversation_id": "c_…",
   "messages": [{
     "id": "m_…", "conversation_id": "c_…", "cursor": "42",
-    "role": "user", "text": "…", "done": true, "mode": "text", "call_id": "",
-    "attachments": [{"id": "a_…", "name": "photo.jpg", "type": "image/jpeg", "size": 123456, "url": "/client/v1/attachments/a_…"}],
-    "state": "delivered", "failed_reason": "", "created_at": "…"
+    "role": "user", "text": "What is in this picture?", "done": true, "mode": "text",
+    "client_id": "7b1c…",
+    "attachments": [{"id": "a_…", "name": "photo.jpg", "type": "image/jpeg", "size": 123456, "width": 4032, "height": 3024, "url": "/client/v1/attachments/a_…"}],
+    "state": "delivered", "created_at": "…"
+  }, {
+    "id": "m_…", "conversation_id": "c_…", "cursor": "43",
+    "role": "bot", "text": "A harbour at dusk.", "done": true, "mode": "voice", "call_id": "call_…",
+    "in_reply_to": "m_…",
+    "attachments": [], "created_at": "…"
   }],
   "older_cursor": "40",
   "events_cursor": "57"
 }
 ```
 
-- `role` is `user` or `bot`. `done` is true except for a bot's interim note (`done: false`). `mode` is `text` or `voice`; `call_id` is set for voice, and for a bot message sent during a call.
-- An attachment whose file has been deleted by the retention window reads `{"id", "name", "type", "size", "expired": true}` with **no `url`**: render a "file expired" marker from the name, type and size. A message already on screen learns of it on the next history read; downloading it answers `410 file_expired`.
-- `state` is on the user's own messages: `queued` (lasso has it, the bot has not taken it), `delivered` (the bot's channel took it), `failed` (with `failed_reason`: the bot was stopped, never picked it up within a day, or the person's access to the bot changed before it did).
+- `role` is `user` or `bot`. `done` is true except for a bot's interim note (`done: false`). `mode` is `text` or `voice`.
+- `call_id` is present on a voice message of the person's, and on a bot message **that answers a message sent in that call** (such a message has `mode: "voice"`); the last words of a bot's `end_call` carry the call's id too. A bot message answering a text message has no `call_id`, even if a call happened to be open when that message was sent or when the reply arrives. The second message in the example is a bot's reply to a voice message.
+- `client_id` is the `client_id` the client sent with that message, so a client can match its optimistic row exactly. It is on the person's own messages only (in the send response, in the history and in the `message` stream event, which only that person's devices receive), and only when the client sent one. A bot message never has it.
+- `in_reply_to` is on a bot message: the id of the person's message it answers. For a claude bot that is the message whose `reply_token` the reply was sent with; for an omp bot it is the message of the matched turn. Interim (`done: false`) and final replies both carry it. It is absent on the last words of `end_call`, and never on a person's message. A bot's reply can arrive on the stream **before** `message_state: delivered` for the message it answers (the bot answers faster than lasso reconciles the state), so a client must not wait for `delivered` before showing a reply, and may treat a reply as proof its message was delivered.
+- An attachment whose file has been deleted by the retention window reads `{"id", "name", "type", "size", "expired": true}` (plus `width` and `height` for an image) with **no `url`**: render a "file expired" marker from the name, type and size. A message already on screen learns of it on the next history read; downloading it answers `410 file_expired`.
+- `state` is on the person's own messages only, never on a bot's: `queued` (lasso has it, the bot has not taken it), `delivered` (the bot's channel took it), `failed` (with `failed_reason`, absent otherwise: the bot was stopped, never picked it up within a day, or the person's access to the bot changed before it did).
 - `older_cursor` is the `before` for the next older page, or `null` at the start of history. After a page fetched with `after` it is `null`.
 - `events_cursor` is the stream's position as of just before the page was read. Open the stream with it as `Last-Event-ID` and nothing that landed while paging is missed; a message seen twice (in the page and the stream) is deduplicated by `id`.
 
 ### `POST /conversations/{id}/messages`
 
 ```json
-{"text": "What is on my calendar?", "attachments": ["a_…"], "mode": "text", "call_id": "", "client_id": "7b1c…"}
+{"text": "What is on my calendar?", "attachments": ["a_…"], "mode": "text", "client_id": "7b1c…"}
 ```
 
 - `text` is up to 16000 characters of UTF-8. A message needs text, attachments, or both. At most four attachments, each an id from an upload to **this** conversation by **this** user, not yet used.
 - `mode` is `text` (default) or `voice`. A voice message needs `call_id` of an open call in this conversation; `call_id` with `text` mode is refused. The app does the speech recognition and sends text.
-- `client_id` (1-64 of letters, digits, `.`, `_`, `-`) makes a send idempotent: resending the same `client_id` in the conversation answers `200` with the original message and `"replayed": true`, queuing nothing. Use a fresh UUID per message and reuse it when retrying after a dropped connection.
+- `client_id` (1-64 of letters, digits, `.`, `_`, `-`) makes a send idempotent: resending the same `client_id` in the conversation answers `200` with the original message and `"replayed": true`, queuing nothing. Use a fresh UUID per message and reuse it when retrying after a dropped connection. The message in the answer, in the history and in the stream carries the `client_id` back.
 
 Answers `202 {"message": {…}, "replayed": false}`, with `state: "queued"`; delivery to the bot is asynchronous and reported by a `message_state` event. `409 bot_unavailable` when the bot is stopped or `unavailable`; a bot that is only `starting` takes the message, which waits for up to a day.
 
@@ -189,20 +201,20 @@ The identity sent to the bot comes from the token. Any other field in the body (
 
 `GET /conversations/{id}/events` is Server-Sent Events (`text/event-stream`), one stream per conversation. Persisted events carry an SSE `id:` (an integer that rises within the conversation); ephemeral ones do not.
 
-- **Start:** with no `Last-Event-ID` (header, or `last_event_id` in the query for clients that cannot set headers) the stream begins at *now*: nothing is replayed. Fetch the history first and pass its `events_cursor`.
-- **Resume:** with `Last-Event-ID: n` it replays every persisted event after `n`, once, then goes live. Events are kept 48 hours. If `n` is older than the oldest kept event the stream sends `resync` and then goes live: re-read the history.
+- **Start:** with no `Last-Event-ID` (header, or `last_event_id` in the query for clients that cannot set headers) the stream begins at *now*: nothing is replayed, and `hello.events_cursor` is the current position (the newest event id). Fetch the history first and pass its `events_cursor`.
+- **Resume:** with `Last-Event-ID: n` it replays every persisted event after `n`, once, then goes live. Resume from the last event id the client **persisted** (the `id:` of the last event it handled), not from `hello.events_cursor`: on a resumed stream `hello.events_cursor` only repeats `n`, so it is not a position to save. The replay can include a `call_ended` for a call that ended while the client was away, or one it already handled; a client ignores a `call_ended` for a call it is not in, and does not speak its `last_words` again. Events are kept 48 hours. If `n` is older than the oldest kept event the stream sends `resync` and then goes live: re-read the history.
 - **Keepalive:** a `: keepalive` comment every 15 seconds (Cloudflare cuts a silent response at 100 seconds; so do phones' radios). A stream lives at most 55 minutes, then ends with `closed` (`reconnect`); reconnect with the last id. At most three open streams per device and 20 opens a minute.
 - **Revocation:** every second the stream re-checks that the device is not revoked, the user is enabled and the grant stands. If not it sends `closed` with `access_revoked` and ends.
 
 | event | `id:` | `data` |
 | --- | --- | --- |
-| `hello` | no | `{conversation_id, bot_state, bot_state_reason?, events_cursor, call}`: always first. `call` is the open call object or `null` |
+| `hello` | no | `{conversation_id, bot_state, bot_state_reason?, events_cursor, call}`: always first. `events_cursor` is the stream's current position when it starts fresh, and the `Last-Event-ID` the client sent when it resumes. `call` is the open call object or `null` |
 | `resync` | no | `{reason: "events_pruned"}` |
-| `message` | yes | `{…message…}`: a user message (also from the user's other devices) or a bot message, interim ones included (`done: false`) |
+| `message` | yes | `{…message…}`: a user message (also from the user's other devices, with its `client_id`) or a bot message with its `in_reply_to`, interim ones included (`done: false`). A bot message can arrive before the `message_state` `delivered` of the message it answers |
 | `message_state` | yes | `{message_id, state: "delivered"\|"failed", reason?}` |
 | `turn_end` | yes | `{message_id}`: the bot finished the turn for that message without a closing message (omp, a turn that ended on tool calls) |
 | `call_started` | yes | `{call_id, started_at}` |
-| `call_ended` | yes | `{call_id, reason: "user"\|"bot"\|"timeout"\|"replaced", ended_at, last_words?}`: the app speaks `last_words` (if any) and hangs up; they are also stored as a bot message |
+| `call_ended` | yes | `{call_id, reason: "user"\|"bot"\|"timeout"\|"replaced", ended_at, last_words?}`: the app speaks `last_words` (if any) and hangs up; they are also stored as a bot message with that `call_id`. A resumed stream can replay a past `call_ended`: ignore it for a call you are not in |
 | `activity` | no | `{text, message_id}`: what the bot is doing, e.g. "Reading a file", "Running a command". **Plain only**: the kind of each step, never a path, command or server name (the terminal may hold other people's business). claude bots only |
 | `bot_state` | no | `{state, reason?}`: when the bot's coarse state changes (polled every three seconds) |
 | `closed` | no | `{reason: "access_revoked"\|"reconnect"}` |
@@ -212,14 +224,16 @@ The identity sent to the bot comes from the token. Any other field in the body (
 The app does speech recognition and synthesis; lasso carries text. A call exists so the server knows one is open.
 
 - `POST /conversations/{id}/calls` → `201 {"call": {"id": "call_…", "conversation_id": "c_…", "state": "open", "started_at": "…"}}`. Starting a call ends one still open in the conversation (`call_ended` `replaced`). `409 bot_unavailable` when the bot is stopped or unavailable. At most 6 calls a minute and 60 an hour per user, else `429 rate_limited` with `Retry-After`.
-- Voice messages carry `mode: "voice"` and the `call_id`. The bot's replies during the call carry `call_id` too.
+- Voice messages carry `mode: "voice"` and the `call_id`. A bot reply carries the `call_id` when the message it answers (`in_reply_to`) was sent in that call, interim and final alike, even if it arrives after the call ended. A text message sent while a call is open, and the reply to it, have no call. The last words of `end_call` carry the call's id.
 - `POST /calls/{id}/end` hangs up: `{"call": {…, "state": "ended", "end_reason": "user", "ended_at": "…"}}`. It is idempotent. The bot is told once ("The person hung up") so it does not answer into silence.
 - **The bot can hang up** (`end_call`, [below](#delivery-to-the-bot)): the stream gets `message` (the last words, if any) then `call_ended` `reason: "bot"` with `last_words`. The app speaks them and ends the call. Further voice messages on the call are refused (`400`).
 - A call with no voice message or bot reply for 30 minutes, or open for four hours, is ended by lasso (`timeout`), and the bot is told.
 
 ## Attachments
 
-**Upload:** `POST /conversations/{id}/attachments?name=photo.jpg` with the file as the raw request body (any `Content-Type`, it is ignored). The name is display only: lasso keeps a base name without separators or control characters (up to 80 characters), and never uses it as a path. Answers `201 {"attachment": {id, name, type, size, url}}`. The file is saved in the bot's folder at `.lasso/client/<user id>/<attachment id>.<ext>` (0600 in a 0700 directory), so the bot can read it; the extension comes from the sniffed type. The name must be usable as a label: lasso drops control and invisible formatting characters, `<`, `>`, `"`, backslash and backtick from it.
+**Upload:** `POST /conversations/{id}/attachments?name=photo.jpg` with the file as the raw request body (any `Content-Type`, it is ignored). The name is display only: lasso keeps a base name without separators or control characters (up to 80 characters), and never uses it as a path. Answers `201 {"attachment": {id, name, type, size, width?, height?, url}}`. The file is saved in the bot's folder at `.lasso/client/<user id>/<attachment id>.<ext>` (0600 in a 0700 directory), so the bot can read it; the extension comes from the sniffed type. The name must be usable as a label: lasso drops control and invisible formatting characters, `<`, `>`, `"`, backslash and backtick from it.
+
+**Image size.** An attachment that is an image (PNG, JPEG, GIF or WebP), in either direction, carries `width` and `height` in pixels, so a client can lay out the row before the file loads. lasso reads them from the file's header only, with the standard library's PNG, JPEG and GIF header readers and a small WebP header reader, from at most the first megabyte; the image is never decoded. When they cannot be read (an unusual or damaged header) both are omitted and the upload still succeeds. They are omitted for files that are not images, and kept on the `expired` marker. They are the stored pixel size, before any EXIF orientation is applied.
 
 **Types are sniffed from the bytes** (`http.DetectContentType`), never taken from the name or the client's header. Allowed: PNG, JPEG, WebP, GIF, PDF, plain text (valid UTF-8 with no NUL; this includes SVG, which is therefore only ever text and is downloaded, never rendered), MP3, WAV, AIFF, Ogg, MP4, WebM and ZIP. Anything else is `415`. **HEIC is not detected**: the app converts photos to JPEG before it uploads. An upload not sent in a message within 24 hours is deleted, file and row.
 
@@ -375,6 +389,7 @@ The API is the same binary and the same listeners; nothing needs a new port.
 
 ## Gaps and seams
 
+- The pairing link is a web page that opens the app through the `lasso://` custom scheme; there is no platform app link or universal link association (no `apple-app-site-association`, no `assetlinks.json`), so the OS does not route the HTTPS link to the app.
 - Push notifications (APNs, FCM), server-side speech synthesis or recognition, and a web UI for people and devices are not built. The seams: `appendClientEvent` is the single place a message or call event is born (a push transport would subscribe there, as `publishNotification` does for bots), the app does speech, and the management routes are complete for a UI.
 - Messages are kept until the user or bot is deleted; there is no per-conversation delete. Files (uploads and the bot's copies) are deleted after the retention window, unused uploads after a day.
 - Bots cannot start a conversation: every reply answers a message the person sent. A push or a scheduled note from a bot would need a deliberate grant that does not exist yet.

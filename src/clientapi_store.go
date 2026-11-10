@@ -656,6 +656,10 @@ type clientAttachmentView struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
 	Size int64  `json:"size"`
+	// Width and Height are the pixel size of an image, read from its header;
+	// absent when the file is not an image or its size could not be read.
+	Width  int `json:"width,omitempty"`
+	Height int `json:"height,omitempty"`
 	// URL is absent once the file has expired (Expired is then true): the
 	// message keeps the name, type and size to show a "file expired" marker.
 	URL     string `json:"url,omitempty"`
@@ -663,27 +667,32 @@ type clientAttachmentView struct {
 }
 
 type clientMessageView struct {
-	ID             string                 `json:"id"`
-	ConversationID string                 `json:"conversation_id"`
-	Cursor         string                 `json:"cursor"`
-	Role           string                 `json:"role"` // user | bot
-	Text           string                 `json:"text"`
-	Done           bool                   `json:"done"`
-	Mode           string                 `json:"mode"`
-	CallID         string                 `json:"call_id,omitempty"`
-	Attachments    []clientAttachmentView `json:"attachments"`
-	State          string                 `json:"state,omitempty"` // user messages: queued | delivered | failed
-	FailedReason   string                 `json:"failed_reason,omitempty"`
-	CreatedAt      string                 `json:"created_at"`
+	ID             string `json:"id"`
+	ConversationID string `json:"conversation_id"`
+	Cursor         string `json:"cursor"`
+	Role           string `json:"role"` // user | bot
+	Text           string `json:"text"`
+	Done           bool   `json:"done"`
+	Mode           string `json:"mode"`
+	CallID         string `json:"call_id,omitempty"`
+	// ClientID is the client_id the sending client gave a person's message; only
+	// the person's own messages carry one, and only that person ever reads them.
+	ClientID string `json:"client_id,omitempty"`
+	// InReplyTo is the id of the person's message a bot message answers.
+	InReplyTo    string                 `json:"in_reply_to,omitempty"`
+	Attachments  []clientAttachmentView `json:"attachments"`
+	State        string                 `json:"state,omitempty"` // user messages: queued | delivered | failed
+	FailedReason string                 `json:"failed_reason,omitempty"`
+	CreatedAt    string                 `json:"created_at"`
 }
 
-const appMessageCols = `seq, id, conv_id, role, text, done, mode, call_id, attachments, state, failed_reason, created_at`
+const appMessageCols = `seq, id, conv_id, role, text, done, mode, call_id, attachments, state, failed_reason, client_id, in_reply_to, created_at`
 
 func scanAppMessage(row interface{ Scan(...any) error }) (clientMessageView, error) {
 	var m clientMessageView
 	var seq int64
 	var atts string
-	if err := row.Scan(&seq, &m.ID, &m.ConversationID, &m.Role, &m.Text, &m.Done, &m.Mode, &m.CallID, &atts, &m.State, &m.FailedReason, &m.CreatedAt); err != nil {
+	if err := row.Scan(&seq, &m.ID, &m.ConversationID, &m.Role, &m.Text, &m.Done, &m.Mode, &m.CallID, &atts, &m.State, &m.FailedReason, &m.ClientID, &m.InReplyTo, &m.CreatedAt); err != nil {
 		return m, err
 	}
 	m.Cursor = fmt.Sprint(seq)
@@ -694,6 +703,9 @@ func scanAppMessage(row interface{ Scan(...any) error }) (clientMessageView, err
 	}
 	if m.Role == "bot" {
 		m.State = ""
+		m.ClientID = ""
+	} else {
+		m.InReplyTo = ""
 	}
 	return m, nil
 }
@@ -798,6 +810,13 @@ func newestEventSeq(convID string) int64 {
 
 // addBotMessage stores a bot's message in a conversation and announces it.
 func addBotMessage(c *appConv, text string, done bool, callID string, atts []clientAttachmentView, now time.Time) (clientMessageView, error) {
+	return addBotReply(c, text, done, callID, "", atts, now)
+}
+
+// addBotReply is addBotMessage for a message that answers one of the person's:
+// inReplyTo is that message's id, callID the call it was sent in (empty for a
+// text message, whatever call happens to be open).
+func addBotReply(c *appConv, text string, done bool, callID, inReplyTo string, atts []clientAttachmentView, now time.Time) (clientMessageView, error) {
 	if atts == nil {
 		atts = []clientAttachmentView{}
 	}
@@ -807,8 +826,8 @@ func addBotMessage(c *appConv, text string, done bool, callID string, atts []cli
 		mode = "voice"
 	}
 	id := clientID("m_", 12)
-	if _, err := db.Exec(`INSERT INTO app_messages (id, conv_id, role, text, done, mode, call_id, attachments, state, created_at)
-		VALUES (?, ?, 'bot', ?, ?, ?, ?, ?, '', ?)`, id, c.ID, text, boolInt(done), mode, callID, string(ab), nowStamp(now)); err != nil {
+	if _, err := db.Exec(`INSERT INTO app_messages (id, conv_id, role, text, done, mode, call_id, attachments, state, in_reply_to, created_at)
+		VALUES (?, ?, 'bot', ?, ?, ?, ?, ?, '', ?, ?)`, id, c.ID, text, boolInt(done), mode, callID, string(ab), inReplyTo, nowStamp(now)); err != nil {
 		return clientMessageView{}, err
 	}
 	for _, a := range atts {
@@ -837,29 +856,31 @@ type appAttachment struct {
 	Mime      string
 	Size      int64
 	Path      string // relative to the bot's folder
+	Width     int    // pixels, for an image whose header could be read
+	Height    int
 	MessageID string
 	CreatedAt string
 	ExpiredAt string // set once the file was deleted by the retention window
 }
 
-const appAttachmentCols = `id, user_id, bot, conv_id, direction, name, mime, size, path, message_id, created_at, expired_at`
+const appAttachmentCols = `id, user_id, bot, conv_id, direction, name, mime, size, path, width, height, message_id, created_at, expired_at`
 
 func scanAppAttachment(row interface{ Scan(...any) error }) (appAttachment, error) {
 	var a appAttachment
-	err := row.Scan(&a.ID, &a.UserID, &a.Bot, &a.ConvID, &a.Direction, &a.Name, &a.Mime, &a.Size, &a.Path, &a.MessageID, &a.CreatedAt, &a.ExpiredAt)
+	err := row.Scan(&a.ID, &a.UserID, &a.Bot, &a.ConvID, &a.Direction, &a.Name, &a.Mime, &a.Size, &a.Path, &a.Width, &a.Height, &a.MessageID, &a.CreatedAt, &a.ExpiredAt)
 	return a, err
 }
 
 func (a appAttachment) view() clientAttachmentView {
 	if a.ExpiredAt != "" {
-		return clientAttachmentView{ID: a.ID, Name: a.Name, Type: a.Mime, Size: a.Size, Expired: true}
+		return clientAttachmentView{ID: a.ID, Name: a.Name, Type: a.Mime, Size: a.Size, Width: a.Width, Height: a.Height, Expired: true}
 	}
-	return clientAttachmentView{ID: a.ID, Name: a.Name, Type: a.Mime, Size: a.Size, URL: "/client/v1/attachments/" + a.ID}
+	return clientAttachmentView{ID: a.ID, Name: a.Name, Type: a.Mime, Size: a.Size, Width: a.Width, Height: a.Height, URL: "/client/v1/attachments/" + a.ID}
 }
 
 func insertAppAttachment(a appAttachment) error {
-	_, err := db.Exec(`INSERT INTO app_attachments (`+appAttachmentCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.ID, a.UserID, a.Bot, a.ConvID, a.Direction, a.Name, a.Mime, a.Size, a.Path, a.MessageID, a.CreatedAt, a.ExpiredAt)
+	_, err := db.Exec(`INSERT INTO app_attachments (`+appAttachmentCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.ID, a.UserID, a.Bot, a.ConvID, a.Direction, a.Name, a.Mime, a.Size, a.Path, a.Width, a.Height, a.MessageID, a.CreatedAt, a.ExpiredAt)
 	return err
 }
 
@@ -918,6 +939,17 @@ func appCallByID(id string) (*appCall, error) {
 
 func openCallOf(convID string) (*appCall, error) {
 	return scanAppCall(db.QueryRow(`SELECT `+appCallCols+` FROM app_calls WHERE conv_id = ? AND state = 'open' ORDER BY started_at DESC LIMIT 1`, convID))
+}
+
+// callOfMessage is the call a message was sent in ("" for a text message or an
+// unknown id).
+func callOfMessage(convID, msgID string) string {
+	if msgID == "" {
+		return ""
+	}
+	var call string
+	_ = db.QueryRow(`SELECT call_id FROM app_messages WHERE conv_id = ? AND id = ?`, convID, msgID).Scan(&call)
+	return call
 }
 
 // --- reply tokens -------------------------------------------------------------------
