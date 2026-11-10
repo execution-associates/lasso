@@ -135,7 +135,11 @@ Talk gives someone a chat with the bot in an app on their phone that speaks the 
 
 Whoever holds the key can ask the bot for anything its instructions allow, so say in its AGENTS.md what it may do for them. The bot answers through its channel's reply tool. A long job gets an "On it" first, and an answer that misses its request (the app was closed) arrives at the start of the next one. From outside the tailnet, the hostname's edge (Cloudflare Access) must let `/talk/` through.
 
-The iPhone and Android apps use their own door, the [client API](../design/client-api.md): a login per person instead of one key per bot, with voice calls and attachments. People, their bots and their devices are managed through `/api/app-users` and the `*_app_user*` tools until the Bots view has a page for them.
+The iPhone and Android apps use their own door, the [client API](../design/client-api.md): a login per person instead of one key per bot, with voice calls and attachments. People, their bots and their phones are managed in [People](#people).
+
+### People
+
+The **People** tab lists the people who can talk to this bot from the Lasso app on their phone, with **Add a person to this bot**, which starts the form with this bot picked. It is the same screen as the **People** page of the whole view ([below](#people-1)).
 
 ### Skills
 
@@ -215,6 +219,33 @@ The **+** in the list's header, or **New bot** on the management page, opens the
 ## Manage bots
 
 `/bots/manage` lists every bot with its host, model, number of channels, state and when it was last active, with **Start** or **Stop** and a settings button on each. At desktop widths it is a table; on a phone it is a card per bot.
+
+## People
+
+**People** in the list's footer (or on the management page) is the page for the iPhone and Android apps' users: `/bots/manage/people`. Each person shows their phones (how many, and when one last spoke to lasso), the bots they reach, an **owner** mark where they are an owner, and a warning next to a bot the app cannot reach yet (a claude bot that must restart to take the app's messages, or a stopped bot).
+
+**Add a person** asks for a name (1 to 64 characters, one line, no quotes, backslashes, backticks or angle brackets) and the bots they may reach. At least one is needed. **Owner** on a bot means the bot treats that person as its human: it may follow their requests the way it follows yours. Leave it off and they are a guest who chats with the bot; the bot knows which they are from lasso's records, not from anything they type. Adding a person goes straight on to connecting their phone.
+
+**Connect a phone** makes a one-time pairing and shows it as a QR code, with the link it carries and a **Copy** button:
+
+1. On their phone, they open the Lasso app and scan the code with its scanner, or point the phone's camera at it. The camera opens a page that hands off to the app (and says what to do if the phone has no app, or the app does not open).
+2. A countdown shows the ten minutes the code lives. When it runs out the QR is replaced by **This code expired** and a **New code** button. The dialog watches for the phone: when it pairs, it says which device connected, and **Connect another phone** makes the next code.
+3. The code works once. Closing the dialog drops it from the page and cancels it if nobody used it.
+
+The QR is drawn in the browser from the link and goes nowhere else: it is never sent to a QR service, stored in the browser, or logged. Anyone who sees the code or link before it is used or expires can pair a phone as that person, so show it only to them.
+
+**Address the phone opens** is the address the link points at. It starts as the address you are using in the browser; change it and press **Update** for a new code. A warning appears when the address cannot work from a phone: `localhost` and other loopback addresses never can; a private network, tailnet or `.local` address works only for a phone on that network. Reaching lasso from outside needs a public address that lets `/client/` through (see [Deployment](../design/client-api.md#deployment)).
+
+**Manage** on a person opens:
+
+- **Name**, with **Rename**.
+- **Bots they can reach**: tick the bots and their **Owner** flags, then **Save access**.
+- **Phones**: each phone's platform, label, when it connected and who from, and when it last spoke to lasso. **Revoke** signs one phone out at once (after a confirmation); it needs a new code to come back, and the person's other phones are not affected.
+- **Disable** shuts every phone of theirs out until you **Enable** them; nothing is deleted. **Delete** removes the person, their phones, conversations, messages and files (after a confirmation).
+
+Everything on the page is a `/api/app-users` call, and the same actions are tools on `/mcp` for a credentialed caller (`create_app_user`, `set_app_user_grant`, `create_app_pairing`, `revoke_app_device` and the rest).
+
+The simple phone app has no People screen: showing a code needs a second screen, so it stays in this view.
 
 ## On a phone
 

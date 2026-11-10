@@ -32,6 +32,7 @@ import {
 } from "@/components/BotParts"
 import { TalkTab } from "@/components/BotTalk"
 import { Markdown, resolveMarkdownSrc } from "@/components/Markdown"
+import { PeopleTab } from "@/components/PeopleView"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -89,6 +90,7 @@ type Tab =
   | "connections"
   | "jobs"
   | "talk"
+  | "people"
   | "skills"
   | "instructions"
   | "environment"
@@ -99,6 +101,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "connections", label: "Connections" },
   { id: "jobs", label: "Jobs" },
   { id: "talk", label: "Talk" },
+  { id: "people", label: "People" },
   { id: "skills", label: "Skills" },
   { id: "instructions", label: "Instructions" },
   { id: "environment", label: "Environment" },
@@ -2492,6 +2495,8 @@ export function BotSettings({
             <JobsTab bot={bot} />
           ) : tab === "talk" ? (
             <TalkTab bot={bot} />
+          ) : tab === "people" ? (
+            <PeopleTab bot={bot} />
           ) : tab === "skills" ? (
             <SkillsTab bot={bot} />
           ) : tab === "instructions" ? (

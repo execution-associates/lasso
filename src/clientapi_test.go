@@ -296,6 +296,17 @@ func TestClientPairPage(t *testing.T) {
 	if !bytes.Contains(body, []byte("lasso://pair?code=")) || !bytes.Contains(body, []byte("location.hash")) {
 		t.Fatal("the page does not read the fragment and build the app link")
 	}
+	// Someone who scanned the code with a camera and has no app yet is told
+	// what to do, and the page asks nothing of a third party and has no inline
+	// handler or store link.
+	if !bytes.Contains(body, []byte("scan the code from inside the app")) {
+		t.Fatal("the page gives no instructions to someone without the app")
+	}
+	for _, bad := range []string{"onclick=", "onload=", "apps.apple.com", "play.google.com", "src=\"http", "href=\"http"} {
+		if bytes.Contains(body, []byte(bad)) {
+			t.Fatalf("the page contains %q", bad)
+		}
+	}
 }
 
 // --- tokens ------------------------------------------------------------------------

@@ -64,6 +64,7 @@ const viewPaths: Record<BuiltinLeftView, string> = {
 //	/bots/<name>/settings    its settings
 //	/bots/manage             every bot as a table
 //	/bots/manage/new         the creator
+//	/bots/manage/people      the people who use the phone app
 //
 // "manage" is the one word a bot's name cannot claim here: a bot called that
 // is reached from the list, not by its path.
@@ -73,10 +74,12 @@ export type BotsRoute =
   | { page: "settings"; name: string }
   | { page: "manage" }
   | { page: "new" }
+  | { page: "people" }
 
 // Bot names are ^[a-z0-9][a-z0-9-]{0,39}$ (bots.go), so a segment needs no
 // escaping and the pattern is the whole check.
-const botsPath = /^\/bots(?:\/([a-z0-9][a-z0-9-]{0,39})(?:\/(settings|new))?)?$/
+const botsPath =
+  /^\/bots(?:\/([a-z0-9][a-z0-9-]{0,39})(?:\/(settings|new|people))?)?$/
 
 export function parseBotsPath(path: string): BotsRoute | null {
   const m = botsPath.exec(path.replace(/\/+$/, ""))
@@ -85,9 +88,10 @@ export function parseBotsPath(path: string): BotsRoute | null {
   if (!name) return { page: "list" }
   if (name === "manage") {
     if (sub === "new") return { page: "new" }
+    if (sub === "people") return { page: "people" }
     return sub ? null : { page: "manage" }
   }
-  if (sub === "new") return null
+  if (sub === "new" || sub === "people") return null
   return sub ? { page: "settings", name } : { page: "chat", name }
 }
 
@@ -103,6 +107,8 @@ export function botsRoutePath(r: BotsRoute): string {
       return "/bots/manage"
     case "new":
       return "/bots/manage/new"
+    case "people":
+      return "/bots/manage/people"
   }
 }
 

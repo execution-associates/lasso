@@ -1,4 +1,4 @@
-import { Play, Plus, Settings, Square } from "lucide-react"
+import { Play, Plus, Settings, Square, Users } from "lucide-react"
 import * as React from "react"
 import {
   BotAvatar,
@@ -78,6 +78,7 @@ export function BotsManage({
   onOpen,
   onSettings,
   onNew,
+  onPeople,
 }: {
   bots: BotView[]
   lead: React.ReactNode
@@ -85,6 +86,7 @@ export function BotsManage({
   onOpen: (name: string) => void
   onSettings: (name: string) => void
   onNew: () => void
+  onPeople: () => void
 }) {
   const sorted = React.useMemo(
     () => [...bots].sort((a, b) => a.name.localeCompare(b.name)),
@@ -98,6 +100,10 @@ export function BotsManage({
           Manage bots
         </span>
         <span className="ml-auto" />
+        <Button size="sm" variant="outline" onClick={onPeople}>
+          <Users />
+          People
+        </Button>
         <Button size="sm" onClick={onNew}>
           <Plus />
           New bot

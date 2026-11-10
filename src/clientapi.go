@@ -361,13 +361,14 @@ const clientPairPage = `<!doctype html>
 body{font:16px/1.5 system-ui,sans-serif;margin:0;padding:2rem 1rem;background:#111;color:#eee;display:flex;justify-content:center}
 main{max-width:30rem;width:100%%}h1{font-size:1.4rem}a.btn{display:block;text-align:center;background:#e8b04a;color:#111;padding:.9rem 1rem;border-radius:.6rem;font-weight:600;text-decoration:none;margin:1.2rem 0}
 code{display:block;word-break:break-all;background:#222;padding:.7rem;border-radius:.5rem;margin:.5rem 0;font-size:.85rem;user-select:all}
-.muted{color:#aaa;font-size:.9rem}[hidden]{display:none}
+.muted{color:#aaa;font-size:.9rem}.help{background:#222;padding:.7rem .9rem;border-radius:.5rem;font-size:.95rem}[hidden]{display:none}
 </style></head>
 <body><main>
 <h1>Pair this phone with lasso</h1>
-<p id="ok" hidden>Open the link in the lasso app on this phone. It works once and expires ten minutes after it was made.</p>
+<p id="ok" hidden>Opening the lasso app on this phone. The code works once and expires ten minutes after it was made.</p>
 <a id="open" class="btn" href="#" hidden>Open in the lasso app</a>
-<p id="manual" class="muted" hidden>If the app does not open, copy this into its pairing screen:</p>
+<p id="help" class="help" hidden>Nothing opened? Open this page on the phone that has the lasso app, or scan the code from inside the app. If you scanned it with a camera on a computer or a phone without the app, there is nothing more to do here.</p>
+<p id="manual" class="muted" hidden>Or copy this into the app's pairing screen:</p>
 <code id="code" hidden></code>
 <p id="bad" hidden>This link has no pairing code. Ask for a new one.</p>
 <p class="muted">Only open this on the phone you want to pair. The code in this address is a one-time key to your account.</p>
@@ -377,7 +378,7 @@ var p=new URLSearchParams(location.hash.slice(1)),c=p.get("code");
 if(!c||!/^lpc_[A-Za-z0-9_-]{16,64}$/.test(c)){document.getElementById("bad").hidden=false;return}
 var link="lasso://pair?code="+encodeURIComponent(c)+"&server="+encodeURIComponent(location.origin);
 var a=document.getElementById("open");a.href=link;a.hidden=false;
-document.getElementById("ok").hidden=false;
+document.getElementById("ok").hidden=false;document.getElementById("help").hidden=false;
 document.getElementById("manual").hidden=false;
 var k=document.getElementById("code");k.textContent=c;k.hidden=false;
 history.replaceState(null,"",location.pathname);

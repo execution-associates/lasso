@@ -1211,6 +1211,59 @@ export interface BotDetail {
   lasso_mcp: string
   // Whether lasso adds its channel (jobs and webhooks) to the bot.
   lasso_channel?: boolean
+  // Whether the phone app can talk to the bot right now (client-api.md):
+  // available, busy, starting, stopped, or unavailable with a reason.
+  client?: { state: string; reason?: string }
+}
+
+// The people who use the phone app (clientapi_admin.go, /api/app-users).
+export interface AppGrant {
+  bot: string
+  // The bot treats this person as its human.
+  owner: boolean
+  created_at: string
+}
+
+export interface AppDevice {
+  id: string
+  label: string
+  platform: string
+  paired_by: string
+  created_at: string
+  // "" until the device has made a request.
+  last_seen_at: string
+  revoked_at?: string
+}
+
+export interface AppUser {
+  id: string
+  name: string
+  email: string
+  disabled: boolean
+  created_at: string
+  updated_at: string
+  grants: AppGrant[]
+  devices: AppDevice[]
+}
+
+export interface AppPairing {
+  id: string
+  user_id: string
+  minted_by: string
+  created_at: string
+  expires_at: string
+  // Set once a phone has used the code.
+  used_at?: string
+  device_id?: string
+}
+
+// A freshly minted pairing: the one time its code is shown. A credential:
+// keep it in component state only, never a query cache, storage or a log.
+export interface AppPairingMint {
+  pairing: AppPairing
+  code: string
+  link: string
+  deep_link: string
 }
 
 // A delivery of a bot job: queued, in flight, delivered or dropped.
@@ -1347,6 +1400,10 @@ export interface BotSkill {
 
 function botURL(name: string, rest = ""): string {
   return `/api/bots/${encodeURIComponent(name)}${rest}`
+}
+
+function appUserURL(id: string, rest = ""): string {
+  return `/api/app-users/${encodeURIComponent(id)}${rest}`
 }
 
 async function sendJSON<T>(
@@ -2510,6 +2567,37 @@ export const api = {
 
   // Bots. Server-level like plugins: the list is lasso's own, each bot names
   // the host it runs on, and every call about one bot is addressed by name.
+  appUsers: {
+    list: () => getJSON<{ users: AppUser[] }>("/api/app-users"),
+    create: (body: { name: string; email?: string }) =>
+      postJSON<{ user: AppUser }>("/api/app-users", body),
+    update: (
+      id: string,
+      body: { name?: string; email?: string; disabled?: boolean }
+    ) => sendJSON<{ user: AppUser }>("PUT", appUserURL(id), body),
+    remove: (id: string) => sendJSON<{ ok: boolean }>("DELETE", appUserURL(id)),
+    setGrant: (id: string, bot: string, owner: boolean) =>
+      sendJSON<{ grant: AppGrant }>("PUT", appUserURL(id, `/grants/${bot}`), {
+        owner,
+      }),
+    revokeGrant: (id: string, bot: string) =>
+      sendJSON<{ ok: boolean }>("DELETE", appUserURL(id, `/grants/${bot}`)),
+    devices: (id: string) =>
+      getJSON<{ devices: AppDevice[] }>(appUserURL(id, "/devices")),
+    revokeDevice: (id: string, device: string) =>
+      sendJSON<{ ok: boolean }>("DELETE", appUserURL(id, `/devices/${device}`)),
+    pairings: (id: string) =>
+      getJSON<{ pairings: AppPairing[] }>(appUserURL(id, "/pairings")),
+    mintPairing: (id: string, baseURL: string) =>
+      postJSON<AppPairingMint>(appUserURL(id, "/pairings"), {
+        base_url: baseURL,
+      }),
+    cancelPairing: (id: string, pairing: string) =>
+      sendJSON<{ ok: boolean }>(
+        "DELETE",
+        appUserURL(id, `/pairings/${pairing}`)
+      ),
+  },
   bots: {
     list: () => getJSON<{ bots: BotView[] }>("/api/bots"),
     // The list's order, as dragged. Bots it does not name go after.
