@@ -293,6 +293,8 @@ A `browser` argument takes a browser's id (e.g. `work`) or its display name; omi
 
 chrome-devtools-mcp's tools, served on `/mcp` with a `browser_` prefix: `browser_new_page`, `browser_navigate_page`, `browser_click`, `browser_fill`, `browser_take_snapshot`, `browser_take_screenshot`, `browser_list_pages`, `browser_close_page` and the rest. Each takes chrome-devtools-mcp's own parameters plus an optional `browser`, and returns chrome-devtools-mcp's own result (screenshots as images). A `pageId` belongs to the browser it came from, so pass the same `browser` on every call about that page.
 
+`browser_batch` runs up to 25 of them in order in one call and one browser (`steps`: `{tool, args?, quiet?}`; `continue_on_error`; a `new_page` step's page is the default `pageId` after it), so a known sequence is one round trip. See [Browser tools](./browser.md#browser_batch).
+
 They are present when chrome-devtools-mcp is installed on lasso's machine; [`shared_browser`](#shared_browser) says why when they are not. Besides reach to lasso's own host, a call needs what `/cdp` needs: no foreign `Origin`, and under `UI_AUTH` alone the `UI_AUTH` basic credentials on the connection. A call that falls short is a tool error. See [Browser tools](./browser.md) for the details.
 
 ### `shared_browser`

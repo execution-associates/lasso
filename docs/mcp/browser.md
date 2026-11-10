@@ -24,7 +24,11 @@ claude mcp add --transport http lasso http://127.0.0.1:8090/mcp
 
 ## Tool names
 
-Every chrome-devtools-mcp tool `x` is served on `/mcp` as **`browser_x`**: `browser_new_page`, `browser_navigate_page`, `browser_click`, `browser_fill`, `browser_take_snapshot`, `browser_take_screenshot`, `browser_list_pages`, `browser_close_page`, and so on. The prefix is what marks a tool as chrome-devtools-mcp's; lasso's own browser tools (`list_browsers`, `open_browser_tab`, `shared_browser`, …) do not start with it.
+Every chrome-devtools-mcp tool `x` is served on `/mcp` as **`browser_x`**: `browser_new_page`, `browser_navigate_page`, `browser_click`, `browser_fill`, `browser_take_snapshot`, `browser_take_screenshot`, `browser_list_pages`, `browser_close_page`, and so on. The prefix is what marks a tool as one of the browser tools; all but `browser_batch` (below) are chrome-devtools-mcp's. lasso's own browser tools (`list_browsers`, `open_browser_tab`, `shared_browser`, …) do not start with it.
+
+### `browser_batch`
+
+`browser_batch` runs a list of `steps` (1 to 25, each `{tool, args?, quiet?}`) in order, in one call and one browser, so a sequence the caller already knows costs one model round trip instead of one per action: visit several pages and `evaluate_script` on each, `fill` + `click` + `wait_for`, or open a page, work in it and close it. `tool` is another browser tool, with or without the `browser_` prefix; `browser_batch` cannot be nested. Set `browser` once on the batch, never in a step's `args`. A top-level `pageId` is the default for steps whose tool takes one and whose `args` do not set it, and a `new_page` step's page replaces it for the steps after it. Results come back per step under `### step N: <tool>` headers; `quiet` keeps only the header of a successful step. The batch stops at the first failed step (the result is an error and says which steps did not run) unless `continue_on_error` is true. The whole request is validated before any step runs. A decision that depends on an earlier step's output needs a separate call. Each call meets the same gate as the individual tools.
 
 Descriptions are chrome-devtools-mcp's own, with one change: where a description or argument description names a sibling tool whose name has an underscore (`list_pages`, `take_snapshot`), the name is rewritten to its `browser_` form so the model reads names that exist. Bare words like "click" or "fill" are left alone, since they are English as often as they are tools.
 
