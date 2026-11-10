@@ -892,8 +892,10 @@ func ompHeaderNonce(text string) string {
 		return ""
 	}
 	first, _, _ := strings.Cut(text, "\n")
-	if m := ompHeaderNonceRE.FindStringSubmatch(first); m != nil {
-		return m[1]
+	// lasso writes the nonce last: a name or a title earlier on the line may
+	// hold text that looks like one.
+	if ms := ompHeaderNonceRE.FindAllStringSubmatch(first, -1); len(ms) > 0 {
+		return ms[len(ms)-1][1]
 	}
 	return ""
 }
