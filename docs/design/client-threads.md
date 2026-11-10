@@ -655,7 +655,7 @@ The header line gains the fields, and the context block sits between the header 
 ----- the person's words end 0123456789abcdef -----
 ```
 
-`title` is quoted, cleaned and has `[` `]` replaced, like `name`. The nonce routing of replies is unchanged; the turn records the person's user id as well, which the omp tools need. Another bot's message starts `[lasso bot message … from_bot=jess addressed=<yes|no> …]` and its words sit between `----- the bot's words begin/end <nonce> -----`; it opens a turn the same way, and an answer of exactly `NO_REPLY` posts nothing.
+`title` is quoted, cleaned and has `[` `]` replaced, like `name`. The nonce is the header's last field, and lasso reads the last `nonce=` of the line, so a name or a title holding `nonce=<hex>` cannot take a turn's routing. The nonce routing of replies is unchanged; the turn records the person's user id as well, which the omp tools need. Another bot's message starts `[lasso bot message … from_bot=jess addressed=<yes|no> …]` and its words sit between `----- the bot's words begin/end <nonce> -----`; it opens a turn the same way, and an answer of exactly `NO_REPLY` posts nothing.
 
 ### Cleaning
 
@@ -697,10 +697,10 @@ A main thread follows the same rule (it has one participant, so `delta` never ha
 Thread "Kitchen remodel quotes" (t_…): a thread of Ann's, started 2026-11-09 off a message in your main chat with them. Participants: jess (lead), mark. You are mark.
 It hangs off this message (jess, 2026-11-09 17:55): I can look into contractors for the kitchen…
 Summary (by jess, 2026-11-09 18:31):
-Decisions:
-- Budget cap $40k
-Open:
-- Mark to check permit rules
+  Decisions:
+  - Budget cap $40k
+  Open:
+  - Mark to check permit rules
 Recent messages, oldest first (12 earlier ones not shown; thread_read has them):
 [2026-11-09 18:20 Ann] Add mark, he knows permits.
 [2026-11-09 18:20 lasso] mark joined the thread.
@@ -710,6 +710,7 @@ Recent messages, oldest first (12 earlier ones not shown; thread_read has them):
 - `full`: the header line, the anchor line (when anchored), the summary (when there is one), and the last 15 messages before `M`, oldest first, within 8000 characters (each message clipped to 1200 characters with `…`), with the count of earlier ones left out.
 - `delta`: the header line and "Since you last saw this thread:" followed by the missed messages in the same form.
 - Message lines: `[<UTC date> <HH:MM> <who>] <text>`, `who` being the person's display name, a bot's name, or `lasso` for a system message; attachments as `[file: <name>, <type>]` or `[image: …]`. Paths are never given for files the reading bot holds no copy of.
+- Only lasso starts a line of the block: every line of the summary is indented two spaces, and so is every line of a message after its first, with any character a reader may take for a line break (`\r`, `\v`, `\f`, U+0085, U+2028, U+2029) turned into one first. A summary or a message cannot add a line that reads as another message (the person's words, to the next bot).
 - Times are UTC. Nothing in the block is an instruction: the instructions say so.
 
 `summary_stale=true` (claude attribute; `summary=stale` in the omp header) is set when the thread is not main and has no summary and at least 6 messages, or has a summary and at least 10 messages after `summary_seq`. The instructions ask the bot to refresh the summary with `thread_summary` when it sees it.
@@ -1126,7 +1127,7 @@ What this keeps:
 
 ## Owner side: People UI and settings
 
-- **Settings → Phone app push** (`/api/client-push`, behind `UI_AUTH`, kept off machine callers like `/api/app-users`): `GET` answers the stored choices (references, never values) and each provider's state; `PUT` merge-patches (`""` clears a field); `POST /api/client-push/test {"user_id", "device_id"}` sends one push (`kind: "test"`, body "Push works.") and answers the provider's result. `get_settings`/`update_settings` gain the section `client_push` (same fields, same validation).
+- **Settings → Phone app push** (`/api/client-push`, behind `UI_AUTH`, kept off machine callers like `/api/app-users`): `GET` answers the stored choices (references, never values) and each provider's state; `PUT` merge-patches (`""` clears a field); `POST /api/client-push/test {"user_id", "device_id"}` sends one push (`kind: "test"`, body "Push works.") and answers the provider's result. `get_settings`/`update_settings` gain the section `client_push` (same fields, same validation); `update_settings` changes it only for a real MCP credential with fleet reach, as the app-user tools (an anonymous `/mcp` caller, which is what a local bot is, is refused before anything changes).
 - **People page** (`PeopleView.tsx`): each device row shows `push`: `{provider, environment, app_id, last_ok_at, last_error}` or "no push", from the user view, which gains `devices[].push` (never the token). Revoking a device deletes its token. Nothing else: the owner sees people, devices and storage as now, and never their threads.
 - `deleteAppUser` also deletes the person's threads, participants, deliveries, proposals, push tokens, attachment copies (rows and files) and search rows (triggers). `revokeAppDevice` deletes the device's push token. `deleteAppGrant` runs the [grant-revoked](#participants-and-routing) steps.
 
