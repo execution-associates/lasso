@@ -382,6 +382,23 @@ func (a *argFlag) String() string { return "" }
 func (a *argFlag) IsBoolFlag() bool { return a.prop.kind() == "boolean" }
 
 func (a *argFlag) Set(s string) error {
+	// A list of objects may also be given whole, as one JSON array
+	// (`-steps '[{"tool":"click"},{"tool":"wait_for"}]'`): objects are too
+	// awkward to repeat, and a lone element is still one object.
+	if a.prop.kind() == "array" && a.prop.Items != nil && a.prop.Items.kind() == "object" {
+		if t := strings.TrimSpace(s); strings.HasPrefix(t, "[") {
+			var elems []map[string]any
+			if err := json.Unmarshal([]byte(t), &elems); err != nil {
+				return fmt.Errorf("expects a JSON array of objects: %w", err)
+			}
+			a.set = true
+			for _, e := range elems {
+				a.list = append(a.list, e)
+			}
+			a.val = a.list
+			return nil
+		}
+	}
 	v, err := coerceArg(a.prop, s)
 	if err != nil {
 		return err

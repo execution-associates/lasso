@@ -150,6 +150,10 @@ type browserMCPBridge struct {
 	srv      *mcp.Server
 	regNames map[string]bool
 	regList  []*mcp.Tool
+	// regChild is the child's own tool names, regPageID those that take a
+	// pageId: browser_batch validates and fills steps from them.
+	regChild  map[string]bool
+	regPageID map[string]bool
 }
 
 // browserMCPToolCache is one binary's tool list, already filtered to what
@@ -342,6 +346,10 @@ func (b *browserMCPBridge) register(tools []*mcp.Tool) {
 		srv.AddTool(bt, b.forward(t.Name, own))
 		names[bt.Name] = true
 	}
+	if len(tools) > 0 {
+		b.registerBatch(srv, names)
+	}
+	b.regChild, b.regPageID = browserBatchIndex(tools)
 	var gone []string
 	for n := range b.regNames {
 		if !names[n] {

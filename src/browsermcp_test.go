@@ -56,6 +56,22 @@ func runFakeBrowserMCP(mode string) int {
 		func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: strings.Join(os.Environ(), "\n")}}}, nil
 		})
+	argsEcho := func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "args=" + string(req.Params.Arguments)}}}, nil
+	}
+	srv.AddTool(&mcp.Tool{Name: "close_page", Description: "close a page", InputSchema: obj}, argsEcho)
+	srv.AddTool(&mcp.Tool{Name: "plain", Description: "no pageId", InputSchema: map[string]any{"type": "object", "properties": map[string]any{
+		"x": map[string]any{"type": "number"}}}}, argsEcho)
+	srv.AddTool(&mcp.Tool{Name: "fail", Description: "always fails", InputSchema: map[string]any{"type": "object"}},
+		func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "it failed"}}}, nil
+		})
+	nextPage := 12
+	srv.AddTool(&mcp.Tool{Name: "new_page", Description: "open a page", InputSchema: map[string]any{"type": "object"}},
+		func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			nextPage++
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("## Pages\n1: http://example.com/\n%d: about:blank [selected]", nextPage)}}}, nil
+		})
 	srv.AddTool(&mcp.Tool{Name: "list_pages", Description: "list the pages", InputSchema: map[string]any{"type": "object"}},
 		func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "[]"}}}, nil
@@ -67,7 +83,7 @@ func runFakeBrowserMCP(mode string) int {
 }
 
 // fakeToolCount is how many tools the fake child serves.
-const fakeToolCount = 4
+const fakeToolCount = 8
 
 // testBrowserMCP is a bridge whose chrome-devtools-mcp is this test binary.
 // max <= 0 is no limit, the production default.
@@ -234,7 +250,7 @@ func listTools(t *testing.T, sess *mcp.ClientSession) map[string]*mcp.Tool {
 func browserToolNames(tools map[string]*mcp.Tool) []string {
 	var out []string
 	for n := range tools {
-		if strings.HasPrefix(n, browserToolPrefix) {
+		if strings.HasPrefix(n, browserToolPrefix) && n != browserBatchName {
 			out = append(out, n)
 		}
 	}
