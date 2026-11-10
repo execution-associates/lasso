@@ -44,4 +44,4 @@ Then learn the pieces: [hosts](./concepts/hosts.md), [agents and worktrees](./co
 
 lasso talks to herdr over its unix socket on the local machine, and over a pooled SSH connection on every other host. It serves the web UI, proxies the terminals, pushes live state to your browser, and keeps its own small database for settings, push devices and agent records. [Architecture](./reference/architecture.md) has the diagram.
 
-lasso is open source under the Apache License 2.0: [github.com/execution-associates/lasso](https://github.com/execution-associates/lasso).
+lasso is source-available under the [Execution Associates Source License 1.0](https://github.com/execution-associates/lasso/blob/main/LICENSE): free for individuals and companies under 10M USD in annual revenue, never for a competing product, and Apache 2.0 two years after each release. Source: [github.com/execution-associates/lasso](https://github.com/execution-associates/lasso).

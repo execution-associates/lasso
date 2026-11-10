@@ -986,6 +986,165 @@ export interface BotFields {
   // Claude bots: answer every permission prompt Yes (a PermissionRequest
   // hook on the launch line). Questions and plan approval still ask.
   auto_approve: boolean
+  // Its liveness alerting (bothealth.go); null inherits every global default.
+  alerts: BotAlerts | null
+}
+
+// ---------------------------------------------------------------------------
+// Bot liveness alerts (bothealth.go, alertchannels.go, alertsapi.go)
+
+// What the bot runner last saw. ok, starting and stopped are healthy; gone (no
+// pane or process), shell (its pane fell back to a shell), deaf (up but not
+// hearing its channel or failing a health check) and unknown (its host could
+// not be read) are not.
+export type BotHealthState =
+  | "ok"
+  | "starting"
+  | "stopped"
+  | "gone"
+  | "shell"
+  | "deaf"
+  | "unknown"
+
+export interface BotHealth {
+  state: BotHealthState
+  reason?: string
+  since?: string
+}
+
+// A deliberate down: while held, the bot being gone pages nobody. `until`
+// absent while held = until released.
+export interface BotHold {
+  held: boolean
+  until?: string
+  reason?: string
+}
+
+// An HTTP endpoint the bot depends on: down on anything but a 2xx, or, with
+// json_field, unless that top-level field of the JSON answer is true.
+export interface BotHealthCheck {
+  name: string
+  url: string
+  json_field?: string
+}
+
+// A bot's own half of alerting. mode absent inherits the global channels,
+// "off" sends nothing, "custom" sends to `channels`. A threshold left out
+// inherits the global one. Durations are seconds.
+export interface BotAlerts {
+  mode?: "off" | "custom"
+  channels?: number[]
+  down_after?: number
+  up_after?: number
+  remind_every?: number
+  handle_within?: number
+  health_checks?: BotHealthCheck[]
+}
+
+// The global defaults. Durations are seconds; remind_every 0 = no reminders,
+// else at least 300.
+export interface AlertSettings {
+  enabled: boolean
+  channels: number[]
+  down_after: number
+  up_after: number
+  remind_every: number
+  remind_max: number
+  handle_within: number
+  // Where a message's link points (e.g. https://lasso.example.com); "" = none.
+  link_base: string
+}
+
+export interface AlertField {
+  key: string
+  label: string
+  // Write-only: never read back, only named in secrets_set.
+  secret?: boolean
+  required?: boolean
+  help?: string
+  default?: string
+  options?: string[]
+}
+
+export interface AlertKind {
+  id: string
+  label: string
+  help: string
+  fields: AlertField[]
+}
+
+export interface AlertChannel {
+  id: number
+  name: string
+  kind: string
+  // The non-secret fields only.
+  config: Record<string, string>
+  enabled: boolean
+  // The secret fields that hold a value.
+  secrets_set: string[]
+  // A short, secret-free hint of where it sends (a host, a chat, an address).
+  target?: string
+  last_test_at?: string
+  last_error?: string
+  created_at: string
+  updated_at: string
+}
+
+// A channel as the form sends it. On an update, `config` replaces the whole
+// set when given, and `secrets` names only the keys that change ("" clears
+// one; a key left out keeps its value).
+export interface AlertChannelInput {
+  name?: string
+  kind?: string
+  enabled?: boolean
+  config?: Record<string, string>
+  secrets?: Record<string, string>
+}
+
+export interface BotAlertState {
+  bot: string
+  state: string
+  reason?: string
+  since?: string
+  down: boolean
+  down_since?: string
+  down_reason?: string
+  last_sent_at?: string
+  reminders: number
+}
+
+export interface BotAlertRow {
+  bot: string
+  host: string
+  health?: BotHealth
+  alert: BotAlertState
+  hold: BotHold
+  mode: "inherit" | "off" | "custom"
+}
+
+export interface AlertDelivery {
+  id: number
+  at: string
+  bot?: string
+  channel_id: number
+  channel_name: string
+  channel_kind: string
+  // down | recovered | reminder | test
+  event: string
+  status: "sent" | "failed"
+  error?: string
+  attempts: number
+}
+
+export interface AlertsOverview {
+  settings: AlertSettings
+  bots: BotAlertRow[]
+  deliveries: AlertDelivery[]
+}
+
+export interface AlertTestResult {
+  ok: boolean
+  error: string
 }
 
 export interface BotView extends BotFields {
@@ -1031,6 +1190,13 @@ export interface BotView extends BotFields {
   avatar_image: string
   // What an omp bot is waiting on the human for, as its chat would carry it.
   pending_ui?: BotPendingUI[]
+  // The liveness the bot runner last saw, and a hold when there is one.
+  health?: BotHealth
+  hold?: BotHold
+  // The stored hold: 0 = none, -1 = until released, else unix seconds. Set
+  // only through api.bots.hold/release, never by a save.
+  hold_until?: number
+  hold_reason?: string
 }
 
 export interface BotDetail {
@@ -1810,6 +1976,63 @@ let hostAttach: {
   promise: Promise<{ active: string; version: string; protocol: number }>
 } | null = null
 
+// Internal AI (llm.go): the OpenAI-compatible endpoint lasso uses to name new
+// agents and terminal tabs. Server-level, like auto-title: the endpoint is
+// reached from lasso's own machine, whichever host the agent lands on. Key
+// NAMES only — a key's value is never returned.
+export interface LLMConfig {
+  base_url: string
+  model: string
+  key_name: string
+  // unconfigured (base_url empty), incomplete (no model yet), ready
+  // (base_url + model set) or unreadable (the stored value does not parse).
+  state: "unconfigured" | "incomplete" | "ready" | "unreadable"
+  reason?: string
+}
+
+export interface LLMConfigPatch {
+  base_url?: string
+  model?: string
+  key_name?: string
+}
+
+// Daily Claude Code update restarts for claude bots (botupdates.go). Claude
+// Code updates itself, but a running bot keeps the version it started with;
+// at `time` in `timezone` lasso restarts each idle claude bot whose host has a
+// newer one installed, waiting up to `window_minutes` for a busy bot.
+export interface BotUpdates {
+  enabled: boolean
+  time: string // HH:MM, 24-hour
+  timezone: string // IANA
+  next_run?: string // RFC 3339, while enabled
+  in_window: boolean
+  window_minutes: number
+  reason?: string
+  bots: BotUpdateBot[]
+}
+
+export interface BotUpdateBot {
+  name: string
+  host: string
+  running?: string
+  installed?: string
+  outdated: boolean
+  error?: string
+}
+
+export interface BotUpdatesPatch {
+  enabled?: boolean
+  time?: string
+  timezone?: string
+}
+
+export interface LLMModels {
+  models: string[]
+  // Present when the fetch failed; the group stays usable (a model can be
+  // typed in by hand).
+  error?: string
+}
+
 export interface FileFindListing {
   root: string
   files: string[]
@@ -2025,6 +2248,26 @@ export const api = {
   autoTitle: () => getJSON<{ enabled: boolean }>("/api/auto-title"),
   setAutoTitle: (enabled: boolean) =>
     postJSON<{ enabled: boolean }>("/api/auto-title", { enabled }),
+  // The Internal AI endpoint behind the titler (llm.go). Server-level: the
+  // endpoint is reached from lasso's own machine.
+  llmConfig: () => getJSON<LLMConfig>("/api/llm/config"),
+  setLLMConfig: (patch: LLMConfigPatch) =>
+    postJSON<LLMConfig>("/api/llm/config", patch),
+  // The endpoint's /models for the picker. `refresh` bypasses the short cache.
+  llmModels: (refresh = false) =>
+    getJSON<LLMModels>(`/api/llm/models${refresh ? "?refresh=1" : ""}`, 12_000),
+  // One tiny completion, to prove the endpoint and key work.
+  testLLM: () =>
+    postJSON<{ ok: boolean; error?: string; elapsed_ms?: number }>(
+      "/api/llm/test",
+      {}
+    ),
+  // Daily Claude Code update restarts for claude bots (botupdates.go).
+  // `bots: false` skips the per-bot version check (an ssh call per host).
+  botUpdates: (bots = true) =>
+    getJSON<BotUpdates>(`/api/bot-updates${bots ? "" : "?bots=0"}`, 20_000),
+  setBotUpdates: (patch: BotUpdatesPatch) =>
+    postJSON<BotUpdates>("/api/bot-updates", patch),
   // Anonymous usage analytics (telemetry.go): the stored choice, whether
   // anything is actually sent, and what holds it off.
   telemetryConfig: () => getJSON<TelemetryConfig>("/api/telemetry/config"),
@@ -2464,6 +2707,49 @@ export const api = {
     skillLibrary: (host: string) =>
       getJSON<{ skills: BotSkill[] }>(
         `/api/bots/skill-library?host=${encodeURIComponent(host)}`
+      ),
+    // A deliberate down: for `minutes`, until an RFC 3339 time, or (neither)
+    // until released. Takes effect at once, outside the settings save.
+    hold: (
+      name: string,
+      body: { minutes?: number; until?: string; reason?: string } = {}
+    ) => postJSON<{ ok: boolean; hold: BotHold }>(botURL(name, "/hold"), body),
+    release: (name: string) =>
+      sendJSON<{ ok: boolean; hold: BotHold }>("DELETE", botURL(name, "/hold")),
+  },
+
+  // Bot liveness alerts: server-level, like the bots themselves.
+  alerts: {
+    overview: (bot?: string) =>
+      getJSON<AlertsOverview>(
+        bot ? `/api/alerts?bot=${encodeURIComponent(bot)}` : "/api/alerts"
+      ),
+    kinds: () => getJSON<{ kinds: AlertKind[] }>("/api/alerts/kinds"),
+    settings: () => getJSON<AlertSettings>("/api/alerts/settings"),
+    // Patch: only the fields given change. Answers the merged whole.
+    saveSettings: (patch: Partial<AlertSettings>) =>
+      sendJSON<AlertSettings>("PUT", "/api/alerts/settings", patch),
+    channels: () =>
+      getJSON<{ channels: AlertChannel[] }>("/api/alerts/channels"),
+    createChannel: (body: AlertChannelInput) =>
+      postJSON<{ channel: AlertChannel }>("/api/alerts/channels", body),
+    updateChannel: (id: number, body: AlertChannelInput) =>
+      sendJSON<{ channel: AlertChannel }>(
+        "PUT",
+        `/api/alerts/channels/${id}`,
+        body
+      ),
+    deleteChannel: (id: number) =>
+      sendJSON<{ ok: boolean }>("DELETE", `/api/alerts/channels/${id}`),
+    // A test through the saved channel (recorded as a delivery).
+    testChannel: (id: number) =>
+      postJSON<AlertTestResult>(`/api/alerts/channels/${id}/test`, {}),
+    // A test of a form that is not saved; with `id` (editing), the saved
+    // channel's secrets fill what the form left blank.
+    testDraft: (body: AlertChannelInput, id?: number) =>
+      postJSON<AlertTestResult>(
+        `/api/alerts/channels/test${id ? `?id=${id}` : ""}`,
+        body
       ),
   },
 

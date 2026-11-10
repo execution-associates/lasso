@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react"
 import * as React from "react"
 import { toast } from "sonner"
+import { Pill } from "@/components/Pill"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,6 +14,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Orb } from "@/components/ui/orb"
+import { healthBad, healthLabel, healthTone, holdText } from "@/lib/alerts"
 import { api, type BotView, botAvatarURL } from "@/lib/api"
 import {
   botHue,
@@ -115,6 +117,43 @@ export function BotStateMark({
         <span className="truncate">
           {bot.state === "blocked" && !words ? "Needs your input" : label}
         </span>
+      )}
+    </span>
+  )
+}
+
+// BotHealthMark: what the liveness check says, drawn only when something is
+// wrong (gone, shell, deaf, unknown) or the bot is held. ok, starting and
+// stopped say nothing BotStateMark does not. The reason is the title.
+export function BotHealthMark({
+  bot,
+  className,
+}: {
+  bot: Pick<BotView, "health" | "hold">
+  className?: string
+}) {
+  const bad = healthBad(bot.health)
+  const held = !!bot.hold?.held
+  if (!bad && !held) return null
+  return (
+    <span className={cn("flex shrink-0 items-center gap-1", className)}>
+      {bad && bot.health && (
+        <Pill
+          tone={healthTone(bot.health)}
+          title={bot.health.reason || healthLabel(bot.health)}
+          className="px-1.5 text-[10px]"
+        >
+          {healthLabel(bot.health)}
+        </Pill>
+      )}
+      {held && (
+        <Pill
+          tone="muted"
+          title={holdText(bot.hold)}
+          className="px-1.5 text-[10px]"
+        >
+          Held
+        </Pill>
       )}
     </span>
   )

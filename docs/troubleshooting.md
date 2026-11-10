@@ -148,7 +148,7 @@ lasso checks `isb serve`'s health on its unix socket (`$ISB_SERVE_SOCKET`, else 
 **`plugin servers run in the other lasso using this plugins directory (pid N, listening on ...)`**
 Two lassos share one `LASSO_DIR`, and the other one holds `plugins/.runner.lock`, so it runs the servers. This is deliberate: both would otherwise fight over the same sandbox names. Stop the other lasso and this one takes over within about 10 seconds, or give one of them its own `LASSO_DIR`.
 
-**`secret NAME could not be resolved (not in lasso's environment, and `secret NAME` failed)`**
+**`secret NAME could not be resolved: it is not set in lasso's environment`**
 An approved secret has no value. Put it in lasso's environment (for a systemd unit, in the unit's environment), then restart the server.
 
 **`the path ... contains ':', which isb's mount syntax cannot express`**

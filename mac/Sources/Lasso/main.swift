@@ -17,6 +17,18 @@ if args.contains("--dump-tokens") {
     exit(0)
 }
 
+// One live app per user (SingleInstance): a second launcher's copy exits 0,
+// which a KeepAlive LaunchAgent does not restart. The parity harness and a
+// fixture run draw no live rail and never take the claim.
+var instance: SingleInstance?
+if !args.contains("--parity") && !args.contains("--fixture") {
+    instance = SingleInstance.claim()
+    if instance == nil {
+        FileHandle.standardError.write(Data("Lasso is already running; exiting.\n".utf8))
+        exit(0)
+    }
+}
+
 // An accessory app: no Dock icon or menu bar (PLAN Q2); the rail is the UI.
 let app = NSApplication.shared
 let delegate = AppDelegate(arguments: args)

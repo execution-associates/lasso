@@ -271,8 +271,9 @@ func labelCandidate(base string, n int) string {
 // asking a local agent CLI for the title
 // ---------------------------------------------------------------------------
 
-// titler is one CLI lasso will ask for a title, in the order listed: claude
-// first, then codex, opencode, omp, pi. Each runs one non-interactive turn with the
+// titler is one way lasso will ask for a title. A configured internal AI
+// endpoint (llm.go) goes first, then the local CLIs in the order listed: claude,
+// codex, opencode, omp, pi. Each CLI runs one non-interactive turn with the
 // instruction as its last argument (argv, so no quoting is involved) and prints
 // the answer — and only the answer — on stdout; their progress chatter,
 // sandbox warnings and session banners all go to stderr.
@@ -280,6 +281,17 @@ type titler struct {
 	id string
 	// args precede the instruction on the command line.
 	args []string
+	// run, when set, answers in-process instead of shelling out: the internal
+	// AI endpoint. nil means the CLI named by id.
+	run func(string) (string, error)
+}
+
+// ask resolves the titler: the in-process run when one is set, else the CLI.
+func (t titler) ask(instruction string) (string, error) {
+	if t.run != nil {
+		return t.run(instruction)
+	}
+	return titlerRunner(t, instruction)
 }
 
 var titlers = []titler{
@@ -334,8 +346,15 @@ func generateTitle(instruction string) (string, error) {
 // accepts.
 func askTitlers[T any](instruction string, parse func(string) (T, bool)) (T, error) {
 	var fails []string
-	for _, t := range titlers {
-		out, err := titlerRunner(t, instruction)
+	chain := titlers
+	if llmConfigured() {
+		// A configured endpoint goes first — it was configured to be used — but
+		// its failure is only one entry in the list: the CLIs still try, so a
+		// broken endpoint cannot break naming.
+		chain = append([]titler{{id: "llm", run: llmTitle}}, titlers...)
+	}
+	for _, t := range chain {
+		out, err := t.ask(instruction)
 		if err != nil {
 			fails = append(fails, t.id+": "+err.Error())
 			continue

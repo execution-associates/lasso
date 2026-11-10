@@ -146,11 +146,6 @@ lasso start                 # run it in the background
 open http://127.0.0.1:8090
 ```
 
-The installer asks whether lasso may send anonymous usage analytics. Answer `n`,
-or install with `LASSO_TELEMETRY=0` or `sh -s -- --no-telemetry`, to turn them off,
-and turn them on or off later in Settings or with `lasso telemetry on|off`.
-[Usage analytics](docs/reference/analytics.md) lists exactly what is sent.
-
 lasso needs [herdr](https://herdr.dev) and [ttyd](https://github.com/tsl0922/ttyd) on
 the same machine. Run `lasso doctor`
 if anything looks off. Then register lasso's MCP servers with the agent CLIs on
@@ -204,7 +199,26 @@ mise run build      # build the frontend (src/web/dist) then the binary
 Frontend tooling runs inside a per-worktree incus container, never on the host.
 See [Development](docs/reference/development.md).
 
+## Usage analytics
+
+The installer asks whether lasso may send anonymous usage analytics. Answer `n`,
+or install with `LASSO_TELEMETRY=0` or `sh -s -- --no-telemetry`, to turn them off,
+and turn them on or off later in Settings or with `lasso telemetry on|off`.
+[Usage analytics](docs/reference/analytics.md) lists exactly what is sent.
+
 ## License
 
-lasso is licensed under the [Apache License 2.0](LICENSE), the same license as
-herdr. See [NOTICE](NOTICE) for the copyright notice.
+lasso is source-available under the
+[Execution Associates Source License 1.0](LICENSE) (EXA-SL-1.0). In short:
+
+- **Free to use, change and share** for individuals and for companies under
+  10M USD in annual revenue (gross revenue or ARR, counted with affiliates).
+- **Companies at 10M USD or more need a commercial license** from
+  [Execution Associates](https://executionassociates.com).
+- **No competing products**: you may not use lasso to offer a product that
+  substitutes for it.
+- **Every version becomes Apache 2.0** two years after its release, with
+  neither limit.
+
+The [LICENSE](LICENSE) is what binds; this summary is not. See [NOTICE](NOTICE)
+for the copyright notice and third-party code.

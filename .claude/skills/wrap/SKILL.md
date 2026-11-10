@@ -222,6 +222,22 @@ host-side copy, which executes nothing — and only when the lockfiles match:
 If they differ the deps genuinely changed and the container needs its network
 back — stop and report rather than typechecking against the wrong tree.
 
+**The Mac app's tests have no CI** (no runner on minime: the repo is public), so
+this step is the only place they run. When the branch touches `mac/`, run them on
+minime too:
+
+```bash
+if ! git diff --quiet origin/main...HEAD -- mac/; then
+  out=$(mac/Scripts/dev.sh test); echo "$out" | grep '✘'
+  echo "$out" | grep -q 'Test run with .* passed' && mac/Scripts/dev.sh parity
+fi
+```
+
+`dev.sh test` prints every result; only a `Test run with … passed` line is green.
+A failure is the branch's to fix even when the failing test is not one it touched:
+nothing else will ever run it. minime unreachable means the Mac half is
+unverified: say so in the report rather than merging it as checked.
+
 If anything fails, **stop and report** — do not merge. Fix or hand back to the user.
 
 ## 3. Merge the feature into main

@@ -192,6 +192,20 @@ lasso can notify you each time a bot finishes a reply. The notification is title
 
 Every device with notifications on gets every notification, including [blocked agents](../concepts/notifications.md) from the rest of lasso.
 
+## Alerts when a bot stops working
+
+lasso checks every bot about every 10 seconds and alerts when one stops working:
+
+- **Gone:** it is not running.
+- **Shell:** its pane came back as a plain shell, without the bot in it.
+- **Deaf:** it runs but cannot hear its channel. It was launched without its channel grant, lasso's channel stopped polling, a job was delivered but never reached its conversation, a job is stuck waiting, an omp bot stopped answering, or one of the bot's health checks failed.
+
+A bot is reported down only after it has been unhealthy for 2 minutes, so a quick relaunch never alerts, and recovered after a minute of health. The list shows a red or amber chip on a bot that is down, with the reason on hover.
+
+- **Where alerts go.** **Settings → General → Bot alerts** holds the channels: a signed webhook, Slack, Discord, Telegram, email, or a heartbeat (a Monicron or healthchecks.io ping URL and its ping secret, pinged while the bot is up, so the monitor also goes down when lasso does; while the bot is stopped or held, its Monicron monitor is paused instead). Pick the default channels, and use **Test** on each. Saved secrets are never shown again; type a new one to replace it. Alerts also arrive as lasso notifications (**A bot is down**, **A bot recovered**).
+- **Per bot.** A bot's **General** settings choose its alerts: the defaults, none, or its own channels, with its own timing and optional health checks (a URL that must answer, optionally with a JSON field that must be true).
+- **Holding a bot down on purpose.** **Hold** in a bot's **General** settings (for an hour, or until you release it) stops lasso relaunching it and stops alerts about it being gone, and pauses its Monicron monitor. A held bot that is running but deaf still alerts.
+
 ## Creating a bot
 
 The **+** in the list's header, or **New bot** on the management page, opens the creator. It has the **General**, **Instructions** and **Connections** tabs. The bot starts as soon as it is created and lands on its chat. Skills and environment are added from its settings afterwards and take effect when it restarts.

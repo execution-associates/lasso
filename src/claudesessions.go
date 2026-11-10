@@ -28,6 +28,9 @@ type claudeSessionEntry struct {
 	WaitingFor      string `json:"waitingFor"`
 	UpdatedAt       int64  `json:"updatedAt"`
 	StatusUpdatedAt int64  `json:"statusUpdatedAt"`
+	// Version is the Claude Code the process runs, which an update installed
+	// since does not change (botupdates.go).
+	Version string `json:"version"`
 }
 
 // agentStatus maps Claude's own words onto herdr's vocabulary.

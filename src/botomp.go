@@ -1012,7 +1012,7 @@ func botOmpTick(b Backend, r *botRecord, now time.Time) {
 		}
 		return
 	}
-	if r.Stopped || !r.KeepRunning {
+	if r.Stopped || !r.KeepRunning || botHeld(r, now) {
 		return
 	}
 	if _, ok := botOmpLaunch.pane(b, r); ok {

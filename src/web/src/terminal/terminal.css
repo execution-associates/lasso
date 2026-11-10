@@ -1,0 +1,20 @@
+/* ttyd's html/src/style/index.scss, so the page measures the same as before. */
+html,
+body {
+  height: 100%;
+  min-height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+#terminal-container {
+  width: auto;
+  height: 100%;
+  margin: 0 auto;
+  padding: 0;
+}
+
+#terminal-container .terminal {
+  padding: 5px;
+  height: calc(100% - 10px);
+}

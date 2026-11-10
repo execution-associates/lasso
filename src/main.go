@@ -349,7 +349,7 @@ func runServer() {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/terminal/", withLiveTtydTheme(proxy))
+	mux.Handle("/terminal/", withLiveTtydTheme(withTerminalPage(terminalPage(distFS), proxy)))
 	mux.HandleFunc("/api/active", func(w http.ResponseWriter, r *http.Request) {
 		a, err := hub.snapshot(requestHost(r))
 		if err != nil {
@@ -408,6 +408,11 @@ func runServer() {
 	// Speech to text (transcribe.go): behind UI_AUTH like every /api route.
 	mux.HandleFunc("/api/transcribe", serveTranscribe)
 	mux.HandleFunc("/api/transcribe/config", serveTranscribeConfig)
+	// Internal AI (llm.go): lasso's own OpenAI-compatible endpoint, used by the
+	// titler. Also behind UI_AUTH.
+	mux.HandleFunc("/api/llm/config", serveLLMConfig)
+	mux.HandleFunc("/api/llm/models", serveLLMModels)
+	mux.HandleFunc("/api/llm/test", serveLLMTest)
 	mux.HandleFunc("/api/frameable", serveFrameable)
 	mux.HandleFunc("/api/browser", sharedBrowsers.serveStatus)
 	mux.HandleFunc("/api/browser/profiles", sharedBrowsers.serveProfiles)
@@ -442,6 +447,11 @@ func runServer() {
 	mux.HandleFunc("/api/notify", serveNotify)
 	mux.HandleFunc("/api/notices", serveNotices)
 	mux.HandleFunc("/api/notify/device", serveNotifyDevice)
+	// Bot liveness alerts (bothealth.go): channels hold write-only secrets.
+	// Daily Claude Code update restarts for bots (botupdates.go).
+	mux.HandleFunc("/api/bot-updates", serveBotUpdates)
+	mux.HandleFunc("/api/alerts", serveAlerts)
+	mux.HandleFunc("/api/alerts/", serveAlerts)
 	// Plugins: the listing and its actions are ordinary UI routes behind
 	// UI_AUTH, and so is /plugins/ — the tab documents, served under a CSP
 	// sandbox so they are an opaque origin (see pluginManager.serveFiles).
@@ -797,7 +807,7 @@ type ttydSlugKey struct{}
 // iframe and re-pins window.term.options.theme on every /api/theme, so the
 // staleness only ever showed where nothing repaints from outside: a terminal
 // opened DIRECTLY at /terminal/<slug>/ (a dedicated browser window on that
-// URL), which is served by ttyd's own document and no lasso page.
+// URL), which is served the terminal document alone and no app page.
 //
 // ttyd's frontend merges its options as {…built-ins, …server-sent, …URL query},
 // so the query wins over the spawn-time value, is re-applied on every
@@ -815,12 +825,14 @@ func withLiveTtydTheme(next http.Handler) http.Handler {
 			return
 		}
 		q := r.URL.Query()
-		// ttyd 1.7.4's WebGL renderer forces alpha=1 for default-background
+		// xterm.js's WebGL renderer forced alpha=1 for default-background
 		// cells carrying style flags (e.g. DIM), leaving opaque boxes on a
-		// transparent wallpaper. Its bundled canvas renderer handles those
-		// cells correctly. Choose it at document load for every theme so a
-		// later switch to Retro 82 needs no terminal reconnect; explicit
-		// renderer choices in hand-authored URLs still win.
+		// transparent wallpaper. Ask for "canvas", which lasso's terminal page
+		// (web/src/terminal/) maps to xterm 6's DOM renderer, since xterm 6
+		// dropped the canvas one; both paint those cells correctly. Choose it
+		// at document load for every theme so a later switch to Retro 82
+		// needs no terminal reconnect; explicit renderer choices in
+		// hand-authored URLs still win.
 		if !q.Has("rendererType") {
 			q.Set("rendererType", "canvas")
 		}
@@ -889,6 +901,46 @@ func ttydDocRequest(r *http.Request) bool {
 		return false
 	}
 	return strings.HasSuffix(r.URL.Path, "/") || strings.HasSuffix(r.URL.Path, "/index.html")
+}
+
+// terminalPage reads lasso's own terminal document (web/terminal.html, built
+// into web/dist) out of the embedded build, or nil when the build has none.
+func terminalPage(dist fs.FS) []byte {
+	b, err := fs.ReadFile(dist, "web/dist/terminal.html")
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
+// withTerminalPage answers a terminal's DOCUMENT request with lasso's page
+// instead of ttyd's bundled one; /token, /ws and everything else still reach
+// ttyd. ttyd 1.7's page carries xterm.js 5, which has no kitty graphics; ours
+// (web/src/terminal/) is a port of it on xterm.js 6.1 with the image addon's
+// kitty support on, keeping window.term and the overlay lib/terminal.ts and
+// the Mac app reach into. It runs behind withLiveTtydTheme, so the query
+// holding the live palette is already in place when this page reads it.
+//
+// A build without the page (a Go test against an empty dist) falls back to
+// ttyd's, which is the same terminal minus images.
+func withTerminalPage(page []byte, next http.Handler) http.Handler {
+	if len(page) == 0 {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !ttydDocRequest(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		// Its script and stylesheet are hashed /assets/ files, so only this
+		// document needs refetching for a new build to take effect.
+		w.Header().Set("Cache-Control", "no-store")
+		if r.Method == http.MethodHead {
+			return
+		}
+		_, _ = w.Write(page)
+	})
 }
 
 // ttydProxy reverse-proxies /<role>/<slug>/… to THAT host's ttyd over its

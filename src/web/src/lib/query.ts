@@ -44,6 +44,12 @@ export const qk = {
   version: ["version"] as const,
   // Server-level (not host-scoped): whether new agents are auto-titled.
   autoTitle: ["auto-title"] as const,
+  // Server-level: the Internal AI endpoint the titler uses (llm.go), and its
+  // model catalog for the picker.
+  llmConfig: ["llm-config"] as const,
+  llmModels: ["llm-models"] as const,
+  // Server-level: daily Claude Code update restarts for bots (botupdates.go).
+  botUpdates: ["bot-updates"] as const,
   // Server-level: anonymous usage analytics on or off (telemetry.go).
   telemetry: ["telemetry"] as const,
   // Server-level: the VAPID key + registered notification devices.
@@ -52,6 +58,13 @@ export const qk = {
   // Browser tab and Settings so a start in one shows in the other.
   browser: ["browser"] as const,
   usage: ["usage"] as const,
+  // Server-level: bot liveness alerts (alertsapi.go). Everything under
+  // "alerts" is dropped together after a change.
+  alerts: ["alerts"] as const,
+  alertsOverview: ["alerts", "overview"] as const,
+  alertKinds: ["alerts", "kinds"] as const,
+  alertSettings: ["alerts", "settings"] as const,
+  alertChannels: ["alerts", "channels"] as const,
   // Server-level: the plugin listing. Refetched on the plugins_rev SSE bump
   // (app-store), so the sidebar strip and Settings share one answer.
   plugins: ["plugins"] as const,
