@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -75,15 +76,19 @@ type clientLastMessageView struct {
 }
 
 type clientThreadView struct {
-	ID             string                 `json:"id"`
-	Kind           string                 `json:"kind"`
-	Bot            string                 `json:"bot,omitempty"`
-	Title          string                 `json:"title,omitempty"`
+	ID    string `json:"id"`
+	Kind  string `json:"kind"`
+	Bot   string `json:"bot,omitempty"`
+	Title string `json:"title,omitempty"`
+	// TitleAuto: the title is lasso's provisional one, made from the thread's
+	// first words; false once the person or a bot names the thread.
+	TitleAuto      bool                   `json:"title_auto"`
 	Bots           []clientThreadBotView  `json:"bots"`
 	Lead           string                 `json:"lead,omitempty"`
 	Anchor         *clientAnchorView      `json:"anchor,omitempty"`
 	State          string                 `json:"state"`
 	Pinned         bool                   `json:"pinned"`
+	PinnedAt       string                 `json:"pinned_at,omitempty"`
 	Muted          bool                   `json:"muted"`
 	Summary        *clientSummaryView     `json:"summary,omitempty"`
 	ReplyCount     int                    `json:"reply_count"`
@@ -133,7 +138,7 @@ func threadViewOf(t *appThread) clientThreadView { return threadViewSnap(t, nil)
 // threadViewSnap is threadViewOf with its unread count taken at a stream
 // position (clientSnapshot), so it agrees with the events after it.
 func threadViewSnap(t *appThread, snap *clientSnapshot) clientThreadView {
-	v := clientThreadView{ID: t.ID, Kind: t.Kind, State: t.State, Pinned: t.PinnedAt != "", Muted: t.Muted,
+	v := clientThreadView{ID: t.ID, Kind: t.Kind, State: t.State, Pinned: t.PinnedAt != "", PinnedAt: t.PinnedAt, Muted: t.Muted,
 		ReadCursor: strconv.FormatInt(t.LastReadSeq, 10), LastActivityAt: t.LastActivityAt,
 		CreatedBy: createdByView(t.CreatedBy), CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
 		Bots: []clientThreadBotView{}, Proposals: []clientProposalView{}}
@@ -151,7 +156,7 @@ func threadViewSnap(t *appThread, snap *clientSnapshot) clientThreadView {
 		v.Bot = t.MainBot
 		v.State = "open"
 	} else {
-		v.Title = t.Title
+		v.Title, v.TitleAuto = t.Title, t.TitleAuto
 		if t.AnchorMessageID != "" {
 			var seq int64
 			_ = db.QueryRow(`SELECT seq FROM app_messages WHERE id = ? AND conv_id = ?`, t.AnchorMessageID, t.AnchorThreadID).Scan(&seq)
@@ -505,22 +510,111 @@ type clientThreadCreateIn struct {
 // one line, nothing that could reshape the markup it is shown in.
 func cleanThreadTitle(s string) (string, bool) { return cleanLine(s, clientThreadTitleMax) }
 
-// autoThreadTitle makes a title from text: its first line, cleaned, 60
-// characters.
+// clientThreadUntitled is the provisional title of a thread nothing has
+// named yet.
+const clientThreadUntitled = "New thread"
+
+// clientTitleSentenceMin is how long a first sentence must be to stand alone
+// as a title: "Hi." or "Dr." is not a topic, so the title runs on to the next
+// sentence end.
+const clientTitleSentenceMin = 16
+
+// autoThreadTitle makes a provisional title from text (a first message, an
+// anchor): the first line that has words, cut at its first sentence end when
+// what comes before it is long enough to stand alone, leading @mentions
+// dropped, whitespace collapsed, every character cleanThreadTitle refuses
+// removed, and at most 60 characters, cut on a word boundary with an
+// ellipsis. "" when nothing is left; the caller falls back to "New thread".
+// The result always passes cleanThreadTitle.
 func autoThreadTitle(s string) string {
-	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
-	var sb strings.Builder
-	for _, r := range line {
-		if clientHostileRune(r) {
+	s = strings.ToValidUTF8(s, "")
+	s = ctxBreaks.Replace(s)
+	var line string
+	for _, l := range strings.Split(s, "\n") {
+		if words := titleWords(l); len(words) > 0 {
+			line = strings.Join(words, " ")
+			break
+		}
+	}
+	if line == "" {
+		return ""
+	}
+	line = firstSentence(line)
+	line = strings.TrimRight(line, " .,;:-")
+	if line == "" {
+		return ""
+	}
+	r := []rune(line)
+	if len(r) > clientThreadAutoTitle {
+		cut := string(r[:clientThreadAutoTitle-1])
+		// A word boundary, unless it would leave too little (one long word,
+		// or a script written without spaces).
+		if i := strings.LastIndex(cut, " "); i > 0 && utf8.RuneCountInString(cut[:i]) >= clientThreadAutoTitle/2 {
+			cut = cut[:i]
+		}
+		line = strings.TrimRight(cut, " .,;:-") + "…"
+	}
+	return line
+}
+
+// titleWords is a line as title words: hostile characters (controls,
+// invisible formatting, markup and quoting) are gaps, and leading @mentions
+// go.
+func titleWords(l string) []string {
+	clean := strings.Map(func(r rune) rune {
+		if clientHostileRune(r) || unicode.IsSpace(r) {
+			return ' '
+		}
+		return r
+	}, l)
+	words := strings.Fields(clean)
+	i := 0
+	for i < len(words)-1 && len(words[i]) > 1 && words[i][0] == '@' {
+		i++
+	}
+	return words[i:]
+}
+
+// firstSentence is a line up to its first sentence end (. ! ? … and their
+// full-width forms, followed by a space or the end) that leaves at least
+// clientTitleSentenceMin characters; the line itself when there is none.
+func firstSentence(line string) string {
+	r := []rune(line)
+	for i, c := range r {
+		switch c {
+		case '.', '!', '?', '…', '。', '！', '？':
+		default:
 			continue
 		}
-		sb.WriteRune(r)
+		if i+1 < len(r) && r[i+1] != ' ' && c != '。' && c != '！' && c != '？' {
+			continue
+		}
+		if i+1 < clientTitleSentenceMin {
+			continue
+		}
+		out := string(r[:i+1])
+		if c == '.' || c == '。' {
+			out = string(r[:i])
+		}
+		return strings.TrimSpace(out)
 	}
-	out := strings.TrimSpace(sb.String())
-	if utf8.RuneCountInString(out) > clientThreadAutoTitle {
-		out = strings.TrimSpace(string([]rune(out)[:clientThreadAutoTitle]))
+	return line
+}
+
+// provisionalThreadTitle is a new thread's title when nobody gave one: from
+// its first message's text, else its anchor's, else "New thread".
+func provisionalThreadTitle(first *clientSendIn, anchor *clientMessageView) string {
+	if first != nil {
+		if t := autoThreadTitle(first.Text); t != "" {
+			return t
+		}
 	}
-	return out
+	if anchor != nil {
+		if t := autoThreadTitle(anchor.Text); t != "" {
+			return t
+		}
+	}
+	return clientThreadUntitled
 }
 
 // errThreadExists carries the thread an anchor already has.
@@ -532,6 +626,7 @@ func (e *errThreadExists) Error() string { return "That message already has a th
 type threadCreateSpec struct {
 	UserID    string
 	Title     string
+	TitleAuto bool // a provisional title, for the lead to replace
 	Bots      []string
 	Anchor    *clientMessageView // a message of a main thread
 	AnchorTID string
@@ -563,10 +658,10 @@ func createThread(s threadCreateSpec, now time.Time) (*appThread, error) {
 	if s.Summary != "" {
 		sumAt, sumBy = stamp, s.SummaryBy
 	}
-	if _, err := tx.Exec(`INSERT INTO app_threads (id, user_id, kind, title, anchor_thread_id, anchor_message_id, anchor_role, anchor_bot, anchor_text, anchor_at,
+	if _, err := tx.Exec(`INSERT INTO app_threads (id, user_id, kind, title, title_auto, anchor_thread_id, anchor_message_id, anchor_role, anchor_bot, anchor_text, anchor_at,
 		summary, summary_by, summary_at, last_activity_at, created_by, client_id, created_at, updated_at)
-		VALUES (?, ?, 'thread', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		tid, s.UserID, s.Title, s.AnchorTID, aMsg, aRole, aBot, aText, aAt, s.Summary, sumBy, sumAt, stamp, s.CreatedBy, s.ClientID, stamp, stamp); err != nil {
+		VALUES (?, ?, 'thread', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		tid, s.UserID, s.Title, boolInt(s.TitleAuto), s.AnchorTID, aMsg, aRole, aBot, aText, aAt, s.Summary, sumBy, sumAt, stamp, s.CreatedBy, s.ClientID, stamp, stamp); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			if aMsg != "" {
 				// Through the transaction: it holds the only connection, so a
@@ -659,22 +754,18 @@ func serveClientThreadCreate(w http.ResponseWriter, r *http.Request, id *clientI
 		}
 		bots = append(bots, b)
 	}
-	title := ""
-	if in.Title != nil {
+	// A title the person gave is theirs. Without one (absent, empty or only
+	// spaces) lasso makes a provisional one, and the lead is asked to name the
+	// thread once its topic is clear.
+	title, titleAuto := "", false
+	if in.Title != nil && strings.TrimSpace(*in.Title) != "" {
 		var ok bool
 		if title, ok = cleanThreadTitle(*in.Title); !ok {
 			clientError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("title must be 1-%d characters, one line.", clientThreadTitleMax))
 			return
 		}
-	}
-	if title == "" && in.Message != nil {
-		title = autoThreadTitle(in.Message.Text)
-	}
-	if title == "" && anchor != nil {
-		title = autoThreadTitle(anchor.Text)
-	}
-	if title == "" {
-		title = "New thread"
+	} else {
+		title, titleAuto = provisionalThreadTitle(in.Message, anchor), true
 	}
 	var n int
 	_ = db.QueryRow(`SELECT COUNT(*) FROM app_threads WHERE user_id = ? AND kind = 'thread'`, id.User.ID).Scan(&n)
@@ -714,7 +805,7 @@ func serveClientThreadCreate(w http.ResponseWriter, r *http.Request, id *clientI
 		clientError(w, http.StatusTooManyRequests, "rate_limited", "Too many threads started. Try again later.")
 		return
 	}
-	t, err := createThread(threadCreateSpec{UserID: id.User.ID, Title: title, Bots: bots, Anchor: anchor, AnchorTID: anchorTID,
+	t, err := createThread(threadCreateSpec{UserID: id.User.ID, Title: title, TitleAuto: titleAuto, Bots: bots, Anchor: anchor, AnchorTID: anchorTID,
 		CreatedBy: "user", AddedBy: "user", ClientID: in.ClientID}, now)
 	if err != nil {
 		var te *errThreadExists
@@ -799,12 +890,15 @@ func serveClientThreadPatch(w http.ResponseWriter, r *http.Request, id *clientId
 	}
 	var changes []string
 	stamp := nowStamp(now)
-	if p.Title != nil && title != t.Title {
-		if err := renameThread(t, title, "user", now); err != nil {
+	if p.Title != nil {
+		changed, err := nameThread(t, title, "user", now)
+		if err != nil {
 			clientFail(w, err)
 			return
 		}
-		changes = append(changes, "title")
+		if changed {
+			changes = append(changes, "title")
+		}
 	}
 	if p.Pinned != nil && *p.Pinned != (t.PinnedAt != "") {
 		v := ""
@@ -836,15 +930,63 @@ func serveClientThreadPatch(w http.ResponseWriter, r *http.Request, id *clientId
 	clientJSON(w, http.StatusOK, map[string]any{"thread": threadViewOf(t)})
 }
 
-// renameThread changes a thread's title and records it (system renamed).
+// nameThread is the person or a bot giving a thread a title: a new one
+// renames it (system renamed); the same one as the provisional title keeps it
+// and makes it the thread's name. Either way the title is no longer
+// provisional, and the lead is not asked to name the thread again. changed
+// says whether the thread's title or title_auto moved (thread_updated
+// "title").
+func nameThread(t *appThread, title, by string, now time.Time) (changed bool, err error) {
+	if title != t.Title {
+		return true, renameThread(t, title, by, now)
+	}
+	if !t.TitleAuto {
+		return false, nil
+	}
+	if _, err := db.Exec(`UPDATE app_threads SET title_auto = 0, updated_at = ? WHERE id = ?`, nowStamp(now), t.ID); err != nil {
+		return false, err
+	}
+	t.TitleAuto = false
+	return true, nil
+}
+
+// renameThread changes a thread's title and records it (system renamed). The
+// title is someone's choice now, not provisional.
 func renameThread(t *appThread, title, by string, now time.Time) error {
 	stamp := nowStamp(now)
-	if _, err := db.Exec(`UPDATE app_threads SET title = ?, updated_at = ? WHERE id = ?`, title, stamp, t.ID); err != nil {
+	if _, err := db.Exec(`UPDATE app_threads SET title = ?, title_auto = 0, updated_at = ? WHERE id = ?`, title, stamp, t.ID); err != nil {
 		return err
 	}
-	t.Title = title
+	t.Title, t.TitleAuto = title, false
 	_, err := addSystemMessage(t, clientSystemView{Type: "renamed", By: by, Title: title}, "The thread was renamed to "+title+".", now)
 	return err
+}
+
+// refineThreadTitle replaces the provisional "New thread" of a standalone
+// thread created empty with one made from the person's first message, and
+// answers whether it did. The title stays provisional; no system message.
+func refineThreadTitle(t *appThread, text string, seq int64, now time.Time) bool {
+	if t.isMain() || !t.TitleAuto || t.AnchorMessageID != "" {
+		return false
+	}
+	var earlier int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM app_messages WHERE conv_id = ? AND role = 'user' AND seq < ?`, t.ID, seq).Scan(&earlier)
+	if earlier > 0 {
+		return false
+	}
+	title := autoThreadTitle(text)
+	if title == "" || title == t.Title {
+		return false
+	}
+	res, err := db.Exec(`UPDATE app_threads SET title = ?, updated_at = ? WHERE id = ? AND title_auto = 1`, title, nowStamp(now), t.ID)
+	if err != nil {
+		return false
+	}
+	n, _ := res.RowsAffected()
+	if n == 1 {
+		t.Title = title
+	}
+	return n == 1
 }
 
 // setThreadLead moves a participant to the front of the join order.
@@ -1121,40 +1263,58 @@ func serveClientThreadRead(w http.ResponseWriter, r *http.Request, id *clientIde
 
 // --- messages around a cursor --------------------------------------------------------
 
+// aroundSplit is how many messages an around page takes on each side of its
+// target, which it always holds: of the limit-1 other slots the older side
+// gets the larger half (limit 2: one older, none newer), and a side with
+// fewer messages than its share gives the rest to the other side.
+func aroundSplit(limit, haveOlder, haveNewer int) (older, newer int) {
+	rest := max(limit-1, 0)
+	older, newer = (rest+1)/2, rest/2
+	if older > haveOlder {
+		newer += older - haveOlder
+		older = haveOlder
+	}
+	if newer > haveNewer {
+		older = min(older+newer-haveNewer, haveOlder)
+		newer = haveNewer
+	}
+	return older, newer
+}
+
 func serveClientMessagesAround(w http.ResponseWriter, t *appThread, around int64, limit int) {
-	var n int
-	_ = db.QueryRow(`SELECT COUNT(*) FROM app_messages WHERE conv_id = ? AND seq = ?`, t.ID, around).Scan(&n)
-	if n != 1 {
+	target, err := scanAppMessage(db.QueryRow(`SELECT `+appMessageCols+` FROM app_messages WHERE conv_id = ? AND seq = ?`, t.ID, around))
+	if err != nil {
 		clientError(w, http.StatusBadRequest, "invalid_request", "around is not a message of this thread.")
 		return
 	}
 	cursor := newestEventSeq(t.ID)
 	clientReconcile(t.ID, time.Now())
-	older := (limit - 1) / 2
-	before, err := pageMessages(t.ID, around, 0, older)
-	if err != nil {
-		clientFail(w, err)
-		return
+	var haveOlder, haveNewer int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM app_messages WHERE conv_id = ? AND seq < ?`, t.ID, around).Scan(&haveOlder)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM app_messages WHERE conv_id = ? AND seq > ?`, t.ID, around).Scan(&haveNewer)
+	nOlder, nNewer := aroundSplit(limit, haveOlder, haveNewer)
+	before, after := []clientMessageView{}, []clientMessageView{}
+	if nOlder > 0 {
+		if before, err = pageMessages(t.ID, around, 0, nOlder); err != nil {
+			clientFail(w, err)
+			return
+		}
 	}
-	after, err := pageMessages(t.ID, 0, around-1, limit-len(before))
-	if err != nil {
-		clientFail(w, err)
-		return
+	if nNewer > 0 {
+		if after, err = pageMessages(t.ID, 0, around, nNewer); err != nil {
+			clientFail(w, err)
+			return
+		}
 	}
-	msgs := append(before, after...)
+	mid := []clientMessageView{target}
+	enrichMessages(t.ID, mid)
+	msgs := append(append(before, mid...), after...)
 	var olderCursor, newerCursor any
-	if len(msgs) > 0 {
-		first, _ := strconv.ParseInt(msgs[0].Cursor, 10, 64)
-		last, _ := strconv.ParseInt(msgs[len(msgs)-1].Cursor, 10, 64)
-		var c int
-		_ = db.QueryRow(`SELECT COUNT(*) FROM app_messages WHERE conv_id = ? AND seq < ?`, t.ID, first).Scan(&c)
-		if c > 0 {
-			olderCursor = msgs[0].Cursor
-		}
-		_ = db.QueryRow(`SELECT COUNT(*) FROM app_messages WHERE conv_id = ? AND seq > ?`, t.ID, last).Scan(&c)
-		if c > 0 {
-			newerCursor = msgs[len(msgs)-1].Cursor
-		}
+	if haveOlder > len(before) {
+		olderCursor = msgs[0].Cursor
+	}
+	if haveNewer > len(after) {
+		newerCursor = msgs[len(msgs)-1].Cursor
 	}
 	clientJSON(w, http.StatusOK, map[string]any{"conversation_id": t.ID, "thread_id": t.ID, "messages": msgs,
 		"events_cursor": strconv.FormatInt(cursor, 10), "older_cursor": olderCursor, "newer_cursor": newerCursor})

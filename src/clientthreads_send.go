@@ -220,6 +220,8 @@ func clientSendThread(id *clientIdentity, t *appThread, in clientSendIn, now tim
 		return m, false, e
 	}
 	seq, _ := res.LastInsertId()
+	// Before anything is queued, so every bot is handed the refined title.
+	refined := refineThreadTitle(t, text, seq, now)
 	for _, a := range atts {
 		_, _ = db.Exec(`UPDATE app_attachments SET message_id = ? WHERE id = ?`, msgID, a.ID)
 	}
@@ -272,10 +274,18 @@ func clientSendThread(id *clientIdentity, t *appThread, in clientSendIn, now tim
 		return m, false, e
 	}
 	appendClientEvent(t.ID, "message", m, now)
+	var changes []string
 	if reopened {
-		threadUpdated(t.ID, []string{"state"}, now)
+		changes = append(changes, "state")
 	}
-	clientStubChanged(t.ID, now)
+	if refined {
+		changes = append(changes, "title")
+	}
+	if len(changes) > 0 {
+		threadUpdated(t.ID, changes, now) // its stub too
+	} else {
+		clientStubChanged(t.ID, now)
+	}
 	clientReconcile(t.ID, now)
 	return m, false, nil
 }

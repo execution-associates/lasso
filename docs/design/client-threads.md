@@ -90,6 +90,8 @@ CREATE TABLE IF NOT EXISTS app_threads (
 	kind              TEXT NOT NULL,             -- main | thread
 	main_bot          TEXT NOT NULL DEFAULT '',  -- kind=main: its bot
 	title             TEXT NOT NULL DEFAULT '',  -- kind=thread: 1-80 characters
+	title_auto        INTEGER NOT NULL DEFAULT 0, -- 1 = lasso's provisional title (see Naming a thread)
+	title_hints       INTEGER NOT NULL DEFAULT 0, -- how many times the lead was asked to name it
 	anchor_thread_id  TEXT NOT NULL DEFAULT '',  -- the main thread it hangs off
 	anchor_message_id TEXT NOT NULL DEFAULT '',
 	anchor_role       TEXT NOT NULL DEFAULT '',  -- snapshot of the anchor, kept if the anchor goes
@@ -205,6 +207,8 @@ ALTER TABLE bots ADD COLUMN client_deliveries INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE bots ADD COLUMN channel_threads INTEGER NOT NULL DEFAULT 0;     -- the channel announced threads1
 CREATE INDEX IF NOT EXISTS app_events_user ON app_events(user_id, seq);
 ```
+
+`title_auto` and `title_hints` are added to `app_threads` (`ALTER TABLE … ADD COLUMN`, after the table is created) on a db whose `app_threads` predates them; a thread made before them reads as named.
 
 Calls need no column: `app_calls.conv_id` holds the thread id and `app_calls.bot` the bot the call is with.
 
@@ -338,6 +342,7 @@ Unchanged: `POST /pair`, `GET /bots`, `GET /bots/{bot}`, `GET /bots/{bot}/avatar
   "id": "t_9f2c41a0d3b7e5f6a1c8d2e4",
   "kind": "thread",
   "title": "Kitchen remodel quotes",
+  "title_auto": false,
   "bots": [
     {"name": "jess", "lead": true, "joined_at": "2026-11-09T17:58:01Z"},
     {"name": "mark", "lead": false, "joined_at": "2026-11-09T18:20:44Z", "added_by": "proposal"}
@@ -349,7 +354,8 @@ Unchanged: `POST /pair`, `GET /bots`, `GET /bots/{bot}`, `GET /bots/{bot}/avatar
     "created_at": "2026-11-09T17:55:12Z", "available": true
   },
   "state": "open",
-  "pinned": false,
+  "pinned": true,
+  "pinned_at": "2026-11-09T18:02:11Z",
   "muted": false,
   "summary": {"text": "Decisions:\n- Budget cap $40k\nOpen:\n- Mark to check permit rules", "by": "jess", "updated_at": "2026-11-09T18:31:00Z"},
   "reply_count": 14,
@@ -365,7 +371,9 @@ Unchanged: `POST /pair`, `GET /bots`, `GET /bots/{bot}`, `GET /bots/{bot}/avatar
 }
 ```
 
-- `kind: "main"` threads have `bot` (the bot's name) and no `title`, `anchor`, `state` other than `open`, or `added_by`; `bots` is that one bot as lead.
+- `kind: "main"` threads have `bot` (the bot's name) and no `title`, `anchor`, `state` other than `open`, or `added_by`; `bots` is that one bot as lead; `title_auto` is `false`.
+- `title_auto` is `true` while the title is lasso's provisional one ([Naming a thread](#naming-a-thread)), `false` once the person or a bot named the thread, and always present.
+- `pinned_at` is when the thread was pinned, present only while `pinned` is `true`: the key of the list's "most recently pinned first".
 - `bots` lists **active** participants in join order. `added_by` is present when it was not the person directly: `proposal` (the person accepted a bot's proposal) or `bot` (the bot made the thread).
 - `anchor` is absent on a standalone thread. Its fields are the snapshot taken when the thread was made; `cursor` is the anchor message's cursor in its main thread (for `messages?around=`), present while the message exists; `available` is false once the anchor message is gone (its bot was deleted), so the app shows the quote but cannot jump to it.
 - `summary` is absent until a bot writes one. `text` is up to 4000 characters and may have line breaks; it is plain text.
@@ -392,7 +400,7 @@ Unchanged: `POST /pair`, `GET /bots`, `GET /bots/{bot}`, `GET /bots/{bot}/avatar
 - `in_reply_to` on a bot message is the message it answers: the person's, or (in a thread with several bots) another bot's.
 - `deliveries` is on every person's message: one entry per bot it was routed to, `state` `queued` | `delivered` | `failed` with `failed_reason` when failed, and `routed` `lead` | `mention` | `call` | `main`. `state` (the old field) is the aggregate: `queued` while any delivery is queued, else `delivered` if any was delivered, else `failed` (with the first `failed_reason`).
 - A `system` message has `role: "system"`, `done: true`, `mode: "text"`, a human-readable `text` ("mark joined the thread") and `system: {"type": "bot_added" | "bot_removed" | "lead_changed" | "renamed" | "proposal_declined" | "bots_paused", "bot"?: "mark", "by": "user" | "proposal" | "bot:jess" | "access" | "bot_deleted" | "lasso", "title"?: "…", "limit"?: 8}`. `bots_paused` (by `lasso`, with `limit`) says the bots stopped passing messages to each other after that many in a row; it appears once per run and the bots pick up again when the person writes. An app that does not know a type renders `text`. Apps may render it from `system` or from `text`. It is never in a main thread and never delivered to a bot as a message (bots see it in context).
-- An **anchor message** in a main thread's history carries `thread`: `{"id", "title", "bots": ["jess", "mark"], "reply_count", "unread", "last_activity_at"}`. That is the stub. The anchor message is not re-sent when the stub changes: a `thread_stub` event on the main thread carries the new stub ([The event streams](#the-event-streams)). A deleted thread's stub disappears (`thread_deleted`).
+- An **anchor message** in a main thread's history carries `thread`: `{"id", "title", "title_auto", "bots": ["jess", "mark"], "reply_count", "unread", "last_activity_at"}`. That is the stub. The anchor message is not re-sent when the stub changes: a `thread_stub` event on the main thread carries the new stub ([The event streams](#the-event-streams)). A deleted thread's stub disappears (`thread_deleted`).
 
 ### Proposal
 
@@ -438,7 +446,7 @@ Order: pinned first (most recently pinned first), then `last_activity_at` newest
 
 - `anchor_message_id` (optional): a message in one of the person's **main** threads, whose bot they still hold. Without it the thread is standalone.
 - `bots`: 1-10 bot names the person is granted. Optional with an anchor (default: the anchor's main bot); required without one. The first is the lead. An ungranted or unknown name is `404 not_found`, the same as any other unknown id.
-- `title` (optional): 1-80 characters, one line ([Limits](#limits)). Absent: the first line of `message.text` (60 characters), else the anchor's text (60), else `"New thread"`.
+- `title` (optional): 1-80 characters, one line ([Limits](#limits)); the thread is then named (`title_auto: false`). Absent, `""` or only whitespace: lasso sets a provisional title and `title_auto: true` ([Naming a thread](#naming-a-thread)).
 - `message` (optional): the thread's first message, sent exactly as `POST /threads/{id}/messages` would send it (no attachments: upload into the thread once it exists, then send). Its routing follows [Participants and routing](#participants-and-routing).
 - `client_id` (optional, 1-64 of `A-Za-z0-9._-`): resending the same `client_id` answers `200` with the thread already made and `"replayed": true`.
 
@@ -452,6 +460,17 @@ Answers `201`:
 
 Events: `thread_created` on the person stream; when anchored, `thread_updated` is not sent for the main thread, but the anchor message's stub appears (clients add it from `thread_created`'s `anchor.message_id`).
 
+### Naming a thread
+
+A thread the person starts without a title gets a **provisional** one, and its lead is asked to name it once the topic is clear; the person or any participant can rename it at any time.
+
+- **The provisional title** is made from the first message's text, else the anchor's text, else it is `"New thread"`: the first line that has words (any of `\n`, `\r`, `\v`, `\f`, U+0085, U+2028, U+2029 ends a line), leading `@name` words dropped, cut at its first sentence end (`.` `!` `?` `…` followed by a space or the end, or `。` `！` `？`) when what comes before it is at least 16 characters (a closing `.` is dropped, `!` and `?` kept), every character a title may not hold ([Limits](#limits): controls, invisible formatting, `<` `>` `"` backslash backtick) taken as a space, whitespace collapsed, trailing `.,;:-` and spaces trimmed, and at most 60 characters: longer, it is cut at the last space within 59 characters (unless that leaves fewer than 30, then at 59) and ends in `…`. It always passes the title rules and is never empty. The thread reads `title_auto: true`.
+- **Refined once**: a standalone thread created with no title and no message is `"New thread"` until the person's first message in it, whose provisional title replaces it (`thread_updated` with `changes: ["title"]`, no system message; `title_auto` stays `true`). An anchored thread keeps the title from its anchor.
+- **The lead is asked** while `title_auto` is `true`: a person's message delivered to the thread's lead carries the request ([Delivery to the bot](#delivery-to-the-bot): `title_hint`), at most `clientTitleHintsMax` (3) times per thread, counted when the lead takes the message. Other participants are never asked, nor is anyone in a main thread or with another bot's message.
+- **Naming it**: a title set by the person (`PATCH`) or by a bot (`thread_update`) makes `title_auto` `false`, even when it equals the provisional title; nobody is asked again. A changed title adds `system` `renamed` (`by: "user"` or `"bot:<name>"`); either way `thread_updated` goes out with `changes: ["title"]`, and one `thread_stub` for an anchored thread. A bot may still rename a thread the person named, when the person asks it to.
+- A bot's own thread (`thread_create`) takes the bot's `title`, which is required: it is named from the start.
+- Every title, provisional or given, reaches a bot cleaned like any title ([Delivery to the bot](#delivery-to-the-bot)): it cannot hold a quote, a bracket, a line break or a marker, and a `nonce=` in it is never the header's.
+
 ### `GET /threads/{id}`
 
 `{"thread": {…}}`.
@@ -462,7 +481,7 @@ Events: `thread_created` on the person stream; when anchored, `thread_updated` i
 {"title": "Kitchen remodel: quotes", "pinned": true, "muted": false, "state": "archived", "lead": "mark"}
 ```
 
-Each key optional, at least one. `title`, `state` and `lead` on a main thread are `409 main_thread`; `pinned` and `muted` work on any thread. `lead` must be an active participant (`409 not_participant`); it moves that bot to the front of the join order. A rename adds a `system` message (`renamed`). Answers `{"thread": {…}}` and sends `thread_updated` with `changes`. Archiving keeps everything; a new message in an archived thread (from the person or a bot) moves it back to `open`.
+Each key optional, at least one. `title`, `state` and `lead` on a main thread are `409 main_thread`; `pinned` and `muted` work on any thread. `title` names the thread (`title_auto: false`, [Naming a thread](#naming-a-thread)). `lead` must be an active participant (`409 not_participant`); it moves that bot to the front of the join order. A rename adds a `system` message (`renamed`). Answers `{"thread": {…}}` and sends `thread_updated` with `changes`. Archiving keeps everything; a new message in an archived thread (from the person or a bot) moves it back to `open`.
 
 ### `DELETE /threads/{id}`
 
@@ -470,7 +489,12 @@ Deletes the thread for good: its messages, events, calls (an open one is ended f
 
 ## Messages in threads
 
-`GET /threads/{id}/messages` is `/conversations/{id}/messages` with one addition: `around=<cursor>` (instead of `before`/`after`) answers up to `limit` messages with that message in the middle, for opening a search hit. With `around`, the answer adds `newer_cursor` (the `after` for the next newer page, or `null` at the newest); `older_cursor` is as before. `around` naming a cursor not in the thread is `400 invalid_request`.
+`GET /threads/{id}/messages` is `/conversations/{id}/messages` with one addition: `around=<cursor>` (instead of `before`/`after`) answers up to `limit` messages around that message, for opening a search hit:
+
+- The target is always in the page. Of the other `limit - 1` slots the older side takes the larger half (`ceil((limit-1)/2)` older, `floor((limit-1)/2)` newer), and a side with fewer messages than its share gives the rest to the other side. Oldest first, as every page.
+- `limit=1`: the target alone. `limit=2`: the message before it and the target (the target and the next one when it is the thread's first). `limit=3`: one on each side; at the thread's newest message, the two before it.
+- `older_cursor` is the first message's cursor when older messages remain, else `null`; `newer_cursor` is the last message's cursor when newer ones remain (the `after` for the next newer page), else `null`.
+- `around` naming a cursor not in the thread is `400 invalid_request`.
 
 `POST /threads/{id}/messages` takes the existing body plus `mentions`:
 
@@ -546,7 +570,7 @@ A bot proposes a bot with its `thread_propose_bot` tool ([Bot tools](#bot-tools)
 
 - Ordered by FTS5 rank (bm25), best first.
 - `snippet` is at most 160 characters around the match (FTS5 `snippet()`), `…` where it was cut. `highlights` are `[start, end)` offsets into `snippet` in **Unicode code points** (Swift: `unicodeScalars`; Kotlin: `offsetByCodePoints`).
-- A `thread` in a message or file hit is a short form: `id`, `kind`, `title` or `bot`.
+- A `thread` in a message or file hit is a short form: `id`, `kind`, `title` and `title_auto` or `bot`.
 - **Scoping, in this order**: the FTS query filters `user_id = <token's user>`; every hit is then joined back to its row and dropped unless the thread belongs to that user and is visible (a main thread needs the grant); file hits of removed files are kept (as markers). A bot's search ([Bot tools](#bot-tools)) adds "the bot is an active participant".
 - At most 30 searches a minute per person (`429 rate_limited`).
 
@@ -575,7 +599,7 @@ One SSE connection carries every event of every thread the person can see, so an
 | `thread_updated` | yes | `{thread, changes: [...]}`: `changes` from `title`, `pinned`, `muted`, `state`, `bots`, `lead`, `summary`, `proposals`, `anchor`. Not sent for a new message (the `message` event says it) |
 | `thread_deleted` | yes | `{thread_id}` |
 | `thread_read` | yes | `{thread_id, read_cursor, unread, unread_total, badge}` |
-| `thread_stub` | yes | `{thread_id, message_id, thread: {id, title, bots, reply_count, unread, last_activity_at}}`: the stub under an anchor message changed (a message in the thread, a read, a rename, its bots); `thread_id` is the **main** thread the anchor is in and `message_id` the anchor. Never counted as unread, never pushed |
+| `thread_stub` | yes | `{thread_id, message_id, thread: {id, title, title_auto, bots, reply_count, unread, last_activity_at}}`: the stub under an anchor message changed (a message in the thread, a read, a rename, its bots); one event per change, never a repeat of the stub last sent; `thread_id` is the **main** thread the anchor is in and `message_id` the anchor. Never counted as unread, never pushed |
 | `proposal_created` | yes | `{proposal}` |
 | `proposal_resolved` | yes | `{proposal}` |
 | `activity` | no | `{thread_id, bot, message_id, text}`: as today, plain step kinds only, claude bots only |
@@ -622,6 +646,7 @@ A person's message to a bot is still a `bot_events` row of kind `client`. Its me
 | `context` | `none`, `delta` or `full` ([Context hand-off](#context-hand-off)), decided when the bot takes the message |
 | `context_marker` | 16 hex characters: the marker around the context block; absent when `context=none` |
 | `summary_stale` | `true` when the thread's summary is missing or behind ([Context hand-off](#context-hand-off)); absent otherwise |
+| `title_hint` | while the title is provisional, on a person's message to the lead, at most 3 times per thread ([Naming a thread](#naming-a-thread)): lasso's request to name the thread, a fixed sentence (below); absent otherwise |
 | `from_bot`, `addressed` | on `event=bot_message`: the author, and `true` when the message mentions this bot ([Bots talking in a thread](#bots-talking-in-a-thread)) |
 
 Access is re-read when the bot takes the message, as today, and additionally: the bot must still be an active participant of the thread (else the delivery is dropped, failed "The bot left the thread before it took the message."), and the thread must still exist.
@@ -639,6 +664,8 @@ The `<channel …>` tag gets the attributes above. When `context` is not `none`,
 Attached file: /home/…/.lasso/client/u_…/a_….pdf
 ```
 
+`title_hint`'s value is lasso's own sentence asking the bot to give the thread a concise title (a few words, no quotes, no trailing punctuation) with `thread_update` once the topic is clear, before its `done=true` answer closes the token. It holds nothing a tag attribute cannot carry, so a channel started before it passes it on as it is.
+
 The channel's poll header and spool heartbeat announce `threads1` beside `talk client2`. A connected channel without `threads1` makes the bot `unavailable` ("The bot must restart to take messages from the app."), the same mechanism as `client2`.
 
 ### omp bots
@@ -655,11 +682,13 @@ The header line gains the fields, and the context block sits between the header 
 ----- the person's words end 0123456789abcdef -----
 ```
 
+With `title_hint` set, lasso's note follows the header on a line of its own, before the context block: `[lasso note nonce=<the header's nonce>] ` and the same request naming `client_thread_update`. It is built by lasso from its records, never from text.
+
 `title` is quoted, cleaned and has `[` `]` replaced, like `name`. The nonce is the header's last field, and lasso reads the last `nonce=` of the line, so a name or a title holding `nonce=<hex>` cannot take a turn's routing. The nonce routing of replies is unchanged; the turn records the person's user id as well, which the omp tools need. Another bot's message starts `[lasso bot message … from_bot=jess addressed=<yes|no> …]` and its words sit between `----- the bot's words begin/end <nonce> -----`; it opens a turn the same way, and an answer of exactly `NO_REPLY` posts nothing.
 
 ### Cleaning
 
-`clientNeutralize` also changes `----- lasso thread context` (begin and end), `----- the bot's words` and `[lasso bot message` in any text lasso frames, so neither the person's words, a bot's, nor anything inside the block can pose as the block's markers. Everything inside the block (messages, the summary, titles, file names) is cleaned the same way as the person's words.
+`clientNeutralize` also changes `----- lasso thread context` (begin and end), `----- the bot's words`, `[lasso bot message` and `[lasso note` in any text lasso frames, so neither the person's words, a bot's, nor anything inside the block can pose as the block's markers. Everything inside the block (messages, the summary, titles, file names) is cleaned the same way as the person's words.
 
 ### Other client events
 
@@ -724,6 +753,7 @@ Recent messages, oldest first (12 earlier ones not shown; thread_read has them):
 - Maintain the thread summary: a short plain-text record (Decisions, Open items, anything the next reader needs), under 1500 characters, written with `thread_summary`, especially when `summary_stale` is set and before a long thread goes quiet. The person sees it at the top of the thread.
 - Other bots may be in the thread. A message reaches you only when the person mentioned you or you lead; you do not answer other bots, and nothing you write is sent to them.
 - To bring another bot in, propose it (`thread_propose_bot`); the person decides.
+- `title_hint` (claude) or the `[lasso note …]` line (omp): the thread's title is lasso's provisional one and you lead it; once the topic is clear, name it with `thread_update` while answering. Never rename a thread the person named unless they ask.
 - A new topic that deserves its own place: `thread_create`, then tell the person where it went.
 
 ## Bot tools
@@ -860,7 +890,7 @@ Creates a thread of the token's person with this bot as its only participant (`c
 }, "required": ["reply_token", "thread_id"]}
 ```
 
-Rename or archive/unarchive a non-main thread the bot participates in (a main thread: "the main thread cannot be renamed or archived"). Adds `system` `renamed` with `by: "bot:<name>"`. Answers `{"thread_id", "title", "state"}`.
+Rename or archive/unarchive a non-main thread the bot participates in (a main thread: "the main thread cannot be renamed or archived"). A `title` names the thread (`title_auto: false`, even unchanged) and a changed one adds `system` `renamed` with `by: "bot:<name>"` ([Naming a thread](#naming-a-thread)). Answers `{"thread_id", "title", "state"}`.
 
 **`thread_summary`**
 
@@ -1171,6 +1201,8 @@ Server (Go, `go test`, with the existing fixtures; no real bot is ever messaged;
 - **Migration**: a db made with 8.6.1's schema and data (users, conversations, messages with all states, attachments incl. removed, calls, reply tokens, queued `bot_events`) opened by the new code: every conversation is a main thread with the same id and one participant; deliveries mirror message states; `app_events.user_id` filled; unread is zero; search finds existing messages and file names; running the migration twice changes nothing; an `app_convs` row inserted afterwards "by an older lasso" (raw SQL) becomes a thread on first touch; a message inserted by raw SQL is indexed by the trigger.
 - **Compatibility**: `clientapi_test.go`, `clientapi_contract_test.go`, `clientapi_security_test.go` and `clientapi_retention_test.go` pass unchanged against `/conversations/…`; a golden test that the main-thread history and stream JSON for an old-style exchange equals today's plus only the new keys.
 - **Threads**: create standalone and anchored (default bot, explicit bots, auto title, `client_id` replay, `thread_exists`, `bot_unavailable` leaves no thread); list ordering, filters and cursor; rename/pin/mute/archive/unarchive/lead; main-thread refusals; delete removes messages, events, files (bytes in every folder), proposals and search rows, ends an open call and drops queued deliveries.
+- **Naming**: the provisional title's derivation (lines, sentences, @mentions, unicode, long lines, controls and invisible formatting, nothing left), the refinement from a first message, `title_auto` in every thread object and stub, `title_hint` only to the lead, only while provisional, at most 3 times, on both runtimes, stopped by a rename from the person or a bot, and a title given at creation unaffected.
+- **Paging around**: `limit` 1, 2 and 3, at the thread's first and newest message, and the cursors.
 - **Routing**: no mention → lead; mentions → each named; `not_participant`; a mixed send where one recipient is stopped is refused whole; per-delivery states and the aggregate; a removed bot's queued delivery fails with the participant reason; grant revocation removes the bot from threads and leaves `no_participants`; bot deletion keeps messages and promotes a copy.
 - **Attachments**: upload to the lead, copy to a mentioned bot (local and a fake remote backend), the recipient's attribute names its own copy, quota counted once, deletion removes all copies, download falls back to a copy.
 - **Context hand-off**: table-driven over epoch change, 12 h gap, 25 deliveries, never-seen, delta within and over budget; the block's exact text for a fixture thread; `ctx_*` updated in the claim transaction; claude epoch bumps from session reports (`startup`, `clear`, `compact`, `resume`, changed id), omp bumps from `session_changed` with a new id, `host_hello`, `auto_compaction_end`, `session_compacted`; markers in a person's text and in a summary are neutralised.

@@ -36,11 +36,31 @@ const (
 	// bots' messages still reach the person, and the bots hear each other
 	// again once the person writes.
 	clientBotRunMax = 8
+	// clientTitleHintsMax is how many of the person's messages in a thread
+	// with a provisional title reach its lead with the request to name it
+	// (title_hint). A bot that does not name it is not asked again after
+	// that; the person or a bot naming it stops the requests at once.
+	clientTitleHintsMax = 3
+
 	// clientBotFanPerWindow bounds bot-to-bot deliveries in one thread over
 	// clientBotFanWindow, whatever the person does.
 	clientBotFanPerWindow = 40
 	clientBotFanWindow    = 10 * time.Minute
 )
+
+// clientTitleHint is the title_hint attribute a claude bot's channel tag
+// carries while its thread's title is provisional (the omp header's note is
+// clientTitleHintOmp). It is lasso's text, never the person's, and holds
+// nothing a tag attribute cannot carry, so an older channel passes it on
+// unchanged.
+const clientTitleHint = "lasso named this thread from its first words. Once its topic is clear (often from this message, otherwise after an exchange or two), give it a concise title with thread_update before you send your answer (that reply closes the token): a few words, no quotes, no trailing punctuation."
+
+// clientTitleHintOmp is the same request in an omp bot's prompt, on a line
+// of its own after the header.
+const clientTitleHintOmp = "lasso named this thread from its first words. Once its topic is clear (often from this message, otherwise after an exchange or two), give it a concise title with client_thread_update (your bot name, this thread's id, title) while you answer: a few words, no quotes, no trailing punctuation."
+
+// ompNotePrefix starts lasso's note line in an omp bot's prompt.
+const ompNotePrefix = "[lasso note "
 
 // clientCtxMarkerPrefix is the start of the context block's marker lines.
 const clientCtxMarkerPrefix = "----- lasso thread context"
@@ -167,6 +187,14 @@ func clientClaimThread(tx *sql.Tx, bot string, e *botEvent, now time.Time) (drop
 	}
 	if !t.isMain() && summaryStale(tx, t) {
 		e.Meta["summary_stale"] = "true"
+	}
+	// A provisional title: the lead, and only the lead, is asked to name the
+	// thread with the person's message, a fixed number of times.
+	if ev == "message" && !t.isMain() && t.TitleAuto && t.TitleHints < clientTitleHintsMax && len(names) > 0 && names[0] == bot {
+		e.Meta["title_hint"] = clientTitleHint
+		if _, err := tx.Exec(`UPDATE app_threads SET title_hints = title_hints + 1 WHERE id = ?`, t.ID); err != nil {
+			return "", err
+		}
 	}
 	if _, err := tx.Exec(`UPDATE bots SET client_deliveries = client_deliveries + 1 WHERE name = ?`, bot); err != nil {
 		return "", err

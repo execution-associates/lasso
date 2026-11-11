@@ -515,6 +515,7 @@ func clientNeutralize(s string) string {
 	s = strings.ReplaceAll(s, "----- the bot's words", "\u2010\u2010\u2010\u2010\u2010 the bot's words")
 	s = strings.ReplaceAll(s, clientCtxMarkerPrefix, "\u2010\u2010\u2010\u2010\u2010 lasso thread context")
 	s = strings.ReplaceAll(s, ompBotMessagePrefix, "(lasso bot message ")
+	s = strings.ReplaceAll(s, ompNotePrefix, "(lasso note ")
 	return s
 }
 

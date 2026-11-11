@@ -201,7 +201,7 @@ func searchThreadShort(t *appThread) map[string]any {
 	if t.isMain() {
 		m["bot"] = t.MainBot
 	} else {
-		m["title"] = t.Title
+		m["title"], m["title_auto"] = t.Title, t.TitleAuto
 	}
 	return m
 }
