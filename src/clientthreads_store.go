@@ -179,6 +179,15 @@ var clientThreadsColumns = []string{
 	`ALTER TABLE bots ADD COLUMN channel_threads INTEGER NOT NULL DEFAULT 0`,
 }
 
+// clientThreadsLateColumns are additive columns on client threads' own
+// tables, so they run after clientThreadsSchema creates them.
+var clientThreadsLateColumns = []string{
+	// The title is provisional (lasso made it from the first words): the
+	// thread's lead is asked to name it, at most title_hints times.
+	`ALTER TABLE app_threads ADD COLUMN title_auto INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE app_threads ADD COLUMN title_hints INTEGER NOT NULL DEFAULT 0`,
+}
+
 const clientThreadsMigratedKey = "client_threads_migrated"
 
 // migrateClientThreads makes every conversation a main thread, fills in what
@@ -262,19 +271,22 @@ type appThread struct {
 	ID, UserID, Kind, MainBot, Title                                             string
 	AnchorThreadID, AnchorMessageID, AnchorRole, AnchorBot, AnchorText, AnchorAt string
 	State, PinnedAt                                                              string
-	Muted                                                                        bool
+	Muted, TitleAuto                                                             bool
+	TitleHints                                                                   int
 	Summary, SummaryBy, SummaryAt                                                string
 	SummarySeq, LastReadSeq, LastSeq                                             int64
 	LastActivityAt, CreatedBy, ClientID, CreatedAt, UpdatedAt                    string
 }
 
 const appThreadCols = `id, user_id, kind, main_bot, title, anchor_thread_id, anchor_message_id, anchor_role, anchor_bot, anchor_text, anchor_at,
-	state, pinned_at, muted, summary, summary_by, summary_at, summary_seq, last_read_seq, last_seq, last_activity_at, created_by, client_id, created_at, updated_at`
+	state, pinned_at, muted, summary, summary_by, summary_at, summary_seq, last_read_seq, last_seq, last_activity_at, created_by, client_id, created_at, updated_at,
+	title_auto, title_hints`
 
 func scanAppThread(row interface{ Scan(...any) error }) (*appThread, error) {
 	var t appThread
 	err := row.Scan(&t.ID, &t.UserID, &t.Kind, &t.MainBot, &t.Title, &t.AnchorThreadID, &t.AnchorMessageID, &t.AnchorRole, &t.AnchorBot, &t.AnchorText, &t.AnchorAt,
-		&t.State, &t.PinnedAt, &t.Muted, &t.Summary, &t.SummaryBy, &t.SummaryAt, &t.SummarySeq, &t.LastReadSeq, &t.LastSeq, &t.LastActivityAt, &t.CreatedBy, &t.ClientID, &t.CreatedAt, &t.UpdatedAt)
+		&t.State, &t.PinnedAt, &t.Muted, &t.Summary, &t.SummaryBy, &t.SummaryAt, &t.SummarySeq, &t.LastReadSeq, &t.LastSeq, &t.LastActivityAt, &t.CreatedBy, &t.ClientID, &t.CreatedAt, &t.UpdatedAt,
+		&t.TitleAuto, &t.TitleHints)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errClientNotFound
 	}
@@ -487,6 +499,7 @@ func aggregateState(ds []clientDeliveryView) (state, reason string) {
 type clientThreadStub struct {
 	ID             string   `json:"id"`
 	Title          string   `json:"title"`
+	TitleAuto      bool     `json:"title_auto"`
 	Bots           []string `json:"bots"`
 	ReplyCount     int      `json:"reply_count"`
 	Unread         int      `json:"unread"`
@@ -509,7 +522,7 @@ func threadStubsOf(mainID string) map[string]*clientThreadStub {
 	}
 	rows.Close()
 	for _, t := range ts {
-		out[t.AnchorMessageID] = &clientThreadStub{ID: t.ID, Title: t.Title, Bots: activeBotNames(t.ID),
+		out[t.AnchorMessageID] = &clientThreadStub{ID: t.ID, Title: t.Title, TitleAuto: t.TitleAuto, Bots: activeBotNames(t.ID),
 			ReplyCount: threadReplyCount(t.ID), Unread: threadUnread(t), LastActivityAt: t.LastActivityAt}
 	}
 	return out
@@ -531,7 +544,9 @@ func threadUnread(t *appThread) int {
 // clientStubChanged tells the person's streams that the stub under a
 // thread's anchor changed (a new message, a read, a rename, its bots): a
 // thread_stub event on the main thread the anchor is in. It is not a message
-// event, so it is never pushed or counted as unread.
+// event, so it is never pushed or counted as unread. A stub the last one sent
+// for that anchor already shows is not sent again: one change often reaches
+// here twice (its system message, then thread_updated).
 func clientStubChanged(threadID string, now time.Time) {
 	t, err := threadByID(threadID)
 	if err != nil || t.isMain() || t.AnchorMessageID == "" || t.AnchorThreadID == "" {
@@ -541,8 +556,24 @@ func clientStubChanged(threadID string, now time.Time) {
 	if stub == nil {
 		return
 	}
-	appendClientEventFor(t.AnchorThreadID, t.UserID, "thread_stub",
-		map[string]any{"thread_id": t.AnchorThreadID, "message_id": t.AnchorMessageID, "thread": stub}, now)
+	data := map[string]any{"thread_id": t.AnchorThreadID, "message_id": t.AnchorMessageID, "thread": stub}
+	if b, err := json.Marshal(data); err == nil && lastStubData(t.AnchorThreadID, t.AnchorMessageID) == string(b) {
+		return
+	}
+	appendClientEventFor(t.AnchorThreadID, t.UserID, "thread_stub", data, now)
+}
+
+// clientStubLookback is how many of a main thread's newest events
+// lastStubData looks through.
+const clientStubLookback = 50
+
+// lastStubData is the data of the newest thread_stub event for an anchor
+// among its main thread's newest events, or "".
+func lastStubData(mainID, anchorID string) string {
+	var data string
+	_ = db.QueryRow(`SELECT data FROM (SELECT seq, type, data FROM app_events WHERE conv_id = ? ORDER BY seq DESC LIMIT ?)
+		WHERE type = 'thread_stub' AND json_extract(data, '$.message_id') = ? ORDER BY seq DESC LIMIT 1`, mainID, clientStubLookback, anchorID).Scan(&data)
+	return data
 }
 
 // --- system messages ----------------------------------------------------------

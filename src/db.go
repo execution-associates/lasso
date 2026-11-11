@@ -222,6 +222,12 @@ func openDB() error {
 		h.Close()
 		return fmt.Errorf("create client threads schema: %w", err)
 	}
+	for _, alter := range clientThreadsLateColumns {
+		if _, err := h.Exec(alter); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+			h.Close()
+			return fmt.Errorf("migrate client threads schema: %w", err)
+		}
+	}
 	db = h
 	if err := migrateFromYAML(); err != nil {
 		return fmt.Errorf("migrate config.yaml: %w", err)

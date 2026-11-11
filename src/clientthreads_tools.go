@@ -483,10 +483,11 @@ func botThreadUpdate(a *botActor, tid, title, state string, now time.Time) (map[
 		if !ok {
 			return nil, fmt.Errorf("title must be 1-%d characters, one line, without < > \" \\ or `", clientThreadTitleMax)
 		}
-		if ttl != t.Title {
-			if err := renameThread(t, ttl, "bot:"+a.Bot, now); err != nil {
-				return nil, err
-			}
+		changed, err := nameThread(t, ttl, "bot:"+a.Bot, now)
+		if err != nil {
+			return nil, err
+		}
+		if changed {
 			changes = append(changes, "title")
 		}
 	}

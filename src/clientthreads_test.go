@@ -347,7 +347,7 @@ func TestClientThreadLifecycle(t *testing.T) {
 		t.Fatal("a refused first message left a thread")
 	}
 	// Bad bodies.
-	for _, b := range []string{`{}`, `{"bots":["nobody"]}`, `{"bots":["jess"],"title":"a<b"}`, `{"bots":["jess"],"title":""}`} {
+	for _, b := range []string{`{}`, `{"bots":["nobody"]}`, `{"bots":["jess"],"title":"a<b"}`} {
 		if code, _, _ := c.jsonDo("POST", "/client/v1/threads", ann, b); code != 400 && code != 404 {
 			t.Errorf("%s: %d", b, code)
 		}
