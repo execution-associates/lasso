@@ -406,7 +406,7 @@ func botMCPJSON(r *botRecord, dir string, signedIn map[string]bool) []byte {
 			servers[botChannelName] = map[string]any{
 				"type":    "stdio",
 				"command": botLassoExe(),
-				"args":    []string{"channel", "--bot", r.Name},
+				"args":    []string{"channel", "--bot", r.Name, "--session", filepath.Join(dir, botSessionFile)},
 				"env":     map[string]string{"LASSO_URL": base, "LASSO_CHANNEL_TOKEN": r.channelToken},
 			}
 		}
@@ -458,8 +458,10 @@ func botClaudeArgv(r *botRecord, dir string) []string {
 	if r.PermissionMode != "" {
 		argv = append(argv, "--permission-mode", r.PermissionMode)
 	}
-	if r.AutoApprove {
-		argv = append(argv, "--settings", botAutoApproveSettings)
+	// A bot with lasso's channel reports each new or compacted session to it
+	// (the context epoch, clientthreads_bot.go), through a SessionStart hook.
+	if s := botClaudeSettings(r.AutoApprove, slices.Contains(grants, botChannelName)); s != "" {
+		argv = append(argv, "--settings", s)
 	}
 	argv = append(argv, "--name", r.Name)
 	// lasso's note about how the bot runs, with any --append-system-prompt of
@@ -492,6 +494,25 @@ func botClaudeArgv(r *botRecord, dir string) []string {
 const botAutoApproveSettings = `{"hooks":{"PermissionRequest":[{"hooks":[{"type":"command","command":` +
 	`"t=$(cat); case \"$t\" in *'\"tool_name\":\"AskUserQuestion\"'*|*'\"tool_name\":\"ExitPlanMode\"'*) exit 0;; esac; ` +
 	`printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PermissionRequest\",\"decision\":{\"behavior\":\"allow\"}}}'"}]}]}}`
+
+// botSessionStartHook writes what Claude Code says of the session that starts
+// (its id and source: startup, resume, clear, compact) where lasso's channel
+// reads it. Plain sh, so it runs on any host.
+const botSessionStartHook = `{"type":"command","command":"mkdir -p \"$CLAUDE_PROJECT_DIR/.lasso/channel\" && cat > \"$CLAUDE_PROJECT_DIR/.lasso/channel/session.json\""}`
+
+// botClaudeSettings is the --settings a claude bot launches with: the
+// auto-approve hook, the session hook, both or neither.
+func botClaudeSettings(autoApprove, channel bool) string {
+	switch {
+	case autoApprove && channel:
+		return strings.TrimSuffix(botAutoApproveSettings, "}}") + `,"SessionStart":[{"hooks":[` + botSessionStartHook + `]}]}}`
+	case autoApprove:
+		return botAutoApproveSettings
+	case channel:
+		return `{"hooks":{"SessionStart":[{"hooks":[` + botSessionStartHook + `]}]}}`
+	}
+	return ""
+}
 
 // botSystemPrompt tells the bot what it is and how it runs, so it can answer
 // questions about itself and restart itself when its human asks.

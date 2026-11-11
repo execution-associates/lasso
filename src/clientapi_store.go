@@ -353,8 +353,9 @@ func updateAppUser(id string, p appUserPatch, now time.Time) (*appUser, error) {
 
 // deleteAppUser removes a user and everything of theirs: devices, grants,
 // pairings, conversations with their messages, events, attachments and calls.
-// The files of their uploads stay in the bots' folders for botClientForget to
-// remove; it returns the rows it dropped so the caller can.
+// The files of their uploads, and every bot's copy of them, stay in the bots'
+// folders for clientRemoveFiles to remove; it returns the rows it dropped so
+// the caller can.
 func deleteAppUser(id string) ([]appAttachment, error) {
 	atts, _ := listAppAttachmentsOfUser(id)
 	tx, err := db.Begin()
@@ -365,11 +366,21 @@ func deleteAppUser(id string) ([]appAttachment, error) {
 	for _, q := range []string{
 		// Messages of theirs still waiting for a bot go with them.
 		`DELETE FROM bot_events WHERE kind = 'client' AND json_extract(meta, '$.user_id') = ?`,
+		`DELETE FROM app_reply_tokens WHERE conv_id IN (SELECT id FROM app_threads WHERE user_id = ?)`,
 		`DELETE FROM app_reply_tokens WHERE conv_id IN (SELECT id FROM app_convs WHERE user_id = ?)`,
 		`DELETE FROM app_events WHERE conv_id IN (SELECT id FROM app_convs WHERE user_id = ?)`,
+		`DELETE FROM app_events WHERE user_id = ?`,
+		`DELETE FROM app_message_deliveries WHERE thread_id IN (SELECT id FROM app_threads WHERE user_id = ?)`,
+		`DELETE FROM app_messages WHERE conv_id IN (SELECT id FROM app_threads WHERE user_id = ?)`,
 		`DELETE FROM app_messages WHERE conv_id IN (SELECT id FROM app_convs WHERE user_id = ?)`,
 		`DELETE FROM app_calls WHERE user_id = ?`,
+		// app_attachment_copies stay for clientRemoveFiles, which reads them to
+		// find every bot's copy and then deletes them.
 		`DELETE FROM app_attachments WHERE user_id = ?`,
+		`DELETE FROM app_proposals WHERE user_id = ?`,
+		`DELETE FROM app_thread_bots WHERE thread_id IN (SELECT id FROM app_threads WHERE user_id = ?)`,
+		`DELETE FROM app_threads WHERE user_id = ?`,
+		`DELETE FROM app_push_tokens WHERE user_id = ?`,
 		`DELETE FROM app_convs WHERE user_id = ?`,
 		`DELETE FROM app_pairings WHERE user_id = ?`,
 		`DELETE FROM app_devices WHERE user_id = ?`,
@@ -383,14 +394,22 @@ func deleteAppUser(id string) ([]appAttachment, error) {
 	return atts, tx.Commit()
 }
 
-// deleteClientDataOfBot forgets a deleted bot's grants and conversations.
+// deleteClientDataOfBot forgets a deleted bot's grants and conversations:
+// its main threads go with their messages, events, calls and files; in other
+// threads it is removed and its messages stay.
 func deleteClientDataOfBot(bot string) {
+	clientForgetBotThreads(bot, time.Now())
 	for _, q := range []string{
+		`DELETE FROM app_message_deliveries WHERE thread_id IN (SELECT id FROM app_convs WHERE bot = ?)`,
+		`DELETE FROM app_proposals WHERE thread_id IN (SELECT id FROM app_convs WHERE bot = ?)`,
+		`DELETE FROM app_thread_bots WHERE thread_id IN (SELECT id FROM app_convs WHERE bot = ?)`,
+		`DELETE FROM app_threads WHERE id IN (SELECT id FROM app_convs WHERE bot = ?)`,
+		`DELETE FROM app_attachment_copies WHERE attachment_id IN (SELECT id FROM app_attachments WHERE conv_id IN (SELECT id FROM app_convs WHERE bot = ?))`,
 		`DELETE FROM app_reply_tokens WHERE bot = ?`,
 		`DELETE FROM app_events WHERE conv_id IN (SELECT id FROM app_convs WHERE bot = ?)`,
 		`DELETE FROM app_messages WHERE conv_id IN (SELECT id FROM app_convs WHERE bot = ?)`,
-		`DELETE FROM app_calls WHERE bot = ?`,
-		`DELETE FROM app_attachments WHERE bot = ?`,
+		`DELETE FROM app_calls WHERE conv_id IN (SELECT id FROM app_convs WHERE bot = ?)`,
+		`DELETE FROM app_attachments WHERE conv_id IN (SELECT id FROM app_convs WHERE bot = ?)`,
 		`DELETE FROM app_convs WHERE bot = ?`,
 		`DELETE FROM app_grants WHERE bot = ?`,
 	} {
@@ -443,6 +462,8 @@ func deleteAppGrant(userID, bot string) error {
 	// What the person sent this bot and the bot has not taken yet is not
 	// delivered: the grant it was sent under is gone.
 	dropClientEvents(`bot = ? AND json_extract(meta, '$.user_id') = ?`, bot, userID)
+	// The bot leaves the person's other threads.
+	clientRevokeThreads(userID, bot, time.Now())
 	return nil
 }
 
@@ -512,8 +533,9 @@ func revokeAppDevice(userID, deviceID string, now time.Time) error {
 		return errClientNotFound
 	}
 	// Messages the revoked device sent that no bot has taken yet are not
-	// delivered.
+	// delivered, and it gets no more pushes.
 	dropClientEvents(`json_extract(meta, '$.device_id') = ?`, deviceID)
+	deletePushTokenOfDevice(deviceID)
 	return nil
 }
 
@@ -685,14 +707,32 @@ type appConv struct {
 	CreatedAt string
 }
 
+// convFor is the person's conversation with the bot, made the first time: the
+// pair's main thread, whose app_threads and app_thread_bots rows are made in
+// the same transaction.
 func convFor(userID, bot string, now time.Time) (*appConv, error) {
 	c := &appConv{ID: clientID("c_", 12), UserID: userID, Bot: bot, CreatedAt: nowStamp(now)}
-	if _, err := db.Exec(`INSERT OR IGNORE INTO app_convs (id, user_id, bot, created_at) VALUES (?, ?, ?, ?)`, c.ID, userID, bot, c.CreatedAt); err != nil {
+	tx, err := db.Begin()
+	if err != nil {
 		return nil, err
 	}
-	err := db.QueryRow(`SELECT id, user_id, bot, created_at FROM app_convs WHERE user_id = ? AND bot = ?`, userID, bot).
-		Scan(&c.ID, &c.UserID, &c.Bot, &c.CreatedAt)
-	return c, err
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO app_convs (id, user_id, bot, created_at) VALUES (?, ?, ?, ?)`, c.ID, userID, bot, c.CreatedAt); err != nil {
+		return nil, err
+	}
+	if err := tx.QueryRow(`SELECT id, user_id, bot, created_at FROM app_convs WHERE user_id = ? AND bot = ?`, userID, bot).
+		Scan(&c.ID, &c.UserID, &c.Bot, &c.CreatedAt); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO app_threads (id, user_id, kind, main_bot, last_activity_at, created_by, created_at, updated_at)
+		VALUES (?, ?, 'main', ?, ?, 'main', ?, ?)`, c.ID, userID, bot, c.CreatedAt, c.CreatedAt, c.CreatedAt); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO app_thread_bots (thread_id, bot, position, joined_at, added_by) VALUES (?, ?, 0, ?, 'main')`,
+		c.ID, bot, c.CreatedAt); err != nil {
+		return nil, err
+	}
+	return c, tx.Commit()
 }
 
 func convByID(id string) (*appConv, error) {
@@ -724,14 +764,19 @@ type clientAttachmentView struct {
 }
 
 type clientMessageView struct {
-	ID             string `json:"id"`
+	ID string `json:"id"`
+	// ThreadID is the thread the message is in; ConversationID repeats it, the
+	// name the apps before threads read.
+	ThreadID       string `json:"thread_id"`
 	ConversationID string `json:"conversation_id"`
 	Cursor         string `json:"cursor"`
-	Role           string `json:"role"` // user | bot
-	Text           string `json:"text"`
-	Done           bool   `json:"done"`
-	Mode           string `json:"mode"`
-	CallID         string `json:"call_id,omitempty"`
+	Role           string `json:"role"` // user | bot | system
+	// Bot is the author of a bot message.
+	Bot    string `json:"bot,omitempty"`
+	Text   string `json:"text"`
+	Done   bool   `json:"done"`
+	Mode   string `json:"mode"`
+	CallID string `json:"call_id,omitempty"`
 	// ClientID is the client_id the sending client gave a person's message; only
 	// the person's own messages carry one, and only that person ever reads them.
 	ClientID string `json:"client_id,omitempty"`
@@ -740,29 +785,52 @@ type clientMessageView struct {
 	Attachments  []clientAttachmentView `json:"attachments"`
 	State        string                 `json:"state,omitempty"` // user messages: queued | delivered | failed
 	FailedReason string                 `json:"failed_reason,omitempty"`
-	CreatedAt    string                 `json:"created_at"`
+	// Mentions are the bots a person's message named; Deliveries its copy for
+	// each bot it was routed to (State is their aggregate).
+	Mentions   []string             `json:"mentions,omitempty"`
+	Deliveries []clientDeliveryView `json:"deliveries,omitempty"`
+	// System is what a system message records (role "system").
+	System *clientSystemView `json:"system,omitempty"`
+	// Thread is the stub of the thread hanging off this message (a main
+	// thread's message that anchors one).
+	Thread    *clientThreadStub `json:"thread,omitempty"`
+	CreatedAt string            `json:"created_at"`
 }
 
-const appMessageCols = `seq, id, conv_id, role, text, done, mode, call_id, attachments, state, failed_reason, client_id, in_reply_to, created_at`
+const appMessageCols = `seq, id, conv_id, role, text, done, mode, call_id, attachments, state, failed_reason, client_id, in_reply_to, bot, mentions, system, created_at`
 
 func scanAppMessage(row interface{ Scan(...any) error }) (clientMessageView, error) {
 	var m clientMessageView
 	var seq int64
-	var atts string
-	if err := row.Scan(&seq, &m.ID, &m.ConversationID, &m.Role, &m.Text, &m.Done, &m.Mode, &m.CallID, &atts, &m.State, &m.FailedReason, &m.ClientID, &m.InReplyTo, &m.CreatedAt); err != nil {
+	var atts, mentions, system string
+	if err := row.Scan(&seq, &m.ID, &m.ConversationID, &m.Role, &m.Text, &m.Done, &m.Mode, &m.CallID, &atts, &m.State, &m.FailedReason, &m.ClientID, &m.InReplyTo, &m.Bot, &mentions, &system, &m.CreatedAt); err != nil {
 		return m, err
 	}
+	m.ThreadID = m.ConversationID
 	m.Cursor = fmt.Sprint(seq)
+	if mentions != "" {
+		_ = json.Unmarshal([]byte(mentions), &m.Mentions)
+	}
+	if system != "" && m.Role == "system" {
+		var sv clientSystemView
+		if json.Unmarshal([]byte(system), &sv) == nil {
+			m.System = &sv
+		}
+	}
 	m.Attachments = []clientAttachmentView{}
 	_ = json.Unmarshal([]byte(atts), &m.Attachments)
 	if m.Attachments == nil {
 		m.Attachments = []clientAttachmentView{}
 	}
-	if m.Role == "bot" {
-		m.State = ""
+	switch m.Role {
+	case "bot":
+		m.State, m.FailedReason = "", ""
 		m.ClientID = ""
-	} else {
+	case "system":
+		m.State, m.FailedReason, m.ClientID, m.InReplyTo, m.Bot, m.Mentions = "", "", "", "", "", nil
+	default:
 		m.InReplyTo = ""
+		m.Bot = ""
 	}
 	return m, nil
 }
@@ -772,7 +840,37 @@ func messageByID(convID, id string) (clientMessageView, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return m, errClientNotFound
 	}
+	if err == nil {
+		ms := []clientMessageView{m}
+		enrichMessages(convID, ms)
+		m = ms[0]
+	}
 	return m, err
+}
+
+// enrichMessages adds what lives beside a message's row: a person's
+// message's deliveries, and the stub of a thread hanging off a main thread's
+// message.
+func enrichMessages(threadID string, ms []clientMessageView) {
+	var ids []string
+	for _, m := range ms {
+		if m.Role == "user" {
+			ids = append(ids, m.ID)
+		}
+	}
+	ds := deliveriesOf(ids)
+	var stubs map[string]*clientThreadStub
+	if strings.HasPrefix(threadID, "c_") {
+		stubs = threadStubsOf(threadID)
+	}
+	for i := range ms {
+		if d, ok := ds[ms[i].ID]; ok && ms[i].Role == "user" {
+			ms[i].Deliveries = d
+		}
+		if s, ok := stubs[ms[i].ID]; ok {
+			ms[i].Thread = s
+		}
+	}
 }
 
 // pageMessages answers up to limit messages of a conversation, oldest first:
@@ -810,6 +908,7 @@ func pageMessages(convID string, before, after int64, limit int) ([]clientMessag
 			out[i], out[j] = out[j], out[i]
 		}
 	}
+	enrichMessages(convID, out)
 	return out, nil
 }
 
@@ -818,16 +917,40 @@ func pageMessages(convID string, before, after int64, limit int) ([]clientMessag
 // also looks again once a second.
 var clientWake = newWakeSet()
 
-// appendClientEvent records a persisted stream event and wakes the streams.
+// appendClientEvent records a persisted stream event of a thread and wakes
+// the streams: the thread's own and its person's.
 func appendClientEvent(convID, typ string, data any, now time.Time) int64 {
+	return appendClientEventFor(convID, threadOwner(convID), typ, data, now)
+}
+
+// appendClientEventFor is appendClientEvent for a thread that may be gone (a
+// deletion's own event), naming its person.
+func appendClientEventFor(threadID, userID, typ string, data any, now time.Time) int64 {
 	b, _ := json.Marshal(data)
-	res, err := db.Exec(`INSERT INTO app_events (conv_id, type, data, created_at) VALUES (?, ?, ?, ?)`, convID, typ, string(b), nowStamp(now))
+	res, err := db.Exec(`INSERT INTO app_events (conv_id, type, data, created_at, user_id) VALUES (?, ?, ?, ?, ?)`, threadID, typ, string(b), nowStamp(now), userID)
 	if err != nil {
 		return 0
 	}
 	id, _ := res.LastInsertId()
-	clientWake.notify(convID)
+	clientWake.notify(threadID)
+	if userID != "" {
+		clientWake.notify(clientPersonKey(userID))
+	}
+	clientEventAppended(threadID, userID, typ, data, now)
 	return id
+}
+
+// clientPersonKey is the wake key of a person's stream.
+func clientPersonKey(userID string) string { return "u:" + userID }
+
+// threadOwner is the person a thread (or an older lasso's conversation)
+// belongs to.
+func threadOwner(threadID string) string {
+	var u string
+	if db.QueryRow(`SELECT user_id FROM app_threads WHERE id = ?`, threadID).Scan(&u) != nil {
+		_ = db.QueryRow(`SELECT user_id FROM app_convs WHERE id = ?`, threadID).Scan(&u)
+	}
+	return u
 }
 
 type clientEventRow struct {
@@ -874,6 +997,13 @@ func addBotMessage(c *appConv, text string, done bool, callID string, atts []cli
 // inReplyTo is that message's id, callID the call it was sent in (empty for a
 // text message, whatever call happens to be open).
 func addBotReply(c *appConv, text string, done bool, callID, inReplyTo string, atts []clientAttachmentView, now time.Time) (clientMessageView, error) {
+	return addBotReplyMentions(c, text, done, callID, inReplyTo, atts, nil, now)
+}
+
+// addBotReplyMentions is addBotReply naming the thread's bots the message is
+// addressed to: in a thread with several bots, a finished bot message reaches
+// the others (clientFanOut), addressed to the ones it names.
+func addBotReplyMentions(c *appConv, text string, done bool, callID, inReplyTo string, atts []clientAttachmentView, mentions []string, now time.Time) (clientMessageView, error) {
 	if atts == nil {
 		atts = []clientAttachmentView{}
 	}
@@ -883,18 +1013,35 @@ func addBotReply(c *appConv, text string, done bool, callID, inReplyTo string, a
 		mode = "voice"
 	}
 	id := clientID("m_", 12)
-	if _, err := db.Exec(`INSERT INTO app_messages (id, conv_id, role, text, done, mode, call_id, attachments, state, in_reply_to, created_at)
-		VALUES (?, ?, 'bot', ?, ?, ?, ?, ?, '', ?, ?)`, id, c.ID, text, boolInt(done), mode, callID, string(ab), inReplyTo, nowStamp(now)); err != nil {
+	var mentionsJSON string
+	if len(mentions) > 0 {
+		mb, _ := json.Marshal(mentions)
+		mentionsJSON = string(mb)
+	}
+	res, err := db.Exec(`INSERT INTO app_messages (id, conv_id, role, text, done, mode, call_id, attachments, state, in_reply_to, bot, mentions, created_at)
+		VALUES (?, ?, 'bot', ?, ?, ?, ?, ?, '', ?, ?, ?, ?)`, id, c.ID, text, boolInt(done), mode, callID, string(ab), inReplyTo, c.Bot, mentionsJSON, nowStamp(now))
+	if err != nil {
 		return clientMessageView{}, err
 	}
+	seq, _ := res.LastInsertId()
 	for _, a := range atts {
 		_, _ = db.Exec(`UPDATE app_attachments SET message_id = ? WHERE id = ? AND conv_id = ?`, id, a.ID, c.ID)
 	}
+	reopened := touchThread(c.ID, seq, "bot", now)
+	// What a bot writes into a thread it has seen.
+	_, _ = db.Exec(`UPDATE app_thread_bots SET ctx_seq = MAX(ctx_seq, ?) WHERE thread_id = ? AND bot = ?`, seq, c.ID, c.Bot)
 	m, err := messageByID(c.ID, id)
 	if err != nil {
 		return m, err
 	}
 	appendClientEvent(c.ID, "message", m, now)
+	if reopened {
+		threadUpdated(c.ID, []string{"state"}, now)
+	}
+	if t, err := threadByID(c.ID); err == nil && !t.isMain() {
+		clientStubChanged(t.ID, now)
+		clientFanOut(t, m, now)
+	}
 	if callID != "" {
 		_, _ = db.Exec(`UPDATE app_calls SET touched_at = ? WHERE id = ? AND state = 'open'`, nowStamp(now), callID)
 	}
@@ -976,8 +1123,9 @@ func listAppAttachmentsOfUser(userID string) ([]appAttachment, error) {
 type appCall struct {
 	ID        string `json:"id"`
 	ConvID    string `json:"conversation_id"`
+	ThreadID  string `json:"thread_id"`
 	UserID    string `json:"-"`
-	Bot       string `json:"-"`
+	Bot       string `json:"bot"`
 	State     string `json:"state"` // open | ended
 	EndReason string `json:"end_reason,omitempty"`
 	StartedAt string `json:"started_at"`
@@ -992,6 +1140,7 @@ func scanAppCall(row interface{ Scan(...any) error }) (*appCall, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errClientNotFound
 	}
+	c.ThreadID = c.ConvID
 	return &c, err
 }
 
@@ -1224,7 +1373,7 @@ func removeAttachment(a appAttachment, removed string, now time.Time) bool {
 		}
 	}
 	appendClientEvent(a.ConvID, "attachment_removed", map[string]any{
-		"conversation_id": a.ConvID, "message_id": a.MessageID, "attachment_id": a.ID, "removed": removed,
+		"thread_id": a.ConvID, "conversation_id": a.ConvID, "message_id": a.MessageID, "attachment_id": a.ID, "removed": removed,
 	}, now)
 	return true
 }

@@ -158,7 +158,7 @@ func openDB() error {
 	// column name" error just means the column already exists; any other error
 	// is real. Additive-only keeps the db forward AND backward compatible (an
 	// older lasso reading the same db names its columns explicitly).
-	for _, alter := range []string{
+	for _, alter := range append([]string{
 		`ALTER TABLE agents ADD COLUMN model TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE agents ADD COLUMN extra_args TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE agents ADD COLUMN effort TEXT NOT NULL DEFAULT ''`,
@@ -210,15 +210,25 @@ func openDB() error {
 		`ALTER TABLE app_users ADD COLUMN quota_mb INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE app_users ADD COLUMN quota_files INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE app_attachments ADD COLUMN removed TEXT NOT NULL DEFAULT ''`,
-	} {
+	}, clientThreadsColumns...) {
 		if _, err := h.Exec(alter); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 			h.Close()
 			return fmt.Errorf("migrate schema: %w", err)
 		}
 	}
+	// Client threads read columns the migrations above add, so their schema and
+	// backfill come after them (clientthreads_store.go).
+	if _, err := h.Exec(clientThreadsSchema); err != nil {
+		h.Close()
+		return fmt.Errorf("create client threads schema: %w", err)
+	}
 	db = h
 	if err := migrateFromYAML(); err != nil {
 		return fmt.Errorf("migrate config.yaml: %w", err)
+	}
+	// After the config import, which runs only on a db with no settings yet.
+	if err := migrateClientThreads(h, time.Now()); err != nil {
+		return fmt.Errorf("migrate client threads: %w", err)
 	}
 	return nil
 }

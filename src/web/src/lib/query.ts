@@ -47,6 +47,8 @@ export const qk = {
   // Server-level: the Internal AI endpoint the titler uses (llm.go), and its
   // model catalog for the picker.
   llmConfig: ["llm-config"] as const,
+  // Push to the phone apps (clientpush.go).
+  clientPush: ["client-push"] as const,
   llmModels: ["llm-models"] as const,
   // Server-level: daily Claude Code update restarts for bots (botupdates.go).
   botUpdates: ["bot-updates"] as const,

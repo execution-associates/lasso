@@ -34,6 +34,10 @@ import {
   BotUpdatesSettings,
   BotUpdatesSummary,
 } from "@/components/BotUpdatesSettings"
+import {
+  ClientPushSettings,
+  ClientPushSummary,
+} from "@/components/ClientPushSettings"
 import { Pill } from "@/components/Pill"
 import {
   AlertDialog,
@@ -493,6 +497,13 @@ export function SettingsTab({ active }: { active: boolean }) {
             summary={<PushSummary active={generalActive} />}
           >
             {(open) => <NotificationsSettings active={generalActive && open} />}
+          </SettingsGroup>
+          <SettingsGroup
+            id="phone-push"
+            title="Phone app push"
+            summary={<ClientPushSummary active={generalActive} />}
+          >
+            {(open) => <ClientPushSettings active={generalActive && open} />}
           </SettingsGroup>
           <SettingsGroup
             id="bot-alerts"

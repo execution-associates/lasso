@@ -212,8 +212,11 @@ func serveClient(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		serveClientAvatar(w, r, id, segs[1])
-	case len(segs) == 3 && segs[0] == "conversations":
-		serveClientConversation(w, r, id, segs[1], segs[2])
+	case len(segs) == 3 && (segs[0] == "conversations" || segs[0] == "threads"):
+		// /conversations/{id}/… is the same handler as /threads/{id}/…: a
+		// main thread's id is its conversation's.
+		serveClientThreadAction(w, r, id, segs[1], segs[2])
+	case serveClientThreadRoutes(w, r, id, segs):
 	case len(segs) == 2 && segs[0] == "attachments":
 		switch r.Method {
 		case http.MethodGet, http.MethodHead:
@@ -273,17 +276,15 @@ func clientGrantedBot(id *clientIdentity, name string) (*botRecord, *appGrant, b
 	return rec, g, true
 }
 
-// clientOwnConv answers the conversation when it is the token's user's and the
-// grant still stands; anything else reads as not found.
-func clientOwnConv(id *clientIdentity, cid string) (*appConv, bool) {
-	c, err := convByID(cid)
-	if err != nil || c.UserID != id.User.ID {
+// clientOwnThread answers the thread when the token's user sees it: theirs,
+// and for a main thread only while the grant stands. Anything else reads as
+// not found.
+func clientOwnThread(id *clientIdentity, tid string) (*appThread, bool) {
+	t, err := threadByID(tid)
+	if err != nil || !threadVisible(t, id.User.ID) {
 		return nil, false
 	}
-	if _, err := getAppGrant(id.User.ID, c.Bot); err != nil {
-		return nil, false
-	}
-	return c, true
+	return t, true
 }
 
 // --- pairing -------------------------------------------------------------------------------
@@ -425,6 +426,10 @@ type clientBotView struct {
 	Capabilities   clientCaps `json:"capabilities"`
 	IsOwner        bool       `json:"is_owner"`
 	ConversationID string     `json:"conversation_id"`
+	// MainThreadID is ConversationID under its thread name; Unread the main
+	// thread's unread count.
+	MainThreadID string `json:"main_thread_id"`
+	Unread       int    `json:"unread"`
 }
 
 func clientBotsOf(id *clientIdentity, now time.Time) []clientBotView {
@@ -451,7 +456,10 @@ func clientBotViewOf(id *clientIdentity, name string, now time.Time) (clientBotV
 		return clientBotView{}, false
 	}
 	state, caps, reason := botClientState(rec, now)
-	v := clientBotView{Name: name, State: state, StateReason: reason, Capabilities: caps, IsOwner: g.Owner, ConversationID: conv.ID}
+	v := clientBotView{Name: name, State: state, StateReason: reason, Capabilities: caps, IsOwner: g.Owner, ConversationID: conv.ID, MainThreadID: conv.ID}
+	if t, err := threadByID(conv.ID); err == nil {
+		v.Unread = threadUnread(t)
+	}
 	if rec.AvatarImage != "" {
 		_, rev, _ := strings.Cut(rec.AvatarImage, "?")
 		v.AvatarURL = "/client/v1/bots/" + url.PathEscape(name) + "/avatar?" + rev
@@ -467,8 +475,20 @@ func clientSettingsView(u *appUser) map[string]any {
 	if d := clientRetentionDaysOf(u); d > 0 {
 		days = d
 	}
-	return map[string]any{"file_retention_days": days}
+	return map[string]any{"file_retention_days": days, "push_previews": clientPushPreviews(u.ID)}
 }
+
+// clientPushPreviews is the person's choice whether a push shows what was
+// written (true unless they turned it off).
+func clientPushPreviews(userID string) bool {
+	v := 1
+	_ = db.QueryRow(`SELECT push_previews FROM app_users WHERE id = ?`, userID).Scan(&v)
+	return v != 0
+}
+
+// clientFeatures is what this server supports of the client API beyond its
+// first version; an app hides what is missing.
+var clientFeatures = []string{"threads", "search", "push", "proposals"}
 
 func clientLimitsView() map[string]any {
 	var max any
@@ -485,9 +505,15 @@ func clientStorageView(u *appUser) map[string]any {
 }
 
 func serveClientMe(w http.ResponseWriter, id *clientIdentity) {
+	ensureMainThreads(id.User.ID, time.Now())
+	unread, badge := clientUnreadBadge(id.User.ID)
 	clientJSON(w, http.StatusOK, map[string]any{
-		"api":  clientAPIVersion,
-		"user": map[string]any{"id": id.User.ID, "name": id.User.Name},
+		"features":     clientFeatures,
+		"push":         clientPushView(id),
+		"unread_total": unread,
+		"badge":        badge,
+		"api":          clientAPIVersion,
+		"user":         map[string]any{"id": id.User.ID, "name": id.User.Name},
 		"device": map[string]any{"id": id.Device.ID, "label": id.Device.Label, "platform": id.Device.Platform,
 			"created_at": id.Device.CreatedAt},
 		"settings": clientSettingsView(id.User),
@@ -497,25 +523,44 @@ func serveClientMe(w http.ResponseWriter, id *clientIdentity) {
 	})
 }
 
-// serveClientSettings is PUT /me/settings {"file_retention_days": 1..3650 | null}.
+// serveClientSettings is PUT /me/settings {"file_retention_days"?: 1..3650 |
+// null, "push_previews"?: bool}: every key optional, at least one.
 func serveClientSettings(w http.ResponseWriter, r *http.Request, id *clientIdentity) {
 	var in struct {
-		FileRetentionDays optInt `json:"file_retention_days"`
+		FileRetentionDays optInt          `json:"file_retention_days"`
+		PushPreviews      json.RawMessage `json:"push_previews"`
 	}
 	if !clientDecode(w, r, 4<<10, &in) {
 		return
 	}
-	if !in.FileRetentionDays.Set {
-		clientError(w, http.StatusBadRequest, "invalid_request", "file_retention_days is required: a number of days, or null to keep files until you delete them.")
+	if !in.FileRetentionDays.Set && in.PushPreviews == nil {
+		clientError(w, http.StatusBadRequest, "invalid_request", "Pass file_retention_days (a number of days, or null to keep files until you delete them) and/or push_previews (true or false).")
 		return
+	}
+	var previews *bool
+	if in.PushPreviews != nil {
+		var b bool
+		if json.Unmarshal(in.PushPreviews, &b) != nil {
+			clientError(w, http.StatusBadRequest, "invalid_request", "push_previews must be true or false.")
+			return
+		}
+		previews = &b
 	}
 	if v := in.FileRetentionDays.Val; v != nil && (*v < 1 || *v > clientRetentionDaysMax) {
 		clientError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("file_retention_days must be 1-%d, or null.", clientRetentionDaysMax))
 		return
 	}
-	if err := setFileRetention(id.User.ID, in.FileRetentionDays.Val, time.Now()); err != nil {
-		clientFail(w, err)
-		return
+	if in.FileRetentionDays.Set {
+		if err := setFileRetention(id.User.ID, in.FileRetentionDays.Val, time.Now()); err != nil {
+			clientFail(w, err)
+			return
+		}
+	}
+	if previews != nil {
+		if _, err := db.Exec(`UPDATE app_users SET push_previews = ?, updated_at = ? WHERE id = ?`, boolInt(*previews), nowStamp(time.Now()), id.User.ID); err != nil {
+			clientFail(w, err)
+			return
+		}
 	}
 	u, err := getAppUser(id.User.ID)
 	if err != nil {
@@ -560,7 +605,7 @@ func serveClientAttachmentDelete(w http.ResponseWriter, id *clientIdentity, aid 
 		clientNotFound(w)
 		return
 	}
-	if _, ok := clientOwnConv(id, a.ConvID); !ok {
+	if _, ok := clientOwnThread(id, a.ConvID); !ok {
 		clientNotFound(w)
 		return
 	}
@@ -597,10 +642,10 @@ func serveClientAvatar(w http.ResponseWriter, r *http.Request, id *clientIdentit
 	serveBotAvatar(w, r, b, rec)
 }
 
-// --- a conversation ------------------------------------------------------------------------
+// --- a thread ------------------------------------------------------------------------------
 
-func serveClientConversation(w http.ResponseWriter, r *http.Request, id *clientIdentity, cid, action string) {
-	conv, ok := clientOwnConv(id, cid)
+func serveClientThreadAction(w http.ResponseWriter, r *http.Request, id *clientIdentity, tid, action string) {
+	t, ok := clientOwnThread(id, tid)
 	if !ok {
 		clientNotFound(w)
 		return
@@ -609,9 +654,9 @@ func serveClientConversation(w http.ResponseWriter, r *http.Request, id *clientI
 	case "messages":
 		switch r.Method {
 		case http.MethodGet:
-			serveClientMessages(w, r, conv)
+			serveClientMessages(w, r, t)
 		case http.MethodPost:
-			serveClientSend(w, r, id, conv)
+			serveClientSend(w, r, id, t)
 		default:
 			clientMethod(w, "GET, POST")
 		}
@@ -620,25 +665,27 @@ func serveClientConversation(w http.ResponseWriter, r *http.Request, id *clientI
 			clientMethod(w, "GET")
 			return
 		}
-		serveClientEvents(w, r, id, conv)
+		serveClientEvents(w, r, id, t)
 	case "attachments":
 		if r.Method != http.MethodPost {
 			clientMethod(w, "POST")
 			return
 		}
-		serveClientUpload(w, r, id, conv)
+		serveClientUpload(w, r, id, t)
 	case "calls":
 		if r.Method != http.MethodPost {
 			clientMethod(w, "POST")
 			return
 		}
-		serveClientCallStart(w, id, conv)
+		serveClientCallStart(w, r, id, t)
 	default:
-		clientNotFound(w)
+		if !serveClientThreadSubroute(w, r, id, t, action) {
+			clientNotFound(w)
+		}
 	}
 }
 
-func serveClientMessages(w http.ResponseWriter, r *http.Request, conv *appConv) {
+func serveClientMessages(w http.ResponseWriter, r *http.Request, conv *appThread) {
 	q := r.URL.Query()
 	limit := 50
 	if v := q.Get("limit"); v != "" {
@@ -659,8 +706,13 @@ func serveClientMessages(w http.ResponseWriter, r *http.Request, conv *appConv) 
 	}
 	before, ok1 := parse("before")
 	after, ok2 := parse("after")
-	if !ok1 || !ok2 || (before > 0 && after > 0) {
-		clientError(w, http.StatusBadRequest, "invalid_request", "before and after are cursors from earlier pages; use one.")
+	around, ok3 := parse("around")
+	if !ok1 || !ok2 || !ok3 || (before > 0 && after > 0) || (around > 0 && (before > 0 || after > 0)) {
+		clientError(w, http.StatusBadRequest, "invalid_request", "before, after and around are cursors from earlier pages; use one.")
+		return
+	}
+	if around > 0 {
+		serveClientMessagesAround(w, conv, around, limit)
 		return
 	}
 	// The events cursor is read first: a stream opened with it as
@@ -681,11 +733,11 @@ func serveClientMessages(w http.ResponseWriter, r *http.Request, conv *appConv) 
 			older = msgs[0].Cursor
 		}
 	}
-	out := map[string]any{"conversation_id": conv.ID, "messages": msgs, "events_cursor": strconv.FormatInt(cursor, 10), "older_cursor": older}
+	out := map[string]any{"conversation_id": conv.ID, "thread_id": conv.ID, "messages": msgs, "events_cursor": strconv.FormatInt(cursor, 10), "older_cursor": older}
 	clientJSON(w, http.StatusOK, out)
 }
 
-func serveClientSend(w http.ResponseWriter, r *http.Request, id *clientIdentity, conv *appConv) {
+func serveClientSend(w http.ResponseWriter, r *http.Request, id *clientIdentity, conv *appThread) {
 	now := time.Now()
 	if !clientLimits.allow("msg:"+id.User.ID, clientMessagesPerMin, time.Minute, now) {
 		w.Header().Set("Retry-After", "30")
@@ -696,7 +748,7 @@ func serveClientSend(w http.ResponseWriter, r *http.Request, id *clientIdentity,
 	if !clientDecode(w, r, 256<<10, &in) {
 		return
 	}
-	m, replay, err := clientSend(id, conv, in, now)
+	m, replay, err := clientSendThread(id, conv, in, now)
 	if err != nil {
 		clientFail(w, err)
 		return
@@ -710,7 +762,7 @@ func serveClientSend(w http.ResponseWriter, r *http.Request, id *clientIdentity,
 
 // --- attachments ---------------------------------------------------------------------------
 
-func serveClientUpload(w http.ResponseWriter, r *http.Request, id *clientIdentity, conv *appConv) {
+func serveClientUpload(w http.ResponseWriter, r *http.Request, id *clientIdentity, t *appThread) {
 	now := time.Now()
 	if !clientLimits.allow("up:"+id.User.ID, clientUploadsPerMin, time.Minute, now) {
 		w.Header().Set("Retry-After", "30")
@@ -746,7 +798,14 @@ func serveClientUpload(w http.ResponseWriter, r *http.Request, id *clientIdentit
 		clientError(w, http.StatusBadRequest, "invalid_request", "The file is empty.")
 		return
 	}
-	rec, err := getBot(conv.Bot)
+	// The primary copy goes to the folder of the thread's lead; a bot the
+	// file is later sent to gets a copy of its own.
+	lead := threadLead(t.ID)
+	if lead == "" {
+		clientError(w, http.StatusConflict, "no_participants", "Nobody is in this thread any more: add a bot first.")
+		return
+	}
+	rec, err := getBot(lead)
 	if err != nil {
 		clientNotFound(w)
 		return
@@ -756,7 +815,7 @@ func serveClientUpload(w http.ResponseWriter, r *http.Request, id *clientIdentit
 		clientError(w, http.StatusBadGateway, "bot_unavailable", "lasso cannot reach the bot's host.")
 		return
 	}
-	a, err := clientStoreFile(b, rec, expandTildeOn(b, rec.Dir), conv, "in", r.URL.Query().Get("name"), data)
+	a, err := clientStoreFile(b, rec, expandTildeOn(b, rec.Dir), t.conv(lead), "in", r.URL.Query().Get("name"), data)
 	if err != nil {
 		clientFail(w, err)
 		return
@@ -770,7 +829,7 @@ func serveClientAttachment(w http.ResponseWriter, r *http.Request, id *clientIde
 		clientNotFound(w)
 		return
 	}
-	if _, ok := clientOwnConv(id, a.ConvID); !ok {
+	if _, ok := clientOwnThread(id, a.ConvID); !ok {
 		clientNotFound(w)
 		return
 	}
@@ -778,17 +837,8 @@ func serveClientAttachment(w http.ResponseWriter, r *http.Request, id *clientIde
 		clientError(w, http.StatusGone, "file_expired", "This file has been removed.")
 		return
 	}
-	rec, err := getBot(a.Bot)
-	if err != nil {
-		clientNotFound(w)
-		return
-	}
-	b, err := botBackend(rec.Host)
-	if err != nil {
-		clientNotFound(w)
-		return
-	}
-	data, err := clientConfinedRead(b, rec.Host == "local", expandTildeOn(b, rec.Dir), a.Path, clientAttachMax)
+	// The primary copy, else any bot's copy of it.
+	data, err := clientAttachmentBytes(a)
 	if err != nil {
 		clientNotFound(w)
 		return
@@ -814,12 +864,39 @@ func serveClientAttachment(w http.ResponseWriter, r *http.Request, id *clientIde
 
 // --- calls ---------------------------------------------------------------------------------
 
-func serveClientCallStart(w http.ResponseWriter, id *clientIdentity, conv *appConv) {
-	rec, err := getBot(conv.Bot)
-	if err != nil {
+func serveClientCallStart(w http.ResponseWriter, r *http.Request, id *clientIdentity, t *appThread) {
+	// The call's bot: an active participant named in the body (a thread),
+	// else the lead; a main thread's is its bot.
+	var in struct {
+		Bot string `json:"bot"`
+	}
+	if r.ContentLength != 0 {
+		body, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, 4<<10))
+		if len(bytes.TrimSpace(body)) > 0 && json.Unmarshal(body, &in) != nil {
+			clientError(w, http.StatusBadRequest, "invalid_request", "The body must be JSON.")
+			return
+		}
+	}
+	botName := threadLead(t.ID)
+	if t.isMain() {
+		botName = t.MainBot
+	} else if in.Bot != "" {
+		if !isActiveParticipant(t.ID, in.Bot) {
+			clientError(w, http.StatusConflict, "not_participant", in.Bot+" is not in this thread: add it first.")
+			return
+		}
+		botName = in.Bot
+	}
+	if botName == "" {
+		clientError(w, http.StatusConflict, "no_participants", "Nobody is in this thread any more: add a bot first.")
+		return
+	}
+	rec, _, ok := grantedBotOf(id.User.ID, botName)
+	if !ok {
 		clientNotFound(w)
 		return
 	}
+	conv := t.conv(botName)
 	now := time.Now()
 	if !clientLimits.allow("call:"+id.User.ID, clientCallsPerMin, time.Minute, now) ||
 		!clientLimits.allow("callh:"+id.User.ID, clientCallsPerHour, time.Hour, now) {
@@ -844,7 +921,7 @@ func clientOwnCall(id *clientIdentity, callID string) (*appCall, bool) {
 	if err != nil || c.UserID != id.User.ID {
 		return nil, false
 	}
-	if _, ok := clientOwnConv(id, c.ConvID); !ok {
+	if _, ok := clientOwnThread(id, c.ConvID); !ok {
 		return nil, false
 	}
 	return c, true
@@ -934,7 +1011,12 @@ func clientOutstanding(convID string) (string, bool) {
 	return mid, n == 0
 }
 
-func serveClientEvents(w http.ResponseWriter, r *http.Request, id *clientIdentity, conv *appConv) {
+func serveClientEvents(w http.ResponseWriter, r *http.Request, id *clientIdentity, t *appThread) {
+	botName := t.MainBot
+	if !t.isMain() {
+		botName = threadLead(t.ID)
+	}
+	conv := t.conv(botName)
 	fl, ok := w.(http.Flusher)
 	if !ok {
 		clientError(w, http.StatusInternalServerError, "internal", "Streaming is not supported here.")
@@ -955,10 +1037,13 @@ func serveClientEvents(w http.ResponseWriter, r *http.Request, id *clientIdentit
 	}
 	rec, err := getBot(conv.Bot)
 	if err != nil {
-		clientNotFound(w)
-		return
+		// A thread whose bots have all left still streams its events.
+		rec = &botRecord{Name: conv.Bot, Stopped: true}
 	}
-	b, _ := botBackend(rec.Host)
+	var b Backend
+	if err == nil {
+		b, _ = botBackend(rec.Host)
+	}
 	clientHeaders(w)
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
@@ -977,7 +1062,7 @@ func serveClientEvents(w http.ResponseWriter, r *http.Request, id *clientIdentit
 		resync = true
 	}
 	state, _, reason := botClientState(rec, now)
-	hello := map[string]any{"conversation_id": conv.ID, "bot_state": state, "events_cursor": strconv.FormatInt(last, 10), "call": nil}
+	hello := map[string]any{"conversation_id": conv.ID, "thread_id": conv.ID, "bot_state": state, "events_cursor": strconv.FormatInt(last, 10), "call": nil}
 	if reason != "" {
 		hello["bot_state_reason"] = reason
 	}
@@ -1008,7 +1093,7 @@ func serveClientEvents(w http.ResponseWriter, r *http.Request, id *clientIdentit
 	for {
 		wake := clientWake.waiter(conv.ID)
 		now = time.Now()
-		if !stillAuthorized(id.Device.ID, id.User.ID, conv.Bot) {
+		if !threadStreamAuthorized(id, t) {
 			_ = s.event(0, "closed", map[string]any{"reason": "access_revoked"})
 			return
 		}
