@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -535,6 +536,7 @@ func enqueuePush(j pushJob) {
 		return
 	}
 	q.once.Do(func() { go pushWorker(j.tok.Provider, q.ch) })
+	pushPending.Add(1)
 	for {
 		select {
 		case q.ch <- j:
@@ -542,17 +544,56 @@ func enqueuePush(j pushJob) {
 		default:
 			select {
 			case <-q.ch:
+				pushPending.Add(-1) // the oldest, dropped
 			default:
 			}
 		}
 	}
 }
 
+// pushPending counts pushes queued or being sent, so a caller can wait until
+// every decided push is out (pushWaitIdle).
+var pushPending atomic.Int64
+
+// pushWaitIdle waits until no push is queued or in flight, at most d; false
+// when some still are.
+func pushWaitIdle(d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for pushPending.Load() > 0 {
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	return true
+}
+
 func pushWorker(provider string, ch chan pushJob) {
 	for j := range ch {
-		res := sendPushWithRetry(j)
-		recordPushResult(j.tok, res)
+		if pushStillWanted(j, time.Now()) {
+			res := sendPushWithRetry(j)
+			if !res.Dropped {
+				recordPushResult(j.tok, res)
+			}
+		}
+		pushPending.Add(-1)
 	}
+}
+
+// pushStillWanted re-checks a queued push just before it goes out: the token
+// is still this device's, the device is not revoked, and it has not come to
+// the foreground since the push was decided (a push waits in the queue, and
+// a retry waits seconds). The owner's test push is always wanted.
+func pushStillWanted(j pushJob, now time.Time) bool {
+	if j.note.Kind == "test" {
+		return true
+	}
+	var token, presence, seen, revoked string
+	if db.QueryRow(`SELECT p.token, d.presence, d.stream_seen_at, d.revoked_at FROM app_push_tokens p JOIN app_devices d ON d.id = p.device_id
+		WHERE p.id = ? AND p.device_id = ?`, j.tok.ID, j.tok.DeviceID).Scan(&token, &presence, &seen, &revoked) != nil {
+		return false
+	}
+	return token == j.tok.Token && revoked == "" && !deviceForeground(presence, seen, now)
 }
 
 // pushResult is a provider's answer to one push.
@@ -563,6 +604,7 @@ type pushResult struct {
 	DeleteTok bool   // the token is dead
 	Creds     bool   // refused for lasso's credentials or configuration
 	Transient bool
+	Dropped   bool // not sent: no longer wanted when its retry came round
 }
 
 func sendPushWithRetry(j pushJob) pushResult {
@@ -570,6 +612,9 @@ func sendPushWithRetry(j pushJob) pushResult {
 	for attempt := 0; attempt <= len(clientPushRetries); attempt++ {
 		if attempt > 0 {
 			time.Sleep(clientPushRetries[attempt-1])
+			if !pushStillWanted(j, time.Now()) {
+				return pushResult{Dropped: true}
+			}
 		}
 		switch j.tok.Provider {
 		case "apns":

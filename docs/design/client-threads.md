@@ -1030,7 +1030,7 @@ One `settings` row, `client_push`, holding only non-secret choices and **referen
 
 ### Sending and dead tokens
 
-- Pushes are sent from a bounded in-memory queue (1000 entries, oldest dropped) by one worker per provider, off the path that stored the message. A push is attempted at most three times (after 2 s and 10 s) on a transient failure. Pushes are not persisted: a restart loses the ones in flight.
+- Pushes are sent from a bounded in-memory queue (1000 entries, oldest dropped) by one worker per provider, off the path that stored the message. A push is attempted at most three times (after 2 s and 10 s) on a transient failure. Just before the first attempt and before each retry the decision is checked again: a push is dropped, unsent, when its device has come to the foreground since, was revoked, or holds another token now. Pushes are not persisted: a restart loses the ones in flight.
 - Results:
 
 | provider answer | action |

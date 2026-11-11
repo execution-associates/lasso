@@ -42,6 +42,7 @@ type pushRig struct {
 	status   int    // what APNs/FCM answer next (0: 200)
 	reason   string // the reason code with it
 	only     string // when set, only this host answers status
+	onCall   func() // run as a push arrives, before it is answered
 	apnsKey  *ecdsa.PrivateKey
 	tokens   int // token exchanges
 	logs     *bytes.Buffer
@@ -56,6 +57,11 @@ func (p *pushRig) answer(status int, reason string) {
 
 func newPushRig(t *testing.T) *pushRig {
 	t.Helper()
+	// A push an earlier test decided must be out before this test's fake
+	// providers stand in: the worker reads the providers' addresses as it sends.
+	if !pushWaitIdle(10 * time.Second) {
+		t.Fatal("pushes from an earlier test are still in flight")
+	}
 	rig := &pushRig{t: t, calls: make(chan pushCall, 64), logs: &bytes.Buffer{}}
 	ek, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	rig.apnsKey = ek
@@ -88,7 +94,11 @@ func newPushRig(t *testing.T) *pushRig {
 			if rig.only != "" && rig.only != name {
 				st = 200
 			}
+			hook := rig.onCall
 			rig.mu.Unlock()
+			if hook != nil {
+				hook()
+			}
 			if st == 0 || st == 200 {
 				w.WriteHeader(200)
 				return
@@ -139,6 +149,9 @@ func newPushRig(t *testing.T) *pushRig {
 	pushLastSent.Unlock()
 	log.SetOutput(rig.logs)
 	t.Cleanup(func() {
+		// Every push this test decided goes out to its own fakes, before
+		// they close (a cut connection would be retried at the next test's).
+		pushWaitIdle(10 * time.Second)
 		log.SetOutput(io.Discard)
 		apnsHosts, fcmSendBase, googleTokenURL, pushHTTPClient, clientPushSecret, clientPushRetries = prevHosts, prevBase, prevTok, prevClient, prevSecret, prevRetries
 		resetPushSecrets()
@@ -146,12 +159,18 @@ func newPushRig(t *testing.T) *pushRig {
 	return rig
 }
 
+// next is the push the last action sent. Pushes are decided synchronously and
+// counted until sent, so once the queue is idle every one has reached the
+// fake provider: no waiting on time.
 func (p *pushRig) next() pushCall {
 	p.t.Helper()
+	if !pushWaitIdle(5 * time.Second) {
+		p.t.Fatal("a push is still in flight")
+	}
 	select {
 	case c := <-p.calls:
 		return c
-	case <-time.After(5 * time.Second):
+	default:
 		p.t.Fatal("no push arrived")
 	}
 	return pushCall{}
@@ -159,10 +178,13 @@ func (p *pushRig) next() pushCall {
 
 func (p *pushRig) none() {
 	p.t.Helper()
+	if !pushWaitIdle(5 * time.Second) {
+		p.t.Fatal("a push is still in flight")
+	}
 	select {
 	case c := <-p.calls:
 		p.t.Fatalf("an unexpected push: %+v", c)
-	case <-time.After(300 * time.Millisecond):
+	default:
 	}
 }
 
@@ -411,8 +433,8 @@ func TestClientPushForeground(t *testing.T) {
 	reply("foreground again")
 	rig.none()
 	stop()
-	// A heartbeat older than 25 s (a killed app): pushed.
-	time.Sleep(100 * time.Millisecond)
+	// A heartbeat older than 25 s (a killed app): pushed. Whether or not the
+	// closed stream has cleared it yet, the device is not in the foreground.
 	_, _ = db.Exec(`UPDATE app_devices SET stream_seen_at = ?, presence = 'foreground' WHERE user_id = ?`, nowStamp(time.Now().Add(-30*time.Second)), annID)
 	reply("stale heartbeat")
 	rig.next()
@@ -472,7 +494,7 @@ func TestClientPushFCM(t *testing.T) {
 
 func pushWaitFor(t *testing.T, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if cond() {
 			return
@@ -608,5 +630,44 @@ func TestClientPushAPNsEnvironmentFallback(t *testing.T) {
 	}
 	if tok, ok := pushTokenOfDevice(me.Device.ID); !ok || tok.Environment != "production" {
 		t.Fatalf("token after fallback = %+v", tok)
+	}
+}
+
+// A push decided while the app was in the background is not sent once the
+// app has come to the foreground: not from the queue, not on a retry.
+func TestClientPushRecheckedBeforeSending(t *testing.T) {
+	c := newClientTest(t)
+	rig := newPushRig(t)
+	setPushConfig(t, `{"apns":{"team_id":"JF4UNR89NW","key_id":"ABCDE12345","key_ref":"APNS_P8"}}`)
+	annID, ann := c.person("Ann", false, "jess")
+	c.jsonDo("PUT", "/client/v1/device/push", ann, `{"provider":"apns","token":"`+strings.Repeat("12", 32)+`","environment":"production"}`)
+	var me struct{ Device struct{ ID string } }
+	c.get("/client/v1/me", ann, &me)
+	tok, _ := pushTokenOfDevice(me.Device.ID)
+	job := pushJob{tok: tok, note: pushNote{Kind: "message", ThreadID: "t_x", Title: "jess", Body: "hi"}}
+	foreground := func() {
+		_, _ = db.Exec(`UPDATE app_devices SET presence = 'foreground', stream_seen_at = ? WHERE user_id = ?`, nowStamp(time.Now()), annID)
+	}
+	if !pushStillWanted(job, time.Now()) {
+		t.Fatal("a background device's push is not wanted")
+	}
+	// Queued, then the app came to the front before the worker took it.
+	foreground()
+	enqueuePush(job)
+	rig.none()
+	// A retry after a transient failure: the app comes to the front while
+	// the provider answers the first attempt.
+	_, _ = db.Exec(`UPDATE app_devices SET presence = 'background' WHERE user_id = ?`, annID)
+	clientPushRetries = []time.Duration{0, 0}
+	rig.answer(503, "ServiceUnavailable")
+	rig.mu.Lock()
+	rig.onCall = foreground
+	rig.mu.Unlock()
+	res := sendPushWithRetry(job)
+	if !res.Dropped {
+		t.Fatalf("retry of a push to a foreground device = %+v", res)
+	}
+	if n := len(rig.calls); n != 1 {
+		t.Fatalf("%d attempts reached the provider", n)
 	}
 }

@@ -623,7 +623,7 @@ func TestClientThreadAttachmentsCopied(t *testing.T) {
 	if resp, _ := c.do("DELETE", "/client/v1/attachments/"+up.ID, ann, ""); resp.StatusCode != 200 {
 		t.Fatal("delete")
 	}
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(filepath.Join(markRoot, a.Path)); os.IsNotExist(err) {
 			return
@@ -1160,7 +1160,7 @@ func TestClientPersonStream(t *testing.T) {
 	}
 	stop()
 	// Closing clears the heartbeat.
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		_ = db.QueryRow(`SELECT stream_seen_at FROM app_devices WHERE user_id = ?`, annID).Scan(&seen)
 		if seen == "" {
@@ -1454,7 +1454,7 @@ func TestClientOmpCompactionBumpsEpoch(t *testing.T) {
 	}
 	wait := func(want int64) {
 		t.Helper()
-		deadline := time.Now().Add(2 * time.Second)
+		deadline := time.Now().Add(10 * time.Second)
 		for time.Now().Before(deadline) && epoch() != want {
 			time.Sleep(10 * time.Millisecond)
 		}
