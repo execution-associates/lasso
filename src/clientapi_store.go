@@ -381,6 +381,8 @@ func deleteAppUser(id string) ([]appAttachment, error) {
 		`DELETE FROM app_thread_bots WHERE thread_id IN (SELECT id FROM app_threads WHERE user_id = ?)`,
 		`DELETE FROM app_threads WHERE user_id = ?`,
 		`DELETE FROM app_push_tokens WHERE user_id = ?`,
+		ttsFoldUsageStmts[0],
+		ttsFoldUsageStmts[1],
 		`DELETE FROM app_convs WHERE user_id = ?`,
 		`DELETE FROM app_pairings WHERE user_id = ?`,
 		`DELETE FROM app_devices WHERE user_id = ?`,

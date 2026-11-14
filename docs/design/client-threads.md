@@ -971,7 +971,7 @@ Answers `200 {"push": {…as in /me…}}`. `DELETE /device/push` → `200 {"push
 
 ```json
 {
-  "features": ["threads", "search", "push", "proposals"],
+  "features": ["threads", "search", "push", "proposals", "tts"],
   "push": {"available": true, "provider": "apns", "registered": true, "environment": "production"},
   "unread_total": 7,
   "badge": 6,
