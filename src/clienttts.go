@@ -316,8 +316,9 @@ func ttsMonth(t time.Time) string { return t.UTC().Format("2006-01") }
 
 // ttsUsed is the characters a person, and everyone, has had synthesized this
 // month.
-func ttsUsed(userID string) (person, total int) {
-	m := ttsMonth(tune().Now())
+func ttsUsed(userID string) (person, total int) { return ttsUsedIn(userID, ttsMonth(tune().Now())) }
+
+func ttsUsedIn(userID, m string) (person, total int) {
 	_ = db.QueryRow(`SELECT COALESCE(SUM(characters),0) FROM app_tts_usage WHERE month = ? AND engine = ?`, m, ttsEngineInworld).Scan(&total)
 	_ = db.QueryRow(`SELECT COALESCE(SUM(characters),0) FROM app_tts_usage WHERE month = ? AND engine = ? AND user_id = ?`, m, ttsEngineInworld, userID).Scan(&person)
 	return
@@ -327,18 +328,22 @@ var errTTSQuota = errors.New("tts monthly quota reached")
 
 // ttsReserve counts chars against the person's and the total's monthly limits
 // and records them, or refuses with errTTSQuota. It is called just before the
-// text is sent upstream, so what is counted is what was sent.
-func ttsReserve(userID string, chars int, cfg clientTTSInworld) error {
+// text is sent upstream, so what is counted is what was sent. It reads the clock
+// once, so the month checked is the month recorded, and answers that month for
+// a refund.
+func ttsReserve(userID string, chars int, cfg clientTTSInworld) (string, error) {
 	ttsUsageMu.Lock()
 	defer ttsUsageMu.Unlock()
-	person, total := ttsUsed(userID)
+	now := tune().Now()
+	month := ttsMonth(now)
+	person, total := ttsUsedIn(userID, month)
 	if person+chars > cfg.personLimit() || total+chars > cfg.totalLimit() {
-		return errTTSQuota
+		return month, errTTSQuota
 	}
 	_, err := db.Exec(`INSERT INTO app_tts_usage (user_id, month, engine, characters, sentences, updated_at) VALUES (?, ?, ?, ?, 1, ?)
 		ON CONFLICT(user_id, month, engine) DO UPDATE SET characters = characters + excluded.characters, sentences = sentences + 1, updated_at = excluded.updated_at`,
-		userID, ttsMonth(tune().Now()), ttsEngineInworld, chars, nowStamp(tune().Now()))
-	return err
+		userID, month, ttsEngineInworld, chars, nowStamp(now))
+	return month, err
 }
 
 // ttsRefund takes back a reservation whose text never left lasso.

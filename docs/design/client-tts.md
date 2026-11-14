@@ -51,7 +51,7 @@ Client to server, text frames of JSON, at most 16 KiB each:
 
 | frame | meaning |
 | --- | --- |
-| `{"type":"start","engine":"inworld","model":"tts-2-realtime","voice":"<id>","sample_rate":24000}` | once, first. `model`, `voice` and `sample_rate` are optional (the owner's defaults, 24000). `sample_rate` is 16000, 24000 or 48000. The voice must be one `GET /tts` lists |
+| `{"type":"start","engine":"inworld","model":"tts-2-realtime","voice":"<id>","sample_rate":24000}` | once, first. `model`, `voice` and `sample_rate` are optional (the owner's defaults, 24000). `sample_rate` is 16000, 24000 or 48000. The voice must be one `GET /tts` lists. The 10 s wait for it ends when it arrives; looking up the voice and connecting upstream do not count against it |
 | `{"type":"text","id":"s1","text":"One sentence."}` | one sentence. `id` is 1 to 64 of `A-Za-z0-9._:-`, chosen by the app, used once per connection. Text sent after `start` but **before `ready`** is accepted and queued (up to the queue limit) and spoken once the upstream is connected; text before `start` is a fatal `invalid_request` |
 | `{"type":"cancel"}` | drop everything queued and in flight |
 | `{"type":"cancel","id":"s1"}` | drop one sentence (an id that is done or unknown is ignored) |
@@ -73,7 +73,7 @@ Error codes:
 
 | code | when | fatal |
 | --- | --- | --- |
-| `not_configured` | nothing set up, switched off or the key unreadable | yes |
+| `not_configured` | nothing set up, switched off or the key unreadable: at open, or within 2 s of the owner switching the relay off while the stream is open (with `id` null, or the sentence that would have gone next; nothing more is sent upstream) | yes |
 | `quota_exceeded` | the person's or the total monthly allowance is used (at open, or when a sentence would pass it; Inworld's own quota message too). **Fatal: the stream is closed** (1000, reason `quota_exceeded`) right after the frame, with `id` the sentence that would have passed the limit, or null at open; the app should drop the cloud voice for the rest of the call | yes |
 | `upstream_unavailable` | Inworld refused the key, could not be reached, or dropped the connection (for one sentence; the next reconnects) | at `start` yes, per sentence no |
 | `upstream_timeout` | no first audio within 1.5 s of the text going upstream (inside the app's 1.8 s wait, so the app gets this frame rather than silence), no audio for 10 s mid-sentence, or 60 s for one sentence | no |
@@ -83,7 +83,7 @@ Error codes:
 
 `message` is lasso's own wording; Inworld's text is never passed on.
 
-Closing: the server closes with 1000 after `end` and its last `done`, after a fatal error (the reason is the code), and when idle; 1001 (`lifetime`, `ping failed`, `write failed`) when the stream ran out of time or the phone stopped taking data; 1003 for a binary frame from the app; 1008 `access_revoked` within 2 s of the device being revoked, the person disabled, or the token's device removed. The server pings every 20 s.
+Closing: the server closes with 1000 after `end` and its last `done`, after a fatal error (the reason is the code, `not_configured` included when the owner switches the relay off), and when idle; 1001 (`lifetime`, `ping failed`, `write failed`) when the stream ran out of time or the phone stopped taking data; 1003 for a binary frame from the app; 1008 `access_revoked` within 2 s of the device being revoked, the person disabled, or the token's device removed. The server pings every 20 s.
 
 ## Limits
 
@@ -92,7 +92,7 @@ Constants in `clienttts.go` (`ttsTuning` holds those tests shorten):
 | limit | value |
 | --- | --- |
 | text in one sentence | 1000 characters (Inworld accepts 2000 UTF-16 units) |
-| sentences waiting or in flight on one stream | 20 |
+| sentences waiting or in flight on one stream | 20 (a cancelled sentence keeps its place in the queue until the relay passes it, a moment unless one is in flight; past 20 a sentence is refused `rate_limited`, never waited for) |
 | distinct ids on one stream | 5000 |
 | streams per device / per person / in total | 2 / 4 / 8 |
 | stream opens per device | 12 per minute |
@@ -105,7 +105,7 @@ Constants in `clienttts.go` (`ttsTuning` holds those tests shorten):
 | first audio / between chunks / one sentence | 1.5 s / 10 s / 60 s |
 | connecting upstream at `start` | 1.2 s per try, two tries (inside the app's 3 s wait for `ready`) |
 | progress keep-alive | after 0.8 s of silence while a sentence is outstanding |
-| audio held per sentence | 1 MiB |
+| audio held per sentence | 1 MiB, plus at most one upstream message (read limit 4 MiB) |
 | per-person monthly characters | 500,000 (configurable) |
 | total monthly characters | 1,600,000 (configurable) |
 
@@ -123,7 +123,9 @@ Inworld bills per character of input text ([pricing](https://inworld.ai/pricing)
 
 Counting. Characters are counted **as Inworld counts them** (a character outside the Basic Multilingual Plane, an emoji for one, counts two; spaces, punctuation and tags count) **on the text lasso actually sends** (after cleaning), **when it is sent upstream**, per UTC month, per person, in `app_tts_usage`. A sentence refused for quota, rate or length is never sent and never counted; a sentence whose upstream write failed is refunded. A sentence cancelled after it was sent stays counted: Inworld bills text it had begun to synthesize ("disconnecting does not avoid charges"), and only text it had not yet processed is free ([billing](https://docs.inworld.ai/tts/resources/billing)), so lasso counts at least what it will be billed. The owner's test phrase counts under `_owner_test`. A deleted person's usage moves to `_deleted`, so the total still counts it.
 
-When a month's allowance would be passed, the sentence is refused (`quota_exceeded`, fatal) before it is sent. The count resets at 00:00 UTC on the first of the month.
+When a month's allowance would be passed, the sentence is refused (`quota_exceeded`, fatal) before it is sent. The check and the record read the clock once, so a sentence at midnight is checked against the month it is recorded in. The count resets at 00:00 UTC on the first of the month.
+
+The settings are read again for every sentence: lowering a limit applies to the next sentence of a stream already open, and switching the relay off (`enabled: false`, or clearing `key_ref`) closes every open stream within 2 s (`not_configured`). That is the owner's brake on the bill.
 
 ## Settings and credentials
 
@@ -136,7 +138,7 @@ One `settings` row, `client_tts`, holding choices and a **reference** to the key
 
 - `key_ref` is an environment variable name in lasso's environment or an `op://vault/item/field` reference, read with `lookupSecret`, held in memory until the reference changes (a failure is remembered a minute), never logged, never returned. The value must be the Base64 credential Inworld's portal shows, unchanged: it is sent as `Authorization: Basic <value>`, never re-encoded and without a second `Basic`. A value with spaces, control characters or more than 512 bytes reads as unreadable.
 - `default_model` is `tts-2-realtime` (default) or `tts-2-flash`. Zero or absent limits mean the defaults. `enabled` defaults to true.
-- **Nothing in a setting or a request names a host.** The upstream URLs are constants in `clienttts_inworld.go` (`wss://api.inworld.ai/tts/v1/voice:streamBidirectional`, `https://api.inworld.ai/voices/v1/voices`); redirects are not followed. The relay is not an open proxy: an app chooses an engine, a model and a voice from what `GET /tts` offers, and speaks text.
+- **Nothing in a setting or a request names a host.** The upstream URLs are constants in `clienttts_inworld.go` (`wss://api.inworld.ai/tts/v1/voice:streamBidirectional`, `https://api.inworld.ai/voices/v1/voices`); redirects are not followed, on the stream's WebSocket dial as on the voices request. The relay is not an open proxy: an app chooses an engine, a model and a voice from what `GET /tts` offers, and speaks text.
 
 The owner manages it at `/api/client-tts`, behind `UI_AUTH` and off machine callers like `/api/client-push`:
 
@@ -154,13 +156,13 @@ With nothing configured nothing runs: no goroutine, no connection, no secret rea
 
 **One Inworld context per sentence**: `create` (voice, model, `audioConfig` PCM at the stream's rate, `autoMode` off), then `send_text` with `flush_context`, then audio until `flushCompleted`, then `close_context`. `cancel_context` drops a sentence upstream. Audio that still arrives for a cancelled context is discarded.
 
-**Three workers per stream.** The reader takes the app's frames, validates and queues sentences. The feeder sends sentences upstream one at a time, in order, and sends the next only when the previous one has been fully received. The player writes each sentence's audio to the app in the same order. The hand-off holds one sentence, so the next is being synthesized while the current one plays and never more: audio held is at most two sentences, each bounded to 1 MiB. Past that the reader stops reading from Inworld, and TCP slows Inworld down; a phone that is slow slows the relay instead of growing its memory, and one that takes nothing for 20 s loses the stream.
+**Three workers per stream.** The reader takes the app's frames, validates and queues sentences. The feeder sends sentences upstream one at a time, in order, and sends the next only when the previous one has been fully received. The player writes each sentence's audio to the app in the same order. The reader never waits on the feeder: a sentence that finds the queue full is refused, so `cancel` and `end` are always read. The hand-off holds one sentence, so the next is being synthesized while the current one plays and never more: audio held is at most two sentences, each bounded to 1 MiB. Past that the reader stops reading from Inworld, and TCP slows Inworld down; a phone that is slow slows the relay instead of growing its memory, and one that takes nothing for 20 s loses the stream.
 
 **Failure handling.** A failed dial is tried twice (1.2 s each, 200 ms apart) and then fails the stream at `start`, or the sentence mid-stream. A dropped connection fails the sentence in flight and the next sentence reconnects. A refused key or repeated failure marks the engine `failing` for 30 s: new streams are turned away without calling Inworld, and the next working call clears it. Timeouts cancel the context upstream.
 
 **Text.** Valid UTF-8 only; control characters, invisible formatting (zero-width, bidirectional controls, byte order marks) and private-use characters are removed; line breaks, tabs and runs of spaces become one space; empty text is refused. The text is the person's bot replies and leaves lasso for Inworld.
 
-**Authorization.** The device and the person are re-checked every 2 s. A revoked device, a disabled person or a deleted device closes the stream (1008).
+**Authorization.** The device, the person and the relay's own switch are re-checked every 2 s. A revoked device, a disabled person or a deleted device closes the stream (1008); a relay switched off closes it with `not_configured` (1000).
 
 **Logs** carry ids, sizes, counts, timings and Inworld's status codes only: `tts: sentence sent device=d_… id=s1 chars=13`, `tts: stream closed device=d_… sentences=2 chars=40 audio_ms=…`. Never text, audio, the key, or anything Inworld said.
 

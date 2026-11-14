@@ -1289,7 +1289,7 @@ func TestTTSSchemaIsIdempotentAndUsageSurvivesDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := loadClientTTSConfig().Inworld
-	if err := ttsReserve(r.user, 40, cfg); err != nil {
+	if _, err := ttsReserve(r.user, 40, cfg); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(clientTTSSchema); err != nil {
@@ -1322,7 +1322,7 @@ func TestTTSSchemaIsIdempotentAndUsageSurvivesDelete(t *testing.T) {
 func TestTTSDeletedPersonKeepsTheBillCounted(t *testing.T) {
 	r := newTTSTest(t, true)
 	cfg := loadClientTTSConfig().Inworld
-	if err := ttsReserve(r.user, 40, cfg); err != nil {
+	if _, err := ttsReserve(r.user, 40, cfg); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := deleteAppUser(r.user); err != nil {
@@ -1509,5 +1509,279 @@ func TestTTSCancelledBeforeSendIsNotCountedOrAnswered(t *testing.T) {
 	used, _ := ttsUsed(r.user)
 	if used != len("Plays.") && used != len("Plays.")+len("Never sent upstream.") {
 		t.Fatalf("usage = %d", used)
+	}
+}
+
+// --- review: proofs of the issues an adversarial review found ------------------
+
+// ttsWaitStreams waits for the open-stream count to reach n.
+func ttsWaitStreams(n int, d time.Duration) int {
+	deadline := time.Now().Add(d)
+	for {
+		ttsStreams.Lock()
+		got := ttsStreams.total
+		ttsStreams.Unlock()
+		if got == n || time.Now().After(deadline) {
+			return got
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// Cancelled sentences leave the live set at once but stay in the feeder's
+// queue until it reaches them. While a sentence is in flight, an app that
+// cancels a backlog and sends more text could fill that queue, and the reader
+// then blocked on it: it no longer read cancel or end, and when the stream
+// ended (here by its lifetime) the reader never returned, so the handler never
+// returned, its stream slot was never released and its goroutines stayed. Eight
+// of those and nobody could speak until lasso restarted.
+func TestTTSCancelledBacklogDoesNotWedgeTheStream(t *testing.T) {
+	r := newTTSTest(t, true)
+	setTune(func(u *ttsTuning) {
+		u.Lifetime = 2 * time.Second
+		u.FirstAudio = 10 * time.Second
+		u.Sentence = 20 * time.Second
+	})
+	before := runtime.NumGoroutine()
+	r.up.set(func() { r.up.stall = true })
+	c := r.open("")
+	c.send(`{"type":"text","id":"s0","text":"In flight."}`)
+	for i := 1; i < ttsMaxQueued; i++ {
+		c.send(fmt.Sprintf(`{"type":"text","id":"b%d","text":"Backlog."}`, i))
+	}
+	for i := 1; i < ttsMaxQueued; i++ {
+		c.send(fmt.Sprintf(`{"type":"cancel","id":"b%d"}`, i))
+	}
+	for i := 0; i < 4; i++ {
+		c.send(fmt.Sprintf(`{"type":"text","id":"n%d","text":"More."}`, i))
+	}
+	// The reader is still reading: a cancel of everything is handled.
+	c.send(`{"type":"cancel"}`)
+	c.closeStatus(8 * time.Second)
+	if n := ttsWaitStreams(0, 3*time.Second); n != 0 {
+		t.Fatalf("%d streams still held after the stream's lifetime", n)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if after := runtime.NumGoroutine(); after > before+4 {
+		t.Fatalf("goroutines %d -> %d after the stream ended", before, after)
+	}
+}
+
+// Switching the relay off, or lowering a limit, is the owner's brake on the
+// bill. A stream already open kept the settings it started with for up to its
+// 30-minute lifetime and went on speaking.
+func TestTTSSwitchOffReachesOpenStreams(t *testing.T) {
+	r := newTTSTest(t, true)
+	put := func(body string) {
+		rec := httptest.NewRecorder()
+		serveClientTTSConfig(rec, httptest.NewRequest("PUT", "/api/client-tts", strings.NewReader(body)))
+		if rec.Code != 200 {
+			t.Fatalf("%d %s", rec.Code, rec.Body.String())
+		}
+	}
+	// A lower limit applies to the next sentence of an open stream.
+	c := r.open("")
+	c.send(`{"type":"text","id":"a","text":"Twelve chars"}`)
+	c.until(5*time.Second, isType("done", "a"))
+	put(`{"inworld":{"monthly_character_limit":15}}`)
+	c.send(`{"type":"text","id":"b","text":"Twelve chars"}`)
+	ev := c.recv(5 * time.Second)
+	if ev.M["type"] != "error" || ev.M["code"] != "quota_exceeded" || ev.M["id"] != "b" {
+		t.Fatalf("after lowering the limit: %v", ev.M)
+	}
+	c.closeStatus(3 * time.Second)
+	put(`{"inworld":{"monthly_character_limit":null}}`)
+	// Switching it off ends an open stream, idle or not, and nothing more goes
+	// upstream.
+	c = r.open("")
+	c2 := r.open("")
+	put(`{"inworld":{"enabled":false}}`)
+	sent := len(r.up.snapshotTexts())
+	c.send(`{"type":"text","id":"c","text":"Should not be spoken."}`)
+	evs := c.until(5*time.Second, isType("error", ""))
+	if last := evs[len(evs)-1].M; last["code"] != "not_configured" || last["fatal"] != true {
+		t.Fatalf("after switching off: %v", last)
+	}
+	if code, _ := c.closeStatus(3 * time.Second); code != websocket.StatusNormalClosure {
+		t.Fatalf("close = %d", code)
+	}
+	if ev := c2.recv(3 * time.Second); ev.M["code"] != "not_configured" {
+		t.Fatalf("the idle stream: %v", ev.M)
+	}
+	c2.closeStatus(3 * time.Second)
+	if n := len(r.up.snapshotTexts()); n != sent {
+		t.Fatalf("%d sentences went upstream after the relay was switched off", n-sent)
+	}
+}
+
+// The wait for start is bounded by a timer; it stayed armed through the voice
+// lookup and the upstream dial, so a start that came late in the window got a
+// connected upstream and then "Send start first" and a close.
+func TestTTSStartTimerStopsAtStart(t *testing.T) {
+	r := newTTSTest(t, true)
+	setTune(func(u *ttsTuning) { u.Start = 500 * time.Millisecond })
+	r.up.set(func() { r.up.hsDelay = 600 * time.Millisecond })
+	c, _, err := r.dial(r.token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	c.send(`{"type":"start","engine":"inworld"}`)
+	if ev := c.recv(5 * time.Second); ev.M["type"] != "ready" {
+		t.Fatalf("a start inside the window: %v", ev.M)
+	}
+	c.send(`{"type":"text","id":"s1","text":"Still here."}`)
+	c.until(5*time.Second, isType("done", "s1"))
+}
+
+// The check and the record of a reservation each read the clock, so one made
+// across midnight UTC at the month's end was checked against one month and
+// recorded in the next, passing that month's limit.
+func TestTTSReserveChecksTheMonthItRecords(t *testing.T) {
+	r := newTTSTest(t, true)
+	setTTSConfig(t, `{"inworld":{"key_ref":"INWORLD_TEST_KEY","monthly_character_limit":10}}`)
+	if _, err := db.Exec(`INSERT INTO app_tts_usage (user_id, month, engine, characters) VALUES (?, '2026-12', 'inworld', 10)`, r.user); err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int64
+	setTune(func(u *ttsTuning) {
+		u.Now = func() time.Time {
+			if calls.Add(1) == 1 {
+				return time.Date(2026, 11, 30, 23, 59, 59, 999_000_000, time.UTC)
+			}
+			return time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+		}
+	})
+	_, _ = ttsReserve(r.user, 5, loadClientTTSConfig().Inworld)
+	var nov, dec int
+	_ = db.QueryRow(`SELECT COALESCE(SUM(characters),0) FROM app_tts_usage WHERE user_id = ? AND month = '2026-11'`, r.user).Scan(&nov)
+	_ = db.QueryRow(`SELECT COALESCE(SUM(characters),0) FROM app_tts_usage WHERE user_id = ? AND month = '2026-12'`, r.user).Scan(&dec)
+	if dec > 10 {
+		t.Fatalf("December holds %d characters against a limit of 10 (November %d)", dec, nov)
+	}
+}
+
+// Every way a stream ends releases its slot and stops its goroutines (the
+// relay's own and the upstream connection's).
+func TestTTSExitPathsLeaveNothingRunning(t *testing.T) {
+	r := newTTSTest(t, true)
+	setTune(func(u *ttsTuning) {
+		u.Start = 300 * time.Millisecond
+		u.Write = 300 * time.Millisecond
+		u.PerPerson = 8
+		u.Total = 16
+	})
+	// The relay's goroutines: the test's own readers are left out.
+	relay := func() (int, string) {
+		time.Sleep(300 * time.Millisecond)
+		buf := make([]byte, 4<<20)
+		all := string(buf[:runtime.Stack(buf, true)])
+		n := 0
+		for _, g := range strings.Split(all, "\n\n") {
+			if strings.Contains(g, "lasso.(*ttsStream)") || strings.Contains(g, "lasso.(*inworldConn)") || strings.Contains(g, "lasso.serveClientTTSStream") || strings.Contains(g, "lasso.(*upQueue)") {
+				n++
+			}
+		}
+		return n, all
+	}
+	// warm the voice cache and the rig so later counts compare like with like
+	w := r.open("")
+	w.send(`{"type":"end"}`)
+	w.closeStatus(3 * time.Second)
+	ttsWaitStreams(0, 3*time.Second)
+	paths := map[string]func(){
+		"end": func() {
+			c := r.open("")
+			c.send(`{"type":"text","id":"a","text":"One."}`)
+			c.send(`{"type":"end"}`)
+			c.closeStatus(5 * time.Second)
+		},
+		"client vanishes mid-sentence": func() {
+			r.up.set(func() { r.up.chunks = 40; r.up.chunkDelay = 20 * time.Millisecond })
+			defer r.up.set(func() { r.up.chunks = 3; r.up.chunkDelay = 0 })
+			c := r.open("")
+			c.send(`{"type":"text","id":"a","text":"Long one."}`)
+			c.until(5*time.Second, isType("audio", "a"))
+			c.ws.CloseNow()
+		},
+		"revoked mid-sentence": func() {
+			r.up.set(func() { r.up.chunks = 40; r.up.chunkDelay = 20 * time.Millisecond })
+			defer r.up.set(func() { r.up.chunks = 3; r.up.chunkDelay = 0 })
+			uid, tok := r.person("Rev", false, "jess")
+			c, _, err := r.dial(tok)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.send(`{"type":"start","engine":"inworld"}`)
+			c.recv(5 * time.Second)
+			c.send(`{"type":"text","id":"a","text":"Long one."}`)
+			c.until(5*time.Second, isType("audio", "a"))
+			if _, err := db.Exec(`UPDATE app_devices SET revoked_at = 'x' WHERE user_id = ?`, uid); err != nil {
+				t.Fatal(err)
+			}
+			if code, _ := c.closeStatus(5 * time.Second); code != websocket.StatusPolicyViolation {
+				t.Fatalf("revoked close = %d", code)
+			}
+		},
+		"binary frame": func() {
+			c := r.open("")
+			_ = c.ws.Write(c.ctx, websocket.MessageBinary, []byte{1, 2})
+			c.closeStatus(5 * time.Second)
+		},
+		"bad start": func() {
+			c, _, _ := r.dial(r.token)
+			c.send(`{"type":"text","id":"a","text":"x"}`)
+			c.closeStatus(5 * time.Second)
+		},
+		"no start": func() {
+			c, _, _ := r.dial(r.token)
+			c.closeStatus(5 * time.Second)
+		},
+		"phone stops reading": func() {
+			r.up.set(func() { r.up.chunks = 200; r.up.chunkBytes = 32 << 10 })
+			defer r.up.set(func() { r.up.chunks = 3; r.up.chunkBytes = 4800 })
+			c := r.open("")
+			c.send(`{"type":"text","id":"a","text":"Long one."}`)
+			time.Sleep(2 * time.Second) // the pump blocks: nothing is read
+			c.ws.CloseNow()
+		},
+	}
+	for name, f := range paths {
+		// the stand-in names contexts c1, c2, … on every connection
+		r.up.set(func() { r.up.cancelled = map[string]bool{} })
+		f()
+		if n := ttsWaitStreams(0, 5*time.Second); n != 0 {
+			t.Fatalf("%s: %d streams still held", name, n)
+		}
+	}
+	if n, all := relay(); n != 0 {
+		t.Fatalf("%d relay goroutines still running\n%s", n, all)
+	}
+}
+
+// The upstream host is fixed. The voices request refused redirects, but the
+// stream's WebSocket dial used http.DefaultClient, which follows them: a
+// redirect from the upstream sent the relay, and the sentences, elsewhere.
+func TestTTSUpstreamRedirectsAreNotFollowed(t *testing.T) {
+	r := newTTSTest(t, true)
+	target := inworldWSURL
+	var redirected atomic.Int64
+	redir := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		redirected.Add(1)
+		http.Redirect(w, req, "http"+strings.TrimPrefix(target, "ws"), http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(redir.Close)
+	inworldWSURL = "ws" + strings.TrimPrefix(redir.URL, "http") + "/tts/v1/voice:streamBidirectional"
+	c, _, err := r.dial(r.token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.send(`{"type":"start","engine":"inworld"}`)
+	ev := c.recv(5 * time.Second)
+	if redirected.Load() == 0 {
+		t.Fatal("the redirector was never asked")
+	}
+	if ev.M["type"] == "ready" || r.up.conns != 0 {
+		t.Fatalf("the relay followed a redirect: %v (connections at the target %d)", ev.M, r.up.conns)
 	}
 }

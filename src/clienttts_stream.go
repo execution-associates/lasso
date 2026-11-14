@@ -338,8 +338,10 @@ func (st *ttsStream) begin() bool {
 		st.sendError(nil, "invalid_request", "Send {\"type\":\"start\"} first.", true)
 		_ = st.ws.Close(websocket.StatusNormalClosure, "start timeout")
 	})
-	defer timer.Stop()
 	typ, data, err := st.ws.Read(context.Background())
+	if !timer.Stop() {
+		return false // the timer fired first and has answered
+	}
 	if err != nil {
 		st.sendError(nil, "invalid_request", "Send {\"type\":\"start\"} first.", true)
 		return false
@@ -517,7 +519,11 @@ func (st *ttsStream) onText(f ttsFrame) {
 	case len([]rune(text)) > ttsMaxTextChars:
 		rej("text_too_long", "A sentence may be at most 1000 characters.")
 		return
-	case n >= ttsMaxQueued:
+	case n >= ttsMaxQueued || len(st.inCh) >= cap(st.inCh):
+		// The second test: cancelled sentences leave live at once but stay in
+		// inCh until the feeder passes them, and the reader (the only sender)
+		// must never block on it, or it stops reading cancel and end and never
+		// returns when the stream ends.
 		rej("rate_limited", "Too many sentences are waiting.")
 		return
 	}
@@ -535,7 +541,11 @@ func (st *ttsStream) onText(f ttsFrame) {
 	st.ids[f.ID] = true
 	st.live[f.ID] = s
 	st.mu.Unlock()
-	st.inCh <- s // cap ttsMaxQueued, and live is capped at the same number
+	select { // never blocks: the reader is the only sender and checked for room
+	case st.inCh <- s:
+	case <-st.done:
+	case <-st.ctx.Done():
+	}
 }
 
 // --- upstream side -----------------------------------------------------------
@@ -582,8 +592,16 @@ func (st *ttsStream) feeder() {
 	}
 }
 
-// issue sends one sentence upstream, counting its characters first.
+// issue sends one sentence upstream, counting its characters first. The
+// settings are read again for every sentence, so switching the relay off or
+// lowering a limit applies to a stream already open.
 func (st *ttsStream) issue(s *ttsSentence) {
+	key, reason, cfg := clientTTSState()
+	if reason == "not_configured" || reason == "unreadable" {
+		s.startErr = &ttsErr{Code: "not_configured", Msg: "Text to speech is not set up on this lasso."}
+		return
+	}
+	st.key, st.cfg = key, cfg // only the feeder uses them once the stream runs
 	st.mu.Lock()
 	up := st.up
 	st.mu.Unlock()
@@ -601,7 +619,8 @@ func (st *ttsStream) issue(s *ttsSentence) {
 	if s.cancelled.Load() {
 		return
 	}
-	if err := ttsReserve(st.id.User.ID, s.chars, st.cfg); err != nil {
+	month, err := ttsReserve(st.id.User.ID, s.chars, st.cfg)
+	if err != nil {
 		if errors.Is(err, errTTSQuota) {
 			s.startErr = &ttsErr{Code: "quota_exceeded", Msg: "This month's speech allowance is used up."}
 		} else {
@@ -609,7 +628,6 @@ func (st *ttsStream) issue(s *ttsSentence) {
 		}
 		return
 	}
-	month := ttsMonth(tune().Now())
 	uc, err := up.synth(st.model.Upstream, st.voice, st.rate, s.text)
 	if err != nil {
 		ttsRefund(st.id.User.ID, s.chars, month)
@@ -672,13 +690,14 @@ func (st *ttsStream) player() {
 	}
 }
 
-// fail reports a sentence's failure; running out of allowance ends the stream.
+// fail reports a sentence's failure; running out of allowance, or the relay
+// being switched off, ends the stream.
 func (st *ttsStream) fail(s *ttsSentence, e *ttsErr) {
 	if e.Auth {
 		ttsMarkFailing()
 	}
 	st.release(s)
-	st.sendError(s, e.Code, e.Msg, e.Code == "quota_exceeded")
+	st.sendError(s, e.Code, e.Msg, e.Code == "quota_exceeded" || e.Code == "not_configured")
 	log.Printf("tts:      sentence failed device=%s id=%s code=%s", st.id.Device.ID, s.id, e.Code)
 }
 
@@ -777,6 +796,11 @@ func (st *ttsStream) housekeeping() {
 		case <-auth.C:
 			if !ttsDeviceAuthorized(st.id) {
 				st.finish(websocket.StatusPolicyViolation, "access_revoked")
+				return
+			}
+			// The owner's switch reaches open streams, idle ones included.
+			if _, reason, _ := clientTTSState(); reason == "not_configured" || reason == "unreadable" {
+				st.sendError(nil, "not_configured", "Text to speech is not set up on this lasso.", true)
 				return
 			}
 			st.mu.Lock()

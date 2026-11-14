@@ -44,6 +44,11 @@ const (
 	inworldVoicesMaxBody = 4 << 20
 )
 
+// inworldNoRedirects is the client for both upstream calls: a redirect is
+// answered as the failure it is, never followed, so nothing but the fixed host
+// is ever sent the key or the text.
+var inworldNoRedirects = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+
 // inworldAuth is the Authorization header: Inworld's key is already the Base64
 // credential the portal shows, sent as-is after "Basic" (never re-encoded).
 func inworldAuth(key string) string { return "Basic " + key }
@@ -199,6 +204,8 @@ func dialInworld(parent context.Context, key string) (*inworldConn, error) {
 	dctx, dcancel := context.WithTimeout(ctx, inworldDialTimeout)
 	defer dcancel()
 	ws, resp, err := websocket.Dial(dctx, inworldWSURL, &websocket.DialOptions{
+		// Never http.DefaultClient: it follows redirects, and the host is fixed.
+		HTTPClient:      inworldNoRedirects,
 		HTTPHeader:      http.Header{"Authorization": {inworldAuth(key)}},
 		CompressionMode: websocket.CompressionDisabled,
 	})
@@ -431,7 +438,7 @@ func (c *inworldConn) cancelCtx(uc *upContext) {
 // of {voiceId, displayName, languageCode, gender, description} is the documented
 // shape.
 func inworldListVoices(ctx context.Context, key string) ([]ttsVoice, error) {
-	client := &http.Client{Timeout: 8 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{Timeout: 8 * time.Second, CheckRedirect: inworldNoRedirects.CheckRedirect}
 	var out []ttsVoice
 	seen := map[string]bool{}
 	token := ""
@@ -530,10 +537,10 @@ func ttsSelfTest(ctx context.Context, key string, cfg clientTTSInworld, model tt
 	defer conn.close()
 	out["connect_ms"] = time.Since(t0).Milliseconds()
 	chars := ttsCountChars(ttsTestPhrase)
-	if err := ttsReserve(ttsOwnerTestUser, chars, cfg); err != nil {
+	month, err := ttsReserve(ttsOwnerTestUser, chars, cfg)
+	if err != nil {
 		return fail("quota_exceeded", "This month's character limit is reached.")
 	}
-	month := ttsMonth(tune().Now())
 	t1 := time.Now()
 	uc, err := conn.synth(model.Upstream, voice, ttsDefaultSampleRate, ttsTestPhrase)
 	if err != nil {
