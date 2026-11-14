@@ -9,6 +9,8 @@ require (
 	modernc.org/sqlite v1.51.0
 )
 
+require github.com/coder/websocket v1.8.14
+
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/jsonschema-go v0.4.3

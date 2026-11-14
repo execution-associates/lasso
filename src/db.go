@@ -222,6 +222,10 @@ func openDB() error {
 		h.Close()
 		return fmt.Errorf("create client threads schema: %w", err)
 	}
+	if _, err := h.Exec(clientTTSSchema); err != nil {
+		h.Close()
+		return fmt.Errorf("create client tts schema: %w", err)
+	}
 	for _, alter := range clientThreadsLateColumns {
 		if _, err := h.Exec(alter); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 			h.Close()
