@@ -250,14 +250,6 @@ func serveClient(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		serveClientCallEnd(w, id, segs[1])
-	case len(segs) == 1 && segs[0] == "tts":
-		if r.Method != http.MethodGet {
-			clientMethod(w, "GET")
-			return
-		}
-		serveClientTTS(w, id)
-	case len(segs) == 2 && segs[0] == "tts" && segs[1] == "stream":
-		serveClientTTSStream(w, r, id)
 	case len(segs) == 1 && segs[0] == "device":
 		if r.Method != http.MethodDelete {
 			clientMethod(w, "DELETE")
@@ -271,13 +263,14 @@ func serveClient(w http.ResponseWriter, r *http.Request) {
 }
 
 // clientGrantedBot answers the bot's record when the token's user holds a grant
-// on it; unknown and not-granted read the same.
+// on it; unknown and not-granted read the same. The demo bot of review access
+// has no bots row: clientBotRecord synthesizes it.
 func clientGrantedBot(id *clientIdentity, name string) (*botRecord, *appGrant, bool) {
 	g, err := getAppGrant(id.User.ID, name)
 	if err != nil {
 		return nil, nil, false
 	}
-	rec, err := getBot(name)
+	rec, err := clientBotRecord(name)
 	if err != nil {
 		return nil, nil, false
 	}
@@ -428,6 +421,7 @@ func serveClientPairPage(w http.ResponseWriter, r *http.Request) {
 
 type clientBotView struct {
 	Name           string     `json:"name"`
+	Description    string     `json:"description,omitempty"`
 	AvatarURL      string     `json:"avatar_url,omitempty"`
 	State          string     `json:"state"`
 	StateReason    string     `json:"state_reason,omitempty"`
@@ -465,6 +459,9 @@ func clientBotViewOf(id *clientIdentity, name string, now time.Time) (clientBotV
 	}
 	state, caps, reason := botClientState(rec, now)
 	v := clientBotView{Name: name, State: state, StateReason: reason, Capabilities: caps, IsOwner: g.Owner, ConversationID: conv.ID, MainThreadID: conv.ID}
+	if isClientDemoBot(name) {
+		v.Description = clientDemoBotDescription
+	}
 	if t, err := threadByID(conv.ID); err == nil {
 		v.Unread = threadUnread(t)
 	}
@@ -496,7 +493,7 @@ func clientPushPreviews(userID string) bool {
 
 // clientFeatures is what this server supports of the client API beyond its
 // first version; an app hides what is missing.
-var clientFeatures = []string{"threads", "search", "push", "proposals", "tts"}
+var clientFeatures = []string{"threads", "search", "push", "proposals"}
 
 func clientLimitsView() map[string]any {
 	var max any
@@ -813,7 +810,7 @@ func serveClientUpload(w http.ResponseWriter, r *http.Request, id *clientIdentit
 		clientError(w, http.StatusConflict, "no_participants", "Nobody is in this thread any more: add a bot first.")
 		return
 	}
-	rec, err := getBot(lead)
+	rec, err := clientBotRecord(lead)
 	if err != nil {
 		clientNotFound(w)
 		return
@@ -1043,7 +1040,7 @@ func serveClientEvents(w http.ResponseWriter, r *http.Request, id *clientIdentit
 	} else if v := r.URL.Query().Get("last_event_id"); v != "" {
 		last, haveLast = parseCursor(v)
 	}
-	rec, err := getBot(conv.Bot)
+	rec, err := clientBotRecord(conv.Bot)
 	if err != nil {
 		// A thread whose bots have all left still streams its events.
 		rec = &botRecord{Name: conv.Bot, Stopped: true}
@@ -1133,7 +1130,8 @@ func serveClientEvents(w http.ResponseWriter, r *http.Request, id *clientIdentit
 				}
 			}
 		}
-		if !now.Before(nextLook) && !rec.isOmp() && b != nil {
+		// The demo bot of review access has no terminal to read.
+		if !now.Before(nextLook) && !rec.isOmp() && b != nil && !isClientDemoBot(rec.Name) {
 			nextLook = now.Add(look)
 			if mid, outstanding := clientOutstanding(conv.ID); outstanding {
 				lk := botTalkLookFn(b, rec, true)

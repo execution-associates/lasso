@@ -209,6 +209,7 @@ func openDB() error {
 		`ALTER TABLE app_users ADD COLUMN file_retention_days INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE app_users ADD COLUMN quota_mb INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE app_users ADD COLUMN quota_files INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE app_users ADD COLUMN review INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE app_attachments ADD COLUMN removed TEXT NOT NULL DEFAULT ''`,
 	}, clientThreadsColumns...) {
 		if _, err := h.Exec(alter); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
@@ -222,15 +223,23 @@ func openDB() error {
 		h.Close()
 		return fmt.Errorf("create client threads schema: %w", err)
 	}
-	if _, err := h.Exec(clientTTSSchema); err != nil {
+	// An 8.9.0 database carries the phone apps' cloud voice relay's usage
+	// table and its settings row; both go, every start (speechrelay_drop.go).
+	if err := dropSpeechRelay(h); err != nil {
 		h.Close()
-		return fmt.Errorf("create client tts schema: %w", err)
+		return fmt.Errorf("drop the cloud voice schema: %w", err)
 	}
 	for _, alter := range clientThreadsLateColumns {
 		if _, err := h.Exec(alter); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 			h.Close()
 			return fmt.Errorf("migrate client threads schema: %w", err)
 		}
+	}
+	// Review access's own table (clientreview.go): additive, and independent of
+	// every other schema.
+	if _, err := h.Exec(clientReviewSchema); err != nil {
+		h.Close()
+		return fmt.Errorf("create review access schema: %w", err)
 	}
 	db = h
 	if err := migrateFromYAML(); err != nil {

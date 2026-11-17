@@ -88,7 +88,7 @@ func grantedBotOf(userID, bot string) (*botRecord, *appGrant, bool) {
 	if err != nil {
 		return nil, nil, false
 	}
-	rec, err := getBot(bot)
+	rec, err := clientBotRecord(bot)
 	if err != nil {
 		return nil, nil, false
 	}
@@ -226,7 +226,17 @@ func clientSendThread(id *clientIdentity, t *appThread, in clientSendIn, now tim
 		_, _ = db.Exec(`UPDATE app_attachments SET message_id = ? WHERE id = ?`, msgID, a.ID)
 	}
 	var firstEvent int64
+	demo := false
 	for _, tg := range targets {
+		// The demo bot of review access is not a process and takes no events:
+		// its delivery is lasso's own, and its scripted answer is scheduled
+		// after the message is announced.
+		if isClientDemoBot(tg.rec.Name) {
+			_, _ = db.Exec(`INSERT OR REPLACE INTO app_message_deliveries (message_id, thread_id, bot, event_id, state, failed_reason, routed) VALUES (?, ?, ?, 0, 'delivered', '', ?)`,
+				msgID, t.ID, tg.rec.Name, tg.routed)
+			demo = true
+			continue
+		}
 		files := make([]map[string]any, 0, len(atts))
 		var footer []string
 		for _, a := range atts {
@@ -274,6 +284,15 @@ func clientSendThread(id *clientIdentity, t *appThread, in clientSendIn, now tim
 		return m, false, e
 	}
 	appendClientEvent(t.ID, "message", m, now)
+	if demo {
+		// The demo bot has no channel to report a claim, so its delivery is
+		// delivered as the message is stored; the app sees the same event a
+		// real bot's delivery produces.
+		appendClientEvent(t.ID, "message_state", map[string]any{
+			"thread_id": t.ID, "message_id": msgID, "bot": clientDemoBot, "state": "delivered", "aggregate_state": "delivered",
+		}, now)
+		clientDemoReplySoon(t.ID, msgID)
+	}
 	var changes []string
 	if reopened {
 		changes = append(changes, "state")
@@ -352,7 +371,7 @@ func clientAttachmentBytes(a appAttachment) ([]byte, error) {
 		if h.path == "" {
 			continue
 		}
-		rec, err := getBot(h.bot)
+		rec, err := clientBotRecord(h.bot)
 		if err != nil {
 			continue
 		}

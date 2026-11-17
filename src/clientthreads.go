@@ -263,7 +263,7 @@ func ensureMainThreads(userID string, now time.Time) {
 		return
 	}
 	for _, g := range gs {
-		if _, err := getBot(g.Bot); err == nil {
+		if _, err := clientBotRecord(g.Bot); err == nil {
 			_, _ = convFor(userID, g.Bot, now)
 		}
 	}
@@ -1724,7 +1724,7 @@ func clientPersonBotStates(id *clientIdentity, now time.Time) []map[string]any {
 	out := []map[string]any{}
 	gs, _ := listAppGrants(id.User.ID)
 	for _, g := range gs {
-		rec, err := getBot(g.Bot)
+		rec, err := clientBotRecord(g.Bot)
 		if err != nil {
 			continue
 		}
@@ -1813,6 +1813,10 @@ func clientPersonActivity(userID string, seen map[string]bool, lastLabel map[str
 			continue
 		}
 		done[x.bot] = true
+		// The demo bot of review access has no terminal to read.
+		if isClientDemoBot(x.bot) {
+			continue
+		}
 		rec, err := getBot(x.bot)
 		if err != nil || rec.isOmp() {
 			continue

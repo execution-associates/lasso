@@ -416,8 +416,8 @@ func runServer() {
 	// titler. Also behind UI_AUTH.
 	mux.HandleFunc("/api/client-push", serveClientPushConfig)
 	mux.HandleFunc("/api/client-push/test", serveClientPushConfig)
-	mux.HandleFunc("/api/client-tts", serveClientTTSConfig)
-	mux.HandleFunc("/api/client-tts/test", serveClientTTSConfig)
+	// Review access (clientreview.go): the owner's on/off and its one link.
+	mux.HandleFunc("/api/client-review", serveClientReview)
 	mux.HandleFunc("/api/llm/config", serveLLMConfig)
 	mux.HandleFunc("/api/llm/models", serveLLMModels)
 	mux.HandleFunc("/api/llm/test", serveLLMTest)

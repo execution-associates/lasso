@@ -1,8 +1,8 @@
 <!-- Design rationale and contract: read before changing the code it names. -->
 
-<!-- Threads, search, proposals and push extend this API: client-threads.md. Text to speech: client-tts.md. -->
+<!-- Threads, search, proposals and push extend this API: client-threads.md. -->
 
-# Client API (`src/clientapi.go`, `src/clientapi_store.go`, `src/clientapi_bot.go`, `src/clientapi_admin.go`, `src/mcp_appusers.go`)
+# Client API (`src/clientapi.go`, `src/clientapi_store.go`, `src/clientapi_bot.go`, `src/clientapi_admin.go`, `src/clientreview.go`, `src/mcp_appusers.go`)
 
 The client API is how a phone app (iOS today, Android next) lets a person talk to the bots they were given, by text and by voice call. It is `/client/v1` on lasso's origin, beside `/talk` (the OpenAI-compatible door) and nothing like the owner's `/api`. Tests: `clientapi_test.go`.
 
@@ -29,6 +29,7 @@ OpenAI compatibility is not a goal. The protocol is shaped for these clients.
 - [Limits](#limits)
 - [Delivery to the bot](#delivery-to-the-bot)
 - [Managing people](#managing-people)
+- [Review access](#review-access)
 - [Security model](#security-model)
 - [Deployment](#deployment)
 - [Gaps and seams](#gaps-and-seams)
@@ -97,6 +98,7 @@ Errors are JSON with a status and a stable `code`:
 | 401 | `unauthorized` | the token does not identify an enabled user's device |
 | 401 | `pairing_failed` | the pairing did not work, for any reason |
 | 403 | `quota_exceeded` | a stored-file quota is full ([Attachments](#attachments)); `message` says what to do: delete files or choose a shorter retention |
+| 403 | `device_limit` | a review link has paired its 25 devices ([Review access](#review-access)) |
 | 404 | `not_found` | the id is unknown, or belongs to someone else, or to a bot the user is not granted: the same answer |
 | 405 | `method_not_allowed` | `Allow` names the methods |
 | 409 | `bot_unavailable` | the bot is stopped, or cannot take app messages now; `message` says why |
@@ -156,7 +158,7 @@ All under `/client/v1`, JSON unless stated. `{bot}` is the bot's name, ids are t
 
 `settings.file_retention_days` is how long the person's files are kept under what is in force now: a whole number of days, or `null` for "until I delete them" ([Settings and files](#settings-and-files)). `limits.max_file_retention_days` is the owner's maximum (`LASSO_CLIENT_RETENTION_DAYS`), or `null` when there is none: an app that cannot offer "keep" says why from it. `storage` is the person's stored uploads against their limits, the numbers the quota check uses (the files bots sent them do not count, [Attachments](#attachments)); `quota_bytes` and `quota_files` are the person's own, which the owner may have raised or lowered.
 
-Only granted bots appear in `bots`, and only this: a name, a picture, a coarse state, what the bot can do for the app, whether the user owns it, and their conversation id. No folder, host, model, runtime, instructions or other user.
+Only granted bots appear in `bots`, and only this: a name, a picture, a coarse state, what the bot can do for the app, whether the user owns it, and their conversation id. No folder, host, model, runtime, instructions or other user. The demo bot of [review access](#review-access) also carries a `description`.
 
 `state_reason` is present only for `unavailable`. `state` is one of `available`, `busy` (working a turn or waiting on its human), `starting` (running but not yet listening: a message waits for it), `stopped` (a message is refused) and `unavailable` (cannot take app messages now: for a claude bot, a channel without the client tools that needs the bot restarted, or no channel; `state_reason` says). The state is cached for five seconds per bot. `capabilities.chat` and `voice` are false when `unavailable`. `attachments_out` and `end_call` are the bot's ability to send files and hang up: always true for a claude bot, and for an omp bot only when it has lasso's MCP server ([omp](#omp-bots)). `streaming_text` is always false: replies arrive whole ([omp](#omp-bots)). `avatar_url` is absent without a picture; its query is the revision, so the URL can be cached forever.
 
@@ -296,6 +298,7 @@ The outbox is the bot's own choice of what to give the person it is talking to; 
 | bot message text | 64 KB (the bot sends longer answers in parts with `done=false`) |
 | streams | 3 open per device, 20 opens a minute, 55 minutes each |
 | pairing | 10 failures per source per 10 minutes (no overall cap); a code lives 10 minutes |
+| review access | the link lives 1-365 days from its mint (default 30); at most 25 devices at a time; the demo person stores 50 MB and 200 files |
 | reply token | open until a `done=true` reply closes it, and for six hours after the bot took the message |
 | events kept | 48 hours; calls idle 30 minutes end; messages and conversations are kept until the user is deleted |
 | name, label | 64 characters, one line, none of `<` `>` `"` backslash backtick, controls or invisible formatting characters |
@@ -391,6 +394,29 @@ A user view: `{id, name, email, disabled, created_at, updated_at, grants: [{bot,
 
 The tools that mint pairings return the code to the calling agent: it is single-use and expires in ten minutes, but it should go to the person, not into a shared channel.
 
+## Review access
+
+App review needs a sign-in that lasts for days, while a pairing link is single-use and good for ten minutes, and every real bot is a coding agent with a shell that must never be handed to a stranger. **Review access** is the answer: a long-lived pairing link bound to a throwaway person who can talk to exactly one scripted demo bot that has no agent behind it (`src/clientreview.go`).
+
+**The demo bot.** Name "Demo Bot", description "A sample bot that shows how Lasso works". It is not a row in `bots` and has no pane, agent, shell, model, tools, MCP server, environment, jobs, webhooks or talk key. The client API synthesizes its record, so nothing an owner does can start, message or configure it: `getBot` refuses its name, its name is not a legal bot name, and the owner's `list_bots`, `start_bot`, `stop_bot`, `restart_bot`, `send_bot`, `update_bot` and `delete_bot` answer that no such bot exists. It takes no `bot_events` rows, and the owner's storage for it is lasso's own `<lassoDir>/client-review/`, not a bot folder.
+
+**Its replies are scripted.** A message routed to it is stored and announced as any person's message is, with its delivery already `delivered` (there is no channel to claim it), and about a second later the demo bot answers through the ordinary bot-reply path: a stored `bot` message with `in_reply_to` and the call's `call_id` when the message was spoken, a `message` stream event, a push when push is configured, and the thread hooks (a thread's provisional title, its stubs and unread counts; the demo bot is never asked to name a thread, since that would take a model). The answer comes from one pure function, `demoBotReply`, which matches keywords (hello; help / what can you do; threads; calls and voice; files, photos and attachments; who are you / what is Lasso; thanks) and otherwise acknowledges the message, quoting at most 60 characters of it, and says the replies are scripted. An attached file is acknowledged by name. Replies are plain, friendly, one to three sentences, and describe the app. Voice calls work end to end: the spoken turn is answered on its call, the app speaks the reply, and hanging up tells no bot because there is none.
+
+**The demo person.** One app user, display name "App Review", flagged `review` on `app_users`. It can see and message only the demo bot: a real bot can never be granted to it and the demo bot can never be granted to anyone else, both refused at the grant API and filtered when grants are read. The owner cannot change its storage, disable it, delete it, or mint a one-time pairing for it; those belong to review access. Its uploads are capped at 50 MB and 200 files, with the ordinary per-file limits. Bot proposals and bot-to-bot fan-out do not arise: the demo bot is the only bot any review thread can hold.
+
+**The link.** `PUT /api/client-review {"enabled":true,"days":30}` makes the demo person (if there is none), grants it the demo bot, and mints a code with the ordinary pairing format and link (`…/client/pair#code=lpc_…`), so the app needs no change. The code is multi-use and long-lived: each use pairs one more device, up to 25 at a time (further pairing is `403 device_limit`, and no device is evicted), and it expires after `days` (1-365, default 30) from the mint. It is stored only as its hash and shown once; enabling again re-mints it and retires the old one, leaving paired devices paired. The pairing rate limits apply as they do to any code. `{"enabled":false}` revokes the code, signs out and deletes every device paired through it, and deletes the demo person's threads, messages, events, calls and files.
+
+```json
+GET  /api/client-review   {"review": {"enabled": true, "days": 30, "max_devices": 25, "expires_at": "…", "expired": false,
+                                      "devices": 1, "user_id": "u_…", "user_name": "App Review",
+                                      "bot": {"name": "Demo Bot", "description": "A sample bot that shows how Lasso works"}}}
+PUT  /api/client-review   {"enabled": true, "days": 30, "base_url": "https://lasso.example.com"}
+     → {"review": {…}, "code": "lpc_…", "link": "https://lasso.example.com/client/pair#code=lpc_…", "deep_link": "lasso://pair?code=…"}
+PUT  /api/client-review   {"enabled": false} → {"review": {…}}
+```
+
+A read never returns the code. The route is behind `UI_AUTH` and off machine callers like `/api/client-push`, and the matching `update_settings client_review` refuses an anonymous `/mcp` caller. Review access is off, with nothing existing, until the owner turns it on.
+
 ## Security model
 
 - **The token is the only credential and the only identity.** There is no session cookie, no ambient credential and no state a web page could ride, so `/client` is exempt from the cross-site check and from CORS (none is sent). `Authorization` is read only from the header.
@@ -408,6 +434,7 @@ The tools that mint pairings return the code to the calling agent: it is single-
 - **Untrusted text everywhere**: the person's words, the bot's words and file names are data. The page for the pairing link reflects nothing.
 - **Logging**: the API logs nothing of requests. Pairing failures are counted in memory, by source address, only.
 - **Pairing is not reachable through anonymous `/mcp`.** The user-management tools refuse a caller with no credential and are hidden from its tool list, because that is what a bot on lasso's machine is on an open `/mcp`. A steered bot therefore cannot make an outside person an owner or pair a device for the owner's user through them.
+- **Review access is a separate, smaller surface.** Its person reaches the demo bot and nothing else, enforced at the grant API and again when grants are read, and its device tokens stop working the moment review access is turned off. The demo bot is not a `bots` row and no owner path can reach it, so review access can never expose a real bot, its folder, its shell or its conversation. The demo person's storage is its own directory, capped, and deleted with it.
 - **Residual trust, plainly.** A bot that runs on the same machine as lasso and has shell access can reach lasso's loopback listener, which trusts every local process as the owner: it can call the owner's `/api` (including `/api/app-users`), edit its own folder's configuration and read every person's uploads in it. So the owner/outsider distinction **protects the owner only as long as the bot itself refuses an outside person's instructions**. Lasso proves who is speaking and keeps people's conversations apart; it cannot stop a bot that has been talked into misusing its own local access. A bot you grant to outside people should be one whose instructions and tool permissions are written for that (no shell, no broad file access, no secrets in its folder or environment), or one that runs where it cannot reach lasso's loopback (another host, with no route to lasso's port). Do not read the owner flag as a guarantee about what a bot will do.
 
 ## Deployment
@@ -422,7 +449,7 @@ The API is the same binary and the same listeners; nothing needs a new port.
 ## Gaps and seams
 
 - The pairing link is a web page that opens the app through the `lasso://` custom scheme; there is no platform app link or universal link association (no `apple-app-site-association`, no `assetlinks.json`), so the OS does not route the HTTPS link to the app.
-- Threads, search, proposals and push notifications (APNs, FCM) are [client-threads.md](client-threads.md): a conversation is the person's main thread with that bot, and `/conversations/{id}/…` is an alias of `/threads/{id}/…`. Speech recognition is the app's. Speech synthesis is the app's too, with one optional cloud voice relayed by lasso so the app never holds a key: [client-tts.md](client-tts.md) (`GET /tts`, and the WebSocket `GET /tts/stream`).
+- Threads, search, proposals and push notifications (APNs, FCM) are [client-threads.md](client-threads.md): a conversation is the person's main thread with that bot, and `/conversations/{id}/…` is an alias of `/threads/{id}/…`. Speech recognition and speech synthesis are the app's.
 - Messages are kept until the user or bot is deleted; there is no per-conversation delete. Files (uploads and the bot's copies) are kept until the person deletes them or their retention removes them, unused uploads for a day.
 - Bots cannot start a conversation: every reply answers a message the person sent. A push or a scheduled note from a bot would need a deliberate grant that does not exist yet.
 - A stream's `activity` and the state are polled (two to four seconds; the terminal is read, over SFTP for a remote bot).

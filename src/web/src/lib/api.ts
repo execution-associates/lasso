@@ -1275,60 +1275,6 @@ export interface ClientPushPatch {
   fcm?: Partial<Record<"credentials_ref", string>>
 }
 
-// The phone apps' text-to-speech relay (clienttts.go): a key reference, never
-// the key, the choices, the state and this month's usage.
-export interface ClientTTSConfig {
-  inworld: {
-    key_ref: string
-    default_model: string
-    default_voice: string
-    monthly_character_limit: number
-    total_monthly_character_limit: number
-    default_monthly_character_limit: number
-    default_total_monthly_character_limit: number
-    enabled: boolean
-    state: "unconfigured" | "unreadable" | "ready" | "failing"
-    reason?: string
-  }
-  month: string
-  models: { id: string; name: string; default?: boolean }[]
-  usage: {
-    characters_this_month: number
-    limit_characters: number
-    people?: {
-      user_id: string
-      name: string
-      characters: number
-      audio_ms: number
-      sentences: number
-    }[]
-  }
-}
-
-export interface ClientTTSPatch {
-  inworld: Partial<{
-    key_ref: string | null
-    default_model: string | null
-    default_voice: string | null
-    monthly_character_limit: number | null
-    total_monthly_character_limit: number | null
-    enabled: boolean
-  }>
-}
-
-export interface ClientTTSTestResult {
-  ok: boolean
-  code?: string
-  message?: string
-  model?: string
-  voice?: string
-  connect_ms?: number
-  first_audio_ms?: number
-  total_ms?: number
-  audio_ms?: number
-  characters?: number
-}
-
 export interface AppUser {
   id: string
   name: string
@@ -2451,12 +2397,6 @@ export const api = {
       provider: string
       token_deleted?: boolean
     }>("/api/client-push/test", { user_id: userID, device_id: deviceID }),
-  // The phone apps' text-to-speech relay (clienttts.go): a key reference only.
-  clientTTS: () => getJSON<ClientTTSConfig>("/api/client-tts"),
-  setClientTTS: (patch: ClientTTSPatch) =>
-    postJSON<ClientTTSConfig>("/api/client-tts", patch),
-  testClientTTS: () =>
-    postJSON<ClientTTSTestResult>("/api/client-tts/test", {}),
   setLLMConfig: (patch: LLMConfigPatch) =>
     postJSON<LLMConfig>("/api/llm/config", patch),
   // The endpoint's /models for the picker. `refresh` bypasses the short cache.
