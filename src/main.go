@@ -418,8 +418,6 @@ func runServer() {
 	mux.HandleFunc("/api/client-push/test", serveClientPushConfig)
 	// Review access (clientreview.go): the owner's on/off and its one link.
 	mux.HandleFunc("/api/client-review", serveClientReview)
-	mux.HandleFunc("/api/client-tts", serveClientTTSConfig)
-	mux.HandleFunc("/api/client-tts/test", serveClientTTSConfig)
 	mux.HandleFunc("/api/llm/config", serveLLMConfig)
 	mux.HandleFunc("/api/llm/models", serveLLMModels)
 	mux.HandleFunc("/api/llm/test", serveLLMTest)

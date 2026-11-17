@@ -38,10 +38,6 @@ import {
   ClientPushSettings,
   ClientPushSummary,
 } from "@/components/ClientPushSettings"
-import {
-  ClientTTSSettings,
-  ClientTTSSummary,
-} from "@/components/ClientTTSSettings"
 import { Pill } from "@/components/Pill"
 import {
   AlertDialog,
@@ -508,13 +504,6 @@ export function SettingsTab({ active }: { active: boolean }) {
             summary={<ClientPushSummary active={generalActive} />}
           >
             {(open) => <ClientPushSettings active={generalActive && open} />}
-          </SettingsGroup>
-          <SettingsGroup
-            id="phone-tts"
-            title="Phone app speech"
-            summary={<ClientTTSSummary active={generalActive} />}
-          >
-            {(open) => <ClientTTSSettings active={generalActive && open} />}
           </SettingsGroup>
           <SettingsGroup
             id="bot-alerts"

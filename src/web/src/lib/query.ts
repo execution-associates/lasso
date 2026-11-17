@@ -49,7 +49,6 @@ export const qk = {
   llmConfig: ["llm-config"] as const,
   // Push to the phone apps (clientpush.go).
   clientPush: ["client-push"] as const,
-  clientTTS: ["client-tts"] as const,
   llmModels: ["llm-models"] as const,
   // Server-level: daily Claude Code update restarts for bots (botupdates.go).
   botUpdates: ["bot-updates"] as const,
