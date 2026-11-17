@@ -216,13 +216,17 @@ type appUser struct {
 	FileRetentionDays int `json:"-"`
 	QuotaMB           int `json:"-"`
 	QuotaFiles        int `json:"-"`
+	// Review marks the throwaway person of review access (clientreview.go): it
+	// may see and message only the demo bot, and no real bot can be granted to
+	// it.
+	Review bool `json:"review,omitempty"`
 }
 
-const appUserCols = `id, name, email, disabled, created_at, updated_at, file_retention_days, quota_mb, quota_files`
+const appUserCols = `id, name, email, disabled, created_at, updated_at, file_retention_days, quota_mb, quota_files, review`
 
 func scanAppUser(row interface{ Scan(...any) error }) (*appUser, error) {
 	var u appUser
-	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Disabled, &u.CreatedAt, &u.UpdatedAt, &u.FileRetentionDays, &u.QuotaMB, &u.QuotaFiles)
+	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Disabled, &u.CreatedAt, &u.UpdatedAt, &u.FileRetentionDays, &u.QuotaMB, &u.QuotaFiles, &u.Review)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errClientNotFound
 	}
@@ -320,6 +324,16 @@ func updateAppUser(id string, p appUserPatch, now time.Time) (*appUser, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The review person's storage ceiling is part of review access's promise,
+	// and it is turned off by turning review access off, not by disabling it.
+	if u.Review {
+		if p.Disabled != nil && *p.Disabled {
+			return nil, errors.New("review access is turned off with /api/client-review, not by disabling its person")
+		}
+		if p.QuotaMB.Set || p.QuotaFiles.Set {
+			return nil, errors.New("the review person's storage is fixed by review access")
+		}
+	}
 	if p.Name != nil {
 		n, ok := cleanLine(*p.Name, clientNameMax)
 		if !ok {
@@ -355,8 +369,22 @@ func updateAppUser(id string, p appUserPatch, now time.Time) (*appUser, error) {
 // pairings, conversations with their messages, events, attachments and calls.
 // The files of their uploads, and every bot's copy of them, stay in the bots'
 // folders for clientRemoveFiles to remove; it returns the rows it dropped so
-// the caller can.
+// the caller can. The review person is not deleted this way: review access
+// owns it (clientreview.go).
 func deleteAppUser(id string) ([]appAttachment, error) {
+	u, err := getAppUser(id)
+	if err != nil {
+		return nil, err
+	}
+	if u.Review {
+		return nil, errors.New("review access is turned off with /api/client-review, not by deleting its person")
+	}
+	return deleteAppUserData(id)
+}
+
+// deleteAppUserData is deleteAppUser without the review person's guard, for
+// review access turning itself off.
+func deleteAppUserData(id string) ([]appAttachment, error) {
 	atts, _ := listAppAttachmentsOfUser(id)
 	tx, err := db.Begin()
 	if err != nil {
@@ -428,14 +456,28 @@ type appGrant struct {
 	CreatedAt string `json:"created_at"`
 }
 
+// setAppGrant lets a person reach a bot. Review access's person and the demo
+// bot are two halves of one thing: neither can be granted anything else, so a
+// real bot can never reach the review person and the demo bot can never reach
+// a real person.
 func setAppGrant(userID, bot string, owner bool, now time.Time) (*appGrant, error) {
-	if _, err := getAppUser(userID); err != nil {
+	u, err := getAppUser(userID)
+	if err != nil {
 		return nil, err
 	}
-	if _, err := getBot(bot); err != nil {
-		return nil, fmt.Errorf("no bot named %q", bot)
+	switch {
+	case isClientDemoBot(bot) && !u.Review:
+		return nil, errors.New("the demo bot belongs to review access: it cannot be granted to anyone else")
+	case !isClientDemoBot(bot) && u.Review:
+		return nil, errors.New("review access reaches the demo bot only: a real bot cannot be granted to its person")
+	case isClientDemoBot(bot) && owner:
+		return nil, errors.New("the demo bot has no owner")
+	case !isClientDemoBot(bot):
+		if _, err := getBot(bot); err != nil {
+			return nil, fmt.Errorf("no bot named %q", bot)
+		}
 	}
-	_, err := db.Exec(`INSERT INTO app_grants (user_id, bot, owner, created_at) VALUES (?, ?, ?, ?)
+	_, err = db.Exec(`INSERT INTO app_grants (user_id, bot, owner, created_at) VALUES (?, ?, ?, ?)
 		ON CONFLICT(user_id, bot) DO UPDATE SET owner = excluded.owner`, userID, bot, boolInt(owner), nowStamp(now))
 	if err != nil {
 		return nil, err
@@ -443,9 +485,15 @@ func setAppGrant(userID, bot string, owner bool, now time.Time) (*appGrant, erro
 	return getAppGrant(userID, bot)
 }
 
+// getAppGrant reads one grant, filtered by who the person is: a review person
+// holds the demo bot's and nothing else, and nobody else holds the demo bot's,
+// whatever a stray row in the table might say.
 func getAppGrant(userID, bot string) (*appGrant, error) {
 	var g appGrant
-	err := db.QueryRow(`SELECT user_id, bot, owner, created_at FROM app_grants WHERE user_id = ? AND bot = ?`, userID, bot).
+	err := db.QueryRow(`SELECT g.user_id, g.bot, g.owner, g.created_at FROM app_grants g
+		JOIN app_users u ON u.id = g.user_id
+		WHERE g.user_id = ? AND g.bot = ? AND ((u.review = 1 AND g.bot = ?) OR (u.review = 0 AND g.bot != ?))`,
+		userID, bot, clientDemoBot, clientDemoBot).
 		Scan(&g.UserID, &g.Bot, &g.Owner, &g.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errClientNotFound
@@ -454,6 +502,9 @@ func getAppGrant(userID, bot string) (*appGrant, error) {
 }
 
 func deleteAppGrant(userID, bot string) error {
+	if u, err := getAppUser(userID); err == nil && u.Review {
+		return errors.New("review access is managed by /api/client-review, not by grants")
+	}
 	res, err := db.Exec(`DELETE FROM app_grants WHERE user_id = ? AND bot = ?`, userID, bot)
 	if err != nil {
 		return err
@@ -480,7 +531,13 @@ func dropClientEvents(where string, args ...any) {
 }
 
 func listAppGrants(userID string) ([]appGrant, error) {
-	rows, err := db.Query(`SELECT bot, owner, created_at FROM app_grants WHERE user_id = ? ORDER BY bot`, userID)
+	// Read-time filter: a review person sees the demo bot and nothing else, and
+	// nobody else sees the demo bot, even if a stray grant row were written
+	// into the table by something else.
+	rows, err := db.Query(`SELECT g.bot, g.owner, g.created_at FROM app_grants g
+		JOIN app_users u ON u.id = g.user_id
+		WHERE g.user_id = ? AND ((u.review = 1 AND g.bot = ?) OR (u.review = 0 AND g.bot != ?)) ORDER BY g.bot`,
+		userID, clientDemoBot, clientDemoBot)
 	if err != nil {
 		return nil, err
 	}
@@ -561,6 +618,9 @@ func mintAppPairing(userID, mintedBy string, now time.Time) (string, *appPairing
 	if u.Disabled {
 		return "", nil, errors.New("the user is disabled")
 	}
+	if u.Review {
+		return "", nil, errors.New("this person's access is review access: mint its link with /api/client-review")
+	}
 	code := clientRandomToken(clientPairPrefix, 16)
 	p := &appPairing{ID: clientID("p_", 8), UserID: userID, MintedBy: mintedBy, CreatedAt: nowStamp(now), ExpiresAt: nowStamp(now.Add(clientPairTTL))}
 	_, err = db.Exec(`INSERT INTO app_pairings (id, user_id, code_hash, minted_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -622,6 +682,11 @@ func redeemAppPairing(code, label, platform string, now time.Time) (token string
 		return "", nil, nil, err
 	}
 	defer tx.Rollback()
+	// Review access's code is multi-use and long-lived: it pairs one more
+	// device each time, up to the limit, and never burns itself.
+	if rv, ok := reviewCodeRow(tx, tokenHash(code)); ok {
+		return redeemReviewPairing(tx, rv, l, pl, now)
+	}
 	var p appPairing
 	var storedHash string
 	err = tx.QueryRow(`SELECT id, user_id, code_hash, minted_by, expires_at FROM app_pairings WHERE code_hash = ? AND used_at = ''`, tokenHash(code)).
@@ -670,17 +735,23 @@ func authenticateDeviceToken(tok string, now time.Time) (*clientIdentity, bool) 
 	h := tokenHash(tok)
 	var id clientIdentity
 	var stored string
-	var disabled bool
+	var disabled, review bool
 	u := &appUser{}
 	err := db.QueryRow(`SELECT d.id, d.user_id, d.token_hash, d.label, d.platform, d.paired_by, d.created_at, d.last_seen_at,
-			u.id, u.name, u.email, u.disabled, u.created_at, u.updated_at, u.file_retention_days, u.quota_mb, u.quota_files
+			u.id, u.name, u.email, u.disabled, u.created_at, u.updated_at, u.file_retention_days, u.quota_mb, u.quota_files, u.review
 		FROM app_devices d JOIN app_users u ON u.id = d.user_id WHERE d.token_hash = ? AND d.revoked_at = ''`, h).
 		Scan(&id.Device.ID, &id.Device.UserID, &stored, &id.Device.Label, &id.Device.Platform, &id.Device.PairedBy, &id.Device.CreatedAt, &id.Device.LastSeenAt,
-			&u.ID, &u.Name, &u.Email, &disabled, &u.CreatedAt, &u.UpdatedAt, &u.FileRetentionDays, &u.QuotaMB, &u.QuotaFiles)
+			&u.ID, &u.Name, &u.Email, &disabled, &u.CreatedAt, &u.UpdatedAt, &u.FileRetentionDays, &u.QuotaMB, &u.QuotaFiles, &review)
 	if err != nil || !hashEqual(stored, h) || disabled {
 		return nil, false
 	}
+	// A review device works only while review access is on: turning it off
+	// signs out every device paired through it.
+	if review && !clientReviewOn() {
+		return nil, false
+	}
 	u.Disabled = disabled
+	u.Review = review
 	id.User = u
 	// last_seen is a courtesy for the owner's device list: once a minute is
 	// plenty, and a read-heavy app should not write on every request.

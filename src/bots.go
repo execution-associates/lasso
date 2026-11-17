@@ -876,12 +876,25 @@ func listBots() ([]*botRecord, error) {
 		if err != nil {
 			return nil, err
 		}
+		// The demo bot of review access is not a real bot and is never listed
+		// as one (clientreview.go).
+		if isClientDemoBot(r.Name) {
+			continue
+		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
 }
 
 func getBot(name string) (*botRecord, error) {
+	// The demo bot of review access (clientreview.go) is not a real bot: it has
+	// no row, no process and no owner tools. Refusing its name here means no
+	// path that starts, messages or configures a bot can ever reach it, even
+	// if a row were written into the table by hand. Its name is not a legal
+	// bot name either, so nothing else can create one.
+	if isClientDemoBot(name) {
+		return nil, errBotNotFound
+	}
 	r, err := scanBot(db.QueryRow(`SELECT `+botCols+` FROM bots WHERE name = ?`, name))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errBotNotFound

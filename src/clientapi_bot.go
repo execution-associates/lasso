@@ -86,6 +86,11 @@ func botClientToolsOnMCP(r *botRecord) bool {
 // starting (running, not yet listening: a message waits), stopped, unavailable
 // (cannot take app messages now; reason says why).
 func botClientState(rec *botRecord, now time.Time) (state string, caps clientCaps, reason string) {
+	// The demo bot of review access is not a process: it is always able to
+	// take a message, and it sends no files and never hangs up.
+	if isClientDemoBot(rec.Name) {
+		return "available", clientCaps{Chat: true, Voice: true, AttachmentsIn: true, Threads: true, ThreadTools: "none"}, ""
+	}
 	if rec.Stopped {
 		return "stopped", clientCaps{ThreadTools: "none"}, "The bot is stopped."
 	}
@@ -681,6 +686,10 @@ func clientEndCall(c *appCall, reason, lastWords string, now time.Time, tellBot 
 }
 
 func clientTellBotHangup(c *appCall, reason string, now time.Time) {
+	// The demo bot has no process to tell; there is no event queue for it.
+	if isClientDemoBot(c.Bot) {
+		return
+	}
 	t, err := threadByID(c.ConvID)
 	if err != nil {
 		return
@@ -1095,7 +1104,7 @@ func clientRemoveFiles(atts []appAttachment) {
 			delete(holders, a.Bot)
 		}
 		for bot, p := range holders {
-			rec, err := getBot(bot)
+			rec, err := clientBotRecord(bot)
 			if err != nil || !filepath.IsLocal(p) {
 				continue
 			}
