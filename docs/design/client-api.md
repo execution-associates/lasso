@@ -1,6 +1,6 @@
 <!-- Design rationale and contract: read before changing the code it names. -->
 
-<!-- Threads, search, proposals and push extend this API: client-threads.md. Text to speech: client-tts.md. -->
+<!-- Threads, search, proposals and push extend this API: client-threads.md. -->
 
 # Client API (`src/clientapi.go`, `src/clientapi_store.go`, `src/clientapi_bot.go`, `src/clientapi_admin.go`, `src/mcp_appusers.go`)
 
@@ -422,7 +422,7 @@ The API is the same binary and the same listeners; nothing needs a new port.
 ## Gaps and seams
 
 - The pairing link is a web page that opens the app through the `lasso://` custom scheme; there is no platform app link or universal link association (no `apple-app-site-association`, no `assetlinks.json`), so the OS does not route the HTTPS link to the app.
-- Threads, search, proposals and push notifications (APNs, FCM) are [client-threads.md](client-threads.md): a conversation is the person's main thread with that bot, and `/conversations/{id}/…` is an alias of `/threads/{id}/…`. Speech recognition is the app's. Speech synthesis is the app's too, with one optional cloud voice relayed by lasso so the app never holds a key: [client-tts.md](client-tts.md) (`GET /tts`, and the WebSocket `GET /tts/stream`).
+- Threads, search, proposals and push notifications (APNs, FCM) are [client-threads.md](client-threads.md): a conversation is the person's main thread with that bot, and `/conversations/{id}/…` is an alias of `/threads/{id}/…`. Speech recognition and speech synthesis are the app's.
 - Messages are kept until the user or bot is deleted; there is no per-conversation delete. Files (uploads and the bot's copies) are kept until the person deletes them or their retention removes them, unused uploads for a day.
 - Bots cannot start a conversation: every reply answers a message the person sent. A push or a scheduled note from a bot would need a deliberate grant that does not exist yet.
 - A stream's `activity` and the state are polled (two to four seconds; the terminal is read, over SFTP for a remote bot).

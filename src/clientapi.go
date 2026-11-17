@@ -250,14 +250,6 @@ func serveClient(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		serveClientCallEnd(w, id, segs[1])
-	case len(segs) == 1 && segs[0] == "tts":
-		if r.Method != http.MethodGet {
-			clientMethod(w, "GET")
-			return
-		}
-		serveClientTTS(w, id)
-	case len(segs) == 2 && segs[0] == "tts" && segs[1] == "stream":
-		serveClientTTSStream(w, r, id)
 	case len(segs) == 1 && segs[0] == "device":
 		if r.Method != http.MethodDelete {
 			clientMethod(w, "DELETE")
@@ -496,7 +488,7 @@ func clientPushPreviews(userID string) bool {
 
 // clientFeatures is what this server supports of the client API beyond its
 // first version; an app hides what is missing.
-var clientFeatures = []string{"threads", "search", "push", "proposals", "tts"}
+var clientFeatures = []string{"threads", "search", "push", "proposals"}
 
 func clientLimitsView() map[string]any {
 	var max any
