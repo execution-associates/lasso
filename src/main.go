@@ -432,6 +432,7 @@ func runServer() {
 	mux.HandleFunc("/api/hosts", serveHosts)
 	mux.HandleFunc("/api/host", serveHostAttach)
 	mux.HandleFunc("/api/agent-config", serveAgentConfig)
+	mux.HandleFunc("/api/omp-models", serveOmpModels)
 	mux.HandleFunc("/api/repo-config", serveRepoConfig)
 	mux.HandleFunc("/api/repos", serveRepos)
 	mux.HandleFunc("/api/repo-branches", serveRepoBranches)
