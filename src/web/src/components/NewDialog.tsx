@@ -3,6 +3,7 @@ import { ChevronDown, X } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { NewTerminalForm } from "@/components/NewTerminalForm"
+import { OmpModelPicker } from "@/components/OmpModelPicker"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Combobox } from "@/components/ui/combobox"
@@ -1261,23 +1262,37 @@ export function NewDialog({
                     </select>
                   </Field>
                   <Field label="Model" htmlFor="agent-model">
-                    {/* Free text + suggestions: model names churn faster than
-                      releases, so the list is a hint, not a constraint. The
-                      editable combobox always shows every suggestion on open
-                      (unlike a native datalist, which hides them once the
-                      field holds a complete value). */}
-                    <EditableCombobox
-                      id="agent-model"
-                      value={model}
-                      onValueChange={setModel}
-                      suggestions={harness.model_suggestions ?? []}
-                      hints={harness.model_aliases ?? undefined}
-                      placeholder="default"
-                      // Blank means "pass no --model flag", so the list needs a
-                      // row that returns to it after a model has been picked.
-                      emptyOption="default"
-                      preserveEnd
-                    />
+                    {/* omp lists every model it can run on the host, so its
+                      field opens a filterable dialog over that catalog (and
+                      the host's @role aliases). Other harnesses have no such
+                      list: free text + suggestions, since model names churn
+                      faster than releases. The editable combobox always shows
+                      every suggestion on open (unlike a native datalist, which
+                      hides them once the field holds a complete value). */}
+                    {harness.id === "omp" ? (
+                      <OmpModelPicker
+                        id="agent-model"
+                        host={selectedHost}
+                        value={model}
+                        onValueChange={setModel}
+                        suggestions={harness.model_suggestions}
+                        aliases={harness.model_aliases}
+                        prefetch={open}
+                      />
+                    ) : (
+                      <EditableCombobox
+                        id="agent-model"
+                        value={model}
+                        onValueChange={setModel}
+                        suggestions={harness.model_suggestions ?? []}
+                        hints={harness.model_aliases ?? undefined}
+                        placeholder="default"
+                        // Blank means "pass no --model flag", so the list needs
+                        // a row that returns to it after a model was picked.
+                        emptyOption="default"
+                        preserveEnd
+                      />
+                    )}
                   </Field>
                   {/* Only harnesses whose CLI takes an effort knob list levels
                   (claude, codex, omp, pi); elsewhere the column is dropped

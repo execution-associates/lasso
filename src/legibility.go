@@ -381,6 +381,7 @@ var ompLegibility = map[string]float64{
 
 	"bashMode":   legibleBody,
 	"pythonMode": legibleBody,
+	"btwMode":    legibleBody,
 
 	"statusLineModel":     legibleBody,
 	"statusLinePath":      legibleBody,

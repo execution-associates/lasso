@@ -1577,6 +1577,23 @@ export interface HarnessDef {
   model_presets?: string[] | null
 }
 
+// One chat model omp can run on a host (`omp models --json`), for the New
+// dialog's model picker. `selector` is what `--model` takes.
+export interface OmpModel {
+  selector: string
+  name?: string
+  provider: string
+  context_window?: number
+  thinking?: string[]
+}
+
+export interface OmpModels {
+  models: OmpModel[]
+  // Why the list is empty (omp missing, too old, ssh failed); the picker still
+  // takes a typed selector.
+  error?: string
+}
+
 // One git repo discovered under repos_root, with its remembered per-repo state.
 export interface RepoEntry {
   path: string
@@ -3280,6 +3297,14 @@ export const api = {
   repoBranches: (path: string, host?: string) =>
     getJSON<RepoBranches>(
       withHost(`/api/repo-branches?path=${encodeURIComponent(path)}`, host)
+    ),
+
+  // Every chat model omp can run on the host. `refresh` bypasses the server's
+  // per-host cache (the catalog read takes a second or more).
+  ompModels: (host?: string, refresh?: boolean) =>
+    getJSON<OmpModels>(
+      withHost(`/api/omp-models${refresh ? "?refresh=1" : ""}`, host),
+      30_000
     ),
 
   // Stage attachment files on the target host (defaults to active) before

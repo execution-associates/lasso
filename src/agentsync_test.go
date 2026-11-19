@@ -673,8 +673,10 @@ func TestSyncOmpTheme(t *testing.T) {
 // finds none, and answers a failed load by falling back to its own built-in
 // "dark" — so one malformed value costs the entire palette.
 func TestOmpThemeBodyComplete(t *testing.T) {
-	// The tokens omp's theme schema requires (thinkingMax is its one optional
-	// token, and lasso emits it too).
+	// The tokens omp's theme schema requires (packages/tui/src/theme/
+	// schema-validation.ts; thinkingMax is optional, and lasso emits it too).
+	// omp 19 added btwMode: a theme without it fails validation and omp falls
+	// back to its built-in "dark".
 	required := []string{
 		"accent", "border", "borderAccent", "borderMuted", "success", "error",
 		"warning", "muted", "dim", "text", "thinkingText", "selectedBg",
@@ -687,7 +689,7 @@ func TestOmpThemeBodyComplete(t *testing.T) {
 		"syntaxString", "syntaxNumber", "syntaxType", "syntaxOperator",
 		"syntaxPunctuation", "thinkingOff", "thinkingMinimal", "thinkingLow",
 		"thinkingMedium", "thinkingHigh", "thinkingXhigh", "thinkingMax",
-		"bashMode", "pythonMode", "statusLineBg", "statusLineSep",
+		"bashMode", "pythonMode", "btwMode", "statusLineBg", "statusLineSep",
 		"statusLineModel", "statusLinePath", "statusLineGitClean",
 		"statusLineGitDirty", "statusLineContext", "statusLineSpend",
 		"statusLineStaged", "statusLineDirty", "statusLineUntracked",

@@ -1126,6 +1126,9 @@ func ompColors(u uiPalette, cv glyphCanvas) map[string]string {
 		"thinkingMax":     u.Red,
 		"bashMode":        u.Teal,
 		"pythonMode":      u.Yellow,
+		// omp 19 made btwMode (the /btw side-question editor) a required token;
+		// its built-ins point it at the accent, so it does too.
+		"btwMode": u.Accent,
 
 		"statusLineBg":        u.Surface0,
 		"statusLineSep":       u.Overlay0,

@@ -24,6 +24,7 @@ export const qk = {
   workspaces: (host: string) => ["workspaces", host] as const,
   repoBranches: (host: string, path: string) =>
     ["repo-branches", host, path] as const,
+  ompModels: (host: string) => ["omp-models", host] as const,
   chat: (host: string, pane: string) => ["chat", host, pane] as const,
   // Every chat at once: what a chat_queue_rev bump re-reads.
   chatAll: ["chat"] as const,
