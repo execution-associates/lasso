@@ -37,6 +37,11 @@ const (
 	llmAnswerMaxBytes = 1 << 20
 	llmKeyTTL         = 10 * time.Minute
 	llmModelsTTL      = 60 * time.Second
+	// llmMaxTokens is the completion budget. Reasoning models spend it on
+	// thinking before they write the answer (DeepSeek V4.1 Flash takes about
+	// 200 tokens to think about a title), so a tight cap leaves an empty or
+	// cut-off answer.
+	llmMaxTokens = 2000
 )
 
 // Shared with transcription, which speaks the same OpenAI-compatible shape.
@@ -369,7 +374,7 @@ func llmComplete(ctx context.Context, instruction string) (string, error) {
 		"model":       c.Model,
 		"messages":    []map[string]string{{"role": "user", "content": instruction}},
 		"temperature": 0,
-		"max_tokens":  200,
+		"max_tokens":  llmMaxTokens,
 	})
 	if err != nil {
 		return "", err
@@ -403,6 +408,7 @@ func llmComplete(ctx context.Context, instruction string) (string, error) {
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
@@ -410,6 +416,11 @@ func llmComplete(ctx context.Context, instruction string) (string, error) {
 	}
 	if len(out.Choices) == 0 || strings.TrimSpace(out.Choices[0].Message.Content) == "" {
 		return "", errors.New("the endpoint answered no text")
+	}
+	// A reply cut off by the token budget is not an answer: the start of
+	// "name: …" read as a title named an agent "name".
+	if out.Choices[0].FinishReason == "length" {
+		return "", errors.New("the endpoint's answer was cut off at the token limit")
 	}
 	return out.Choices[0].Message.Content, nil
 }
