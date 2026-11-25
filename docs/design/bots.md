@@ -27,6 +27,7 @@ Code:
 - `botpush.go`: the lasso channel's webhook (`POST /hooks/bots/<bot>`), its key, and the Connections view's Lasso channel panel API.
 - `mcp_botchannel.go`: `get_bot_channel`, `enable_bot_webhook`, `rotate_bot_webhook_key` and `disable_bot_webhook`.
 - `clientapi.go`, `clientapi_store.go`, `clientapi_bot.go`, `clientapi_admin.go`, `mcp_appusers.go`: the phone apps' client API (`/client/v1`), its people, and the channel's `client_reply` and `end_call`, in [client-api.md](client-api.md).
+- `clientasks.go`, `botchannel_asks.go`: asks, a bot's question in one person's Inbox in the phone app (`ask` on the channel, `client_ask` on `/mcp`) and the answer back as a client event, in [client-asks.md](client-asks.md).
 - `bothealth.go`, `alertchannels.go`, `alertsapi.go`, `mcp_alerts.go`: liveness alerts and the hold, in [bot-alerts.md](bot-alerts.md).
 - `botupdates.go`: the daily restart onto a newer installed Claude Code or omp (`BotUpdatesSettings.tsx`).
 

@@ -93,8 +93,9 @@ func TestClientMeSettingsLimitsStorage(t *testing.T) {
 	_, raw := c.do("GET", "/client/v1/me", ann, "")
 	var generic map[string]json.RawMessage
 	_ = json.Unmarshal(raw, &generic)
-	// push_previews joined settings with client threads (client-threads.md).
-	if string(generic["settings"]) != `{"file_retention_days":null,"push_previews":true}` || string(generic["limits"]) != `{"max_file_retention_days":null}` {
+	// push_previews joined settings with client threads (client-threads.md),
+	// the zone and quiet hours with asks (client-asks.md).
+	if string(generic["settings"]) != `{"ask_quiet_hours":{"end":"08:00","start":"22:00"},"file_retention_days":null,"push_previews":true,"time_zone":null}` || string(generic["limits"]) != `{"max_file_retention_days":null}` {
 		t.Fatalf("settings/limits = %s / %s", generic["settings"], generic["limits"])
 	}
 	me := c.me(ann)
@@ -132,7 +133,7 @@ func TestClientChosenRetentionExpiresFiles(t *testing.T) {
 	c := newClientTest(t)
 	_, ann := c.person("Ann", false, "jess")
 	cid := c.conv(ann, "jess")
-	if code, b := c.setRetention(ann, `{"file_retention_days": 7}`); code != 200 || string(b) != "{\"settings\":{\"file_retention_days\":7,\"push_previews\":true}}\n" {
+	if code, b := c.setRetention(ann, `{"file_retention_days": 7}`); code != 200 || string(b) != "{\"settings\":{\"ask_quiet_hours\":{\"end\":\"08:00\",\"start\":\"22:00\"},\"file_retention_days\":7,\"push_previews\":true,\"time_zone\":null}}\n" {
 		t.Fatalf("set: %d %s", code, b)
 	}
 	if d := c.me(ann).Settings.Days; d == nil || *d != 7 {

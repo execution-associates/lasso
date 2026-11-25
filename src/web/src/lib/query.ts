@@ -61,6 +61,9 @@ export const qk = {
   // Browser tab and Settings so a start in one shows in the other.
   browser: ["browser"] as const,
   usage: ["usage"] as const,
+  asks: ["asks"] as const,
+  botThreads: (bot: string) => ["bot-threads", bot] as const,
+  threadMessages: (id: string) => ["thread-messages", id] as const,
   // Server-level: bot liveness alerts (alertsapi.go). Everything under
   // "alerts" is dropped together after a change.
   alerts: ["alerts"] as const,

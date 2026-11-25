@@ -303,4 +303,5 @@ func registerAppUserTools(s *mcp.Server) {
 		return nil, okOut{OK: err == nil}, err
 	})
 	registerClientThreadTools(s)
+	registerClientAskTools(s)
 }

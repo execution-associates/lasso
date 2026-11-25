@@ -104,6 +104,7 @@ Every app shortcut uses the `⌘` key only, never `Ctrl`, so none of them collid
 | `⌘⇧F` | Open the sidebar on Files |
 | `⌘⇧S` | Open the sidebar on Scratch |
 | `⌘⇧B` | Open the sidebar on Browser |
+| `⌘⇧I` | Open or close the Inbox |
 | `⌘⇧M` | Simple view ⟷ full view: the [simple app](../getting-started/phone.md#the-simple-app) at `/m`, remembered on this device |
 
 ### In context
@@ -116,6 +117,7 @@ Every app shortcut uses the `⌘` key only, never `Ctrl`, so none of them collid
 | `⌘S` (or `Ctrl-S`) | File viewer | Save |
 | `⌘F` | File viewer | Find in the open file (the editor's search, or a find bar over a rendered Markdown preview) |
 | `Esc` | File viewer | Close |
+| `⌘Z` | Inbox | Bring back the ask you just dropped, for a minute after dropping it |
 
 In the Grid, each card's composer sends on `↩` and breaks the line on `⇧↩`.
 

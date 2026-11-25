@@ -194,7 +194,7 @@ const visibleThreadSQL = `t.user_id = ? AND (t.kind = 'thread' OR EXISTS (SELECT
 
 // clientUnreadBadge is the person's unread total over every visible thread
 // and the badge: unread in threads that are not muted, plus pending proposals
-// in those.
+// in those, plus the asks waiting on the person (clientasks.go).
 func clientUnreadBadge(userID string) (unread, badge int) { return clientUnreadBadgeSnap(userID, nil) }
 
 // clientSnapshot is a stream position and what it covers: messages up to
@@ -253,7 +253,7 @@ func clientUnreadBadgeSnap(userID string, snap *clientSnapshot) (unread, badge i
 		WHERE `+visibleThreadSQL+` AND t.muted = 1 AND m.role = 'bot' AND m.done = 1 AND m.seq > t.last_read_seq`+extra, append([]any{userID}, args...)...).Scan(&quiet)
 	_ = db.QueryRow(`SELECT COUNT(*) FROM app_proposals p JOIN app_threads t ON t.id = p.thread_id
 		WHERE `+visibleThreadSQL+` AND t.muted = 0 AND p.state = 'pending'`, userID).Scan(&props)
-	return unread, unread - quiet + props
+	return unread, unread - quiet + props + clientAsksWaiting(userID, time.Now(), true)
 }
 
 // ensureMainThreads makes the main thread of every bot the person is granted.

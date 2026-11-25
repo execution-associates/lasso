@@ -480,7 +480,8 @@ func clientSettingsView(u *appUser) map[string]any {
 	if d := clientRetentionDaysOf(u); d > 0 {
 		days = d
 	}
-	return map[string]any{"file_retention_days": days, "push_previews": clientPushPreviews(u.ID)}
+	tz, quiet := clientAskSettingsView(u.ID)
+	return map[string]any{"file_retention_days": days, "push_previews": clientPushPreviews(u.ID), "time_zone": tz, "ask_quiet_hours": quiet}
 }
 
 // clientPushPreviews is the person's choice whether a push shows what was
@@ -493,7 +494,7 @@ func clientPushPreviews(userID string) bool {
 
 // clientFeatures is what this server supports of the client API beyond its
 // first version; an app hides what is missing.
-var clientFeatures = []string{"threads", "search", "push", "proposals"}
+var clientFeatures = []string{"threads", "search", "push", "proposals", "asks"}
 
 func clientLimitsView() map[string]any {
 	var max any
@@ -517,6 +518,7 @@ func serveClientMe(w http.ResponseWriter, id *clientIdentity) {
 		"push":         clientPushView(id),
 		"unread_total": unread,
 		"badge":        badge,
+		"asks_waiting": clientAsksWaiting(id.User.ID, time.Now(), false),
 		"api":          clientAPIVersion,
 		"user":         map[string]any{"id": id.User.ID, "name": id.User.Name},
 		"device": map[string]any{"id": id.Device.ID, "label": id.Device.Label, "platform": id.Device.Platform,
@@ -529,18 +531,62 @@ func serveClientMe(w http.ResponseWriter, id *clientIdentity) {
 }
 
 // serveClientSettings is PUT /me/settings {"file_retention_days"?: 1..3650 |
-// null, "push_previews"?: bool}: every key optional, at least one.
+// null, "push_previews"?: bool, "time_zone"?: IANA name | null,
+// "ask_quiet_hours"?: {"start": "HH:MM", "end": "HH:MM"} | null}: every key
+// optional, at least one.
 func serveClientSettings(w http.ResponseWriter, r *http.Request, id *clientIdentity) {
 	var in struct {
 		FileRetentionDays optInt          `json:"file_retention_days"`
 		PushPreviews      json.RawMessage `json:"push_previews"`
+		TimeZone          json.RawMessage `json:"time_zone"`
+		AskQuietHours     json.RawMessage `json:"ask_quiet_hours"`
 	}
 	if !clientDecode(w, r, 4<<10, &in) {
 		return
 	}
-	if !in.FileRetentionDays.Set && in.PushPreviews == nil {
-		clientError(w, http.StatusBadRequest, "invalid_request", "Pass file_retention_days (a number of days, or null to keep files until you delete them) and/or push_previews (true or false).")
+	if !in.FileRetentionDays.Set && in.PushPreviews == nil && in.TimeZone == nil && in.AskQuietHours == nil {
+		clientError(w, http.StatusBadRequest, "invalid_request", "Pass file_retention_days (a number of days, or null to keep files until you delete them), push_previews (true or false), time_zone and/or ask_quiet_hours.")
 		return
+	}
+	// The person's zone and quiet hours (clientasks.go): when an ask may
+	// interrupt them.
+	var zone, quiet *string
+	if in.TimeZone != nil {
+		var z *string
+		if json.Unmarshal(in.TimeZone, &z) != nil {
+			clientError(w, http.StatusBadRequest, "invalid_request", "time_zone must be a zone name like America/Los_Angeles, or null.")
+			return
+		}
+		v := ""
+		if z != nil {
+			v = strings.TrimSpace(*z)
+			if _, err := time.LoadLocation(v); err != nil || v == "" || v == "Local" || len(v) > 64 {
+				clientError(w, http.StatusBadRequest, "invalid_request", "time_zone must be a zone name like America/Los_Angeles, or null.")
+				return
+			}
+		}
+		zone = &v
+	}
+	if in.AskQuietHours != nil {
+		var q *struct {
+			Start string `json:"start"`
+			End   string `json:"end"`
+		}
+		if json.Unmarshal(in.AskQuietHours, &q) != nil {
+			clientError(w, http.StatusBadRequest, "invalid_request", "ask_quiet_hours must be {\"start\": \"22:00\", \"end\": \"08:00\"}, or null for none.")
+			return
+		}
+		v := "off"
+		if q != nil {
+			_, ok1 := parseClock(q.Start)
+			_, ok2 := parseClock(q.End)
+			if !ok1 || !ok2 {
+				clientError(w, http.StatusBadRequest, "invalid_request", "ask_quiet_hours must be {\"start\": \"22:00\", \"end\": \"08:00\"}, or null for none.")
+				return
+			}
+			v = strings.TrimSpace(q.Start) + "-" + strings.TrimSpace(q.End)
+		}
+		quiet = &v
 	}
 	var previews *bool
 	if in.PushPreviews != nil {
@@ -563,6 +609,18 @@ func serveClientSettings(w http.ResponseWriter, r *http.Request, id *clientIdent
 	}
 	if previews != nil {
 		if _, err := db.Exec(`UPDATE app_users SET push_previews = ?, updated_at = ? WHERE id = ?`, boolInt(*previews), nowStamp(time.Now()), id.User.ID); err != nil {
+			clientFail(w, err)
+			return
+		}
+	}
+	if zone != nil {
+		if _, err := db.Exec(`UPDATE app_users SET time_zone = ?, updated_at = ? WHERE id = ?`, *zone, nowStamp(time.Now()), id.User.ID); err != nil {
+			clientFail(w, err)
+			return
+		}
+	}
+	if quiet != nil {
+		if _, err := db.Exec(`UPDATE app_users SET ask_quiet = ?, updated_at = ? WHERE id = ?`, *quiet, nowStamp(time.Now()), id.User.ID); err != nil {
 			clientFail(w, err)
 			return
 		}

@@ -1,6 +1,6 @@
 <!-- Design rationale and contract: read before changing the code it names. -->
 
-<!-- Threads, search, proposals and push extend this API: client-threads.md. -->
+<!-- Threads, search, proposals and push extend this API: client-threads.md. Asks: client-asks.md. -->
 
 # Client API (`src/clientapi.go`, `src/clientapi_store.go`, `src/clientapi_bot.go`, `src/clientapi_admin.go`, `src/clientreview.go`, `src/mcp_appusers.go`)
 
@@ -11,7 +11,7 @@ What it adds over Talk, and why it is a surface of its own:
 1. **Every person has their own credential**, and it reaches their bots and only their bots. Talk has one shared key per bot.
 2. **The bot knows who is speaking, proven by lasso.** Identity comes from the device token and lasso's own records, never from the client, the caller or the message text.
 3. **A conversation is stable**: one per person and bot, with a history lasso keeps, and a call has a stable id.
-4. **The bot can hang up a voice call.** It can speak only to people who have written to it: a reply needs the token of a message that person sent ([Delivery to the bot](#delivery-to-the-bot)).
+4. **The bot can hang up a voice call.** It can speak only to people who have written to it: a reply needs the token of a message that person sent ([Delivery to the bot](#delivery-to-the-bot)). The one exception is an [ask](client-asks.md), a question a bot may put in its owner's Inbox.
 5. **Attachments go both ways**: pictures and files from the person; images and files from the bot that the app shows inline.
 6. **Both runtimes**: claude through its `lasso-channel`, omp through the bridge's prompt (below, with the gaps).
 
@@ -43,7 +43,7 @@ OpenAI compatibility is not a goal. The protocol is shaped for these clients.
 - A **conversation** (`c_…`) is one user's with one bot. It is lasso-owned: only this person's messages and the bot's replies to them. It is **not** the bot's terminal transcript, which can hold other people's business and is never read for the history. The id is unguessable and every call that names one checks it against the token's user.
 - A **message** (`m_…`) is from the user or from the bot. A **call** (`call_…`) is one voice call in a conversation. An **attachment** (`a_…`) is a file either side sent.
 
-Storage is `lasso.db`: `app_users`, `app_grants`, `app_devices`, `app_pairings`, `app_convs`, `app_messages`, `app_events`, `app_attachments`, `app_calls`, `app_reply_tokens`, plus `bot_events.meta` and `bots.channel_client`. Two lassos sharing a db both serve the API; a stream wakes at once on its own lasso's events and looks at the db every second for the other's.
+Storage is `lasso.db`: `app_users`, `app_grants`, `app_devices`, `app_pairings`, `app_convs`, `app_messages`, `app_events`, `app_attachments`, `app_calls`, `app_reply_tokens`, `app_asks`, plus `bot_events.meta` and `bots.channel_client`. Two lassos sharing a db both serve the API; a stream wakes at once on its own lasso's events and looks at the db every second for the other's.
 
 ## Pairing
 
@@ -134,6 +134,7 @@ All under `/client/v1`, JSON unless stated. `{bot}` is the bot's name, ids are t
 | `GET /calls/{id}` | a call |
 | `POST /calls/{id}/end` | hang up |
 | `DELETE /device` | sign this device out: revoke its token |
+| `GET /asks`, `GET /asks/{id}`, `POST /asks/{id}/answer\|seen\|snooze\|drop` | the person's Inbox of what bots asked them ([client-asks.md](client-asks.md#the-persons-routes)) |
 
 ### `GET /me`
 
@@ -338,7 +339,7 @@ The event reaches the bot through `lasso-channel`, as `<channel source="lasso-ch
 - **`client_reply {conversation_id, reply_token, text?, done?, attachments?}`**: the bot's message to the person, in that conversation only. `done=false` is an interim note ("On it, checking the invoices"); `done=true` (default) closes the turn. `attachments` is a list of paths in the bot's outbox ([Attachments](#attachments)). Text or attachments are required.
 - **`end_call {call_id, reply_token, last_words?}`**: hang up. The app speaks `last_words` and ends the call.
 
-**The reply token.** Every person's message that reaches a claude bot carries its own `reply_token` (`lrt_` and 144 random bits), made for that message and shown to the bot only in that message's attributes. `client_reply` must present the token of a message **of the conversation it writes to** that is still open: not closed by a final reply, and not more than **six hours** since the bot took the message (the window starts at delivery, not at send time, so a message that waited in the queue is not already stale). Interim replies (`done=false`) leave the token usable; the first `done=true` reply consumes it, once even if two race. `end_call` needs a token of the call's conversation too, which may already be closed by the final reply (a bot says its answer, then hangs up), but not expired. The consequence is the point: a bot steered by one person has only that person's tokens, so it cannot post into another person's conversation, **and it cannot message a person who has not written to it**. Bot-initiated messages to a person (a reminder, a proactive note) are deliberately not possible in this version; allowing them would need a grant of its own, which does not exist yet. A reply with a missing, wrong, closed or expired token is refused with a message that says so. What a token proves is that the bot was handed that message, not that it answers it faithfully: one bot session serves everyone, so a bot that is steered by one person and still holds another person's open message in its context can write into that person's conversation until that message is answered or six hours pass. The token narrows that to messages the other person actually sent and has not had answered.
+**The reply token.** Every person's message that reaches a claude bot carries its own `reply_token` (`lrt_` and 144 random bits), made for that message and shown to the bot only in that message's attributes. `client_reply` must present the token of a message **of the conversation it writes to** that is still open: not closed by a final reply, and not more than **six hours** since the bot took the message (the window starts at delivery, not at send time, so a message that waited in the queue is not already stale). Interim replies (`done=false`) leave the token usable; the first `done=true` reply consumes it, once even if two race. `end_call` needs a token of the call's conversation too, which may already be closed by the final reply (a bot says its answer, then hangs up), but not expired. The consequence is the point: a bot steered by one person has only that person's tokens, so it cannot post into another person's conversation, **and it cannot message a person who has not written to it**. Bot-initiated messages to a person (a reminder, a proactive note) are deliberately not possible; allowing them would need a grant of its own, which does not exist yet. What a bot can do unprompted is [ask](client-asks.md): one question in its owner's Inbox, which is not a message and adds nothing to a conversation. A reply with a missing, wrong, closed or expired token is refused with a message that says so. What a token proves is that the bot was handed that message, not that it answers it faithfully: one bot session serves everyone, so a bot that is steered by one person and still holds another person's open message in its context can write into that person's conversation until that message is answered or six hours pass. The token narrows that to messages the other person actually sent and has not had answered.
 
 On lasso's machine these are HTTP calls to `/bot-channel/<bot>/client-reply` and `…/end-call` on the bot's own channel token, and errors come back to the bot. The token is checked there; the channel token proves the bot, the reply token proves the message. A bot on another host leaves them in the spool's `outbox/` (`{"kind":"client_reply",…}`, `{"kind":"end_call",…}`), which the spool loop collects over ssh within seconds; the tool answers "handed to lasso" and cannot report an error afterward (a refused attachment still delivers the text, with a line saying so). The launch line allows all three tools (`--allowedTools`), so a bot outside bypass mode is not stopped by a permission dialog.
 
@@ -389,6 +390,7 @@ The owner's side is `/api/app-users` (behind `UI_AUTH` like the rest of `/api`, 
 | `DELETE /api/app-users/<id>/pairings/<pid>` | | cancel an unused one |
 | `GET /api/app-users/<id>/devices` | | the user's devices |
 | `DELETE /api/app-users/<id>/devices/<did>` | `revoke_app_device` | revoke one device |
+| `GET /api/app-users/<id>/asks` | | what the person's bots asked them, read-only ([client-asks.md](client-asks.md#the-owners-side)) |
 
 A user view: `{id, name, email, disabled, created_at, updated_at, grants: [{bot, owner, created_at}], devices: [{id, label, platform, paired_by, created_at, last_seen_at, revoked_at?}], quota_mb, quota_files, file_retention_days, storage: {used_bytes, used_files, quota_bytes, quota_files}}`. `quota_mb` and `quota_files` are the owner's override or `null` (the default applies); `storage` is the person's use against the limits in force; `file_retention_days` is the person's own choice as in force (`null`: they keep files until they delete them), which the owner reads but does not set. The People page shows the storage and the choice, and edits the override. Deleting a bot removes its grants, conversations and attachments rows (its folder is the owner's).
 
@@ -426,7 +428,7 @@ A read never returns the code. The route is behind `UI_AUTH` and off machine cal
 - **No client-supplied identity.** The bot's attributes come from lasso's records (the token's user, the grant, the pairing). The body's other fields are ignored. Display names and `paired_by` are scrubbed to one line before they become attributes.
 - **Constant-time comparisons.** Tokens and codes are compared by their hashes with `subtle.ConstantTimeCompare`; the lookup is by hash.
 - **Revocation is immediate**: it is evaluated per request and per second on streams, not cached.
-- **Replies cannot cross.** A claude reply names its conversation, which must belong to the calling bot (its channel token) and to a user still enabled and granted, and must present the reply token of an open message of that conversation, which only that person's own message carried; an omp reply is routed by nonce. Nothing is carried from one request to another, unlike Talk's late replies. A bot cannot start a conversation with a person who has not written to it.
+- **Replies cannot cross.** A claude reply names its conversation, which must belong to the calling bot (its channel token) and to a user still enabled and granted, and must present the reply token of an open message of that conversation, which only that person's own message carried; an omp reply is routed by nonce. Nothing is carried from one request to another, unlike Talk's late replies. A bot cannot start a conversation with a person who has not written to it; it can put an [ask](client-asks.md#who-a-bot-may-ask) in its owner's Inbox, and in another person's only while answering a message of theirs.
 - **Access is re-read at delivery.** A message queued before a user was disabled or deleted, a grant removed or a device revoked never reaches the bot, and the owner flag it carries is the grant's at that moment.
 - **A bot sends from its outbox only**, and what it reads is opened once with no-follow and checked on the descriptor.
 - **Storage is bounded**: per-user upload quota, per-conversation and per-bot caps on what a bot sends, the person's own retention within the owner's optional maximum, their right to delete their files, call-start, upload and purge rate limits. Deleting is scoped like every other route: the attachment must be the token's user's, in a conversation they still hold.
@@ -451,6 +453,6 @@ The API is the same binary and the same listeners; nothing needs a new port.
 - The pairing link is a web page that opens the app through the `lasso://` custom scheme; there is no platform app link or universal link association (no `apple-app-site-association`, no `assetlinks.json`), so the OS does not route the HTTPS link to the app.
 - Threads, search, proposals and push notifications (APNs, FCM) are [client-threads.md](client-threads.md): a conversation is the person's main thread with that bot, and `/conversations/{id}/…` is an alias of `/threads/{id}/…`. Speech recognition and speech synthesis are the app's.
 - Messages are kept until the user or bot is deleted; there is no per-conversation delete. Files (uploads and the bot's copies) are kept until the person deletes them or their retention removes them, unused uploads for a day.
-- Bots cannot start a conversation: every reply answers a message the person sent. A push or a scheduled note from a bot would need a deliberate grant that does not exist yet.
+- Bots cannot start a conversation: every reply answers a message the person sent. A scheduled note from a bot would need a deliberate grant that does not exist yet. A decision a bot is blocked on goes through an [ask](client-asks.md).
 - A stream's `activity` and the state are polled (two to four seconds; the terminal is read, over SFTP for a remote bot).
 - The two limits that are per process (rate windows, stream counts) reset on a restart and are not shared between two lassos on one db.

@@ -7,6 +7,7 @@ import {
   GripVertical,
   LayoutGrid,
   ListChecks,
+  MessagesSquare,
   Play,
   Plus,
   RotateCcw,
@@ -28,6 +29,7 @@ import {
 import { BotSessionsMenu } from "@/components/BotSessionsMenu"
 import { BotSettings } from "@/components/BotSettings"
 import { BotsManage } from "@/components/BotsManage"
+import { BotThreads } from "@/components/BotThreads"
 import { ChatView } from "@/components/ChatView"
 import { PeopleView } from "@/components/PeopleView"
 import { Button } from "@/components/ui/button"
@@ -243,11 +245,13 @@ function StoppedBot({
   bot,
   lead,
   onSettings,
+  onThreads,
   onOpenViews,
 }: {
   bot: BotView
   lead: React.ReactNode
   onSettings: () => void
+  onThreads: () => void
   onOpenViews?: () => void
 }) {
   const [busy, setBusy] = React.useState(false)
@@ -267,6 +271,7 @@ function StoppedBot({
         <span className="ml-auto" />
         <BotHealthMark bot={bot} />
         <BotStateMark bot={bot} words />
+        <ThreadsButton onClick={onThreads} />
         <SettingsButton onClick={onSettings} />
         <ViewsButton onOpen={onOpenViews} />
       </div>
@@ -322,6 +327,21 @@ function SettingsButton({ onClick }: { onClick: () => void }) {
       className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"
     >
       <Settings className="size-4" />
+    </button>
+  )
+}
+
+// Your threads with the bot: the phone app's conversations, on the web.
+function ThreadsButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title="Your threads with this bot"
+      aria-label="Threads"
+      className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"
+    >
+      <MessagesSquare className="size-4" />
     </button>
   )
 }
@@ -636,7 +656,11 @@ export function BotsView({
   const [deleting, setDeleting] = React.useState<BotView | null>(null)
 
   const routeName =
-    route.page === "chat" || route.page === "settings" ? route.name : null
+    route.page === "chat" ||
+    route.page === "settings" ||
+    route.page === "threads"
+      ? route.name
+      : null
   const current = routeName ? bots.find((b) => b.name === routeName) : undefined
   // A link to a bot that is not there (deleted, renamed, mistyped) lands on
   // the list, once the list has answered.
@@ -649,7 +673,11 @@ export function BotsView({
   // rather than whichever herdr pane was focused last.
   const followHost = current?.host
   const followDir = current?.dir_path
-  const botOpen = active && (route.page === "chat" || route.page === "settings")
+  const botOpen =
+    active &&
+    (route.page === "chat" ||
+      route.page === "settings" ||
+      route.page === "threads")
   React.useEffect(() => {
     if (!botOpen || !followHost || !followDir) return
     setFilesFollowTarget({ host: followHost, cwd: followDir })
@@ -726,6 +754,21 @@ export function BotsView({
         onOpenTerminal={openTerminal}
       />
     )
+  } else if (route.page === "threads" && current) {
+    page = (
+      <BotThreads
+        key={`threads:${current.name}`}
+        bot={current}
+        threadID={route.thread}
+        active={active}
+        compact={compact}
+        lead={back}
+        extra={<ViewsButton onOpen={onOpenViews} />}
+        onPick={(thread) => go({ page: "threads", name: current.name, thread })}
+        onChat={() => go({ page: "chat", name: current.name })}
+        onPeople={() => go({ page: "people" })}
+      />
+    )
   } else if (route.page === "chat" && current) {
     // An omp bot has no pane: its chat is addressed by name, and it is there
     // whenever the bot is not stopped.
@@ -773,6 +816,9 @@ export function BotsView({
               <BotHealthMark bot={current} />
               <BotStateMark bot={current} words />
               <BotSessionsMenu bot={current} />
+              <ThreadsButton
+                onClick={() => go({ page: "threads", name: current.name })}
+              />
               <SettingsButton
                 onClick={() => go({ page: "settings", name: current.name })}
               />
@@ -789,6 +835,7 @@ export function BotsView({
           bot={current}
           lead={back}
           onSettings={() => go({ page: "settings", name: current.name })}
+          onThreads={() => go({ page: "threads", name: current.name })}
           onOpenViews={onOpenViews}
         />
       )

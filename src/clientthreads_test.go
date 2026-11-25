@@ -266,7 +266,7 @@ func TestClientThreadsMainCompat(t *testing.T) {
 	if b0["conversation_id"] != cid || b0["main_thread_id"] != cid {
 		t.Fatalf("me bot = %v", b0)
 	}
-	if f, _ := me["features"].([]any); len(f) != 4 {
+	if f, _ := me["features"].([]any); len(f) != 5 {
 		t.Fatalf("features = %v", me["features"])
 	}
 	if p := me["push"].(map[string]any); p["available"] != false {

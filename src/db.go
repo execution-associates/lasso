@@ -149,7 +149,7 @@ func openDB() error {
 			return fmt.Errorf("%s: %w", pragma, err)
 		}
 	}
-	if _, err := h.Exec(dbSchema + oauthSchema + groupsSchema + pushSchema + notifyDeviceSchema + agentMsgSchema + botsSchema + botOAuthSchema + botJobsSchema + botMessageMetaSchema + chatQueueSchema + botTalkSchema + botAlertSchema + clientSchema); err != nil {
+	if _, err := h.Exec(dbSchema + oauthSchema + groupsSchema + pushSchema + notifyDeviceSchema + agentMsgSchema + botsSchema + botOAuthSchema + botJobsSchema + botMessageMetaSchema + chatQueueSchema + botTalkSchema + botAlertSchema + clientSchema + clientAsksSchema); err != nil {
 		h.Close()
 		return fmt.Errorf("create schema: %w", err)
 	}
@@ -210,6 +210,10 @@ func openDB() error {
 		`ALTER TABLE app_users ADD COLUMN quota_mb INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE app_users ADD COLUMN quota_files INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE app_users ADD COLUMN review INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE app_users ADD COLUMN time_zone TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE app_users ADD COLUMN ask_quiet TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE app_asks ADD COLUMN agent TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE app_asks ADD COLUMN untold INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE app_attachments ADD COLUMN removed TEXT NOT NULL DEFAULT ''`,
 	}, clientThreadsColumns...) {
 		if _, err := h.Exec(alter); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
@@ -552,7 +556,7 @@ type sidebarTab struct {
 }
 
 // sidebarBuiltinTabs are the right sidebar's own tabs, in default order.
-var sidebarBuiltinTabs = []string{"agents", "files", "scratch", "browser", "usage", "settings"}
+var sidebarBuiltinTabs = []string{"agents", "files", "scratch", "browser", "inbox", "usage", "settings"}
 
 const (
 	sidebarTabsMax  = 64

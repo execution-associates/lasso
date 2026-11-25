@@ -55,6 +55,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: "⌘⇧F", label: "Sidebar: Files" },
       { keys: "⌘⇧S", label: "Sidebar: Scratch" },
       { keys: "⌘⇧B", label: "Sidebar: Browser" },
+      { keys: "⌘⇧I", label: "Inbox" },
       { keys: "⌘⇧M", label: "Simple view ⟷ full view" },
     ],
   },
@@ -66,6 +67,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: "⌘↩", label: "New agent/terminal: create" },
       { keys: "⌘S", label: "File viewer: save" },
       { keys: "⌘F", label: "File viewer: find in the open file" },
+      { keys: "⌘Z", label: "Inbox: bring back the ask just dropped" },
     ],
   },
 ]
@@ -86,4 +88,4 @@ export const APP_KEYS = new Set([
   ";",
   ",",
 ])
-export const APP_SHIFT_KEYS = new Set(["o", "f", "s", "b", "m"])
+export const APP_SHIFT_KEYS = new Set(["o", "f", "s", "b", "m", "i"])

@@ -1,0 +1,11 @@
+{
+  "name": "lasso",
+  "owner": { "name": "lasso" },
+  "plugins": [
+    {
+      "name": "lasso-asks",
+      "source": "./lasso-asks",
+      "description": "Puts the questions Claude Code asks you into your lasso Inbox, and types your answer back."
+    }
+  ]
+}

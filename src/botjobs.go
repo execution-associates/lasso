@@ -643,6 +643,9 @@ func listBotJobEvents(jobID int64, limit int) ([]botEvent, error) {
 
 var botJobsMaintainedAt atomic.Int64
 
+// clientAsksTickedAt paces the runner's look at asks (deadlines, held pushes).
+var clientAsksTickedAt atomic.Int64
+
 // botJobsTick fires every enabled job whose schedule came due. A fire missed
 // while lasso was down fires once on the next tick, then the schedule carries
 // on from now. Called from botTick, so only the runner-lock holder fires. A
@@ -678,6 +681,10 @@ func botJobsTick(now time.Time) {
 			}
 		}
 		_, _ = db.Exec(`UPDATE bot_jobs SET next_at = ? WHERE id = ?`, j.computeNext(now), j.ID)
+	}
+	if now.Unix()-clientAsksTickedAt.Load() >= 15 {
+		clientAsksTickedAt.Store(now.Unix())
+		clientAsksTick(now)
 	}
 	if now.Unix()-botJobsMaintainedAt.Load() >= 600 {
 		botJobsMaintainedAt.Store(now.Unix())
@@ -845,6 +852,7 @@ func botChannelSeenStamp(bot string) string {
 //	POST /bot-channel/<bot>/ack {ids}      those delivered
 //	POST /bot-channel/<bot>/reply {chat_id, text, done}   an answer to a Talk message (bottalk.go)
 //	POST /bot-channel/<bot>/client-reply, end-call         the client API's tools (clientapi_bot.go)
+//	POST /bot-channel/<bot>/ask, ask-withdraw              asks (clientasks.go)
 func serveBotChannel(w http.ResponseWriter, r *http.Request) {
 	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/bot-channel"), "/")
 	name, action, _ := strings.Cut(rest, "/")
@@ -962,6 +970,8 @@ func serveBotChannel(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, map[string]any{"ok": true})
+	case "ask", "ask-withdraw":
+		serveBotChannelAsk(w, r, name, action)
 	default:
 		if strings.HasPrefix(action, "thread-") {
 			switch action {

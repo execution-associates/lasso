@@ -134,6 +134,9 @@ func apnsPayload(n pushNote) []byte {
 	case "proposal":
 		aps["category"] = "LASSO_PROPOSAL"
 		lasso["thread_id"], lasso["proposal_id"], lasso["bot"] = n.ThreadID, n.ProposalID, n.Bot
+	case "ask":
+		aps["category"] = "LASSO_ASK"
+		lasso["thread_id"], lasso["ask_id"], lasso["bot"] = n.ThreadID, n.AskID, n.Bot
 	}
 	b, _ := json.Marshal(map[string]any{"aps": aps, "lasso": lasso})
 	return b
@@ -193,7 +196,7 @@ func sendAPNsTo(j pushJob, env string) pushResult {
 				h.Set("apns-priority", "10")
 			}
 			if j.note.ThreadID != "" {
-				h.Set("apns-collapse-id", j.note.ThreadID)
+				h.Set("apns-collapse-id", j.note.collapseID())
 			}
 		}
 		h.Set("apns-expiration", strconv.FormatInt(now.Add(24*time.Hour).Unix(), 10))
@@ -337,7 +340,7 @@ func fcmMessage(token string, n pushNote) []byte {
 		if n.ThreadID != "" {
 			data["thread_id"] = n.ThreadID
 			data["url"] = "lasso://thread/" + n.ThreadID
-			android["collapse_key"] = n.ThreadID
+			android["collapse_key"] = n.collapseID()
 		}
 		if n.Bot != "" {
 			data["bot"] = n.Bot
@@ -347,6 +350,9 @@ func fcmMessage(token string, n pushNote) []byte {
 			data["message_id"] = n.MessageID
 		case "proposal":
 			data["proposal_id"] = n.ProposalID
+		case "ask":
+			data["ask_id"] = n.AskID
+			data["url"] = "lasso://ask/" + n.AskID
 		}
 	}
 	b, _ := json.Marshal(map[string]any{"message": map[string]any{"token": token, "data": data, "android": android}})

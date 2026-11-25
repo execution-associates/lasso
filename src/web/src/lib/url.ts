@@ -62,6 +62,8 @@ const viewPaths: Record<BuiltinLeftView, string> = {
 //	/bots                    the list (on a phone; at md+ it is beside a chat)
 //	/bots/<name>             that bot's conversation
 //	/bots/<name>/settings    its settings
+//	/bots/<name>/threads     your threads with it (the phone app's)
+//	/bots/<name>/threads/<id>  one of them
 //	/bots/manage             every bot as a table
 //	/bots/manage/new         the creator
 //	/bots/manage/people      the people who use the phone app
@@ -72,6 +74,7 @@ export type BotsRoute =
   | { page: "list" }
   | { page: "chat"; name: string }
   | { page: "settings"; name: string }
+  | { page: "threads"; name: string; thread?: string }
   | { page: "manage" }
   | { page: "new" }
   | { page: "people" }
@@ -79,19 +82,21 @@ export type BotsRoute =
 // Bot names are ^[a-z0-9][a-z0-9-]{0,39}$ (bots.go), so a segment needs no
 // escaping and the pattern is the whole check.
 const botsPath =
-  /^\/bots(?:\/([a-z0-9][a-z0-9-]{0,39})(?:\/(settings|new|people))?)?$/
+  /^\/bots(?:\/([a-z0-9][a-z0-9-]{0,39})(?:\/(settings|new|people|threads)(?:\/([A-Za-z0-9_-]{1,64}))?)?)?$/
 
 export function parseBotsPath(path: string): BotsRoute | null {
   const m = botsPath.exec(path.replace(/\/+$/, ""))
   if (!m) return null
-  const [, name, sub] = m
+  const [, name, sub, thread] = m
   if (!name) return { page: "list" }
+  if (thread && sub !== "threads") return null
   if (name === "manage") {
     if (sub === "new") return { page: "new" }
     if (sub === "people") return { page: "people" }
     return sub ? null : { page: "manage" }
   }
   if (sub === "new" || sub === "people") return null
+  if (sub === "threads") return { page: "threads", name, thread }
   return sub ? { page: "settings", name } : { page: "chat", name }
 }
 
@@ -103,6 +108,8 @@ export function botsRoutePath(r: BotsRoute): string {
       return `/bots/${r.name}`
     case "settings":
       return `/bots/${r.name}/settings`
+    case "threads":
+      return `/bots/${r.name}/threads${r.thread ? `/${r.thread}` : ""}`
     case "manage":
       return "/bots/manage"
     case "new":
@@ -172,4 +179,15 @@ export function writeLeftView(view: LeftView, push: boolean) {
   const url = path + window.location.search
   if (push) window.history.pushState(null, "", url)
   else window.history.replaceState(null, "", url)
+}
+
+// openBotsRoute enters the Bots view at a page from anywhere in the app (an
+// ask card's "Open thread"): a history entry, then the popstate both the App
+// and the view already follow.
+export function openBotsRoute(r: BotsRoute) {
+  const path = botsRoutePath(r)
+  lastBotsPath = path
+  if (window.location.pathname !== path)
+    window.history.pushState(null, "", path + window.location.search)
+  window.dispatchEvent(new PopStateEvent("popstate"))
 }
