@@ -1031,6 +1031,7 @@ func clientTurnEnd(t clientTurn) {
 func clientMaintain(now time.Time) {
 	clientReconcile("", now)
 	clientExpireProposals(now)
+	clientAsksMaintain(now)
 	cut := nowStamp(now.Add(-clientEventKeep))
 	_, _ = db.Exec(`DELETE FROM app_events WHERE created_at < ?`, cut)
 	_, _ = db.Exec(`DELETE FROM bot_events WHERE kind = 'client' AND status IN ('delivered', 'dropped') AND created_at < ?`, cut)

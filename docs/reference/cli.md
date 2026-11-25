@@ -29,6 +29,7 @@ lasso serve -h    # every server flag
 | `lasso notify [flags] <message>` | | Push a notification to the human running lasso. |
 | `lasso open [flags] <path>` | | Show a file to the human, in the web app's sidebar file viewer or the Mac app (`-app web|mac`). |
 | `lasso closeme` | | Close the calling agent itself. |
+| `lasso ask-hook` | | Run by the `lasso-asks` Claude Code plugin's hooks: put the agent's question in your Inbox. |
 | `lasso skill [path]` | | Print lasso's agent skill, or a doc it links to. |
 | `lasso telemetry [on\|off]` | | Turn anonymous usage analytics on or off, or show whether they are on. |
 | `lasso mcp-client <cmd>` | | Manage per-host MCP credentials. |
@@ -200,6 +201,10 @@ A relative path is resolved against this shell's working directory before the ca
 Closes the agent this command runs in: it POSTs `$HERDR_PANE_ID` to the local lasso's `/api/agent/close`, which performs the same soft close as the UI and the `close_agent` tool (stop the agent process, then close its pane). Takes no arguments. Fails if `$HERDR_PANE_ID` is unset.
 
 It always talks to `http://$LASSO_LISTEN` (default `127.0.0.1:8090`) on the same machine, sending `UI_AUTH` as basic auth when set. It does not read `LASSO_URL` or `LASSO_MCP_TOKEN`.
+
+### `lasso ask-hook`
+
+The command the [`lasso-asks` Claude Code plugin](../design/client-asks.md#an-agents-question)'s hooks run. It reads a hook's JSON on stdin and POSTs it, with `$HERDR_PANE_ID`, to the local lasso's `/api/asks/agent`, so a question Claude Code asks in its terminal is also in your Inbox and can be answered there. It prints nothing and always exits 0. It reads `LASSO_LISTEN` and `UI_AUTH` as `closeme` does; set `LASSO_ASK_HOOK_DEBUG=1` to see what happened on stderr.
 
 ### `lasso skill`
 

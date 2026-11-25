@@ -36,6 +36,7 @@ What it adds:
 - [Limits](#limits)
 - [Authorization](#authorization)
 - [Owner side: People UI and settings](#owner-side-people-ui-and-settings)
+- [The operator's threads](#the-operators-threads)
 - [Client work: iPhone](#client-work-iphone)
 - [Client work: Android](#client-work-android)
 - [Test plan](#test-plan)
@@ -602,6 +603,7 @@ One SSE connection carries every event of every thread the person can see, so an
 | `thread_stub` | yes | `{thread_id, message_id, thread: {id, title, title_auto, bots, reply_count, unread, last_activity_at}}`: the stub under an anchor message changed (a message in the thread, a read, a rename, its bots); one event per change, never a repeat of the stub last sent; `thread_id` is the **main** thread the anchor is in and `message_id` the anchor. Never counted as unread, never pushed |
 | `proposal_created` | yes | `{proposal}` |
 | `proposal_resolved` | yes | `{proposal}` |
+| `ask` | yes | `{ask}`: an ask as it now reads, for a new one and every change ([client-asks.md](client-asks.md#events-badge-and-push)) |
 | `activity` | no | `{thread_id, bot, message_id, text}`: as today, plain step kinds only, claude bots only |
 | `bot_state` | no | `{bot, name, state, reason?}`: a granted bot's coarse state changed (polled every 3 s) |
 | `closed` | no | `{reason: "access_revoked" \| "reconnect"}`: `access_revoked` here means the device or the user, not a grant |
@@ -1160,6 +1162,22 @@ What this keeps:
 - **Settings → Phone app push** (`/api/client-push`, behind `UI_AUTH`, kept off machine callers like `/api/app-users`): `GET` answers the stored choices (references, never values) and each provider's state; `PUT` merge-patches (`""` clears a field); `POST /api/client-push/test {"user_id", "device_id"}` sends one push (`kind: "test"`, body "Push works.") and answers the provider's result. `get_settings`/`update_settings` gain the section `client_push` (same fields, same validation); `update_settings` changes it only for a real MCP credential with fleet reach, as the app-user tools (an anonymous `/mcp` caller, which is what a local bot is, is refused before anything changes).
 - **People page** (`PeopleView.tsx`): each device row shows `push`: `{provider, environment, app_id, last_ok_at, last_error}` or "no push", from the user view, which gains `devices[].push` (never the token). Revoking a device deletes its token. Nothing else: the owner sees people, devices and storage as now, and never their threads.
 - `deleteAppUser` also deletes the person's threads, participants, deliveries, proposals, push tokens, attachment copies (rows and files) and search rows (triggers). `revokeAppDevice` deletes the device's push token. `deleteAppGrant` runs the [grant-revoked](#participants-and-routing) steps.
+
+## The operator's threads
+
+lasso's web UI reads and writes threads as the operator's app user ([asks](client-asks.md#the-operators-inbox) says who that is), at `/api/operator/…` (`serveOperatorThreads`, `clientasks_operator.go`), behind `UI_AUTH` and off machine callers like the rest of `/api`. With nobody to act as, every route answers `409 no_operator`.
+
+| route | |
+| --- | --- |
+| `GET /api/operator/bots` | `{operator, bots}`: the person's bots, as `GET /bots` |
+| `GET\|POST /api/operator/threads`, `GET\|PATCH\|DELETE /api/operator/threads/{id}` | [threads](#threads) |
+| `GET\|POST /api/operator/threads/{id}/messages`, `POST …/attachments`, `POST …/read` | [messages](#messages-in-threads), uploads and the read marker |
+| `GET /api/operator/attachments/{id}` | a file of theirs; a view's `url` names the phone's route, so the page builds this one from the id |
+| `GET /api/operator/search` | [search](#search) |
+
+- **Only what needs no paired device is here.** The event streams count and re-check a device, a call belongs to one, and push and presence are a device's: all of that stays on `/client`, and anything else under `/api/operator` is `404`.
+- **The page polls** (`BotThreads.tsx`, the Bots view at `/bots/<name>/threads[/<id>]`): the thread list every 5 s and the open thread's newest page every 2 s, while it is on screen.
+- A message sent here is the person's own, exactly as from the phone: the bot's `client` event says `verified="true"`, with no device named.
 
 ## Client work: iPhone
 

@@ -2192,7 +2192,229 @@ export interface FileFindListing {
   source: "git" | "walk"
 }
 
+// An ask (clientasks.go): a bot's question waiting on a person's decision.
+export interface AskOption {
+  id: string
+  label: string
+  default?: boolean
+  // A line under the label; only an agent's question carries one.
+  detail?: string
+}
+
+export interface AskAttachment {
+  kind: "draft" | "pr" | "doc" | "link" | "upload"
+  label?: string
+  ref?: string
+  url?: string
+  preview?: string
+}
+
+export interface Ask {
+  id: string
+  // On a dropped ask that can still be brought back (api.asks.reopen).
+  undo_until?: string
+  // Empty on an agent's question, which has `agent` instead.
+  bot: string
+  thread_id: string
+  agent?: {
+    name?: string
+    host: string
+    pane_id: string
+    n: number
+    of: number
+    // "sent", "waiting", or why the answer could not be typed.
+    delivery?: string
+  }
+  area?: string
+  subject?: string
+  blocking: "money" | "people" | "deadline" | "none"
+  rank: number
+  question: string
+  why?: string
+  attachment?: AskAttachment
+  options: AskOption[]
+  allow_other: boolean
+  deadline?: string
+  on_expire?: string
+  state:
+    | "new"
+    | "seen"
+    | "snoozed"
+    | "answered"
+    | "dropped"
+    | "expired"
+    | "withdrawn"
+  snoozed_until?: string
+  answer?: {
+    choice?: string
+    label?: string
+    other?: string
+    message_id?: string
+    via?: string
+    at: string
+  }
+  revision: number
+  created_at: string
+  updated_at: string
+  closed_at?: string
+}
+
+export interface AskPerson {
+  id: string
+  name: string
+}
+
+// The operator's Inbox (clientasks_operator.go): the asks of the one app user
+// lasso's own UI acts as, or why there is none yet.
+export interface AskInbox {
+  asks: Ask[]
+  counts: { waiting: number; snoozed: number }
+  operator?: AskPerson | null
+  reason?: string
+  candidates?: AskPerson[]
+}
+
+// Your own threads with your bots (the phone app's conversations), read and
+// written by lasso's web UI as the operator's app user (/api/operator,
+// clientasks_operator.go).
+export interface ThreadAttachment {
+  id: string
+  name: string
+  type: string
+  size: number
+  width?: number
+  height?: number
+  // /client/v1/attachments/<id>, the phone's address: operatorFileURL turns it
+  // into the one this UI may fetch.
+  url?: string
+  expired?: boolean
+}
+
+export interface ThreadMessage {
+  id: string
+  thread_id: string
+  cursor: string
+  role: "user" | "bot" | "system"
+  bot?: string
+  text: string
+  done: boolean
+  attachments: ThreadAttachment[]
+  state?: "queued" | "delivered" | "failed"
+  failed_reason?: string
+  client_id?: string
+  system?: { type: string; bot?: string; by: string; title?: string }
+  created_at: string
+}
+
+export interface BotThread {
+  id: string
+  kind: "main" | "thread"
+  bot?: string
+  title?: string
+  bots: { name: string; lead: boolean }[]
+  state: string
+  unread: number
+  last_message?: {
+    id: string
+    cursor: string
+    role: string
+    bot?: string
+    preview: string
+    created_at: string
+  }
+  last_activity_at: string
+  created_at: string
+}
+
+export function operatorFileURL(a: ThreadAttachment): string | undefined {
+  return a.url && !a.expired
+    ? `/api/operator/attachments/${encodeURIComponent(a.id)}`
+    : undefined
+}
+
+function operatorThreadURL(id: string, rest = ""): string {
+  return `/api/operator/threads/${encodeURIComponent(id)}${rest}`
+}
+
 export const api = {
+  threads: {
+    list: (bot: string) =>
+      getJSON<{ threads: BotThread[] }>(
+        `/api/operator/threads?limit=100&bot=${encodeURIComponent(bot)}`
+      ),
+    // The newest page, or the messages after a cursor.
+    messages: (id: string, after?: string) =>
+      getJSON<{ messages: ThreadMessage[]; older_cursor: string | null }>(
+        operatorThreadURL(
+          id,
+          after ? `/messages?limit=100&after=${after}` : "/messages?limit=100"
+        )
+      ),
+    older: (id: string, before: string) =>
+      getJSON<{ messages: ThreadMessage[]; older_cursor: string | null }>(
+        operatorThreadURL(id, `/messages?limit=100&before=${before}`)
+      ),
+    send: (
+      id: string,
+      body: { text: string; attachments?: string[]; client_id: string }
+    ) =>
+      postJSON<{ message: ThreadMessage }>(
+        operatorThreadURL(id, "/messages"),
+        body
+      ),
+    create: (bot: string, text: string, client_id: string) =>
+      postJSON<{ thread: BotThread }>("/api/operator/threads", {
+        bots: [bot],
+        client_id,
+        message: { text, client_id: `${client_id}.m` },
+      }),
+    read: (id: string, cursor: string) =>
+      postJSON<unknown>(operatorThreadURL(id, "/read"), { cursor }),
+    upload: async (id: string, file: File): Promise<ThreadAttachment> => {
+      const r = await hostFetch(
+        operatorThreadURL(
+          id,
+          `/attachments?name=${encodeURIComponent(file.name)}`
+        ),
+        { method: "POST", body: file }
+      )
+      if (!r.ok) throw await httpError(r)
+      return ((await r.json()) as { attachment: ThreadAttachment }).attachment
+    },
+  },
+  asks: {
+    list: () => getJSON<AskInbox>("/api/asks?state=all"),
+    operator: () =>
+      getJSON<{
+        operator: AskPerson | null
+        chosen: boolean
+        reason?: string
+        candidates: AskPerson[]
+      }>("/api/asks/operator"),
+    setOperator: (user_id: string | null) =>
+      sendJSON<{ operator: AskPerson | null }>("PUT", "/api/asks/operator", {
+        user_id,
+      }),
+    answer: (
+      id: string,
+      body: { choice?: string; other?: string; message_id?: string }
+    ) =>
+      postJSON<{ ask: Ask }>(`/api/asks/${encodeURIComponent(id)}/answer`, {
+        ...body,
+        via: "tap",
+      }),
+    seen: (id: string) =>
+      postJSON<{ ask: Ask }>(`/api/asks/${encodeURIComponent(id)}/seen`, {}),
+    snooze: (id: string, until: string | null) =>
+      postJSON<{ ask: Ask }>(`/api/asks/${encodeURIComponent(id)}/snooze`, {
+        until,
+      }),
+    drop: (id: string) =>
+      postJSON<{ ask: Ask }>(`/api/asks/${encodeURIComponent(id)}/drop`, {}),
+    // Undo a drop, while its `undo_until` has not passed.
+    reopen: (id: string) =>
+      postJSON<{ ask: Ask }>(`/api/asks/${encodeURIComponent(id)}/reopen`, {}),
+  },
   active: () => getJSON<ActiveState>("/api/active"),
   // The live theme, or — with `name` — that theme RESOLVED without switching
   // anything: same payload, no config write, no fleet-wide re-theme. That is

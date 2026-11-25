@@ -26,6 +26,7 @@ export const BUILTIN_TABS = [
   "files",
   "scratch",
   "browser",
+  "inbox",
   "usage",
   "settings",
 ] as const
@@ -34,6 +35,7 @@ export type BuiltinTab = (typeof BUILTIN_TABS)[number]
 
 export const BUILTIN_LABELS: Record<BuiltinTab, string> = {
   agents: "Agents",
+  inbox: "Inbox",
   files: "Files",
   scratch: "Scratch",
   browser: "Browser",

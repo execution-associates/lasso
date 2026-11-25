@@ -1,0 +1,26 @@
+{
+  "description": "Forward AskUserQuestion dialogs to the local lasso's Inbox, and withdraw them once the session moves on.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [{ "type": "command", "command": "command -v lasso >/dev/null 2>&1 && lasso ask-hook; exit 0", "timeout": 5 }]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [{ "type": "command", "command": "command -v lasso >/dev/null 2>&1 && lasso ask-hook; exit 0", "timeout": 5 }]
+      }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "command -v lasso >/dev/null 2>&1 && lasso ask-hook; exit 0", "timeout": 5 }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "command -v lasso >/dev/null 2>&1 && lasso ask-hook; exit 0", "timeout": 5 }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "command -v lasso >/dev/null 2>&1 && lasso ask-hook; exit 0", "timeout": 5 }] }
+    ]
+  }
+}

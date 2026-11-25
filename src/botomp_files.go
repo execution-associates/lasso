@@ -362,8 +362,10 @@ func botOmpSystemPrompt(r *botRecord, dir string) string {
 
 %s
 
+%s
+
 %s`,
-		r.Name, dir, r.Name, dir, botOmpJobInstructions, botOmpClientInstructions)
+		r.Name, dir, r.Name, dir, botOmpJobInstructions, botOmpClientInstructions, botOmpAskInstructions)
 }
 
 // botOmpJobInstructions is botChannelInstructions for a bot whose jobs arrive
@@ -486,6 +488,8 @@ func botOmpClientMessage(e botEvent) string {
 	case "call_ended":
 		return fmt.Sprintf("[lasso client event call_ended from=%s name=%q verified=paired owner=%s thread=%s conversation=%s call=%s reason=%s nonce=%s]\n%s",
 			m["user_id"], m["user_name"], owner, thread, m["conversation_id"], m["call_id"], m["end_reason"], m["nonce"], e.Content)
+	case "ask_answered", "ask_expired", "ask_dropped":
+		return askEventForOmp(m, owner, thread, e.Content)
 	case "proposal_resolved":
 		return fmt.Sprintf("[lasso client event proposal_resolved from=%s name=%q owner=%s thread=%s proposal=%s bot=%s state=%s nonce=%s]\n%s",
 			m["user_id"], m["user_name"], owner, thread, m["proposal_id"], m["bot"], m["state"], m["nonce"], e.Content)

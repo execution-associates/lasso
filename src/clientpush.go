@@ -404,16 +404,26 @@ func pushTargets(userID string, now time.Time) []pushTarget {
 
 // pushNote is what a push says, before it is shaped for a provider.
 type pushNote struct {
-	Kind       string // message | proposal | badge | test
+	Kind       string // message | proposal | ask | badge | test
 	ThreadID   string
 	MessageID  string
 	ProposalID string
+	AskID      string
 	Bot        string
 	Title      string
 	Subtitle   string
 	Body       string
 	Badge      int
 	Quiet      bool
+}
+
+// collapseID is what a newer push replaces on the device: a thread's last
+// message, or one ask (which must not replace a message of its bot's thread).
+func (n pushNote) collapseID() string {
+	if n.AskID != "" {
+		return n.AskID
+	}
+	return n.ThreadID
 }
 
 var pushLastSent = struct {

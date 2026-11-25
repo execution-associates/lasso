@@ -1,6 +1,6 @@
 ---
 title: The sidebar
-description: Every built-in sidebar tab (Files and Diff, Scratch, Browser, Terminal, Agents, Usage and Settings) and how to arrange or hide them.
+description: Every built-in sidebar tab (Files and Diff, Scratch, Browser, Terminal, Agents, Inbox, Usage and Settings) and how to arrange or hide them.
 order: 32
 nav_title: Sidebar
 ---
@@ -15,6 +15,7 @@ The built-in tabs, in their default order:
 | **Files** | A file browser, viewer and editor for the focused pane's directory, with a **Diff** view of its git changes. |
 | **Scratch** | A notepad you can send to the terminal or save to a file. |
 | **Browser** | A shared Chromium your agents can drive, or a plain iframe. |
+| **Inbox** | What your bots are waiting on you to decide: each ask with its options, to answer, put off or drop. The footer's **Inbox** button shows the count and opens the same asks one at a time, to swipe through. With the `lasso-asks` Claude Code plugin, a question an agent asks in its terminal is here too, and your answer is typed back into it. |
 | **Usage** | Every tracked provider's quota windows in full. |
 | **Settings** | lasso's settings, in a **General** and a **Themes** pane. |
 

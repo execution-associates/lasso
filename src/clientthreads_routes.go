@@ -2,8 +2,8 @@ package main
 
 import "net/http"
 
-// serveClientExtraRoutes are the person's routes beside threads: search, and
-// this device's push token and presence.
+// serveClientExtraRoutes are the person's routes beside threads: search,
+// this device's push token and presence, and their asks (clientasks.go).
 func serveClientExtraRoutes(w http.ResponseWriter, r *http.Request, id *clientIdentity, segs []string) bool {
 	switch {
 	case len(segs) == 1 && segs[0] == "search":
@@ -21,7 +21,7 @@ func serveClientExtraRoutes(w http.ResponseWriter, r *http.Request, id *clientId
 		}
 		serveClientPresence(w, r, id)
 	default:
-		return false
+		return serveClientAskRoutes(w, r, id, segs)
 	}
 	return true
 }
