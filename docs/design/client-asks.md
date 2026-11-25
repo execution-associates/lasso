@@ -1,6 +1,6 @@
 <!-- Design rationale and contract: read before changing the code it names. -->
 
-# Asks (`src/clientasks.go`, `src/clientasks_operator.go`, `src/clientasks_agent.go`, `src/clihook.go`, `src/botchannel_asks.go`, `claude-plugin/lasso-asks`, `AsksDialog.tsx`, `AsksTab.tsx`, `BotThreads.tsx`, `lib/asks.ts`)
+# Asks (`src/clientasks.go`, `src/clientasks_thread.go`, `src/clientasks_operator.go`, `src/clientasks_agent.go`, `src/clihook.go`, `src/botchannel_asks.go`, `claude-plugin/lasso-asks`, `AsksDialog.tsx`, `AsksTab.tsx`, `BotThreads.tsx`, `lib/asks.ts`)
 
 An ask is how a bot that is blocked on a person's decision gets it: one question, a card in that person's Inbox in lasso's phone app, answered with a tap. The bot calls a tool and carries on; the answer reaches it later as a client event. It extends the [client API](client-api.md) and [client threads](client-threads.md). Tests: `clientasks_test.go`, `clientasks_operator_test.go`, `clientasks_agent_test.go`.
 
@@ -154,6 +154,7 @@ Under `/client/v1`, with the device token. An ask that is unknown, someone else'
 | `POST /asks/{id}/snooze` | `{"until": "<RFC 3339>"}`, within 30 days; `{"until": null}` brings it back now |
 | `POST /asks/{id}/drop` | the person will not answer it. The ask reads `dropped` with `undo_until`, a minute out; the bot is told only once that has passed |
 | `POST /asks/{id}/reopen` | undo a drop before `undo_until`: the ask is open again and the bot never hears of the drop. After it, `409 ask_closed` |
+| `POST /asks/{id}/thread` | the ask's own thread ([below](#talking-an-ask-over)): `{"ask": {…}, "thread": {…}}`, made the first time, the same thread after. Open or closed alike; an agent's question is `409 no_thread` |
 
 ```json
 {
@@ -167,6 +168,8 @@ Under `/client/v1`, with the device token. An ask that is unknown, someone else'
 }
 ```
 
+`discussion_thread_id` is the ask's own thread once it was opened.
+
 `state` is `new`, `seen`, `snoozed` (with `snoozed_until`), `answered` (with `answer: {choice?, label?, other?, message_id?, via?, at}`), `dropped`, `expired` or `withdrawn` (those with `closed_at`). `options` is always an array. Times are UTC.
 
 **Sort.** `rank` is 0 for `money`, 1 for `people`, 2 for `deadline` or anything due within 24 hours, 3 for the rest; within a rank, oldest first. The server sorts; an app that inserts an ask from the stream sorts by `rank` then `created_at`.
@@ -178,6 +181,10 @@ Under `/client/v1`, with the device token. An ask that is unknown, someone else'
 - `message_id` is a message the person sent in the ask's thread after the ask was made. It is how an `upload` ask is answered (send the files in the thread with the ordinary message route, then answer with that message's id), and it is allowed on any ask that takes `other`.
 - `via` (`[a-z][a-z0-9_-]{0,23}`: `swipe`, `tap`, `voice`, `keyboard`, `notification`) is the gesture, which lasso prefixes with the device's platform. Any other field is ignored: who answered comes from the token.
 - The same answer again is `200` with the ask as it reads (a retry after a dropped connection). Anything else on a closed ask is `409 ask_closed`: the bot moved on, the deadline passed, or another device answered first.
+
+### Talking an ask over
+
+`thread_id` is the person's main thread with the bot, which holds none of the ask's words, so "Open thread" goes to the ask's **own** thread instead (`clientasks_thread.go`). The first `POST /asks/{id}/thread` makes a standalone thread with the asking bot, titled from `subject` and `question`, whose first message is the bot's: the question, `why`, the attachment's label, ref, url and preview (quoted), and the option labels. Its id is stored on the ask (`app_asks.discussion`) and the ask is announced, so every device opens the same thread; one the person deleted is made again. What the person writes there reaches the bot as any thread message, and a message of theirs there may answer the ask by `message_id` like one in `thread_id`. Upload asks keep sending their files in `thread_id`.
 
 `PUT /me/settings` takes two more keys, both in `/me`'s `settings`:
 
@@ -211,10 +218,10 @@ Behind `UI_AUTH` and off machine callers, like the rest of `/api`.
 
 - **The footer's Inbox button** shows how many asks wait and opens the Inbox dialog (`AsksDialog.tsx`): one ask per slide in a strip that scrolls sideways and snaps, so a two-finger swipe moves exactly one ask. The dialog is one block of one size: header, strip and footer. A slide fills the strip, so only the ask being read is on screen and the dialog never changes height; a long ask scrolls inside its slide. The arrow keys move, a digit picks an option, Enter answers, and answering takes the ask out of the strip, which brings the next one into its place. Waiting, Later and Finished switch what the strip holds; its last slide is always the closing one.
 - **The sidebar's Inbox tab** (`AsksTab.tsx`, a built-in tab between Browser and Usage) is the same asks as a list.
-- Both read one polled query (`lib/asks.ts`): lasso's SSE feed carries nothing of the phone app's.
+- Both read one polled query (`lib/asks.ts`): lasso's SSE feed carries nothing of the phone app's. It polls every 30 s (4 s while the Inbox is on screen) and reads afresh when the window regains focus and when the dialog or tab opens.
 - **An answer given here is not tied to a device**, and every process on lasso's machine can reach `/api` on the loopback listener, a bot with a shell included. So the bot is told `verified_via="operator"` (omp: `verified=operator`) where a phone's answer says `paired`, and `answered_via` reads `web-…`. That is a label, not a lock: it is the residual trust the client API already states ([client-api.md](client-api.md#security-model)).
 - **A drop can be undone here.** Dropping shows a toast with Undo, and `⌘Z` while the Inbox is on screen does the same, both through `POST /api/asks/{id}/reopen` while the ask's `undo_until` stands. `⌘⇧I` opens and closes the dialog.
-- **Open thread** on a card goes to that thread in the Bots view's Threads page ([client threads](client-threads.md#the-operators-threads)), and an `upload` ask takes dropped or chosen files there: they are uploaded to the ask's thread, sent as one message, and the ask is answered with that `message_id`.
+- **Open thread** on a card goes to the ask's own thread ([Talking an ask over](#talking-an-ask-over)) in the Bots view's Threads page ([client threads](client-threads.md#the-operators-threads)), and an `upload` ask takes dropped or chosen files there: they are uploaded to the ask's thread, sent as one message, and the ask is answered with that `message_id`.
 
 ## An agent's question
 
@@ -263,7 +270,7 @@ Install it from a checkout: `/plugin marketplace add <repo>/claude-plugin`, then
 - **Sections**: Asks you (waiting asks with options or free text), Blocked (waiting asks whose `attachment.kind` is `upload`), then snoozed and closed behind a disclosure.
 - **Card**: bot · area · subject, age (red once past `deadline`), question, `why`, the attachment's label, and the options as buttons with the default first. Swipe right answers with the default option (`via: "swipe"`), swipe left opens Later.
 - **An agent's question** has `agent` and no `bot` or `thread_id`: head it with `agent.name`, show each option's `detail`, offer no Open thread, and on a closed one show `agent.delivery`.
-- **Detail**: the preview in full, options as a single choice, "Other" as a text field with dictation (`other`, `via: "voice"` or `"keyboard"`), Answer & next, Drop, and Open thread (`thread_id`).
+- **Detail**: the preview in full, options as a single choice, "Other" as a text field with dictation (`other`, `via: "voice"` or `"keyboard"`), Answer & next, Drop, and Open thread (`POST /asks/{id}/thread`, then that thread).
 - **Upload asks**: Add photos sends the files in `thread_id` with the ordinary message route, then `POST /asks/{id}/answer {"message_id": …}`.
 - **On opening a card** `POST /asks/{id}/seen`. On `409 ask_closed` re-read the ask and show what happened.
 - **Push**: register the `LASSO_ASK` category; a tap opens `lasso://ask/<id>`. Send `time_zone` from the device after pairing and when it changes, and offer quiet hours in Settings.

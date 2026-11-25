@@ -12,6 +12,11 @@ export function useAsks(active = false) {
     queryFn: () => api.asks.list(),
     refetchInterval: active ? 4_000 : 30_000,
     staleTime: 2_000,
+    // The app turns focus refetches off; the Inbox wants them, since a bot
+    // can file a batch of asks while the window is in the background and the
+    // 30s poll pauses with it. Opening the dialog or the tab reads afresh too.
+    refetchOnWindowFocus: "always",
+    refetchOnMount: "always",
   })
 }
 

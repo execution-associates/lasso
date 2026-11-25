@@ -580,3 +580,61 @@ func TestClientAskOwnerViewAndSpool(t *testing.T) {
 		t.Fatalf("after upkeep = %+v", asks)
 	}
 }
+
+// "Open thread": the ask's own thread with its bot, made once, started by the
+// bot's message carrying the ask, and the same thread on every later open.
+func TestClientAskThread(t *testing.T) {
+	c := newClientTest(t)
+	_, ann := c.person("Ann", true, "jess")
+	_, bob := c.person("Bob", false, "jess")
+	id := mustAsk(t, "jess", ndaAsk)
+
+	code, out, raw := c.jsonDo("POST", "/client/v1/asks/"+id+"/thread", ann, "{}")
+	if code != 200 {
+		t.Fatalf("thread: %d %s", code, raw)
+	}
+	var got struct {
+		Ask    clientAskView    `json:"ask"`
+		Thread clientThreadView `json:"thread"`
+	}
+	_ = json.Unmarshal(raw, &got)
+	_ = out
+	tid := got.Thread.ID
+	if tid == "" || tid == got.Ask.ThreadID || got.Ask.DiscussionID != tid || got.Thread.Kind != "thread" ||
+		!strings.Contains(got.Thread.Title, "Body Helm") {
+		t.Fatalf("thread = %s", raw)
+	}
+	msgs := c.history(ann, tid)
+	if len(msgs) != 1 || msgs[0].Role != "bot" || msgs[0].Bot != "jess" || !strings.Contains(msgs[0].Text, "Send Curtis the NDA reply?") ||
+		!strings.Contains(msgs[0].Text, "VIP client") || !strings.Contains(msgs[0].Text, "> Hi Curtis,") || !strings.Contains(msgs[0].Text, "Send as is") {
+		t.Fatalf("seed = %+v", msgs)
+	}
+
+	// Again: the same thread, no second seed.
+	_, _, raw = c.jsonDo("POST", "/client/v1/asks/"+id+"/thread", ann, "{}")
+	_ = json.Unmarshal(raw, &got)
+	if got.Thread.ID != tid || len(c.history(ann, tid)) != 1 {
+		t.Fatalf("second open made another thread: %s", raw)
+	}
+	// The list carries it.
+	if list, _ := c.asks(ann, ""); len(list) != 1 || list[0].DiscussionID != tid {
+		t.Fatalf("list = %+v", list)
+	}
+	// Someone else's ask is a 404.
+	if code, _, _ := c.jsonDo("POST", "/client/v1/asks/"+id+"/thread", bob, "{}"); code != 404 {
+		t.Fatalf("bob opened Ann's ask's thread: %d", code)
+	}
+	// A message in it answers an ask that takes the person's words.
+	_, _ = db.Exec(`UPDATE app_asks SET created_at = ? WHERE id = ?`, nowStamp(time.Now().Add(-time.Minute)), id)
+	_, msg := c.send(ann, tid, `{"text":"cc Saul, and send"}`)
+	if code, _, raw := c.jsonDo("POST", "/client/v1/asks/"+id+"/answer", ann, `{"message_id":"`+msg.ID+`"}`); code != 200 {
+		t.Fatalf("message answer from the ask's thread: %d %s", code, raw)
+	}
+	// Deleted, it is made again.
+	_, _ = db.Exec(`DELETE FROM app_threads WHERE id = ?`, tid)
+	_, _, raw = c.jsonDo("POST", "/client/v1/asks/"+id+"/thread", ann, "{}")
+	_ = json.Unmarshal(raw, &got)
+	if got.Thread.ID == "" || got.Thread.ID == tid {
+		t.Fatalf("a deleted thread was not made again: %s", raw)
+	}
+}

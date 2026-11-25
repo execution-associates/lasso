@@ -2216,6 +2216,8 @@ export interface Ask {
   // Empty on an agent's question, which has `agent` instead.
   bot: string
   thread_id: string
+  // The ask's own thread with its bot, once "Open thread" made it.
+  discussion_thread_id?: string
   agent?: {
     name?: string
     host: string
@@ -2411,6 +2413,13 @@ export const api = {
       }),
     drop: (id: string) =>
       postJSON<{ ask: Ask }>(`/api/asks/${encodeURIComponent(id)}/drop`, {}),
+    // The ask's own thread with its bot: made (and started with the ask) the
+    // first time, the same thread after.
+    thread: (id: string) =>
+      postJSON<{ ask: Ask; thread: { id: string } }>(
+        `/api/asks/${encodeURIComponent(id)}/thread`,
+        {}
+      ),
     // Undo a drop, while its `undo_until` has not passed.
     reopen: (id: string) =>
       postJSON<{ ask: Ask }>(`/api/asks/${encodeURIComponent(id)}/reopen`, {}),
