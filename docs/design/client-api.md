@@ -134,7 +134,7 @@ All under `/client/v1`, JSON unless stated. `{bot}` is the bot's name, ids are t
 | `GET /calls/{id}` | a call |
 | `POST /calls/{id}/end` | hang up |
 | `DELETE /device` | sign this device out: revoke its token |
-| `GET /asks`, `GET /asks/{id}`, `POST /asks/{id}/answer\|seen\|snooze\|drop` | the person's Inbox of what bots asked them ([client-asks.md](client-asks.md#the-persons-routes)) |
+| `GET /asks`, `GET /asks/{id}`, `POST /asks/{id}/answer\|seen\|snooze\|drop\|reopen\|thread` | the person's Inbox of what bots asked them ([client-asks.md](client-asks.md#the-persons-routes)) |
 
 ### `GET /me`
 

@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS app_asks (
 	updated_at     TEXT NOT NULL,
 	closed_at      TEXT NOT NULL DEFAULT '',
 	agent          TEXT NOT NULL DEFAULT '',
-	untold         INTEGER NOT NULL DEFAULT 0
+	untold         INTEGER NOT NULL DEFAULT 0,
+	discussion     TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS app_asks_user ON app_asks(user_id, state);
 CREATE INDEX IF NOT EXISTS app_asks_bot ON app_asks(bot, state);
@@ -136,8 +137,10 @@ type askAnswerView struct {
 type clientAskView struct {
 	ID string `json:"id"`
 	// Bot and ThreadID are empty on an agent's ask, which has Agent instead.
-	Bot          string         `json:"bot"`
-	ThreadID     string         `json:"thread_id"`
+	Bot      string `json:"bot"`
+	ThreadID string `json:"thread_id"`
+	// DiscussionID is the ask's own thread, once POST /asks/{id}/thread made it.
+	DiscussionID string         `json:"discussion_thread_id,omitempty"`
 	Agent        *askAgentView  `json:"agent,omitempty"`
 	Area         string         `json:"area,omitempty"`
 	Subject      string         `json:"subject,omitempty"`
@@ -179,17 +182,20 @@ type appAsk struct {
 	Agent *askAgent
 	// Untold: dropped, and the bot not told yet (the undo window).
 	Untold bool
+	// Discussion is the ask's own thread with its bot (askThread), made the
+	// first time the person opens it.
+	Discussion string
 }
 
 const appAskCols = `seq, id, user_id, bot, thread_id, dedupe_key, area, subject, blocking, question, why, attachment, options, allow_other,
-	deadline, on_expire, state, seen_at, snoozed_until, choice, other, answer_message, answered_via, revision, pushed_at, created_at, updated_at, closed_at, agent, untold`
+	deadline, on_expire, state, seen_at, snoozed_until, choice, other, answer_message, answered_via, revision, pushed_at, created_at, updated_at, closed_at, agent, untold, discussion`
 
 func scanAppAsk(row interface{ Scan(...any) error }) (*appAsk, error) {
 	var a appAsk
 	var att, opts, agent string
 	err := row.Scan(&a.Seq, &a.ID, &a.UserID, &a.Bot, &a.ThreadID, &a.DedupeKey, &a.Area, &a.Subject, &a.Blocking, &a.Question, &a.Why, &att, &opts, &a.AllowOther,
 		&a.Deadline, &a.OnExpire, &a.State, &a.SeenAt, &a.SnoozedUntil, &a.Choice, &a.Other, &a.AnswerMessage, &a.AnsweredVia, &a.Revision, &a.PushedAt,
-		&a.CreatedAt, &a.UpdatedAt, &a.ClosedAt, &agent, &a.Untold)
+		&a.CreatedAt, &a.UpdatedAt, &a.ClosedAt, &agent, &a.Untold, &a.Discussion)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errClientNotFound
 	}
@@ -266,7 +272,7 @@ func (a *appAsk) optionLabel(id string) string {
 }
 
 func (a *appAsk) view(now time.Time) clientAskView {
-	v := clientAskView{ID: a.ID, Bot: a.Bot, ThreadID: a.ThreadID, Area: a.Area, Subject: a.Subject, Blocking: a.Blocking, Rank: a.rank(now),
+	v := clientAskView{ID: a.ID, Bot: a.Bot, ThreadID: a.ThreadID, DiscussionID: a.Discussion, Area: a.Area, Subject: a.Subject, Blocking: a.Blocking, Rank: a.rank(now),
 		Question: a.Question, Why: a.Why, Attachment: a.Attachment, Options: a.Options, AllowOther: a.AllowOther, Deadline: a.Deadline, OnExpire: a.OnExpire,
 		State: a.State, Revision: a.Revision, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt, ClosedAt: a.ClosedAt}
 	if a.Agent != nil {
@@ -808,7 +814,7 @@ func serveClientAskRoutes(w http.ResponseWriter, r *http.Request, id *clientIden
 	}
 	if r.Method != http.MethodPost {
 		switch segs[2] {
-		case "answer", "seen", "snooze", "drop":
+		case "answer", "seen", "snooze", "drop", "reopen", "thread":
 			clientMethod(w, "POST")
 		default:
 			clientNotFound(w)
@@ -887,6 +893,23 @@ func serveClientAskRoutes(w http.ResponseWriter, r *http.Request, id *clientIden
 			return true
 		}
 		clientJSON(w, http.StatusOK, map[string]any{"ask": cur.view(now)})
+	case "thread":
+		// The ask's own thread, open or closed: talking it over needs no
+		// open ask.
+		t, err := askThread(a, now)
+		if err != nil {
+			if errors.Is(err, errAskNoThread) {
+				clientError(w, http.StatusConflict, "no_thread", "An agent's question has no thread.")
+				return true
+			}
+			clientFail(w, err)
+			return true
+		}
+		if a, _ = askByID(a.ID); a == nil {
+			clientNotFound(w)
+			return true
+		}
+		clientJSON(w, http.StatusOK, map[string]any{"ask": a.view(now), "thread": threadViewOf(t)})
 	case "reopen":
 		// Undo a drop the bot has not heard of. One UPDATE decides it against
 		// the tick that tells the bot.
@@ -1044,7 +1067,7 @@ func serveClientAskAnswer(w http.ResponseWriter, r *http.Request, id *clientIden
 		// A message of the person's own, in the ask's thread, sent after the
 		// ask was made: the bot receives it as any message.
 		var role, at string
-		if db.QueryRow(`SELECT role, created_at FROM app_messages WHERE id = ? AND conv_id = ?`, msgID, a.ThreadID).Scan(&role, &at) != nil ||
+		if db.QueryRow(`SELECT role, created_at FROM app_messages WHERE id = ? AND conv_id IN (?, ?)`, msgID, a.ThreadID, nonEmptyOr(a.Discussion, a.ThreadID)).Scan(&role, &at) != nil ||
 			role != "user" || at < a.CreatedAt {
 			bad("message_id must be a message you sent in this ask's thread after it was asked.")
 			return

@@ -112,9 +112,23 @@ export function AskCard({
     api.asks.seen(ask.id).catch(() => {})
   }, [ask.id, ask.state, current])
   const otherRef = React.useRef<HTMLInputElement>(null)
-  const openThread = () => {
-    openBotsRoute({ page: "threads", name: ask.bot, thread: ask.thread_id })
-    onLeave?.()
+  // The ask's own thread, not the main one it hangs off (which holds none of
+  // its words): lasso makes it, started with the ask, the first time.
+  const [opening, setOpening] = React.useState(false)
+  const openThread = async () => {
+    if (opening) return
+    setOpening(true)
+    try {
+      const { thread } = await api.asks.thread(ask.id)
+      await queryClient.invalidateQueries({ queryKey: qk.botThreads(ask.bot) })
+      queryClient.invalidateQueries({ queryKey: qk.asks })
+      openBotsRoute({ page: "threads", name: ask.bot, thread: thread.id })
+      onLeave?.()
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setOpening(false)
+    }
   }
   // An ask for files is answered by a message carrying them, in its thread.
   const filesRef = React.useRef<HTMLInputElement>(null)
@@ -380,8 +394,9 @@ export function AskCard({
                 size="sm"
                 variant="ghost"
                 className="ml-auto text-muted-foreground"
-                title={`Your thread with ${ask.bot}`}
-                onClick={openThread}
+                title={`Talk this over with ${ask.bot}`}
+                disabled={opening}
+                onClick={() => void openThread()}
               >
                 Open thread
               </Button>
