@@ -78,6 +78,9 @@ func main() {
 		case "closeme":
 			cliCloseMe()
 			return
+		case "ask-hook":
+			cliAskHook()
+			return
 		case "notify":
 			cliNotify(os.Args[2:])
 			return

@@ -60,6 +60,15 @@ Everything else works as in Chat, including two composer features that apply to 
 - **Stop.** While the agent works, an empty composer's send button becomes **Stop**, which interrupts the turn (one `Esc` in a Claude Code bot's pane, an abort for an omp bot). If the agent was not working, or lasso could not tell whether the interrupt landed, it says so above the composer.
 - **Up next.** A message sent while a Claude Code bot works is held, shown as **Up next** above the composer, and sent once the bot is idle, one at a time and in order. lasso holds the queue, so it goes out with the tab closed or the phone locked, and every device shows the same one. Edit, move up or remove a held message from its row. Pressing **Stop** puts the held messages **on hold**: nothing goes out until you press **Send queued messages**. When lasso cannot confirm that a held message was delivered, the queue pauses and says so, and nothing is resent automatically.
 
+### Threads
+
+The speech-bubbles icon in a bot's header opens **Threads**: your own threads with that bot, the same ones lasso's phone app shows, at `/bots/<name>/threads`. The conversation above is the bot's own session, with everything it does; a thread holds only what you and the bot said to each other.
+
+- **Your main thread comes first**, then the others by latest activity, each with its unread count. **New thread** starts one with its first message.
+- **Write, attach, read.** Enter sends, Shift+Enter is a new line, and the paperclip or a drop attaches files. The bot's answer appears as it lands, and opening a thread marks it read on your phone too.
+- **It is you, on the web.** lasso's web UI acts as one person of the phone app: the one chosen for the [Inbox](./sidebar.md), or the only person who owns a bot. A bot you have no access to under **People** has no threads here.
+- **Session** in the header goes back to the bot's conversation.
+
 A stopped bot has no conversation to show. Its page offers **Start**, which carries on its last conversation, and **Start a new conversation**.
 
 ## Settings

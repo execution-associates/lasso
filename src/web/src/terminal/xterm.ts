@@ -24,6 +24,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links"
 import { WebglAddon } from "@xterm/addon-webgl"
 import type { IDisposable, ITerminalOptions } from "@xterm/xterm"
 import { Terminal } from "@xterm/xterm"
+import { installKittyPlacementTracking } from "./kittyPlacements"
 import { OverlayAddon } from "./overlay"
 
 interface TtydTerminal extends Terminal {
@@ -170,6 +171,13 @@ export class Xterm {
     // once per client and only forwards graphics to a client that answered.
     this.imageAddon = new ImageAddon({ kittySupport: true })
     terminal.loadAddon(this.imageAddon)
+    // herdr draws placeholder images as many placements of one image, which
+    // the addon cannot tell apart on its own (kittyPlacements.ts).
+    if (!installKittyPlacementTracking(this.imageAddon, terminal)) {
+      console.warn(
+        "kitty placement tracking is off: the image addon has changed shape"
+      )
+    }
     fitAddon.fit()
   }
 

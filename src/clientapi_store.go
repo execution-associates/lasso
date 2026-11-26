@@ -406,6 +406,7 @@ func deleteAppUserData(id string) ([]appAttachment, error) {
 		// find every bot's copy and then deletes them.
 		`DELETE FROM app_attachments WHERE user_id = ?`,
 		`DELETE FROM app_proposals WHERE user_id = ?`,
+		`DELETE FROM app_asks WHERE user_id = ?`,
 		`DELETE FROM app_thread_bots WHERE thread_id IN (SELECT id FROM app_threads WHERE user_id = ?)`,
 		`DELETE FROM app_threads WHERE user_id = ?`,
 		`DELETE FROM app_push_tokens WHERE user_id = ?`,
@@ -434,6 +435,7 @@ func deleteClientDataOfBot(bot string) {
 		`DELETE FROM app_threads WHERE id IN (SELECT id FROM app_convs WHERE bot = ?)`,
 		`DELETE FROM app_attachment_copies WHERE attachment_id IN (SELECT id FROM app_attachments WHERE conv_id IN (SELECT id FROM app_convs WHERE bot = ?))`,
 		`DELETE FROM app_reply_tokens WHERE bot = ?`,
+		`DELETE FROM app_asks WHERE bot = ?`,
 		`DELETE FROM app_events WHERE conv_id IN (SELECT id FROM app_convs WHERE bot = ?)`,
 		`DELETE FROM app_messages WHERE conv_id IN (SELECT id FROM app_convs WHERE bot = ?)`,
 		`DELETE FROM app_calls WHERE conv_id IN (SELECT id FROM app_convs WHERE bot = ?)`,
@@ -513,6 +515,8 @@ func deleteAppGrant(userID, bot string) error {
 	// What the person sent this bot and the bot has not taken yet is not
 	// delivered: the grant it was sent under is gone.
 	dropClientEvents(`bot = ? AND json_extract(meta, '$.user_id') = ?`, bot, userID)
+	// What the bot asked this person is no longer theirs to answer.
+	clientWithdrawAsks(`a.user_id = ? AND a.bot = ?`, userID, bot)
 	// The bot leaves the person's other threads.
 	clientRevokeThreads(userID, bot, time.Now())
 	return nil

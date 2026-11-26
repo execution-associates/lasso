@@ -301,6 +301,33 @@ func TestTitlerFallsBackToCLIWhenLLMFails(t *testing.T) {
 	}
 }
 
+// A reasoning model that runs out of tokens mid-answer returns the start of it
+// with finish_reason "length". That fragment ("name") once became an agent's
+// title; it must count as a failure, so the CLIs name the agent instead.
+func TestTitlerRejectsCutOffLLMAnswer(t *testing.T) {
+	f := setupLLM(t, nil, map[string]string{"LLM_KEY": "sk-live"})
+	configureLLM(t, f, "model-a")
+	f.chat = func(w http.ResponseWriter, _ *http.Request) {
+		io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"name"},"finish_reason":"length"}]}`)
+	}
+	old := titlerRunner
+	titlerRunner = func(titler, string) (string, error) {
+		return "name: CLI\ntitle: From the CLI\n", nil
+	}
+	t.Cleanup(func() { titlerRunner = old })
+
+	titles, err := generateAgentTitle("fix the SSO login loop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if titles.Title != "From the CLI" {
+		t.Fatalf("titles = %+v, want the CLI's", titles)
+	}
+	if f.lastChatReq["max_tokens"] != float64(llmMaxTokens) {
+		t.Errorf("max_tokens = %v, want %d", f.lastChatReq["max_tokens"], llmMaxTokens)
+	}
+}
+
 // get_settings section llm lists the endpoint's models, while the all-sections
 // read stays offline; update_settings writes the same field the Settings group
 // does.

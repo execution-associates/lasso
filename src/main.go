@@ -392,6 +392,9 @@ func runServer() {
 	// The phone apps' API (clientapi.go): its own credential, a device token.
 	mux.HandleFunc("/client/", serveClient)
 	mux.HandleFunc("/api/app-users", serveAppUsers)
+	mux.HandleFunc("/api/asks", serveOperatorAsks)
+	mux.HandleFunc("/api/asks/", serveOperatorAsks)
+	mux.HandleFunc("/api/operator/", serveOperatorThreads)
 	mux.HandleFunc("/api/app-users/", serveAppUsers)
 	mux.HandleFunc("/api/all-panes", serveAllPanes)
 	mux.HandleFunc("/api/ui-state", serveUIState)

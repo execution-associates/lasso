@@ -1,0 +1,5 @@
+{
+  "name": "lasso-asks",
+  "description": "Puts the questions Claude Code asks you into your lasso Inbox, and types your answer back.",
+  "version": "1.0.0"
+}

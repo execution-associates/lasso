@@ -240,6 +240,18 @@ func serveAppUsers(w http.ResponseWriter, r *http.Request) {
 		default:
 			http.Error(w, "GET, PUT or DELETE", http.StatusMethodNotAllowed)
 		}
+	case len(parts) == 2 && parts[1] == "asks":
+		// What the person's bots have asked them, for the owner to read; an
+		// ask is answered only by its person, in their app.
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET", http.StatusMethodNotAllowed)
+			return
+		}
+		out := []map[string]any{}
+		for _, a := range listAsks(`a.user_id = ? ORDER BY a.seq DESC LIMIT 200`, u.ID) {
+			out = append(out, map[string]any{"ask": a.view(now), "dedupe_key": a.DedupeKey})
+		}
+		writeJSON(w, map[string]any{"asks": out})
 	case len(parts) == 3 && parts[1] == "grants":
 		switch r.Method {
 		case http.MethodPut:

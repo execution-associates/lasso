@@ -5,6 +5,7 @@ import {
   Files,
   Gauge,
   Globe,
+  Inbox,
   Keyboard,
   LayoutGrid,
   type LucideIcon,
@@ -30,6 +31,8 @@ import { AgentSidebar } from "@/components/AgentSidebar"
 import { AgentSwitcher } from "@/components/AgentSwitcher"
 import { AgentsTab } from "@/components/AgentsTab"
 import { AgentsView } from "@/components/AgentsView"
+import { AsksDialog } from "@/components/AsksDialog"
+import { AsksTab } from "@/components/AsksTab"
 import { BotsView } from "@/components/BotsView"
 import { BrowserTab } from "@/components/BrowserTab"
 import { ChatView } from "@/components/ChatView"
@@ -71,6 +74,7 @@ import {
 import { Toaster } from "@/components/ui/sonner"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AppProvider, lsGet, lsSet, useApp } from "@/lib/app-store"
+import { undoLastDrop, useAsks } from "@/lib/asks"
 import { onBrowserShowRequest } from "@/lib/browser-profiles"
 import { useDiff } from "@/lib/git"
 import { MOBILE_COMMAND_EVENT, type MobileCommand } from "@/lib/mobile-command"
@@ -474,6 +478,9 @@ function Shell() {
     type: AgentType
   } | null>(null)
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false)
+  const [asksOpen, setAsksOpen] = React.useState(false)
+  // Whether the Inbox is on screen (its dialog or its sidebar tab), for ⌘Z.
+  const inboxShownRef = React.useRef(false)
   const [switcherOpen, setSwitcherOpen] = React.useState(false)
   const [hostMenuOpen, setHostMenuOpen] = React.useState(false)
   // Keep the Files tab's git badge live even while another sidebar tab is
@@ -488,6 +495,8 @@ function Shell() {
   // by ui_state.sidebar_tabs (lib/sidebar-tabs.ts). `strip` is what renders —
   // the visible tabs, plus a revealed one the human had hidden.
   const plugins = usePlugins()
+  const asksWaiting = useAsks().data?.counts.waiting ?? 0
+  inboxShownRef.current = asksOpen || (rightView === "inbox" && !collapsed)
   const pluginTabs = React.useMemo(
     () => pluginTabsOf(plugins.data),
     [plugins.data]
@@ -911,7 +920,7 @@ function Shell() {
   }, [])
 
   // ⌘K → herdr's own pane search, ⌘P → the file viewer's quick open, ⌘O/⌘⇧O → a Git/Scratch agent and ⌘I → a
-  // terminal in the New dialog, ⌘;/⌘J/⌘E/⌘./⌘B → the left column's views and sidebar, ⌘\ and ⌘⇧F/S/B →
+  // terminal in the New dialog, ⌘⇧I → the Inbox, ⌘;/⌘J/⌘E/⌘./⌘B → the left column's views and sidebar, ⌘\ and ⌘⇧F/S/B →
   // the right sidebar, ⌘⇧M → the simple app, ⌘/ → toggles the keyboard-shortcuts reference, ⌘, → Settings › General. Bound to the Cmd key only (not Ctrl) so it
   // never clobbers terminal control keys like Ctrl-H (backspace). The
   // herdr/shell terminal iframes re-dispatch Cmd-shortcuts to this document, so
@@ -933,6 +942,12 @@ function Shell() {
         if (k === "m") {
           e.preventDefault()
           switchUI("simple")
+          return
+        }
+        // ⌘⇧I → the Inbox dialog, open or shut.
+        if (k === "i") {
+          e.preventDefault()
+          setAsksOpen((o) => !o)
           return
         }
         // ⌘⇧O is ⌘O's Scratch twin (see the ⌘O branch below).
@@ -959,6 +974,18 @@ function Shell() {
         e.preventDefault()
         setRightView(face)
         if (rightPanel.current?.isCollapsed()) openSidebar()
+        return
+      }
+      // ⌘Z with the Inbox on screen brings back the ask just dropped, while
+      // lasso still allows it; otherwise the key is whoever else's.
+      if (k === "z") {
+        const t = e.target as HTMLElement | null
+        const typing =
+          t?.tagName === "INPUT" ||
+          t?.tagName === "TEXTAREA" ||
+          t?.isContentEditable
+        if (inboxShownRef.current && !typing && undoLastDrop())
+          e.preventDefault()
         return
       }
       if (k === "\\") {
@@ -1199,6 +1226,16 @@ function Shell() {
           className="ml-1.5"
           textClassName="text-[13px]"
         />
+      ),
+    },
+    inbox: {
+      value: "inbox",
+      label: "Inbox",
+      icon: Inbox,
+      badge: asksWaiting > 0 && (
+        <span className="ml-1.5 rounded-full bg-bad px-1.5 font-label text-[11px] text-background tabular-nums">
+          {asksWaiting}
+        </span>
       ),
     },
     scratch: { value: "scratch", label: "Scratch", icon: NotebookPen },
@@ -1498,6 +1535,9 @@ function Shell() {
                 <Pane show={rightView === "files"}>
                   <FilesPanel />
                 </Pane>
+                <Pane show={rightView === "inbox"}>
+                  <AsksTab active={rightView === "inbox" && !collapsed} />
+                </Pane>
                 <Pane show={rightView === "scratch"}>
                   <ScratchTab />
                 </Pane>
@@ -1564,6 +1604,7 @@ function Shell() {
         {/* ⌘? keyboard-shortcuts reference — also opened by the Settings tab's
           keyboard button. Lives here so ⌘? works from any tab. */}
         <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+        <AsksDialog open={asksOpen} onOpenChange={setAsksOpen} />
         <AgentSwitcher
           open={switcherOpen}
           onOpenChange={setSwitcherOpen}
@@ -1671,6 +1712,31 @@ function Shell() {
               each view's shortcut. ⌘J and ⌘E still toggle chat and grid
               against the terminal without opening it. Below md this row is
               gone and the input dial's root is the way in. */}
+          {/* The Inbox's own indicator: what is waiting on the human, which
+              the Sidebar button cannot say (its badge is the working tree's).
+              It opens the Inbox dialog (AsksDialog), one ask at a time. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="hidden md:inline-flex"
+            aria-pressed={asksOpen}
+            title={
+              asksWaiting > 0
+                ? `Inbox: ${asksWaiting} waiting on you`
+                : "Inbox: nothing waiting"
+            }
+            onClick={() => setAsksOpen((o) => !o)}
+          >
+            <Inbox />
+            Inbox
+            {asksWaiting > 0 ? (
+              <span className="rounded-full bg-bad px-1.5 font-label text-[11px] text-background tabular-nums">
+                {asksWaiting}
+              </span>
+            ) : (
+              <span className="size-1.5 rounded-full bg-good/70" />
+            )}
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
