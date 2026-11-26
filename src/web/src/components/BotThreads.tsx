@@ -301,10 +301,13 @@ function Composer({
 function ThreadPane({
   thread,
   bot,
+  working,
   active,
 }: {
   thread: BotThread
   bot: string
+  // The bot is in a turn (BotStateMark's working or starting).
+  working: boolean
   active: boolean
 }) {
   const qc = useQueryClient()
@@ -343,7 +346,11 @@ function ThreadPane({
   const box = React.useRef<HTMLDivElement>(null)
   const pinned = React.useRef(true)
   const last = newest[newest.length - 1]
-  const lastKey = last ? `${last.cursor}:${last.text.length}` : ""
+  // The bot's turn is this thread's while the newest word in it is the
+  // person's (an unfinished bot message draws its own orb). The same mark the
+  // Bots list shows beside a working bot.
+  const answering = working && last?.role === "user" && last.state !== "failed"
+  const lastKey = last ? `${last.cursor}:${last.text.length}:${answering}` : ""
   // biome-ignore lint/correctness/useExhaustiveDependencies: lastKey is the trigger
   React.useLayoutEffect(() => {
     const el = box.current
@@ -391,6 +398,12 @@ function ThreadPane({
           </p>
         ) : (
           messages.map((m) => <MessageRow key={m.id} m={m} />)
+        )}
+        {answering && (
+          <div className="flex items-center gap-1.5 px-1 text-[11.5px] text-primary">
+            <Orb state="working" px={12} />
+            {bot} is working…
+          </div>
         )}
       </div>
       <Composer
@@ -629,6 +642,7 @@ export function BotThreads({
             key={open.id}
             thread={open}
             bot={bot.name}
+            working={bot.state === "working" || bot.state === "starting"}
             active={active}
           />
         ) : (
