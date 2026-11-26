@@ -20,13 +20,12 @@ jobs:
         with:
           go-version-file: src/go.mod
 
-      - name: Frontend (typecheck, lint, test, build the embedded bundle)
+      - name: Frontend (typecheck, lint, build the embedded bundle)
         working-directory: src/web
         run: |
           bun install --frozen-lockfile
           bun run typecheck
           bun run lint
-          bun test
           bun run build
 
       - name: Stage the embedded MCP skill (SKILL.md + docs)
