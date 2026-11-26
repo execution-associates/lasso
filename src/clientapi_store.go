@@ -868,8 +868,12 @@ type clientMessageView struct {
 	System *clientSystemView `json:"system,omitempty"`
 	// Thread is the stub of the thread hanging off this message (a main
 	// thread's message that anchors one).
-	Thread    *clientThreadStub `json:"thread,omitempty"`
-	CreatedAt string            `json:"created_at"`
+	Thread *clientThreadStub `json:"thread,omitempty"`
+	// Ask is the ask a bot message carries: the first message of an ask's own
+	// thread (askThread), as the ask now reads, so an app can draw the card
+	// in place of the text.
+	Ask       *clientAskView `json:"ask,omitempty"`
+	CreatedAt string         `json:"created_at"`
 }
 
 const appMessageCols = `seq, id, conv_id, role, text, done, mode, call_id, attachments, state, failed_reason, client_id, in_reply_to, bot, mentions, system, created_at`
@@ -935,10 +939,16 @@ func enrichMessages(threadID string, ms []clientMessageView) {
 	}
 	ds := deliveriesOf(ids)
 	var stubs map[string]*clientThreadStub
+	var asks map[string]*clientAskView
 	if strings.HasPrefix(threadID, "c_") {
 		stubs = threadStubsOf(threadID)
+	} else {
+		asks = askOfMessages(threadID)
 	}
 	for i := range ms {
+		if a, ok := asks[ms[i].ID]; ok && ms[i].Role == "bot" {
+			ms[i].Ask = a
+		}
 		if d, ok := ds[ms[i].ID]; ok && ms[i].Role == "user" {
 			ms[i].Deliveries = d
 		}

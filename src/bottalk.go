@@ -1080,7 +1080,7 @@ func botSpoolCollectReplies(b Backend, bot, spool string, now time.Time) error {
 			}
 		case "thread_create", "thread_update", "thread_summary", "thread_propose_bot":
 			botSpoolThreadTool(bot, raw, now)
-		case "ask", "ask_withdraw":
+		case "ask", "ask_withdraw", "ask_resolve":
 			var in botAskIn
 			if err := json.Unmarshal(bytes.TrimSpace(raw), &in); err != nil {
 				log.Printf("bots:     %s: outbox %s is not an ask; removing it", bot, n)

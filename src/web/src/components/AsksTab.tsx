@@ -70,6 +70,7 @@ export function AskCard({
   large,
   current = true,
   hotkeys,
+  inThread,
   onLeave,
 }: {
   ask: Ask
@@ -77,6 +78,8 @@ export function AskCard({
   large?: boolean
   current?: boolean
   hotkeys?: boolean
+  // Drawn inside the ask's own thread: no way to open the thread it is in.
+  inThread?: boolean
   // Called when the card sends the reader elsewhere (its thread), so a
   // dialog holding it can close.
   onLeave?: () => void
@@ -85,8 +88,11 @@ export function AskCard({
   const open = ask.state === "new" || ask.state === "seen"
   const fallback = ask.options.find((o) => o.default)?.id ?? ""
   const [choice, setChoice] = React.useState(fallback)
+  // One radio group per card: the same ask can be on screen twice (the Inbox
+  // and its thread), and a shared name would let one uncheck the other.
+  const group = `ask-${React.useId()}`
   const [other, setOther] = React.useState("")
-  const [preview, setPreview] = React.useState(!!large)
+  const [preview, setPreview] = React.useState(!!large || !!inThread)
   const [later, setLater] = React.useState(false)
   const done = (p: Promise<{ ask: Ask }>) =>
     p.then(({ ask: next }) => {
@@ -95,6 +101,10 @@ export function AskCard({
           ? { ...old, asks: old.asks.map((a) => (a.id === next.id ? next : a)) }
           : old
       )
+      if (next.discussion_thread_id)
+        queryClient.invalidateQueries({
+          queryKey: qk.threadMessages(next.discussion_thread_id),
+        })
       return queryClient.invalidateQueries({ queryKey: qk.asks })
     })
   const act = useMutation({
@@ -309,7 +319,7 @@ export function AskCard({
               >
                 <input
                   type="radio"
-                  name={`ask-${ask.id}`}
+                  name={group}
                   checked={choice === o.id}
                   onChange={() => setChoice(o.id)}
                 />
@@ -337,7 +347,7 @@ export function AskCard({
               <label className="flex items-center gap-2 rounded px-1 py-0.5">
                 <input
                   type="radio"
-                  name={`ask-${ask.id}`}
+                  name={group}
                   checked={usingOther}
                   onChange={() => setChoice("\u0000other")}
                 />
@@ -389,7 +399,7 @@ export function AskCard({
             >
               Drop
             </Button>
-            {!agent && (
+            {!agent && !inThread && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -451,6 +461,11 @@ export function AskCard({
           {ask.answer &&
             `: ${ask.answer.label || ask.answer.other || "with a message"}`}
           {ask.closed_at && ` · ${age(ask.closed_at, now)} ago`}
+          {ask.resolved_at && (
+            <div className="whitespace-pre-wrap text-foreground">
+              Resolved{ask.resolution ? `: ${ask.resolution}` : "."}
+            </div>
+          )}
           {agent && ask.state === "answered" && (
             <div className={cn(agent.delivery !== "sent" && "text-warn")}>
               {agent.delivery === "sent"

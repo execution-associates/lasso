@@ -970,7 +970,7 @@ func serveBotChannel(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, map[string]any{"ok": true})
-	case "ask", "ask-withdraw":
+	case "ask", "ask-withdraw", "ask-resolve":
 		serveBotChannelAsk(w, r, name, action)
 	default:
 		if strings.HasPrefix(action, "thread-") {
