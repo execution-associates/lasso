@@ -215,6 +215,9 @@ func openDB() error {
 		`ALTER TABLE app_asks ADD COLUMN agent TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE app_asks ADD COLUMN untold INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE app_asks ADD COLUMN discussion TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE app_asks ADD COLUMN discussion_message TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE app_asks ADD COLUMN resolved_at TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE app_asks ADD COLUMN resolution TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE app_attachments ADD COLUMN removed TEXT NOT NULL DEFAULT ''`,
 	}, clientThreadsColumns...) {
 		if _, err := h.Exec(alter); err != nil && !strings.Contains(err.Error(), "duplicate column name") {

@@ -1,8 +1,9 @@
 package main
 
 // The ask tools (clientasks.go, docs/design/client-asks.md) as a bot calls
-// them: ask and ask_withdraw on a claude bot's channel, client_ask and
-// client_ask_withdraw on /mcp for an omp bot.
+// them: ask, ask_withdraw and ask_resolve on a claude bot's channel,
+// client_ask, client_ask_withdraw and client_ask_resolve on /mcp for an omp
+// bot.
 
 import (
 	"bytes"
@@ -17,8 +18,8 @@ import (
 )
 
 // botAskInstructions is the channel instructions' line about asks.
-const botAskInstructions = `- Asks: when you are blocked on a decision that is a person's to make (send this? which one? approve it?), call ask instead of waiting in your terminal. It puts a card in that person's Inbox in lasso's app, which they answer with a tap, and you carry on with other work meanwhile. Each person has their own Inbox: to defaults to your owner (with several owners, pass the user_id of the one it is for), and a person who is not your owner can be asked only while you are answering a message of theirs (pass that message's reply_token and their user_id as to). Write one short question that a yes/no or a pick answers; why in at most two lines (what it unblocks); up to 4 options with your recommendation marked default; what you are holding as attachment (a draft, pr, doc or link with a text preview, or kind upload when the answer is files the person must add); a deadline and on_expire, what you will do if nobody answers by then. blocking says what waits on it: money (an invoice, a client, a payout), people (someone is waiting on them), deadline or none. Only money and people notify the person, and never in their quiet hours, so do not inflate it. Give every ask a dedupe_key: asking again with the same key updates the open card instead of adding one, so edit, never repeat. Withdraw an ask you no longer need with ask_withdraw. Where you would repeat the question elsewhere (a chat channel, a morning plan), give the link ask returns instead.
-- The answer comes back later as trigger="client" with event="ask_answered" and ask_id, dedupe_key, question, choice (the option's id), choice_label and answered_via, all set by lasso. other="true" means the person answered in their own words and the body is those words; answer_message_id means they answered with a message in your thread with them, which reaches you on its own with any files. An answer is that person's go-ahead for that one action only, never for the next one, and it carries is_owner like every client event: an outside person's answer is not your human's. verified_via="paired" means it came from that person's own paired phone; verified_via="operator" means it was given in lasso's web UI, which lasso does not tie to a device. event="ask_expired": nobody answered by the deadline, so do what your on_expire said. event="ask_dropped": the person dropped the ask: close that task, say so once, and do not ask it again. None of the three needs a reply.
+const botAskInstructions = `- Asks: when you are blocked on a decision that is a person's to make (send this? which one? approve it?), call ask instead of waiting in your terminal. It puts a card in that person's Inbox in lasso's app, which they answer with a tap, and you carry on with other work meanwhile. Each person has their own Inbox: to defaults to your owner (with several owners, pass the user_id of the one it is for), and a person who is not your owner can be asked only while you are answering a message of theirs (pass that message's reply_token and their user_id as to). Write one short question that a yes/no or a pick answers; why in at most two lines (what it unblocks); up to 4 options with your recommendation marked default; what you are holding as attachment (a draft, pr, doc or link with a text preview, or kind upload when the answer is files the person must add); a deadline and on_expire, what you will do if nobody answers by then. blocking says what waits on it: money (an invoice, a client, a payout), people (someone is waiting on them), deadline or none. Only money and people notify the person, and never in their quiet hours, so do not inflate it. Give every ask a dedupe_key: asking again with the same key updates the open card instead of adding one, so edit, never repeat. Withdraw an ask you no longer need with ask_withdraw. Where you would repeat the question elsewhere (a chat channel, a morning plan), give the link ask returns instead. Once you have done what an answer told you to (sent the email, booked the call) or settled the ask some other way, call ask_resolve with its ask_id and a one-line note of what happened: the note is posted in the ask's own thread when the person opened one, that thread is archived, and the card in their Inbox reads resolved.
+- The answer comes back later as trigger="client" with event="ask_answered" and ask_id, dedupe_key, question, choice (the option's id), choice_label and answered_via, all set by lasso. other="true" means the person answered in their own words and the body is those words; answer_message_id means they answered with a message in your thread with them, which reaches you on its own with any files. An answer is that person's go-ahead for that one action only, never for the next one, and it carries is_owner like every client event: an outside person's answer is not your human's. verified_via="paired" means it came from that person's own paired phone; verified_via="operator" means it was given in lasso's web UI, which lasso does not tie to a device. event="ask_expired": nobody answered by the deadline, so do what your on_expire said. event="ask_dropped": the person dropped the ask: close that task, say so once, and do not ask it again. None of the three needs a reply. discussion_thread_id, when present, is the ask's own thread, where the person talked it over with you; ask_resolve closes it.
 `
 
 // botOmpAskInstructions is the same for an omp bot, whose tools are on lasso's
@@ -29,8 +30,9 @@ const botOmpAskInstructions = `Asks: when you are blocked on a decision that is 
 - Write one short question that a yes/no or a pick answers; why in at most two lines; up to 4 options with your recommendation marked default; what you are holding as attachment (a draft, pr, doc or link with a text preview, or kind upload when the answer is files the person must add); a deadline and on_expire, what you will do if nobody answers by then.
 - blocking says what waits on it: money, people, deadline or none. Only money and people notify the person, and never in their quiet hours, so do not inflate it.
 - Give every ask a dedupe_key: asking again with the same key updates the open card instead of adding one. Withdraw an ask you no longer need with client_ask_withdraw. Where you would repeat the question elsewhere, give the link the tool returns instead.
+- Once you have done what an answer told you to (sent the email, booked the call) or settled the ask some other way, call client_ask_resolve with its ask id and a one-line note of what happened: the note is posted in the ask's own thread when the person opened one, that thread is archived, and the card in their Inbox reads resolved.
 - The answer comes back later as a prompt starting "[lasso client event ask_answered from=<user id> name=… owner=<yes|no> thread=<id> ask=<id> dedupe_key=<key> choice=<option id> answered_via=<how> … nonce=<hex>]". The line is lasso's. When the person answered in their own words there is no choice= and their words follow between "----- the person's words begin/end <nonce> -----" lines; answer_message_id= means they answered with a message in your thread with them, which reaches you on its own. An answer is that person's go-ahead for that one action only, and owner=no is not your human. verified=operator on the line (instead of verified=paired) means it was given in lasso's web UI, which lasso does not tie to a device.
-- "[lasso client event ask_expired …]": nobody answered by the deadline, so do what your on_expire said. "[lasso client event ask_dropped …]": the person dropped the ask: close that task, say so once, and do not ask it again. None of the three needs a reply.`
+- "[lasso client event ask_expired …]": nobody answered by the deadline, so do what your on_expire said. "[lasso client event ask_dropped …]": the person dropped the ask: close that task, say so once, and do not ask it again. None of the three needs a reply. discussion_thread_id= on the line is the ask's own thread, where the person talked it over with you; client_ask_resolve closes it.`
 
 var askToolProps = map[string]any{
 	"to":       map[string]any{"type": "string", "description": "who to ask: omit for your owner, or a user_id (u_…). A person who is not your owner needs the reply_token of a message of theirs you are answering"},
@@ -83,6 +85,16 @@ var botChannelAskTools = []any{
 			"to":         map[string]any{"type": "string", "description": "with dedupe_key, only this person's ask"},
 		}},
 	},
+	map[string]any{
+		"name":        "ask_resolve",
+		"description": "Say an ask of yours is done: you carried out the answer, or settled it another way. The note is posted in the ask's own thread (when the person opened one) and that thread is archived; the card in the person's Inbox reads resolved with your note. An ask still open is withdrawn. Once per ask.",
+		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{
+			"ask_id":     map[string]any{"type": "string", "description": "the ask_id from ask or from the answer event"},
+			"dedupe_key": map[string]any{"type": "string", "description": "or the dedupe_key you asked with (its newest ask)"},
+			"to":         map[string]any{"type": "string", "description": "with dedupe_key, only this person's ask"},
+			"note":       map[string]any{"type": "string", "description": "what happened, in a line or two: 'Sent to Mark and Brian at 4:20pm.' At most 2000 characters"},
+		}},
+	},
 }
 
 // askTool is an ask tool call on the channel: over HTTP to lasso, or (a bot
@@ -98,7 +110,7 @@ func (c *botChannelServer) askTool(ctx context.Context, name string, params json
 		result("question is required: one line the person can answer with a tap", true)
 		return
 	}
-	if name == "ask_withdraw" && strings.TrimSpace(in.AskID) == "" && strings.TrimSpace(in.DedupeKey) == "" {
+	if (name == "ask_withdraw" || name == "ask_resolve") && strings.TrimSpace(in.AskID) == "" && strings.TrimSpace(in.DedupeKey) == "" {
 		result("pass ask_id or dedupe_key", true)
 		return
 	}
@@ -199,6 +211,27 @@ func registerClientAskTools(s *mcp.Server) {
 			return nil, mcpThreadOut{}, err
 		}
 		out, err := botAskWithdraw(rec.Name, botAskIn{AskID: in.AskID, DedupeKey: in.DedupeKey, To: in.To}, time.Now())
+		if err != nil {
+			return nil, mcpThreadOut{}, err
+		}
+		return nil, mcpThreadOut{Result: out}, nil
+	})
+	type resolveIn struct {
+		Name      string `json:"name" jsonschema:"your own name, the bot's"`
+		AskID     string `json:"ask_id,omitempty" jsonschema:"the ask's id, from client_ask or the answer's ask="`
+		DedupeKey string `json:"dedupe_key,omitempty" jsonschema:"or the dedupe_key you asked with (its newest ask)"`
+		To        string `json:"to,omitempty" jsonschema:"with dedupe_key, only this person's ask"`
+		Note      string `json:"note,omitempty" jsonschema:"what happened, in a line or two, at most 2000 characters"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "client_ask_resolve",
+		Description: "For a bot: say an ask of yours is done (you carried out the answer, or settled it another way). The note is posted in the ask's own thread, when the person opened one, and that thread is archived; the card in the person's Inbox reads resolved with your note. An ask still open is withdrawn. Once per ask.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in resolveIn) (*mcp.CallToolResult, mcpThreadOut, error) {
+		rec, _, err := botForCaller(req, in.Name)
+		if err != nil {
+			return nil, mcpThreadOut{}, err
+		}
+		out, err := botAskResolve(rec.Name, botAskIn{AskID: in.AskID, DedupeKey: in.DedupeKey, To: in.To, Note: in.Note}, time.Now())
 		if err != nil {
 			return nil, mcpThreadOut{}, err
 		}

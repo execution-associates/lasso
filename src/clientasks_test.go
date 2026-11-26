@@ -609,6 +609,10 @@ func TestClientAskThread(t *testing.T) {
 		!strings.Contains(msgs[0].Text, "VIP client") || !strings.Contains(msgs[0].Text, "> Hi Curtis,") || !strings.Contains(msgs[0].Text, "Send as is") {
 		t.Fatalf("seed = %+v", msgs)
 	}
+	// The seed carries the ask, as it now reads, for an app to draw the card.
+	if msgs[0].Ask == nil || msgs[0].Ask.ID != id || msgs[0].Ask.State != "new" {
+		t.Fatalf("seed ask = %+v", msgs[0].Ask)
+	}
 
 	// Again: the same thread, no second seed.
 	_, _, raw = c.jsonDo("POST", "/client/v1/asks/"+id+"/thread", ann, "{}")
@@ -629,6 +633,32 @@ func TestClientAskThread(t *testing.T) {
 	_, msg := c.send(ann, tid, `{"text":"cc Saul, and send"}`)
 	if code, _, raw := c.jsonDo("POST", "/client/v1/asks/"+id+"/answer", ann, `{"message_id":"`+msg.ID+`"}`); code != 200 {
 		t.Fatalf("message answer from the ask's thread: %d %s", code, raw)
+	}
+	if h := c.history(ann, tid); h[0].Ask == nil || h[0].Ask.State != "answered" || h[1].Ask != nil {
+		t.Fatalf("after the answer: %+v", h)
+	}
+
+	// The bot resolves it: its note lands in the thread, which is archived,
+	// and the ask reads resolved. Once only, and only the asking bot.
+	if _, err := botAskCall("mark", botAskIn{Kind: "ask_resolve", AskID: id, Note: "x"}, time.Now()); err == nil {
+		t.Fatal("another bot resolved jess's ask")
+	}
+	res, err := botAskCall("jess", botAskIn{Kind: "ask_resolve", AskID: id, Note: "Sent to Curtis, Saul cc'd."}, time.Now())
+	if err != nil || res["thread_archived"] != true {
+		t.Fatalf("resolve: %v %v", res, err)
+	}
+	h := c.history(ann, tid)
+	if last := h[len(h)-1]; last.Role != "bot" || last.Text != "Sent to Curtis, Saul cc'd." {
+		t.Fatalf("note = %+v", last)
+	}
+	if th, _ := threadByID(tid); th.State != "archived" {
+		t.Fatalf("thread state = %s", th.State)
+	}
+	if a, _ := askByID(id); a.ResolvedAt == "" || a.Resolution != "Sent to Curtis, Saul cc'd." || a.view(time.Now()).Resolution == "" {
+		t.Fatalf("ask = %+v", a)
+	}
+	if _, err := botAskCall("jess", botAskIn{Kind: "ask_resolve", AskID: id}, time.Now()); err == nil {
+		t.Fatal("resolved twice")
 	}
 	// Deleted, it is made again.
 	_, _ = db.Exec(`DELETE FROM app_threads WHERE id = ?`, tid)

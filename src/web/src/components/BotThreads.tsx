@@ -2,6 +2,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowLeft,
   ArrowUp,
+  ChevronDown,
+  ChevronRight,
   FileIcon,
   MessageSquare,
   Paperclip,
@@ -10,10 +12,12 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { AskCard } from "@/components/AsksTab"
 import { Markdown } from "@/components/Markdown"
 import { Button } from "@/components/ui/button"
 import { Orb } from "@/components/ui/orb"
 import {
+  type Ask,
   api,
   type BotThread,
   type BotView,
@@ -94,7 +98,29 @@ function Attachments({ items }: { items: ThreadAttachment[] }) {
   )
 }
 
+// AskRow is the message an ask's own thread starts with, drawn as the ask's
+// card, live: what the person reads in the Inbox, answerable here. Every
+// string on it is the bot's and is shown as plain text.
+function AskRow({ m, ask }: { m: ThreadMessage; ask: Ask }) {
+  const [now, setNow] = React.useState(() => Date.now())
+  React.useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(t)
+  }, [])
+  return (
+    <div className="flex flex-col items-start">
+      <div className="w-full min-w-0 max-w-[min(44rem,88%)] [&>div]:rounded-xl [&>div]:p-4">
+        <AskCard ask={ask} now={now} inThread />
+      </div>
+      <div className="mt-0.5 px-1 text-[10.5px] text-muted-foreground">
+        {m.bot ? `${m.bot} · ` : ""}asked {when(ask.created_at)}
+      </div>
+    </div>
+  )
+}
+
 function MessageRow({ m }: { m: ThreadMessage }) {
+  if (m.ask && m.role === "bot") return <AskRow m={m} ask={m.ask} />
   if (m.role === "system")
     return (
       <div className="py-1 text-center text-[11.5px] text-muted-foreground">
@@ -415,6 +441,11 @@ export function BotThreads({
     refetchInterval: active ? 5_000 : false,
   })
   const threads = data?.threads ?? []
+  // Archived threads (a resolved ask's among them) sit under their own
+  // heading, closed until asked for, and still open from a link.
+  const live = threads.filter((t) => t.state !== "archived")
+  const archived = threads.filter((t) => t.state === "archived")
+  const [showArchived, setShowArchived] = React.useState(false)
   const [composing, setComposing] = React.useState(false)
   const main = threads.find((t) => t.kind === "main")
   // With room for both, a thread is always open: the main one by default.
@@ -445,6 +476,14 @@ export function BotThreads({
       <span className="min-w-0 truncate font-medium text-[12.5px] text-foreground">
         {open ? threadTitle(open, bot.name) : `${bot.name} · Threads`}
       </span>
+      {open?.state === "archived" && (
+        <span
+          className="flex-none rounded-full border border-border px-1.5 text-[10.5px] text-muted-foreground"
+          title="Writing here opens it again"
+        >
+          archived
+        </span>
+      )}
       <span className="ml-auto" />
       <Button
         variant="ghost"
@@ -457,6 +496,43 @@ export function BotThreads({
       </Button>
       {extra}
     </div>
+  )
+
+  const row = (t: BotThread) => (
+    <button
+      key={t.id}
+      type="button"
+      onClick={() => {
+        setComposing(false)
+        onPick(t.id)
+      }}
+      aria-current={t.id === openID ? "true" : undefined}
+      className={cn(
+        "flex w-full flex-col gap-0.5 border-border/50 border-b px-3 py-2 text-left hover:bg-accent",
+        t.id === openID && "bg-accent"
+      )}
+    >
+      <span className="flex items-center gap-1.5">
+        <MessageSquare className="size-3.5 flex-none text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate font-medium text-[12.5px] text-foreground">
+          {threadTitle(t, bot.name)}
+        </span>
+        {t.unread > 0 && (
+          <span className="rounded-full bg-primary px-1.5 text-[10.5px] text-primary-foreground">
+            {t.unread}
+          </span>
+        )}
+        <span className="flex-none text-[10.5px] text-muted-foreground">
+          {when(t.last_activity_at)}
+        </span>
+      </span>
+      {t.last_message && (
+        <span className="truncate text-[11.5px] text-muted-foreground">
+          {t.last_message.role === "user" ? "You: " : ""}
+          {t.last_message.preview}
+        </span>
+      )}
+    </button>
   )
 
   let body: React.ReactNode
@@ -504,42 +580,25 @@ export function BotThreads({
               New thread
             </button>
             <div className="min-h-0 flex-1 overflow-y-auto">
-              {threads.map((t) => (
+              {live.map(row)}
+              {archived.length > 0 && (
                 <button
-                  key={t.id}
                   type="button"
-                  onClick={() => {
-                    setComposing(false)
-                    onPick(t.id)
-                  }}
-                  aria-current={t.id === openID ? "true" : undefined}
-                  className={cn(
-                    "flex w-full flex-col gap-0.5 border-border/50 border-b px-3 py-2 text-left hover:bg-accent",
-                    t.id === openID && "bg-accent"
-                  )}
+                  onClick={() => setShowArchived((v) => !v)}
+                  className="flex w-full items-center gap-1 px-3 py-1.5 text-left text-[11.5px] text-muted-foreground hover:text-foreground"
                 >
-                  <span className="flex items-center gap-1.5">
-                    <MessageSquare className="size-3.5 flex-none text-muted-foreground" />
-                    <span className="min-w-0 flex-1 truncate font-medium text-[12.5px] text-foreground">
-                      {threadTitle(t, bot.name)}
-                    </span>
-                    {t.unread > 0 && (
-                      <span className="rounded-full bg-primary px-1.5 text-[10.5px] text-primary-foreground">
-                        {t.unread}
-                      </span>
-                    )}
-                    <span className="flex-none text-[10.5px] text-muted-foreground">
-                      {when(t.last_activity_at)}
-                    </span>
-                  </span>
-                  {t.last_message && (
-                    <span className="truncate text-[11.5px] text-muted-foreground">
-                      {t.last_message.role === "user" ? "You: " : ""}
-                      {t.last_message.preview}
-                    </span>
+                  {showArchived ? (
+                    <ChevronDown className="size-3" />
+                  ) : (
+                    <ChevronRight className="size-3" />
                   )}
+                  Archived ({archived.length})
                 </button>
-              ))}
+              )}
+              {(showArchived || open?.state === "archived") &&
+                archived
+                  .filter((t) => showArchived || t.id === openID)
+                  .map(row)}
             </div>
           </div>
         )}

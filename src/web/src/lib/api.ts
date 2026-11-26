@@ -2259,6 +2259,9 @@ export interface Ask {
   created_at: string
   updated_at: string
   closed_at?: string
+  // The bot finished what the ask was about (ask_resolve), with its note.
+  resolved_at?: string
+  resolution?: string
 }
 
 export interface AskPerson {
@@ -2305,6 +2308,8 @@ export interface ThreadMessage {
   failed_reason?: string
   client_id?: string
   system?: { type: string; bot?: string; by: string; title?: string }
+  // The first message of an ask's own thread carries the ask, as it now reads.
+  ask?: Ask
   created_at: string
 }
 
@@ -2342,7 +2347,7 @@ export const api = {
   threads: {
     list: (bot: string) =>
       getJSON<{ threads: BotThread[] }>(
-        `/api/operator/threads?limit=100&bot=${encodeURIComponent(bot)}`
+        `/api/operator/threads?limit=100&state=all&bot=${encodeURIComponent(bot)}`
       ),
     // The newest page, or the messages after a cursor.
     messages: (id: string, after?: string) =>

@@ -539,7 +539,7 @@ const botChannelToolIDs = botChannelReplyToolID + ",mcp__" + botChannelName + "_
 	",mcp__" + botChannelName + "__thread_list,mcp__" + botChannelName + "__thread_read,mcp__" + botChannelName + "__thread_search" +
 	",mcp__" + botChannelName + "__thread_create,mcp__" + botChannelName + "__thread_update,mcp__" + botChannelName + "__thread_summary" +
 	",mcp__" + botChannelName + "__thread_propose_bot" +
-	",mcp__" + botChannelName + "__ask,mcp__" + botChannelName + "__ask_withdraw"
+	",mcp__" + botChannelName + "__ask,mcp__" + botChannelName + "__ask_withdraw,mcp__" + botChannelName + "__ask_resolve"
 
 var botChannelMetaKeyRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 
@@ -697,7 +697,7 @@ func (c *botChannelServer) callTool(ctx context.Context, m jsonrpcMsg) {
 		c.clientCall(ctx, e, "end-call", "the call is ending", result)
 	case "thread_list", "thread_read", "thread_search", "thread_create", "thread_update", "thread_summary", "thread_propose_bot":
 		c.threadTool(ctx, p.Name, m.Params, result)
-	case "ask", "ask_withdraw":
+	case "ask", "ask_withdraw", "ask_resolve":
 		c.askTool(ctx, p.Name, m.Params, result)
 	default:
 		_ = c.send(jsonrpcMsg{JSONRPC: "2.0", ID: m.ID, Error: map[string]any{"code": -32602, "message": "unknown tool: " + p.Name}})

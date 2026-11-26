@@ -51,7 +51,10 @@ CREATE TABLE IF NOT EXISTS app_asks (
 	closed_at      TEXT NOT NULL DEFAULT '',
 	agent          TEXT NOT NULL DEFAULT '',
 	untold         INTEGER NOT NULL DEFAULT 0,
-	discussion     TEXT NOT NULL DEFAULT ''
+	discussion     TEXT NOT NULL DEFAULT '',
+	discussion_message TEXT NOT NULL DEFAULT '',
+	resolved_at    TEXT NOT NULL DEFAULT '',
+	resolution     TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS app_asks_user ON app_asks(user_id, state);
 CREATE INDEX IF NOT EXISTS app_asks_bot ON app_asks(bot, state);
@@ -71,7 +74,9 @@ const (
 	askPreviewMax     = 2000
 	askOnExpireMax    = 300
 	askOtherMax       = 4000
-	askKeyMax         = 64
+	// askResolutionMax bounds the note a bot closes an ask's thread with.
+	askResolutionMax = 2000
+	askKeyMax        = 64
 	// askOpenMax is how many open asks one bot may hold with one person.
 	askOpenMax = 20
 	// askPerHour bounds a bot's new asks, askUpdatesPerHour its re-asks of an
@@ -160,6 +165,10 @@ type clientAskView struct {
 	CreatedAt    string         `json:"created_at"`
 	UpdatedAt    string         `json:"updated_at"`
 	ClosedAt     string         `json:"closed_at,omitempty"`
+	// ResolvedAt and Resolution: the bot finished what the ask was about
+	// (ask_resolve), with its closing note.
+	ResolvedAt string `json:"resolved_at,omitempty"`
+	Resolution string `json:"resolution,omitempty"`
 	// UndoUntil is set on a dropped ask the bot has not been told about yet:
 	// until then POST /asks/{id}/reopen brings it back.
 	UndoUntil string `json:"undo_until,omitempty"`
@@ -183,19 +192,24 @@ type appAsk struct {
 	// Untold: dropped, and the bot not told yet (the undo window).
 	Untold bool
 	// Discussion is the ask's own thread with its bot (askThread), made the
-	// first time the person opens it.
-	Discussion string
+	// first time the person opens it; DiscussionMsg the bot's first message
+	// there, which carries the ask.
+	Discussion, DiscussionMsg string
+	// ResolvedAt and Resolution: ask_resolve, the bot saying it is done.
+	ResolvedAt, Resolution string
 }
 
 const appAskCols = `seq, id, user_id, bot, thread_id, dedupe_key, area, subject, blocking, question, why, attachment, options, allow_other,
-	deadline, on_expire, state, seen_at, snoozed_until, choice, other, answer_message, answered_via, revision, pushed_at, created_at, updated_at, closed_at, agent, untold, discussion`
+	deadline, on_expire, state, seen_at, snoozed_until, choice, other, answer_message, answered_via, revision, pushed_at, created_at, updated_at, closed_at, agent, untold, discussion,
+	discussion_message, resolved_at, resolution`
 
 func scanAppAsk(row interface{ Scan(...any) error }) (*appAsk, error) {
 	var a appAsk
 	var att, opts, agent string
 	err := row.Scan(&a.Seq, &a.ID, &a.UserID, &a.Bot, &a.ThreadID, &a.DedupeKey, &a.Area, &a.Subject, &a.Blocking, &a.Question, &a.Why, &att, &opts, &a.AllowOther,
 		&a.Deadline, &a.OnExpire, &a.State, &a.SeenAt, &a.SnoozedUntil, &a.Choice, &a.Other, &a.AnswerMessage, &a.AnsweredVia, &a.Revision, &a.PushedAt,
-		&a.CreatedAt, &a.UpdatedAt, &a.ClosedAt, &agent, &a.Untold, &a.Discussion)
+		&a.CreatedAt, &a.UpdatedAt, &a.ClosedAt, &agent, &a.Untold, &a.Discussion,
+		&a.DiscussionMsg, &a.ResolvedAt, &a.Resolution)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errClientNotFound
 	}
@@ -274,7 +288,8 @@ func (a *appAsk) optionLabel(id string) string {
 func (a *appAsk) view(now time.Time) clientAskView {
 	v := clientAskView{ID: a.ID, Bot: a.Bot, ThreadID: a.ThreadID, DiscussionID: a.Discussion, Area: a.Area, Subject: a.Subject, Blocking: a.Blocking, Rank: a.rank(now),
 		Question: a.Question, Why: a.Why, Attachment: a.Attachment, Options: a.Options, AllowOther: a.AllowOther, Deadline: a.Deadline, OnExpire: a.OnExpire,
-		State: a.State, Revision: a.Revision, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt, ClosedAt: a.ClosedAt}
+		State: a.State, Revision: a.Revision, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt, ClosedAt: a.ClosedAt,
+		ResolvedAt: a.ResolvedAt, Resolution: a.Resolution}
 	if a.Agent != nil {
 		v.Agent = a.Agent.view()
 	}
@@ -318,7 +333,7 @@ func clientAsksWaiting(userID string, now time.Time, quiet bool) int {
 // botAskIn is the ask tool's arguments: the body of the channel's HTTP call,
 // an /mcp tool's input, or a spool outbox file with its kind set.
 type botAskIn struct {
-	Kind       string         `json:"kind,omitempty"` // ask | ask_withdraw (spool only)
+	Kind       string         `json:"kind,omitempty"` // ask | ask_withdraw | ask_resolve (spool only)
 	To         string         `json:"to,omitempty"`
 	ReplyToken string         `json:"reply_token,omitempty"`
 	AskID      string         `json:"ask_id,omitempty"`
@@ -333,6 +348,8 @@ type botAskIn struct {
 	Deadline   string         `json:"deadline,omitempty"`
 	OnExpire   string         `json:"on_expire,omitempty"`
 	DedupeKey  string         `json:"dedupe_key,omitempty"`
+	// Note is ask_resolve's closing message.
+	Note string `json:"note,omitempty"`
 }
 
 // askText cleans a field a person reads: one line when lines is false, no
@@ -695,6 +712,9 @@ func askTellBot(a *appAsk, event string, dev *appDevice, now time.Time) {
 		"conversation_id": a.ThreadID, "thread_id": a.ThreadID, "mode": "text", "nonce": randHex(8),
 		"ask_id": a.ID, "question": clientMetaClean(a.Question, askQuestionMax),
 	}
+	if a.Discussion != "" {
+		meta["discussion_thread_id"] = a.Discussion
+	}
 	if a.DedupeKey != "" {
 		meta["dedupe_key"] = a.DedupeKey
 	}
@@ -743,7 +763,7 @@ func askEventForOmp(m map[string]string, owner, thread, content string) string {
 		via = "operator"
 	}
 	fmt.Fprintf(&h, "[lasso client event %s from=%s name=%q verified=%s owner=%s thread=%s ask=%s", m["event"], m["user_id"], m["user_name"], via, owner, thread, m["ask_id"])
-	for _, k := range []string{"dedupe_key", "choice", "answered_via", "answered_at", "answer_message_id"} {
+	for _, k := range []string{"dedupe_key", "choice", "answered_via", "answered_at", "answer_message_id", "discussion_thread_id"} {
 		if m[k] != "" {
 			fmt.Fprintf(&h, " %s=%s", k, m[k])
 		}
@@ -1277,8 +1297,8 @@ func clientAskSettingsView(userID string) (tz any, quiet any) {
 
 // --- the bot's side over HTTP and the spool ------------------------------------------
 
-// serveBotChannelAsk is POST /bot-channel/<bot>/ask and /ask-withdraw: a
-// claude bot's ask tools. The channel token proved the bot; a reply token,
+// serveBotChannelAsk is POST /bot-channel/<bot>/ask, /ask-withdraw and
+// /ask-resolve: a claude bot's ask tools. The channel token proved the bot; a reply token,
 // when one is passed, proves the person it is answering.
 func serveBotChannelAsk(w http.ResponseWriter, r *http.Request, bot, action string) {
 	if r.Method != http.MethodPost {
@@ -1301,8 +1321,11 @@ func serveBotChannelAsk(w http.ResponseWriter, r *http.Request, bot, action stri
 
 // botAskCall runs one ask tool for a claude bot.
 func botAskCall(bot string, in botAskIn, now time.Time) (map[string]any, error) {
-	if in.Kind == "ask_withdraw" {
+	switch in.Kind {
+	case "ask_withdraw":
 		return botAskWithdraw(bot, in, now)
+	case "ask_resolve":
+		return botAskResolve(bot, in, now)
 	}
 	var actor *botActor
 	if tok := strings.TrimSpace(in.ReplyToken); tok != "" {

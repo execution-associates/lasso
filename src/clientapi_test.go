@@ -1171,7 +1171,7 @@ func TestClientChannelDelivery(t *testing.T) {
 	}
 	// The thread tools joined them with client threads (client-threads.md),
 	// the ask tools with asks (client-asks.md).
-	if strings.Join(names, ",") != "reply,client_reply,end_call,thread_list,thread_read,thread_search,thread_create,thread_update,thread_summary,thread_propose_bot,ask,ask_withdraw" {
+	if strings.Join(names, ",") != "reply,client_reply,end_call,thread_list,thread_read,thread_search,thread_create,thread_update,thread_summary,thread_propose_bot,ask,ask_withdraw,ask_resolve" {
 		t.Fatalf("tools = %v", names)
 	}
 	for _, want := range []string{`trigger="client"`, "is_owner", "verified", "client_reply", "end_call", "voice", "paired"} {

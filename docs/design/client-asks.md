@@ -92,6 +92,8 @@ The tool answers at once:
 
 **`ask_withdraw`** takes `ask_id`, or `dedupe_key` (every open ask of the bot's with it, or one person's with `to`). The card leaves the Inbox and no event comes back.
 
+**`ask_resolve`** (omp: `client_ask_resolve`; spool kind `ask_resolve`) is the bot saying it has finished what an ask was about: it carried out the answer, or settled it another way. It takes `ask_id`, or `dedupe_key` (that key's newest ask, one person's with `to`), and `note`, what happened, up to 2000 characters. The ask records `resolved_at` and `resolution`; the note is posted as the bot's message in the ask's own thread, when the person opened one, and that thread is archived (the note goes first, since a message reopens an archived thread). An ask still open is withdrawn first. Once per ask, only by the asking bot, and only while the person still holds it. The ask is announced, so every Inbox shows it resolved.
+
 ## Lifecycle
 
 ```
@@ -126,6 +128,7 @@ An outcome is a `bot_events` row of kind `client`, delivered by the same adapter
 | `answer_message_id` | the person answered with a message in the thread, which reaches the bot on its own, with its files and its own reply token |
 | `answered_via`, `answered_at` | the device's platform, which lasso knows, then the gesture the app named: `ios-swipe`, `android-voice`, or just `ios` |
 | `on_expire` | on `ask_expired`: the bot's own fallback, handed back |
+| `discussion_thread_id` | the ask's own thread, when the person opened one: where `ask_resolve` posts and what it archives |
 
 The body is lasso's own sentence (the go-ahead covers this one action; run your fallback; close the task and do not ask again), except with `other="true"`, where it is the person's words, neutralized like any message so they cannot pose as a channel tag or an omp header. No outcome carries a `reply_token`: none needs a reply.
 
@@ -168,7 +171,7 @@ Under `/client/v1`, with the device token. An ask that is unknown, someone else'
 }
 ```
 
-`discussion_thread_id` is the ask's own thread once it was opened.
+`discussion_thread_id` is the ask's own thread once it was opened. `resolved_at` and `resolution` are there once the bot resolved it.
 
 `state` is `new`, `seen`, `snoozed` (with `snoozed_until`), `answered` (with `answer: {choice?, label?, other?, message_id?, via?, at}`), `dropped`, `expired` or `withdrawn` (those with `closed_at`). `options` is always an array. Times are UTC.
 
@@ -184,7 +187,7 @@ Under `/client/v1`, with the device token. An ask that is unknown, someone else'
 
 ### Talking an ask over
 
-`thread_id` is the person's main thread with the bot, which holds none of the ask's words, so "Open thread" goes to the ask's **own** thread instead (`clientasks_thread.go`). The first `POST /asks/{id}/thread` makes a standalone thread with the asking bot, titled from `subject` and `question`, whose first message is the bot's: the question, `why`, the attachment's label, ref, url and preview (quoted), and the option labels. Its id is stored on the ask (`app_asks.discussion`) and the ask is announced, so every device opens the same thread; one the person deleted is made again. What the person writes there reaches the bot as any thread message, and a message of theirs there may answer the ask by `message_id` like one in `thread_id`. Upload asks keep sending their files in `thread_id`.
+`thread_id` is the person's main thread with the bot, which holds none of the ask's words, so "Open thread" goes to the ask's **own** thread instead (`clientasks_thread.go`). The first `POST /asks/{id}/thread` makes a standalone thread with the asking bot, titled from `subject` and `question`, whose first message is the bot's: the question, `why`, the attachment's label, ref, url and preview (quoted), and the option labels. Its id is stored on the ask (`app_asks.discussion`, and the first message's in `discussion_message`) and the ask is announced, so every device opens the same thread; one the person deleted is made again. That first message carries the ask as it now reads (`ask` on the message, the same object as `GET /asks/{id}`, read afresh each time messages are listed), so an app draws the live card there and keeps the text as the fallback; a thread made before `discussion_message` existed uses its first message of the bot. What the person writes there reaches the bot as any thread message, and a message of theirs there may answer the ask by `message_id` like one in `thread_id`. Upload asks keep sending their files in `thread_id`.
 
 `PUT /me/settings` takes two more keys, both in `/me`'s `settings`:
 
@@ -221,6 +224,7 @@ Behind `UI_AUTH` and off machine callers, like the rest of `/api`.
 - Both read one polled query (`lib/asks.ts`): lasso's SSE feed carries nothing of the phone app's. It polls every 30 s (4 s while the Inbox is on screen) and reads afresh when the window regains focus and when the dialog or tab opens.
 - **An answer given here is not tied to a device**, and every process on lasso's machine can reach `/api` on the loopback listener, a bot with a shell included. So the bot is told `verified_via="operator"` (omp: `verified=operator`) where a phone's answer says `paired`, and `answered_via` reads `web-…`. That is a label, not a lock: it is the residual trust the client API already states ([client-api.md](client-api.md#security-model)).
 - **A drop can be undone here.** Dropping shows a toast with Undo, and `⌘Z` while the Inbox is on screen does the same, both through `POST /api/asks/{id}/reopen` while the ask's `undo_until` stands. `⌘⇧I` opens and closes the dialog.
+- **In the ask's own thread** the Threads page draws its first message as the ask's card (`AskCard` with `inThread`): the attachment's preview open, answerable in place, with no Open thread. Each card names its own radio group, since the same ask can be on screen twice. The Threads page lists archived threads under their own heading, so a resolved ask's thread stays reachable.
 - **Open thread** on a card goes to the ask's own thread ([Talking an ask over](#talking-an-ask-over)) in the Bots view's Threads page ([client threads](client-threads.md#the-operators-threads)), and an `upload` ask takes dropped or chosen files there: they are uploaded to the ask's thread, sent as one message, and the ask is answered with that `message_id`.
 
 ## An agent's question
@@ -280,7 +284,8 @@ Install it from a checkout: `/plugin marketplace add <repo>/claude-plugin`, then
 - The Mac app does not list asks.
 - An agent's multi-select question, and one from an agent on another host, stay in the terminal.
 - A bot cannot list its own open asks; it tracks them by `dedupe_key`.
-- No outcome carries a reply token, so a bot cannot follow an answer with a message in the thread unless the person also wrote there.
+- `ask_resolve` is the only way a bot writes into an ask's thread without a reply token, and only its one closing note.
+- No outcome carries a reply token, so a bot cannot follow an answer with a message in the thread unless the person also wrote there (its `ask_resolve` note excepted).
 - An answer to a bot stopped for more than a day is not delivered to it.
 - A remote claude bot gets no `ask_id` back from the tool, and an ask it sends that lasso refuses is only logged.
 - The rate windows are per process, as the client API's are.
