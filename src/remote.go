@@ -517,6 +517,19 @@ func (b *remoteBackend) dropSFTP(cl *sftp.Client) {
 	b.sftpMu.Unlock()
 }
 
+// abortSFTP kills whatever SFTP transport is cached, so an op blocked on it
+// returns with a connection error. SFTP ops past the handshake carry no
+// deadline of their own (a long file transfer is legitimate), so a caller that
+// has its own deadline — the theme fan-out — uses this to make it stick.
+func (b *remoteBackend) abortSFTP() {
+	b.sftpMu.Lock()
+	cl := b.sftpCl
+	b.sftpMu.Unlock()
+	if cl != nil {
+		b.dropSFTP(cl)
+	}
+}
+
 // sftpDo runs op against the cached SFTP client, reopening and retrying once
 // when the failure is connection-level (the transport died mid-use) rather than
 // a real filesystem error. Ops routed through it must be safe to re-run.

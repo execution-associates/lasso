@@ -149,6 +149,42 @@ var themeFanoutMu sync.Mutex
 // ssh masters beside a fan-out already running.
 var themeSem = make(chan struct{}, themeFanoutConcurrency)
 
+// themeHostTimeout bounds one host's theme write. A healthy host takes a few
+// seconds; the bound is for a wedged SFTP channel, which otherwise blocks
+// forever and, through the fan-out's wg.Wait, holds themeFanoutMu and
+// themeSyncRunning with it: every later push, "Sync now" included, was refused
+// for hours because one laptop's channel stopped answering.
+var themeHostTimeout = 45 * time.Second
+
+// themeAbortGrace is how long to wait, after aborting a timed-out host, for its
+// write to unwind before giving up on it.
+var themeAbortGrace = 5 * time.Second
+
+// sftpAborter is a backend whose blocked SFTP ops can be cut off from outside.
+type sftpAborter interface{ abortSFTP() }
+
+// withThemeHostDeadline runs write against t, giving up after themeHostTimeout.
+// On timeout it kills t's SFTP transport, so the blocked write fails instead of
+// lingering, waits briefly for it to unwind, and reports the host as failed.
+func withThemeHostDeadline(host string, t themeTarget, write func() error) error {
+	done := make(chan error, 1)
+	go func() { done <- write() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(themeHostTimeout):
+	}
+	if a, ok := t.(sftpAborter); ok {
+		a.abortSFTP()
+	}
+	select {
+	case <-done:
+	case <-time.After(themeAbortGrace):
+		log.Printf("theme:    %s: theme write still blocked after abort; abandoning it", host)
+	}
+	return fmt.Errorf("theme write to %s timed out after %v", host, themeHostTimeout)
+}
+
 // themeFanoutHosts returns the settled, reachable remote hosts lasso may write a
 // theme to. Reachable is the whole bar on purpose: every theme write is file I/O
 // over SFTP (ghostty's theme, Claude's, opencode's, omp's, herdr's config.toml),
@@ -245,7 +281,9 @@ func syncThemeToHostErr(host string, rt resolvedTheme) error {
 		return err
 	}
 	defer release()
-	if err := syncRemoteTheme(t, rt.Resolved); err != nil {
+	if err := withThemeHostDeadline(host, t, func() error {
+		return syncRemoteTheme(t, rt.Resolved)
+	}); err != nil {
 		forgetThemeSynced(host)
 		return err
 	}
@@ -343,7 +381,9 @@ func syncAgentThemesEverywhere(rt resolvedTheme) {
 			defer release()
 			// By name, like syncRemoteTheme: a remote herdr owns its own
 			// [theme.custom] block, so lasso mirrors the canonical palette.
-			if syncAgentThemesVia(t, resolveThemeByName(rt.Resolved)) == nil {
+			if withThemeHostDeadline(host, t, func() error {
+				return syncAgentThemesVia(t, resolveThemeByName(rt.Resolved))
+			}) == nil {
 				restampLegibility(host, rt.Resolved, sig)
 			}
 		}(host)
