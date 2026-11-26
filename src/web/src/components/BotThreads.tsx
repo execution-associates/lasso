@@ -1,5 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  Archive,
+  ArchiveRestore,
   ArrowLeft,
   ArrowUp,
   ChevronDown,
@@ -14,7 +16,23 @@ import * as React from "react"
 import { toast } from "sonner"
 import { AskCard } from "@/components/AsksTab"
 import { Markdown } from "@/components/Markdown"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 import { Orb } from "@/components/ui/orb"
 import {
   type Ask,
@@ -460,6 +478,8 @@ export function BotThreads({
   const archived = threads.filter((t) => t.state === "archived")
   const [showArchived, setShowArchived] = React.useState(false)
   const [composing, setComposing] = React.useState(false)
+  // The thread waiting on "Close it?" (from the header or a row's menu).
+  const [closing, setClosing] = React.useState<BotThread | null>(null)
   const main = threads.find((t) => t.kind === "main")
   // With room for both, a thread is always open: the main one by default.
   const openID = composing
@@ -467,6 +487,18 @@ export function BotThreads({
     : (threadID ?? (compact ? undefined : main?.id))
   const open = threads.find((t) => t.id === openID)
   const showList = !compact || (!open && !composing)
+
+  // Close (archive) or reopen a thread, from the header or its row's context
+  // menu. The main thread cannot be archived (the server refuses it), so it
+  // offers neither. Closing asks first; reopening does not.
+  const setState = async (t: BotThread, state: "open" | "archived") => {
+    try {
+      await api.threads.update(t.id, { state })
+      await qc.invalidateQueries({ queryKey: qk.botThreads(bot.name) })
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
 
   const header = (
     <div className="flex flex-none items-center gap-2 border-border border-b px-2.5 py-1.5">
@@ -498,6 +530,26 @@ export function BotThreads({
         </span>
       )}
       <span className="ml-auto" />
+      {open && open.kind !== "main" && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-[12px] text-muted-foreground"
+          onClick={() =>
+            open.state === "archived"
+              ? setState(open, "open")
+              : setClosing(open)
+          }
+          title={
+            open.state === "archived"
+              ? "Move it back among your open threads"
+              : "Archive this thread"
+          }
+        >
+          {open.state === "archived" ? <ArchiveRestore /> : <Archive />}
+          {open.state === "archived" ? "Reopen" : "Close"}
+        </Button>
+      )}
       <Button
         variant="ghost"
         size="sm"
@@ -511,7 +563,29 @@ export function BotThreads({
     </div>
   )
 
-  const row = (t: BotThread) => (
+  const row = (t: BotThread) =>
+    t.kind === "main" ? (
+      rowButton(t)
+    ) : (
+      <ContextMenu key={t.id}>
+        <ContextMenuTrigger asChild>{rowButton(t)}</ContextMenuTrigger>
+        <ContextMenuContent>
+          {t.state === "archived" ? (
+            <ContextMenuItem onSelect={() => setState(t, "open")}>
+              <ArchiveRestore />
+              Reopen thread
+            </ContextMenuItem>
+          ) : (
+            <ContextMenuItem onSelect={() => setClosing(t)}>
+              <Archive />
+              Close thread
+            </ContextMenuItem>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
+    )
+
+  const rowButton = (t: BotThread) => (
     <button
       key={t.id}
       type="button"
@@ -660,6 +734,35 @@ export function BotThreads({
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
       {header}
       {body}
+      <AlertDialog
+        open={closing !== null}
+        onOpenChange={(o) => {
+          if (!o) setClosing(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Close {closing ? threadTitle(closing, bot.name) : "this thread"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              It moves under Archived, on the web and in the phone app. Nothing
+              is deleted, and a new message from you or {bot.name} opens it
+              again.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (closing) setState(closing, "archived")
+              }}
+            >
+              Close thread
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

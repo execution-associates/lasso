@@ -1177,6 +1177,7 @@ lasso's web UI reads and writes threads as the operator's app user ([asks](clien
 
 - **Only what needs no paired device is here.** The event streams count and re-check a device, a call belongs to one, and push and presence are a device's: all of that stays on `/client`, and anything else under `/api/operator` is `404`.
 - **The page polls** (`BotThreads.tsx`, the Bots view at `/bots/<name>/threads[/<id>]`): the thread list every 5 s and the open thread's newest page every 2 s, while it is on screen.
+- **Closing a thread** on that page is archiving it (`PATCH …/threads/<id>` with `state`): the header's Close or a row's right-click menu, both behind one confirmation; an archived thread offers Reopen without one. The main thread has neither. Archived threads sit under their own collapsed heading.
 - A message sent here is the person's own, exactly as from the phone: the bot's `client` event says `verified="true"`, with no device named.
 
 ## Client work: iPhone

@@ -2377,6 +2377,8 @@ export const api = {
       }),
     read: (id: string, cursor: string) =>
       postJSON<unknown>(operatorThreadURL(id, "/read"), { cursor }),
+    update: (id: string, body: { state?: "open" | "archived" }) =>
+      sendJSON<{ thread: BotThread }>("PATCH", operatorThreadURL(id), body),
     upload: async (id: string, file: File): Promise<ThreadAttachment> => {
       const r = await hostFetch(
         operatorThreadURL(
